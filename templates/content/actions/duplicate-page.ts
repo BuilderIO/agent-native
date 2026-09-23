@@ -38,7 +38,7 @@ async function canRead(documentId: string) {
 
 export default defineAction({
   description:
-    "Duplicate a page and all of its sub-pages. By default the copy sits right after the original under the same parent; pass spaceId to copy it into another Content space (top level, or under parentId there). Each copy is placed exactly as if the caller created it there: it takes the destination parent's owner and sharing, or belongs to the caller with the space's default access. Collections inside the page are not copied; the copy keeps pointing at them within the same space, and pages containing collections cannot be copied to another space. Comments and history are not copied.",
+    "Duplicate a page and all of its sub-pages. By default the copy sits right after the original under the same parent; pass spaceId to copy it into another Content space (top level, or under parentId there). Each copy is placed exactly as if the caller created it there: it takes the destination parent's owner and sharing, or belongs to the caller with the space's default access. Requires edit access to the page and read access to every sub-page. Collections inside the page are not copied; the copy keeps pointing at them within the same space, and pages containing collections cannot be copied to another space. Comments and history are not copied.",
   schema: z.object({
     documentId: z.string().describe("Page to duplicate"),
     spaceId: z
@@ -58,7 +58,9 @@ export default defineAction({
   run: async (args) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
-    const access = await assertAccess("document", args.documentId, "viewer");
+    // Copying makes a durable page the caller owns, so it takes the same
+    // edit access the sidebar requires before offering Duplicate.
+    const access = await assertAccess("document", args.documentId, "editor");
     const source = access.resource as PageSubtreeDocument;
     if (source.trashedAt) {
       throw new ActionContractError("Pages in Trash can't be duplicated.", {
@@ -92,7 +94,13 @@ export default defineAction({
       if (collectionDocumentIds.has(document.id)) continue;
       if (document.id !== source.id) {
         if (!document.parentId || !copies.has(document.parentId)) continue;
-        if (!(await canRead(document.id))) continue;
+        // A partial copy would look complete, so refuse before copying.
+        if (!(await canRead(document.id))) {
+          throw new ActionContractError(
+            "This page has sub-pages you can't open, so it can't be duplicated completely.",
+            { errorCode: "PAGE_SUBTREE_INACCESSIBLE", statusCode: 403 },
+          );
+        }
       }
       pages.push(document);
       copies.set(document.id, "");

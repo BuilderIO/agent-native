@@ -141,7 +141,10 @@ export default defineAction({
       // The copy sits beside its original: collection rows keep the collection
       // page as parent, and Files pages keep their place in the page tree
       // (including top-level pages, whose parent is null).
-      const duplicateParentId = lockedRow.document.parentId;
+      const duplicateParentId =
+        row.database.systemRole === "files"
+          ? lockedRow.document.parentId
+          : row.database.documentId;
       const values = await tx
         .select()
         .from(schema.documentPropertyValues)
@@ -189,7 +192,18 @@ export default defineAction({
           and(
             eq(schema.documents.ownerEmail, lockedRow.document.ownerEmail),
             duplicateParentId === null
-              ? isNull(schema.documents.parentId)
+              ? and(
+                  // Top-level siblings are the same space and root section.
+                  isNull(schema.documents.parentId),
+                  eq(schema.documents.spaceId, row.database.spaceId!),
+                  eq(
+                    schema.documents.visibility,
+                    lockedRow.document.visibility,
+                  ),
+                  lockedRow.document.orgId
+                    ? eq(schema.documents.orgId, lockedRow.document.orgId)
+                    : isNull(schema.documents.orgId),
+                )
               : eq(schema.documents.parentId, duplicateParentId),
             gte(schema.documents.position, nextPosition),
           ),

@@ -1983,6 +1983,10 @@ export function DocumentSidebar({
         { id, isFavorite },
         {
           onError: (error) => {
+            // Recent shows pin state optimistically; reload its truth.
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-content-recent"],
+            });
             toast.error(t("sidebar.failedUpdateFavorite"), {
               description:
                 error instanceof Error
@@ -1993,7 +1997,7 @@ export function DocumentSidebar({
         },
       );
     },
-    [t, updateDocument],
+    [queryClient, t, updateDocument],
   );
 
   const moveDocument = useMoveDocument();

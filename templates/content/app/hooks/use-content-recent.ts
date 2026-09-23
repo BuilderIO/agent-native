@@ -93,9 +93,27 @@ export function useRemoveContentRecent() {
     (target: ContentRecentTarget) => {
       const queryKey = ["action", "get-content-recent"];
       const key = contentRecentTargetKey(target);
-      const previous = queryClient.getQueriesData<ContentRecentQueryData>({
-        queryKey,
-      });
+      // Remember only the removed entry and its place in each cached list, so
+      // a failure restores it without undoing other visits or removals.
+      const removed = new Map<
+        string,
+        { index: number; entry: ContentRecentQueryData["entries"][number] }
+      >();
+      for (const [
+        cachedKey,
+        data,
+      ] of queryClient.getQueriesData<ContentRecentQueryData>({ queryKey })) {
+        const index =
+          data?.entries.findIndex(
+            (entry) => contentRecentTargetKey(entry.target) === key,
+          ) ?? -1;
+        if (data && index >= 0) {
+          removed.set(JSON.stringify(cachedKey), {
+            index,
+            entry: data.entries[index],
+          });
+        }
+      }
       queryClient.setQueriesData<ContentRecentQueryData>(
         { queryKey },
         (current) =>
@@ -110,8 +128,29 @@ export function useRemoveContentRecent() {
       );
       mutationRef.current.mutate(target, {
         onError: () => {
-          for (const [cachedKey, data] of previous) {
-            queryClient.setQueryData(cachedKey, data);
+          for (const [
+            cachedKey,
+            data,
+          ] of queryClient.getQueriesData<ContentRecentQueryData>({
+            queryKey,
+          })) {
+            const restore = removed.get(JSON.stringify(cachedKey));
+            if (
+              !data ||
+              !restore ||
+              data.entries.some(
+                (entry) => contentRecentTargetKey(entry.target) === key,
+              )
+            ) {
+              continue;
+            }
+            const entries = [...data.entries];
+            entries.splice(
+              Math.min(restore.index, entries.length),
+              0,
+              restore.entry,
+            );
+            queryClient.setQueryData(cachedKey, { ...data, entries });
           }
           toast.error(t("sidebar.failedRemoveFromRecent"));
         },

@@ -18,6 +18,7 @@ import {
   Fragment,
   useContext,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
@@ -61,15 +62,17 @@ export function SidebarRowActions({ children }: { children: ReactNode }) {
 export function SidebarRowMenu({
   label,
   onCloseAutoFocus,
+  onOpenChange,
   children,
 }: {
   label: string;
   onCloseAutoFocus?: (event: Event) => void;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
   const t = useT();
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -179,6 +182,7 @@ export function SidebarPageMenu({
   // closed and skip Radix's focus return to the "…" trigger; otherwise the
   // menu's focus trap steals focus and the blur commits the input at once.
   const pendingRenameRef = useRef(false);
+  const [open, setOpen] = useState(false);
 
   async function copyLink() {
     if (await writeClipboardText(shareLink)) {
@@ -260,6 +264,7 @@ export function SidebarPageMenu({
   return (
     <SidebarRowMenu
       label={title}
+      onOpenChange={setOpen}
       onCloseAutoFocus={(event) => {
         if (!pendingRenameRef.current) return;
         pendingRenameRef.current = false;
@@ -274,7 +279,7 @@ export function SidebarPageMenu({
         </Fragment>
       ))}
       <DropdownMenuSeparator />
-      <SidebarPageActivity documentId={documentId} />
+      <SidebarPageActivity documentId={documentId} enabled={open} />
     </SidebarRowMenu>
   );
 }
@@ -283,10 +288,21 @@ export function SidebarPageMenu({
  * "Last edited by … · when", read only while the menu is open. It renders a
  * fixed two-line block so the menu does not jump when the read resolves.
  */
-function SidebarPageActivity({ documentId }: { documentId: string }) {
+function SidebarPageActivity({
+  documentId,
+  enabled,
+}: {
+  documentId: string;
+  enabled: boolean;
+}) {
   const t = useT();
   const { formatDate } = useFormatters();
-  const activity = useActionQuery("get-document-activity", { id: documentId });
+  // Every row renders a menu; only the open one reads its activity.
+  const activity = useActionQuery(
+    "get-document-activity",
+    { id: documentId },
+    { enabled },
+  );
   if (activity.isError) return null;
   const data = activity.data;
   const editor = data?.updatedByName ?? data?.updatedBy ?? null;

@@ -118,7 +118,14 @@ function RecentSidebarRow({
           documentId={entry.target.documentId}
           title={title}
           href={appPath(contentRecentHref(entry.target))}
-          shareLink={sidebarPageLinks(entry.target.documentId).shareLink}
+          shareLink={
+            sidebarPageLinks(entry.target.documentId, {
+              // Local-file Pages are not published; copy their in-app link.
+              localFile:
+                entry.target.documentId.startsWith("local-file:") ||
+                entry.target.documentId.startsWith("local-folder:"),
+            }).shareLink
+          }
           pinned={pinned}
           onTogglePin={
             onToggleFavorite && pinned !== undefined

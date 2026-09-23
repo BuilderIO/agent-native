@@ -113,6 +113,8 @@ export function MovePageDialog({
       spaceId: space?.id,
       searchFields: "title",
       documentType: "page",
+      // A page can't move under itself or anything beneath it.
+      excludeSubtreeOf: page?.documentId,
       limit: 20,
     },
     { enabled: open && query !== "" },
