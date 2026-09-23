@@ -545,6 +545,7 @@ export default function ShareRoute() {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
+    setSidePanelCollapsed(false);
     setPanel("comments");
     requestAnimationFrame(() => {
       commentsSectionRef.current?.scrollIntoView({
