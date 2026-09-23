@@ -87,6 +87,7 @@
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./brand-kit/tokens": "./dist/brand-kit/tokens.js",
+    "./icons": "./dist/icons/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
     "./action": {
       "types": "./dist/action.d.ts",

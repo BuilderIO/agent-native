@@ -1129,6 +1129,11 @@ export const runContentMigrations = runMigrations(
         ON comment_ai_requests (document_id, thread_id, requester_email)
         WHERE status IN ('queued', 'running')`,
     },
+    {
+      version: 95,
+      name: "content-property-icons",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS icon TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

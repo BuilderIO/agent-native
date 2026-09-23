@@ -1,5 +1,6 @@
 import englishMessages from "./core-messages/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
+import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
 import { mcpSettingsMessagesForLocale } from "./mcp-settings-messages.js";
 import { privacySettingsMessagesForLocale } from "./privacy-settings-messages.js";
 import {
@@ -187,6 +188,7 @@ export async function loadCoreMessagesForLocale(
   return {
     ...nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale)),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
+    iconPicker: iconPickerMessagesForLocale(locale),
     settings: settingsMessagesForLocale(locale),
   };
 }
@@ -200,6 +202,7 @@ export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
       ? englishCoreMessages
       : {}),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
+    iconPicker: iconPickerMessagesForLocale(locale),
     settings: settingsMessagesForLocale(locale),
   };
 }

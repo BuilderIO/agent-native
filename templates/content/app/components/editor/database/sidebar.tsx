@@ -22,6 +22,7 @@ import {
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
+import { ContentIcon } from "@/components/icons/ContentIcon";
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -831,11 +832,13 @@ function DatabaseSidebarRow({
             )}
             aria-hidden="true"
           >
-            {item.document.icon ? (
-              <span className="text-sm leading-none">{item.document.icon}</span>
-            ) : (
-              <IconFileText className="size-3.5 text-muted-foreground" />
-            )}
+            <ContentIcon
+              value={item.document.icon}
+              size={14}
+              fallback={
+                <IconFileText className="size-3.5 text-muted-foreground" />
+              }
+            />
           </span>
           <span
             className={cn(

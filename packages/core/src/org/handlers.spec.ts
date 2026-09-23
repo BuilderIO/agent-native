@@ -10,6 +10,7 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
+const mockSyncOrganizationToIdentityHub = vi.hoisted(() => vi.fn());
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
@@ -44,7 +45,8 @@ vi.mock("./federation.js", () => ({
     mockAddFederatedOrganizationMember(...args),
   revokeFederatedOrganizationMember: (...args: any[]) =>
     mockRevokeFederatedOrganizationMember(...args),
-  syncOrganizationToIdentityHub: vi.fn(async () => false),
+  syncOrganizationToIdentityHub: (...args: any[]) =>
+    mockSyncOrganizationToIdentityHub(...args),
   updateFederatedOrganizationMemberRole: (...args: any[]) =>
     mockUpdateFederatedOrganizationMemberRole(...args),
 }));
@@ -99,6 +101,7 @@ import {
   acceptInvitationHandler,
   joinByDomainHandler,
   updateOrgHandler,
+  setOrgVisualIdentityHandler,
   setDomainHandler,
   setWorkspaceAppDefaultVisibilityHandler,
   createOrgHandler,
@@ -130,6 +133,7 @@ describe("org handlers", () => {
     mockAddFederatedOrganizationMember.mockResolvedValue(false);
     mockRevokeFederatedOrganizationMember.mockResolvedValue(false);
     mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(false);
+    mockSyncOrganizationToIdentityHub.mockResolvedValue(false);
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
     mockBootstrapAdminOrganization.mockResolvedValue(false);
     mockGetUserProfiles.mockResolvedValue(new Map());
@@ -152,6 +156,103 @@ describe("org handlers", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(createOrganization).not.toHaveBeenCalled();
+  });
+
+  it("persists a validated workspace icon with a new revision", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            name: "Example",
+            icon_revision: 4,
+            identity_authority: null,
+            identity_id: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ icon_revision: 5 }], rowsAffected: 1 });
+
+    const icon = {
+      version: 1 as const,
+      kind: "library" as const,
+      library: "tabler" as const,
+      name: "building-community",
+      color: "blue" as const,
+    };
+    await expect(
+      setOrgVisualIdentityHandler(
+        makeEvent("/_agent-native/org/visual-identity", { icon }),
+      ),
+    ).resolves.toEqual({
+      orgId: "org-1",
+      icon,
+      iconRevision: 5,
+      syncPending: false,
+    });
+    expect(mockExecute.mock.calls[1]?.[0]).toMatchObject({
+      args: [JSON.stringify(icon), 5, "org-1", 4],
+    });
+  });
+
+  it("commits a federated workspace icon before syncing and reports a pending hub update", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            name: "Example",
+            icon_revision: 1,
+            identity_authority: "https://dispatch.example.test",
+            identity_id: "org-1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ icon_revision: 2 }], rowsAffected: 1 });
+    mockSyncOrganizationToIdentityHub.mockRejectedValueOnce(
+      new Error("Identity authority unavailable"),
+    );
+
+    const icon = { version: 1 as const, kind: "emoji" as const, emoji: "🏗️" };
+    await expect(
+      setOrgVisualIdentityHandler(
+        makeEvent("/_agent-native/org/visual-identity", { icon }),
+      ),
+    ).resolves.toEqual({
+      orgId: "org-1",
+      icon,
+      iconRevision: 2,
+      syncPending: true,
+    });
+    expect(mockExecute.mock.calls[1]?.[0]).toMatchObject({
+      args: [JSON.stringify(icon), 2, "org-1", 1],
+    });
+    expect(mockSyncOrganizationToIdentityHub).toHaveBeenCalledTimes(1);
+    expect(
+      mockSyncOrganizationToIdentityHub.mock.calls[0]?.[1],
+    ).not.toHaveProperty("iconRevision");
+  });
+
+  it("does not advance federation when the local workspace icon write loses its revision", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            name: "Example",
+            icon_revision: 1,
+            identity_authority: "https://dispatch.example.test",
+            identity_id: "org-1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+
+    await expect(
+      setOrgVisualIdentityHandler(
+        makeEvent("/_agent-native/org/visual-identity", {
+          icon: { version: 1, kind: "emoji", emoji: "🏗️" },
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mockSyncOrganizationToIdentityHub).not.toHaveBeenCalled();
   });
 
   it("refuses closed creation with no organizations and no bootstrap roster", async () => {

@@ -794,6 +794,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     suggestionCreateFailed: "تعذر إنشاء الاقتراح",
     suggestionsCount: "{{count}} اقتراحات",
     acceptSuggestion: "قبول",
@@ -968,6 +975,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
@@ -1205,6 +1219,13 @@ const overrides = {
     genericError: "حدث خطأ ما",
   },
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     ...editor,
     sourceComponent: {
       defaultTitle: "مكوّن المصدر",

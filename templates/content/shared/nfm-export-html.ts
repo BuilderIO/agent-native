@@ -1,3 +1,5 @@
+import { safeParseIconValue } from "@agent-native/core/icons";
+
 import { splitGfmPipeRow } from "./nfm.js";
 
 /**
@@ -399,8 +401,13 @@ const renderCalloutContainer: ContainerRenderer = ({
   inner,
   renderers,
 }) => {
-  const icon = attrs.icon
-    ? `<span class="nfm-callout-icon">${renderers.escapeHtml(attrs.icon)}</span>`
+  const parsedIcon = safeParseIconValue(attrs.icon || null);
+  const iconText =
+    parsedIcon.success && parsedIcon.data?.kind === "emoji"
+      ? parsedIcon.data.emoji
+      : "";
+  const icon = iconText
+    ? `<span class="nfm-callout-icon">${renderers.escapeHtml(iconText)}</span>`
     : "";
   const body = renderers.renderBlocks(dedentChildren(inner));
   return `<aside class="nfm-callout">${icon}<div class="nfm-callout-body">${body}</div></aside>`;

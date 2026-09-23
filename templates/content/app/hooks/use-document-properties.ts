@@ -130,6 +130,7 @@ function guardedConfigurePropertyInput(
       definition: {
         name: request.name,
         type: request.type,
+        ...(request.icon === undefined ? {} : { icon: request.icon }),
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
@@ -156,6 +157,7 @@ function guardedConfigurePropertyInput(
     );
   }
   const patch: Record<string, unknown> = {};
+  if (request.icon !== undefined) patch.icon = request.icon;
   if (request.name !== existing.name) patch.name = request.name;
   if (
     request.description !== undefined &&

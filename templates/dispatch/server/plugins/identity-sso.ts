@@ -25,6 +25,7 @@ import {
   hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
 } from "@agent-native/core/feature-flags";
+import { safeParseIconValue } from "@agent-native/core/icons";
 import {
   CROSS_APP_ORG_FEDERATION_FLAG,
   CROSS_APP_ORG_FEDERATION_SCOPE,
@@ -529,6 +530,20 @@ export const organizationFederationHandler = defineEventHandler(
     const orgName =
       typeof claims.org_name === "string" ? claims.org_name.trim() : "";
     const orgRole = claims.org_role;
+    const hasOrgIcon = claims.org_icon !== undefined;
+    const parsedOrgIcon = hasOrgIcon
+      ? safeParseIconValue(claims.org_icon)
+      : null;
+    const orgIconRevision = claims.org_icon_revision;
+    if (
+      (hasOrgIcon &&
+        (!parsedOrgIcon?.success ||
+          !Number.isSafeInteger(orgIconRevision) ||
+          Number(orgIconRevision) < 0)) ||
+      (!hasOrgIcon && orgIconRevision !== undefined)
+    ) {
+      return jsonResponse({ error: "Invalid organization icon" }, 400);
+    }
     const rawFederationOperation = claims.federation_operation;
     if (
       rawFederationOperation !== undefined &&
@@ -1036,6 +1051,47 @@ export const organizationFederationHandler = defineEventHandler(
         },
         200,
       );
+    }
+
+    if (parsedOrgIcon?.success) {
+      const iconUpdate = await exec.execute({
+        sql: `UPDATE organizations
+              SET icon_json = ?, icon_revision = ?
+              WHERE id = ? AND icon_revision < ?
+              RETURNING icon_revision`,
+        args: [
+          parsedOrgIcon.data === null
+            ? null
+            : JSON.stringify(parsedOrgIcon.data),
+          Number(orgIconRevision),
+          orgId,
+          Number(orgIconRevision),
+        ],
+      });
+      if (iconUpdate.rows.length !== 1) {
+        const currentIcon = await exec.execute({
+          sql: `SELECT icon_json, icon_revision
+                FROM organizations WHERE id = ? LIMIT 1`,
+          args: [orgId],
+        });
+        const currentIconRow = currentIcon.rows[0] as any;
+        const assertedIconJson =
+          parsedOrgIcon.data === null
+            ? null
+            : JSON.stringify(parsedOrgIcon.data);
+        if (
+          Number(currentIconRow?.icon_revision ?? -1) !==
+            Number(orgIconRevision) ||
+          (currentIconRow?.icon_json ?? null) !== assertedIconJson
+        ) {
+          return jsonResponse(
+            {
+              error: "Workspace icon changed elsewhere; retry your selection",
+            },
+            409,
+          );
+        }
+      }
     }
 
     const member = await exec.execute({

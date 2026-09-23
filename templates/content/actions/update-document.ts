@@ -2,6 +2,12 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -74,7 +80,7 @@ function isFavoriteOnlyUpdate(args: {
   title?: string;
   content?: string;
   description?: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
 }) {
   return (
     args.isFavorite !== undefined &&
@@ -311,7 +317,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Stable page guidance; this does not alter page content"),
-    icon: z.string().nullable().optional().describe("New emoji icon"),
+    icon: z
+      .union([z.string(), iconValueSchema])
+      .nullable()
+      .optional()
+      .describe("New emoji, Tabler icon, or uploaded image icon"),
     isFavorite: z.coerce
       .boolean()
       .optional()
@@ -640,7 +650,11 @@ export default defineAction({
           updates.content = content;
           updates.bodyRevision = historyBefore.bodyRevision + 1;
         }
-        if (lockedIconChanged) updates.icon = args.icon;
+        if (lockedIconChanged)
+          updates.icon =
+            args.icon === null
+              ? null
+              : serializeIconValue(parseIconValue(args.icon));
         const primaryBlocksFields = lockedContentChanged
           ? await lockPrimaryBlocksFields(
               tx as unknown as ReturnType<typeof getDb>,

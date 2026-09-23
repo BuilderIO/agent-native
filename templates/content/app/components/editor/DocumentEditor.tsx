@@ -130,6 +130,7 @@ import {
 } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon } from "../icons/ContentIcon";
 import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
@@ -393,7 +394,7 @@ export function metadataUpdatesWithPendingTitle<
     title?: string;
     content?: string;
     description?: string;
-    icon?: string | null;
+    icon?: Document["icon"];
   },
 >(
   updates: T,
@@ -472,7 +473,7 @@ function adoptConfirmedSaveWatermarks({
   updates: {
     title?: string;
     content?: string;
-    icon?: string | null;
+    icon?: Document["icon"];
   };
   lastSavedTitleRef: MutableRefObject<FieldSaveWatermark>;
   lastSavedContentRef: MutableRefObject<ContentSaveWatermark>;
@@ -1061,7 +1062,7 @@ type DocumentUpdates = {
   title?: string;
   content?: string;
   description?: string;
-  icon?: string | null;
+  icon?: Document["icon"];
 };
 
 export function enqueueDocumentSave<T>(
@@ -1326,7 +1327,7 @@ export function documentEditorBreadcrumbItems(
   documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
-  const parents: { id: string; title: string; icon: string | null }[] = [];
+  const parents: { id: string; title: string; icon: Document["icon"] }[] = [];
   const seen = new Set<string>([document.id]);
   let parentId = document.parentId;
 
@@ -5262,44 +5263,43 @@ function PageEditorSessionBody({
                           defaultIconLabel={
                             defaultIconKind === "database" ? "database" : "page"
                           }
-                          onSelect={(emoji) => {
+                          onSelect={async (icon) => {
                             if (
                               !documentCanonicalMutationsEnabled(
                                 editorCanEdit,
                                 isSuggesting,
                               )
-                            )
-                              return;
-                            void (async () => {
-                              const updates = metadataUpdatesWithPendingTitle(
-                                { icon: emoji },
-                                localTitleRef.current,
-                                lastSavedTitleRef.current.title,
+                            ) {
+                              throw new Error(
+                                t("editor.pageSaveBeforeNavigationFailed"),
                               );
-                              const saved =
-                                await persistDocumentUpdates(updates);
-                              // Icon-only save: never CAS-guarded server-side
-                              // (no content in this call), so this can't come
-                              // back as a conflict — narrow defensively anyway
-                              // since persistDocumentUpdates' return type is a
-                              // union.
-                              if (isDocumentUpdateConflict(saved)) return;
-                              adoptConfirmedSaveWatermarks({
-                                saved,
-                                savedAt:
-                                  saved?.updatedAt ?? new Date().toISOString(),
-                                title: localTitleRef.current,
-                                content: localContentRef.current,
-                                updates,
-                                lastSavedTitleRef,
-                                lastSavedContentRef,
-                              });
-                            })().catch(handleBackgroundSaveError);
+                            }
+                            const updates = metadataUpdatesWithPendingTitle(
+                              { icon },
+                              localTitleRef.current,
+                              lastSavedTitleRef.current.title,
+                            );
+                            const saved = await persistDocumentUpdates(updates);
+                            if (isDocumentUpdateConflict(saved)) {
+                              throw new Error(
+                                t("editor.pageSaveBeforeNavigationFailed"),
+                              );
+                            }
+                            adoptConfirmedSaveWatermarks({
+                              saved,
+                              savedAt:
+                                saved?.updatedAt ?? new Date().toISOString(),
+                              title: localTitleRef.current,
+                              content: localContentRef.current,
+                              updates,
+                              lastSavedTitleRef,
+                              lastSavedContentRef,
+                            });
                           }}
                         />
                       ) : document.icon ? (
-                        <div className="p-1 -ml-1 text-5xl leading-none">
-                          {document.icon}
+                        <div className="p-1 -ml-1">
+                          <ContentIcon value={document.icon} size={48} />
                         </div>
                       ) : defaultIconKind === "database" && !isDatabasePage ? (
                         <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">

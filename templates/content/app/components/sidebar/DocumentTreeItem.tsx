@@ -34,6 +34,7 @@ import {
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon, contentIconValue } from "../icons/ContentIcon";
 import { documentSidebarActionAvailability } from "./document-sidebar-actions";
 
 interface DocumentTreeItemProps {
@@ -59,7 +60,7 @@ export function getDocumentSidebarIconKind(
   ) {
     return "folder";
   }
-  if (document.icon?.trim()) return "custom";
+  if (contentIconValue(document.icon)) return "custom";
   if (document.database) return "database";
   return "page";
 }
@@ -71,7 +72,9 @@ export function DocumentSidebarIcon({
 }) {
   const iconKind = getDocumentSidebarIconKind(document);
 
-  if (iconKind === "custom") return <>{document.icon}</>;
+  if (iconKind === "custom") {
+    return <ContentIcon value={document.icon} size={14} />;
+  }
   if (iconKind === "database") {
     return <IconDatabase size={14} className="text-muted-foreground" />;
   }

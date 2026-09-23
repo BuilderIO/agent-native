@@ -222,6 +222,13 @@
       "import": "./dist/hooks/index.js",
       "default": "./dist/hooks/index.js"
     },
+    "./icons": {
+      "types": "./dist/icons/index.d.ts",
+      "browser": "./dist/icons/index.js",
+      "development": "./dist/icons/index.js",
+      "import": "./dist/icons/index.js",
+      "default": "./dist/icons/index.js"
+    },
     "./hooks/*": {
       "types": "./dist/hooks/*.d.ts",
       "browser": "./dist/hooks/*.js",
@@ -386,6 +393,7 @@
     "culori": "^4.0.2",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
+    "emojibase-data": "17.0.0",
     "highlight.js": "catalog:",
     "input-otp": "^1.4.2",
     "lowlight": "catalog:",

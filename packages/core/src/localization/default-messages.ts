@@ -5,8 +5,10 @@
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
+import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
 const messages = {
+  iconPicker: ICON_PICKER_MESSAGES["en-US"],
   environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
@@ -1214,6 +1216,20 @@ const messages = {
     accept: "Accept",
     createSeparate: "or create a separate organization",
     organizationName: "Organization name",
+    workspaceIcon: "Workspace icon",
+    icons: "Icons",
+    emoji: "Emoji",
+    upload: "Upload",
+    searchIcons: "Search icons",
+    noIconsFound: "No icons found",
+    recentIcons: "Recent icons",
+    iconColors: "Colors",
+    defaultColor: "Default",
+    removeIcon: "Remove icon",
+    uploadIcon: "Upload icon",
+    uploadingIcon: "Uploading…",
+    workspaceIconSyncPending:
+      "Saved here. Other apps may take longer to update.",
     organizationPlaceholder: "Acme Inc.",
     createOrganization: "Create organization",
     create: "Create",

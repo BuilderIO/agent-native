@@ -1,3 +1,4 @@
+import { serializeIconValue, type IconValue } from "@agent-native/core/icons";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS } from "@shared/nfm";
 import {
@@ -26,6 +27,8 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 
+import { ContentIcon } from "../../icons/ContentIcon";
+import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 
 const BLOCK_ATOM_TAGS = [
@@ -56,7 +59,7 @@ export interface NotionPageLink {
   notionPageId: string;
   documentId: string;
   title: string;
-  icon: string | null;
+  icon: IconValue | string | null;
 }
 
 interface NotionBlockAtomOptions {
@@ -647,7 +650,11 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
           }}
         >
           <span className="notion-page-reference__icon" aria-hidden="true">
-            {pageLink?.icon || <IconFileText size={20} stroke={1.8} />}
+            <ContentIcon
+              value={pageLink?.icon}
+              size={20}
+              fallback={<IconFileText size={20} stroke={1.8} />}
+            />
           </span>
           <span className="notion-page-reference__label">{primary}</span>
           {!pageLink && externalUrl ? (
@@ -937,6 +944,28 @@ export const NotionToggle = Node.create({
   },
 });
 
+function CalloutView({ node, updateAttributes }: NodeViewProps) {
+  const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
+  return (
+    <NodeViewWrapper
+      data-notion-callout="true"
+      data-icon={icon}
+      data-color={node.attrs.color || undefined}
+    >
+      <div data-notion-callout-icon="true" contentEditable={false}>
+        <EmojiPicker
+          icon={icon}
+          variant="compact"
+          onSelect={(value) =>
+            updateAttributes({ icon: value ? serializeIconValue(value) : "💡" })
+          }
+        />
+      </div>
+      <NodeViewContent data-notion-callout-content="true" />
+    </NodeViewWrapper>
+  );
+}
+
 export const NotionCallout = Node.create({
   name: "notionCallout",
   group: "block",
@@ -995,6 +1024,10 @@ export const NotionCallout = Node.create({
       ],
       ["div", { "data-notion-callout-content": "true" }, 0],
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutView);
   },
 
   addStorage() {
