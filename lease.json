@@ -1,1 +1,8 @@
-{"pr":5776,"owner_thread_id":"01a0d04a-5a63-7613-92f3-f9815258ace9","version":"06acd00a-3784-4e56-8a69-1d55b4f7c99a","expires_at":"2026-09-23T22:37:37.143Z","observed_legacy_heartbeat_version":"absent","legacy_retired":true}
+{
+  "pr": 5776,
+  "owner_thread_id": "01a0d04a-5a63-7613-92f3-f9815258ace9",
+  "version": "de6d84d0-f114-4430-8f0c-f01e383e8cd8",
+  "expires_at": "2026-09-23T22:49:26.000Z",
+  "observed_legacy_heartbeat_version": "absent",
+  "legacy_retired": true
+}
