@@ -390,6 +390,8 @@ export function runCrossScreenElementDrop(
     );
   const targetScreenIsBoard =
     Boolean(boardFileId) && targetScreenId === boardFileId;
+  const sourceScreenIsBoard =
+    Boolean(boardFileId) && sourceScreenId === boardFileId;
   const sourceScreenIsLive =
     Boolean(sourceScreen) &&
     isRunningAppSourceType(
@@ -401,10 +403,18 @@ export function runCrossScreenElementDrop(
     Boolean(canEditLiveScreen?.(sourceScreenId)) &&
     Boolean(canEditLiveScreen?.(targetScreenId));
   const canEditLiveBoardDrop =
+    canEditLiveBoard &&
+    ((sourceScreenIsLive &&
+      targetScreenIsBoard &&
+      Boolean(canEditLiveScreen?.(sourceScreenId))) ||
+      (sourceScreenIsBoard &&
+        targetScreenIsLive &&
+        Boolean(canEditLiveScreen?.(targetScreenId))));
+  const canEditLiveBoardMove =
+    canEditLiveBoard &&
     sourceScreenIsLive &&
     targetScreenIsBoard &&
-    Boolean(canEditLiveScreen?.(sourceScreenId)) &&
-    canEditLiveBoard;
+    Boolean(canEditLiveScreen?.(sourceScreenId));
   if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
     return;
 
@@ -423,7 +433,7 @@ export function runCrossScreenElementDrop(
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
-  if ((canEditLiveCrossScreen || canEditLiveBoardDrop) && !duplicate) {
+  if ((canEditLiveCrossScreen || canEditLiveBoardMove) && !duplicate) {
     const subjectNodeId =
       sourceNodeId ??
       (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
@@ -780,7 +790,7 @@ export function runCrossScreenElementDrop(
     // Only a board primitive may be reinterpreted as an insert; a real
     // screen's element dropped into a live app is a move, and inserting it
     // would leave a duplicate behind in its own screen.
-    sourceScreenIsBoard: Boolean(boardFileId) && sourceScreenId === boardFileId,
+    sourceScreenIsBoard,
     targetScreenIsLive,
   });
   if (crossScreenExecutionMode === "screen-bridge-insert") {

@@ -2349,7 +2349,8 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
           throw new Error("board-to-live drops must not write stored content");
         },
         boardFileId: "board",
-        canEditDesign: true,
+        canEditDesign: false,
+        canEditLiveBoard: true,
         canEditLiveScreen: () => true,
         clearPendingOverviewLayerSelectionTimer: () => {},
         codeLayerOwnerByNodeIdRef: {
