@@ -9685,7 +9685,13 @@ function DesignEditor() {
       path: selectedComponentLocalSourceAnchor?.path ?? "",
     },
     {
-      enabled: Boolean(id && selectedComponentLocalSourceAnchor),
+      // read-local-file is editor-only (assertAccess('design', id, 'editor')
+      // server-side) and reads through the owner's local bridge. Anonymous
+      // public viewers on /visual-edit/:id never have editor access, so
+      // without this gate every component selection fired a guaranteed 401.
+      enabled: Boolean(
+        id && selectedComponentLocalSourceAnchor && canEditDesign,
+      ),
       refetchOnMount: "always",
     },
   );

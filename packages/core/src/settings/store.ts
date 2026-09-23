@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
@@ -110,7 +111,7 @@ export async function getSetting(
   const cache = options?.transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
-    return cached == null ? null : JSON.parse(cached);
+    return cached == null ? null : parseSettingValue(key, cached);
   }
   if (!options?.transaction) await ensureTable();
   const client = options?.transaction ?? getDbExec();
@@ -121,7 +122,88 @@ export async function getSetting(
   });
   const raw = rows.length === 0 ? null : (rows[0].value as string);
   if (!options?.bypassCache) cache?.set(key, raw);
-  return raw == null ? null : JSON.parse(raw);
+  return raw == null ? null : parseSettingValue(key, raw);
+}
+
+// Keeps the IN-list under Postgres's bind-parameter ceiling and out of
+// pathological query-planning territory for the rare caller (a huge org
+// roster, or a flag registry with hundreds of keys) that requests more keys
+// than fit in one statement.
+const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
+
+/**
+ * Batched read of several settings keys in as few round trips as possible.
+ * Serves per-request cache hits directly (same cache as {@link getSetting}),
+ * then issues one `key IN (...)` query — chunked above
+ * {@link SETTINGS_IN_LIST_CHUNK_SIZE} — for the rest. Every requested key is
+ * cached, including a miss as `null`, so a later {@link getSetting} for the
+ * same key in this request is free. A key absent from production but present
+ * in the request is indistinguishable from a key never asked for other than
+ * by looking it up, matching `getSetting`'s null-for-missing contract.
+ */
+// Isolates one key's corrupt/legacy JSON from every other key in the same
+// batch: a single bad row must not fail callers that fan a whole registry
+// (e.g. feature flags) through one getSettings() call the way it would have
+// failed only that one key under the old per-key getSetting() path. Captured
+// loudly (not silently) and treated like a missing value so downstream
+// normalizers — which already default an absent key — see one consistent
+// "nothing usable here" case instead of a second, uncaught one.
+function parseSettingValue(
+  key: string,
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    captureError(error, {
+      tags: { source: "settings", op: "getSettings" },
+      extra: { key },
+    });
+    return null;
+  }
+}
+
+export async function getSettings(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, Record<string, unknown> | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, Record<string, unknown> | null>();
+  if (uniqueKeys.length === 0) return result;
+
+  const cache = options?.transaction ? null : requestSettingsCache();
+  const misses: string[] = [];
+  for (const key of uniqueKeys) {
+    if (!options?.bypassCache && cache?.has(key)) {
+      const cached = cache.get(key);
+      result.set(key, cached == null ? null : parseSettingValue(key, cached));
+    } else {
+      misses.push(key);
+    }
+  }
+  if (misses.length === 0) return result;
+
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
+  const table = settingsTable();
+  const rawByKey = new Map<string, string>();
+  for (let i = 0; i < misses.length; i += SETTINGS_IN_LIST_CHUNK_SIZE) {
+    const chunk = misses.slice(i, i + SETTINGS_IN_LIST_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const { rows } = await client.execute({
+      sql: `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`,
+      args: chunk,
+    });
+    for (const row of rows) {
+      rawByKey.set(row.key as string, row.value as string);
+    }
+  }
+  for (const key of misses) {
+    const raw = rawByKey.get(key) ?? null;
+    if (!options?.bypassCache) cache?.set(key, raw);
+    result.set(key, raw == null ? null : parseSettingValue(key, raw));
+  }
+  return result;
 }
 
 export interface StoreWriteOptions {

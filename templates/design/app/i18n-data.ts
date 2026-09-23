@@ -1222,6 +1222,8 @@ const enUS = {
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       saveConflict:
         "This screen changed elsewhere. Your last edit was not saved.",
+      versionHistoryUnavailable:
+        "Version history is unavailable for this design. Your edit was still saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       booleanSubtractUnsupported:
         "Select adjacent rectangles or ellipses with solid fills to subtract them.",
@@ -2120,6 +2122,7 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
         saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
+        versionHistoryUnavailable: "此设计暂无法使用版本历史。您的编辑已保存。",
       },
     },
     designSystemSetup: {
@@ -2586,6 +2589,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
         saveConflict:
           "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
+        versionHistoryUnavailable:
+          "El historial de versiones no está disponible para este diseño. Tu edición se guardó de todos modos.",
       },
     },
     designSystemSetup: {
@@ -3080,6 +3085,8 @@ const designLocaleOverrides = {
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
         saveConflict:
           "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
+        versionHistoryUnavailable:
+          "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -3574,6 +3581,8 @@ const designLocaleOverrides = {
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
         saveConflict:
           "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
+        versionHistoryUnavailable:
+          "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
       },
     },
     designSystemSetup: {
@@ -4066,6 +4075,8 @@ const designLocaleOverrides = {
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
         saveConflict:
           "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
+        versionHistoryUnavailable:
+          "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
       },
     },
     designSystemSetup: {
@@ -4553,6 +4564,8 @@ const designLocaleOverrides = {
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         saveConflict:
           "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
+        versionHistoryUnavailable:
+          "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       },
     },
     designSystemSetup: {
@@ -5033,6 +5046,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
         saveConflict:
           "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
+        versionHistoryUnavailable:
+          "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
       },
     },
     designSystemSetup: {
@@ -5518,6 +5533,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
+        versionHistoryUnavailable:
+          "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       },
     },
     designSystemSetup: {
@@ -5991,6 +6008,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
         saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
+        versionHistoryUnavailable:
+          "سجل الإصدارات غير متاح لهذا التصميم. تم حفظ تعديلك رغم ذلك.",
       },
     },
     designSystemSetup: {

@@ -8,7 +8,10 @@ import uploadImage, {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
   findImportedDesignFilesByOperationSourcePrefix,
@@ -125,11 +128,15 @@ async function importFigFrames(args: {
   });
 
   let saved: Awaited<ReturnType<typeof saveImportedDesignFiles>> | undefined;
+  let checkpoint: Awaited<ReturnType<typeof snapshotDesignBeforeAgentEdit>> =
+    null;
   if (pending.length > 0) {
     // Snapshotting per request would capture the whole growing design once
     // per frame; the pre-import state is the only checkpoint worth keeping.
     if (landed.length === 0) {
-      await snapshotDesignBeforeAgentEdit(designId, args.context);
+      checkpoint = await snapshotDesignBeforeAgentEdit(designId, args.context, {
+        allowCheckpointFailureSkip: true,
+      });
     }
     saved = await saveImportedDesignFiles({
       designId,
@@ -177,6 +184,7 @@ async function importFigFrames(args: {
     overview: true,
     urlPath: `/design/${designId}`,
     stats: { sourceKind: "fig-frame", frameCount: files.length },
+    ...checkpointSkippedResultField(checkpoint),
   };
 }
 
@@ -275,7 +283,11 @@ export default defineAction({
 
     const html = requireContent(content);
     if (sourceType === "html-string") {
-      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
+      const htmlCheckpoint = await snapshotDesignBeforeAgentEdit(
+        resolvedDesignId,
+        context,
+        { allowCheckpointFailureSkip: true },
+      );
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "html-import",
@@ -291,15 +303,24 @@ export default defineAction({
       return {
         ...saved,
         stats: { sourceKind: "html-string", frameCount: saved.files.length },
+        ...checkpointSkippedResultField(htmlCheckpoint),
       };
     }
 
-    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
-    return saveFigmaPasteHtmlFallback({
+    const figmaPasteCheckpoint = await snapshotDesignBeforeAgentEdit(
+      resolvedDesignId,
+      context,
+      { allowCheckpointFailureSkip: true },
+    );
+    const figmaPasteResult = await saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
       clipboardHtml: html,
       originalName,
     });
+    return {
+      ...figmaPasteResult,
+      ...checkpointSkippedResultField(figmaPasteCheckpoint),
+    };
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
