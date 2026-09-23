@@ -525,6 +525,11 @@ async function failAccount(
   const status: SyncAccountRow["status"] = isPermanentRefreshError(raw)
     ? "needs_reauth"
     : "error";
+  // Earlier pages may already have changed the local mirror when a later
+  // Gmail page fails. Do not leave shared provider/list caches describing the
+  // pre-sync mirror while the account is reported as failed.
+  invalidateHistoryCacheForAccount(row.accountEmail);
+  invalidateListCacheForOwner(row.ownerEmail);
   // Fenced: a claim already lost to a newer worker must not stomp its
   // progress with this stale failure. If the fence no-ops, releaseSyncAccount
   // below (also fenced) no-ops too — nothing left to reconcile.
@@ -646,6 +651,8 @@ export async function syncInboxAccount(
     return accountStatus;
   } catch (err) {
     if (err instanceof SyncClaimLostError) {
+      invalidateHistoryCacheForAccount(accountEmail);
+      invalidateListCacheForOwner(ownerEmail);
       // A newer worker already owns this account's row — this worker's
       // progress is stale by definition, so report "still syncing" and stop
       // quietly rather than calling failAccount (which would stomp the new

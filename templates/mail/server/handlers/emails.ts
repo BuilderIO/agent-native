@@ -522,8 +522,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
     try {
-      if (forceRefresh) invalidateListCacheForOwner(email);
-
       const { pageToken } = getQuery(event) as { pageToken?: string };
       // Decode composite page tokens (one per Gmail account)
       let pageTokens: Record<string, string> | undefined;
@@ -541,6 +539,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       const { tokens: accountTokens, errors: tokenErrors } =
         await getAccountTokens(email);
       if (forceRefresh) {
+        invalidateListCacheForOwner(email);
         for (const account of accountTokens)
           invalidateHistoryCacheForAccount(account.email);
       }

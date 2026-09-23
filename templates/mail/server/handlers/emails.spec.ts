@@ -102,6 +102,19 @@ describe("emails handler Gmail label listing", () => {
   });
 });
 
+describe("emails handler force refresh", () => {
+  it("invalidates list and history caches after resolving account tokens", () => {
+    const section = handlerSection(emailsHandlerSource(), "listEmails");
+    const tokenResolution = section.indexOf("await getAccountTokens(email);");
+    const cacheInvalidation = section.indexOf(
+      "invalidateListCacheForOwner(email);",
+    );
+
+    expect(tokenResolution).toBeGreaterThanOrEqual(0);
+    expect(cacheInvalidation).toBeGreaterThan(tokenResolution);
+  });
+});
+
 describe("emails handler connected-account mutation errors", () => {
   it("returns structured account-resolution and refresh failures before Gmail mutations", () => {
     const source = emailsHandlerSource();

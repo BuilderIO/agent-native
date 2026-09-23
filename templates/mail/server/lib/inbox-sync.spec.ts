@@ -512,6 +512,37 @@ describe("syncInboxAccount — incremental sync", () => {
     // construction — never called with a status write for this worker's run.
     expect(mocks.releaseSyncAccount).not.toHaveBeenCalled();
   });
+
+  it("invalidates shared caches when a later history page fails after an earlier page was applied", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        history: [
+          {
+            id: "1001",
+            messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+          },
+        ],
+        historyId: "1005",
+        nextPageToken: "page-2",
+      })
+      .mockRejectedValueOnce(new Error("history timeout"));
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("error");
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      ACCOUNT,
+    );
+    expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(OWNER);
+  });
 });
 
 describe("resetInboxSync", () => {
