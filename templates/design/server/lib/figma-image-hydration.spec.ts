@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  decodeFig: vi.fn(),
+  decodeFigImages: vi.fn(),
   uploadFile: vi.fn(),
   assertAccess: vi.fn(),
   accessFilter: vi.fn(() => "access-filter-sentinel"),
@@ -21,7 +21,9 @@ const mocks = vi.hoisted(() => ({
   mutateDesignData: vi.fn(),
 }));
 
-vi.mock("./fig-file-decoder.js", () => ({ decodeFig: mocks.decodeFig }));
+vi.mock("./fig-file-decoder.js", () => ({
+  decodeFigImages: mocks.decodeFigImages,
+}));
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mocks.uploadFile,
 }));
@@ -73,16 +75,6 @@ import {
 
 const FIG_BYTES = Buffer.from("fake-fig-bytes");
 
-function figWithImages(images: Array<{ hash: string; ext: string }>): {
-  document: unknown;
-  images: Array<{ hash: string; ext: string; bytes: Buffer }>;
-} {
-  return {
-    document: {},
-    images: images.map((i) => ({ ...i, bytes: Buffer.from(i.hash) })),
-  };
-}
-
 // The decode-once index the handler now builds and hands to the resolvers.
 function figImageMap(
   images: Array<{ hash: string; ext: string }>,
@@ -97,17 +89,17 @@ describe("indexFigImages", () => {
     vi.clearAllMocks();
   });
 
-  it("decodes the .fig once and indexes its images by SHA-1 hash", () => {
-    mocks.decodeFig.mockReturnValue(
-      figWithImages([
+  it("reads the .fig images once and indexes them by SHA-1 hash", () => {
+    mocks.decodeFigImages.mockReturnValue(
+      [
         { hash: "aaa", ext: "png" },
         { hash: "bbb", ext: "jpg" },
-      ]),
+      ].map((i) => ({ ...i, bytes: Buffer.from(i.hash) })),
     );
 
     const index = indexFigImages(FIG_BYTES);
 
-    expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
+    expect(mocks.decodeFigImages).toHaveBeenCalledTimes(1);
     expect(index.size).toBe(2);
     expect(index.get("aaa")).toMatchObject({ hash: "aaa", ext: "png" });
     expect(index.get("bbb")).toMatchObject({ hash: "bbb", ext: "jpg" });

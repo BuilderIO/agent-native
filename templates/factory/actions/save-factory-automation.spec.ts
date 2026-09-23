@@ -142,6 +142,48 @@ describe("save-factory-automation", () => {
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
   });
 
+  it("saves and clears reasoningEffort, and rejects an unrecognized value", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    const baseInput = {
+      factoryId: "support-triage",
+      automationId: "resource-1",
+      name: "factories/support-triage/factory-slack-feedback",
+      prompt: "Watch Slack more closely.",
+      scheduleMode: "interval" as const,
+      intervalMinutes: 10,
+      enabled: true,
+    };
+
+    const result = await action.run(
+      { ...baseInput, reasoningEffort: "high" },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, reasoningEffort: "high" });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("reasoningEffort: high"),
+      }),
+    );
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-slack-feedback.md",
+      content: `${existingContent.replace("---\nObserve Slack.", "reasoningEffort: high\n---\nObserve Slack.")}`,
+      updatedAt: 1,
+    });
+    const cleared = await action.run(
+      { ...baseInput, reasoningEffort: "" },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(cleared).toMatchObject({ ok: true, reasoningEffort: null });
+
+    expect(
+      action.schema.safeParse({ ...baseInput, reasoningEffort: "extreme" })
+        .success,
+    ).toBe(false);
+  });
+
   it("removes a Slack channel when a disabled save clears it", async () => {
     const { default: action } = await import("./save-factory-automation.js");
     const result = await action.run(

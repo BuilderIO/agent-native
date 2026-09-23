@@ -458,7 +458,8 @@ describe("A9 — blend mode mapping", () => {
     expect(
       result.approximatedNodes.some((n) => n.notes[0]?.includes("LINEAR_BURN")),
     ).toBe(true);
-    expect(result.frames[0]!.html).toContain("plus-darker");
+    // Chromium has no `plus-darker`; multiply is the nearest mode it draws.
+    expect(result.frames[0]!.html).toContain("mix-blend-mode: multiply");
   });
 
   it("emits mix-blend-mode: plus-lighter for LINEAR_DODGE", () => {
@@ -1556,6 +1557,16 @@ describe("magnified image fills", () => {
     } as never).frames[0]!.html;
     expect(html).not.toContain("image-rendering");
   });
+
+  it("keeps a root-relative storage URL as given", () => {
+    const html = renderHtmlTemplates(node({ x: 2, y: 2 }), {
+      imageMap: new Map([
+        ["0000000000000000000000000000000000000000", "/api/assets/tile.png"],
+      ]),
+    } as never).frames[0]!.html;
+    expect(html).toContain("url('/api/assets/tile.png')");
+    expect(html).not.toContain("images//api");
+  });
 });
 
 describe("paint layers CSS cannot express in a background stack", () => {
@@ -1752,7 +1763,9 @@ describe("dashed strokes", () => {
     expect(html).not.toContain("inset 0 0 0 3px");
   });
 
-  it("says so rather than drawing solid silently when it cannot dash", () => {
+  it("dashes a container's INSIDE stroke as a layer above its children", () => {
+    // Figma paints a frame's stroke over its children; the layer is out of
+    // flow, so it cannot shrink the box the children are laid out in.
     const doc = dashedNode({ type: "FRAME", strokeAlign: "INSIDE" });
     (doc.nodeChanges as Array<Record<string, unknown>>).push({
       guid: { sessionID: 1, localID: 71 },
@@ -1763,11 +1776,13 @@ describe("dashed strokes", () => {
       transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
     });
     const result = renderHtmlTemplates(doc);
-    expect(
-      result.approximatedNodes.some((entry) =>
-        entry.notes.some((note) => note.includes("dashed")),
-      ),
-    ).toBe(true);
+    const html = result.frames[0]!.html;
+    const layer = html.indexOf(
+      "border-style:dashed;border-color:rgb(0, 0, 255)",
+    );
+    expect(layer).toBeGreaterThan(html.indexOf('data-figma-node-id="1:71"'));
+    expect(html).not.toContain("inset 0 0 0 3px");
+    expect(result.approximatedNodes).toEqual([]);
   });
 
   it("leaves an undashed stroke solid", () => {
@@ -2030,7 +2045,9 @@ describe("auto-layout children in the .fig walker", () => {
     // Only a parent with a FIXED main axis has room to distribute.
     nodes[nodes.length - 3]!.stackPrimarySizing = "FIXED";
     const html = renderFrame(doc);
-    expect(html).toContain("flex: 1 0 0");
+    // Elastic from Figma's resolved size, not from a zero basis; see the
+    // equal-outer-size case below.
+    expect(html).toContain("flex: 1 1 1240px");
     expect(html.match(/flex-shrink: 0/g)?.length).toBe(1);
   });
 

@@ -1335,7 +1335,12 @@ interface AgentAppCreationInput {
 }
 
 interface AgentAppCreationResult {
-  mode: "builder" | "local-agent" | "builder-unavailable" | "coming-soon";
+  mode:
+    | "builder"
+    | "local-agent"
+    | "builder-unavailable"
+    | "app-id-taken"
+    | "coming-soon";
   message: string;
   prompt?: string;
   url?: string;

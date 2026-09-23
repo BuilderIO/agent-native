@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "इनबॉक्स सिंक हो रहा है…",
     },
+    sort: {
+      label: "इनबॉक्स क्रमित करें",
+      newest: "नवीनतम",
+      priority: "प्राथमिकता",
+      priorityFailed: "इनबॉक्स को क्रमित नहीं किया जा सका।",
+    },
     toolbar: {
       toggleMenu: "मेनू टॉगल करें",
       menu: "Menu",
@@ -500,6 +506,10 @@ const messages = {
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
       spamMode: "स्पैम",
       tagMode: "टैग",
+      importantMode: "महत्वपूर्ण",
+      importantLabel: "AI महत्वपूर्ण",
+      reviewImportant: "महत्वपूर्ण देखें",
+      importantPlaceholder: "उदा. ऐसे संदेश जिनका जवाब देना है या जिनकी समय-सीमा है",
       ruleAdded: "AI नियम जोड़ा गया।",
       instructionHelp: "सामान्य भाषा का उपयोग करें",
       tagNamePlaceholder: "टैग का नाम",

@@ -243,7 +243,12 @@ describe("revisioned document edit mutation", () => {
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, DOCUMENT_ID));
-    expect(document).toMatchObject({ content: "omega beta", bodyRevision: 1 });
+    expect(document).toMatchObject({
+      content: "omega beta",
+      bodyRevision: 1,
+      createdBy: null,
+      updatedBy: OWNER,
+    });
     expect(await db.select().from(schema.documentVersions)).toHaveLength(2);
     expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(1);
   });

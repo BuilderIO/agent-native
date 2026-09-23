@@ -2277,7 +2277,7 @@ describe("document editor layout", () => {
       { encoding: "utf8" },
     );
 
-    expect(source).toContain("<DropdownMenu modal={false}");
+    expect(source).toMatch(/<DropdownMenu\s+modal=\{false\}/);
     expect(source).toContain('item.iconKind === "folder"');
     expect(source).toContain('menuItem.iconKind === "folder"');
   });

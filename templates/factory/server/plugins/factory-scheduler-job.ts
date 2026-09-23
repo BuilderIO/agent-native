@@ -247,12 +247,18 @@ type AutomationSeed = {
   legacySchedules?: string[];
   timezone?: string;
   model: string;
+  reasoningEffort: string;
   maxIterations: number;
   maxRunInputTokens: number;
   body: string;
 };
 
 const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
+// Not yet honored end to end for GPT + tools on the Builder gateway — see
+// packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md. Seeded
+// here so it takes effect immediately for non-GPT models, and for GPT once
+// that gateway lane ships, without a follow-up migration of every seed.
+const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const AUTOMATION_SEEDS: AutomationSeed[] = [
@@ -261,6 +267,7 @@ const AUTOMATION_SEEDS: AutomationSeed[] = [
     schedule: "*/5 * * * *",
     legacySchedules: ["* * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -295,6 +302,7 @@ unless an action returned that state.
     schedule: "0 9 * * *",
     timezone: "America/Los_Angeles",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 24,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -347,6 +355,7 @@ passing those values.
     schedule: "0 * * * *",
     legacySchedules: ["* * * * *", "*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -400,6 +409,7 @@ passing those values.
     schedule: "*/10 * * * *",
     legacySchedules: ["*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 40,
     maxRunInputTokens: 2_000_000,
     body: `
@@ -461,6 +471,7 @@ confirms it.
     schedule: "*/5 * * * *",
     legacySchedules: ["*/2 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 12,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -548,6 +559,7 @@ factoryId: ${factoryId}
 createdBy: ${ownerEmail}
 runAs: creator
 model: ${seed.model}
+reasoningEffort: ${seed.reasoningEffort}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
 alignmentRevision: ${FACTORY_ALIGNMENT_REVISION}
@@ -893,6 +905,7 @@ function blankAutomationSeed(
     name: leafName,
     schedule: "*/5 * * * *",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `# Factory ${source} automation\n`,

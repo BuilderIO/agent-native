@@ -230,10 +230,10 @@ function dirSize(dir) {
 /**
  * Payloads whose presence is decided by the deploy environment rather than by
  * anything in the app, so the same commit emits them in one build context and
- * not another. Platform-native Resvg binaries are excluded from the comparison
- * because the committed baselines are platform-neutral; ffmpeg stays in the
- * raw metric because its historical baselines are a mix of payload-inclusive
- * and payload-free values.
+ * not another. They are reported at measurement time. Platform-native Resvg
+ * binaries are excluded from the comparison because the committed baselines
+ * are platform-neutral; ffmpeg stays in the raw metric because its historical
+ * baselines are a mix of payload-inclusive and payload-free values.
  *
  * `ffmpeg-static` is bundled only when `AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH`
  * names an architecture matching the serverless target (`build.ts`,

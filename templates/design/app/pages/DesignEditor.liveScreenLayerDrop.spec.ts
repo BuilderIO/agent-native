@@ -53,4 +53,10 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
       /const handleRuntimeStructureInsertRejected[\s\S]*?toast\.error\(t\("designEditor\.toasts\.layerMoveFailed"\)/,
     );
   });
+
+  it("reports a competing runtime insert instead of silently dropping it", () => {
+    expect(source).toMatch(
+      /typeof next !== "function" && next[\s\S]*?runtimeStructurePendingTransactionRef\.current[\s\S]*?toast\.error\(t\("designEditor\.toasts\.layerMoveFailed"\)/,
+    );
+  });
 });

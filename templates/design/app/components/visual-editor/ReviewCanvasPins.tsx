@@ -2114,6 +2114,16 @@ export function ReviewCanvasPins({
   );
 
   if (hidden || !canvas) return null;
+  // Every live editor mounts one of these; reading the canvas rect during
+  // render forces a synchronous layout of the whole board on each commit.
+  if (
+    !active &&
+    !draftPin &&
+    !deleteCandidate &&
+    !threads.some((thread) => thread.root.anchor)
+  ) {
+    return null;
+  }
   const rect = canvas.getBoundingClientRect();
   const viewport = {
     width: window.innerWidth,

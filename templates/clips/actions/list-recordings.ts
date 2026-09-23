@@ -16,6 +16,7 @@ import {
 import { z } from "zod";
 
 import { effectiveDuration, parseEdits } from "../app/lib/timestamp-mapping.js";
+import { parseRedactions } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   agentRecordingAccessFilter,
@@ -482,6 +483,11 @@ export default defineAction({
         folderId: r.folderId,
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],
+        // Redactions drawn but not burned into the file. The library needs it
+        // to hold sharing back from the card menu — every route to a share
+        // link has to refuse, or the guard is decoration.
+        pendingRedactions: parseRedactions(parseEdits(r.editsJson).overlays)
+          .length,
         viewCount: viewsByRec[r.id] ?? 0,
         agentViewCount: agentViewsByRec[r.id] ?? 0,
         createdAt: r.createdAt,
