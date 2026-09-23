@@ -1,0 +1,434 @@
+---
+title: "المقاطع: دليل المطور"
+description: "البدء السريع، وقائمة الإجراءات الكاملة، ونموذج البيانات، والمسارات، وكيفية توسيع قالب المقاطع."
+---
+
+# دليل المطور
+
+هذه الصفحة لأي شخص يخصص قالب المقاطع أو يوسعه: البدء السريع، وكل إجراء، ونموذج
+البيانات، وسطح المسارات، وكيفية الإضافة إليه. راجع [المقاطع](/docs/template-clips)
+لمعرفة ما يفعله التطبيق.
+
+## البدء السريع
+
+<Steps>
+
+### إنشاء التطبيق
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+```
+
+يتطلب هذا تثبيت [Node.js](https://nodejs.org) بإصدار 22.22 أو أحدث
+و[pnpm](https://pnpm.io) أولاً. راجع [بدء الاستخدام](/docs/getting-started)
+إذا لم تكن قد ثبّت أيًا منهما بعد، أو لم يكن لديك اتصال بنموذج لغوي
+(Builder.io، أو مفتاح Anthropic/OpenAI، أو Ollama محلي) مُهيّأ.
+
+### تشغيل خادم التطوير
+
+```bash
+pnpm dev
+```
+
+يفتح التطبيق تلقائيًا في متصفحك. يعمل التسجيل دون أي إعداد إضافي، لأن
+المتصفح أو تطبيق سطح المكتب يلتقط محليًا. لن تواجه خطأ إلا في إجراء يحتاج
+إلى تخزين ملفات أو رصيد ذكاء اصطناعي قبل إعداد أي منهما.
+
+</Steps>
+
+<Callout tone="info">
+
+يحتاج التسجيل والنسخ والعناوين/الملخصات بالذكاء الاصطناعي إلى تخزين ملفات
+ورصيد ذكاء اصطناعي مُهيّأين قبل أن يعملا من طرف إلى طرف. اربط Builder.io من
+**الإعدادات** لكليهما معًا (تشمل فئته المجانية رصيد ذكاء اصطناعي مُدار)، أو
+اربط تخزينًا متوافقًا مع S3 بشكل منفصل وأتِ بمفتاح Groq خاص بك للنسخ. راجع
+[النسخ والبيانات الوصفية للذكاء الاصطناعي](/docs/template-clips-features#transcription-and-ai-metadata).
+
+</Callout>
+
+## قائمة الإجراءات
+
+كل عملية هي ملف TypeScript في `templates/clips/actions/`، مثبَّت تلقائيًا
+عند `POST /_agent-native/actions/:name`.
+
+### المكتبة والتسجيلات
+
+| الإجراء                                                                                   | ما يفعله                                                        |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | سرد المكتبة، ومشترك معي، والمهملات، والقوائم المحددة بمساحة     |
+| `create-recording`, `finalize-recording`                                                  | إنشاء الصف؛ وإنهاء الرفع                                        |
+| `import-loom-recording`                                                                   | استيراد فيديو Loom أو رابط MP4/WebM مباشر                       |
+| `update-recording`                                                                        | العنوان، والوصف، وكلمة المرور، وانتهاء الصلاحية، والرؤية        |
+| `move-recording`                                                                          | نقل تسجيل واحد أو عدة تسجيلات إلى مجلد أو الجذر                 |
+| `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | دورة الحياة: الإخفاء، والحذف المؤقت، والتراجع، أو الحذف نهائيًا |
+| `reprocess-recording`                                                                     | إصلاح وسائط غير قابلة للتقديم أو متجمدة                         |
+| `generate-filmstrip`                                                                      | شريط إطارات الخط الزمني في المحرر                               |
+| `tag-recording`, `set-thumbnail`                                                          | الوسم واختيار إطار صورة مصغرة يدويًا                            |
+
+### المجلدات والمساحات
+
+| الإجراء                                           | ما يفعله                                             |
+| ------------------------------------------------- | ---------------------------------------------------- |
+| `create-folder`, `rename-folder`, `delete-folder` | مجلدات متداخلة؛ حذف أحدها ينقل محتوياته للأعلى       |
+| `create-space`, `rename-space`, `delete-space`    | حاويات تسجيل محددة بموضوع وضمن نطاق المؤسسة          |
+| `add-recording-to-space`                          | إضافة أو إزالة تسجيل من مساحة (علاقة متعددة لمتعددة) |
+| `add-space-member`, `remove-space-member`         | أدوار المشاهد والمساهم والمشرف على مستوى المساحة     |
+
+### التحرير
+
+| الإجراء                                  | ما يفعله                                                    |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | إضافة طبقة تعليمات قطع؛ لا تلمس الوسائط المصدر أبدًا        |
+| `remove-silences`, `remove-filler-words` | يُنفَّذ من قبل الوكيل: يقرأ النص، ويطبّق الاقتطاعات من أجلك |
+| `stitch-recordings`                      | دمج عدة تسجيلات في واحد، بالترتيب                           |
+| `undo-edit`, `clear-edits`               | إزالة التعديل الأخير، أو إعادة الضبط إلى الأصل              |
+
+### النسخ والبيانات الوصفية للذكاء الاصطناعي
+
+| الإجراء                                                                         | ما يفعله                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `request-transcript`, `cleanup-transcript`                                      | النسخ؛ `force`/`regenerate` لتمرير جديد                       |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | بيانات وصفية بالذكاء الاصطناعي، أو ضبط الفصول يدويًا          |
+| `get-builder-credit-status`                                                     | ما إذا كان رصيد الذكاء الاصطناعي في Builder.io متوقفًا مؤقتًا |
+
+### التعليقات وردود الفعل
+
+| الإجراء                                                                                  | ما يفعله                                                   |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | تعليقات مترابطة وذات طابع زمني                             |
+| `react-to-comment`, `react-to-recording`                                                 | ردود فعل بالرموز التعبيرية                                 |
+| `list-comments`, `list-recording-mention-members`                                        | قراءة التعليقات؛ البحث عن من يمكن الإشارة إليه بـ @mention |
+
+### ذاكرة الشاشة (Rewind)
+
+| الإجراء                                                                                                                         | ما يفعله                                                |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | قراءة المخزن المؤقت المحلي لـ Rewind                    |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | تدفق المراجعة والموافقة لإضافة سجل Rewind إلى مقطع      |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | تطبيق تمديد معتمد؛ إجبار المقطع على أن يكون خاصًا أولاً |
+
+### التطبيقات المتقاطعة والرؤى
+
+| الإجراء                                                                      | ما يفعله                                                                 |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `export-to-brain`                                                            | إرسال النصوص الجاهزة إلى الدماغ، مع تعبئة بأثر رجعي ومؤشر قابل للاستئناف |
+| `prepare-crm-call-evidence`                                                  | معرّف مقطع غامض بالإضافة إلى رابط `/r/<id>` دائم لأتمتات CRM             |
+| `create-recording-agent-link`                                                | سكّ رابط `agent_access` محدد النطاق ومحدود المدة لتسجيل واحد             |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | المشاهدات، والتفاعل، وتصدير CSV على مستوى المؤسسة                        |
+| `list-viewers`, `list-clip-views`                                            | من شاهد، ومتى                                                            |
+
+### المؤسسة
+
+| الإجراء                                                                                 | ما يفعله                                                                     |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | إنشاء المؤسسة والدعوات                                                       |
+| `remove-member`, `update-member-role`                                                   | إدارة العضوية والأدوار                                                       |
+| `set-organization-branding`, `list-organization-state`                                  | لون العلامة التجارية/الشعار، والرؤية الافتراضية، والقراءات على مستوى المؤسسة |
+
+### التنقل والتضمين وتقارير الأخطاء
+
+| الإجراء                                                                               | ما يفعله                                                                             |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `view-screen`, `navigate`, `refresh-list`                                             | قراءة السياق؛ تحريك واجهة المستخدم                                                   |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | استئناف التشغيل؛ النص الكامل والتشخيصات                                              |
+| `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | تدفق التضمين المجهول من جهة خارجية. راجع [تضمين المقاطع](/docs/template-clips-embed) |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | مُشغّل تقارير الأخطاء المضمّن وتشخيصات ملحق Chrome                                   |
+
+## نموذج البيانات
+
+معرَّف في `templates/clips/server/db/schema.ts`.
+
+<Callout tone="warning">
+
+تعيش صفوف الفريق والعضو والدعوة في جداول إطار العمل الخاصة `organizations`
+و`org_members` و`org_invitations`، لا في جدول خاص بـ المقاطع.
+`organization_settings` هو الملحق الخاص بـ المقاطع: لون العلامة التجارية،
+والشعار، والرؤية الافتراضية، صف واحد لكل مؤسسة. لا يزال زوج
+`workspaces`/`workspace_members` الأقدم موجودًا فقط حتى تتمكن ترحيلة بدء
+تشغيل تُجرى مرة واحدة من تعبئة جداول إطار العمل بأثر رجعي على نشر قائم. لا
+تبنِ ميزات جديدة عليها.
+
+</Callout>
+
+<DataModel
+  id="doc-block-clips-data-model"
+  title="نموذج بيانات المقاطع"
+  summary={
+    "التسجيلات هي المورد الأساسي. ينتمي التسجيل إلى مجلد واحد (أو بلا مجلد) لكن يمكن أن يقع في أي عدد من المساحات في الوقت نفسه. تعتمد التعليقات والمشاركات كلاهما على معرّف التسجيل."
+  }
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "المورد الأساسي (قابل للتملك)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "folderId", type: "id", nullable: true },
+        {
+          name: "spaceIds",
+          type: "json",
+          note: "مصفوفة JSON من معرّفات المساحات، علاقة متعددة لمتعددة",
+        },
+        { name: "title", type: "string" },
+        {
+          name: "status",
+          type: "enum",
+          note: "uploading | processing | ready | failed",
+        },
+        { name: "durationMs", type: "int" },
+        { name: "videoUrl", type: "string", nullable: true },
+        {
+          name: "editsJson",
+          type: "json",
+          note: "تعليمات تحرير غير مدمرة، مُتراكبة كطبقات",
+        },
+        { name: "chaptersJson", type: "json" },
+        { name: "password", type: "string", nullable: true },
+        { name: "expiresAt", type: "datetime", nullable: true },
+        { name: "archivedAt", type: "datetime", nullable: true },
+        { name: "trashedAt", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "مجلدات متداخلة",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        {
+          name: "spaceId",
+          type: "id",
+          nullable: true,
+          note: "null = المكتبة الشخصية",
+        },
+        { name: "ownerEmail", type: "string" },
+        { name: "name", type: "string" },
+      ],
+    },
+    {
+      id: "spaces",
+      name: "spaces",
+      note: "حاويات فرعية للمؤسسة محددة بموضوع",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "name", type: "string" },
+        { name: "isAllCompany", type: "bool" },
+      ],
+    },
+    {
+      id: "space_members",
+      name: "space_members",
+      note: "أدوار لكل مساحة",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "spaceId", type: "id", fk: "spaces.id" },
+        { name: "email", type: "string" },
+        { name: "role", type: "enum", note: "viewer | contributor | admin" },
+      ],
+    },
+    {
+      id: "recording_comments",
+      name: "recording_comments",
+      note: "تعليقات مترابطة وذات طابع زمني",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "threadId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        { name: "authorEmail", type: "string" },
+        { name: "content", type: "string" },
+        { name: "videoTimestampMs", type: "int" },
+        { name: "resolved", type: "bool" },
+      ],
+    },
+    {
+      id: "recording_shares",
+      name: "recording_shares",
+      note: "منح مشاركة، من أداة المشاركة الأساسية المشتركة في إطار العمل",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "principal", type: "string", note: "مستخدم أو مؤسسة" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "folders", to: "recordings", kind: "1-n", label: "يحتوي على" },
+    {
+      from: "spaces",
+      to: "recordings",
+      kind: "n-n",
+      label: "يمكن أن تنضم التسجيلات إلى أي عدد من المساحات",
+    },
+    { from: "spaces", to: "space_members", kind: "1-n", label: "لديه أعضاء" },
+    {
+      from: "recordings",
+      to: "recording_comments",
+      kind: "1-n",
+      label: "لديه تعليقات",
+    },
+    {
+      from: "recordings",
+      to: "recording_shares",
+      kind: "1-n",
+      label: "لديه منح مشاركة",
+    },
+  ]}
+/>
+
+## شرح إجراء بالتفصيل
+
+يُظهر `create-recording-agent-link` أنماطًا تستحق إعادة استخدامها في أي
+إجراء يسكّ بيانات اعتماد محددة النطاق: التحقق من الحالة الحقيقية للمورد قبل
+تسليم أي شيء، وتفويض سكّ الرمز الفعلي إلى مساعد مشترك في إطار العمل بدلاً من
+ابتكار طريقة خاصة، واستخلاص كل عنوان URL يحتاجه المستدعي من ذلك المنح الواحد.
+
+<AnnotatedCode
+  id="doc-block-clips-agent-link"
+  title="سكّ رابط وصول للوكيل محدد النطاق"
+  filename="templates/clips/actions/create-recording-agent-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport {\n  buildAgentAccessUrl,\n  createScopedAgentAccessGrant,\n  getRequestContext,\n  getRequestUserEmail,\n} from "@agent-native/core/server";\nimport { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";\nimport { z } from "zod";\n\nimport {\n  CLIPS_AGENT_ACCESS_TTL_SECONDS,\n  getServerAppBasePath,\n} from "../server/lib/public-agent-context.js";\nimport {\n  buildAgentApiUrls,\n  CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n} from "../shared/agent-context.js";\nimport { BUG_REPORT_AGENT_ACCESS_TTL_SECONDS } from "../shared/bug-report.js";\n\nfunction appOrigin(): string {\n  const origin =\n    getRequestContext()?.requestOrigin ||\n    process.env.APP_URL ||\n    process.env.BETTER_AUTH_URL ||\n    "http://localhost:3000";\n  try {\n    return new URL(origin).origin;\n  } catch {\n    return "http://localhost:3000";\n  }\n}\n\nexport default defineAction({\n  description:\n    "Create a temporary private agent-readable link for one Clips recording. The URL is scoped to that recording and expires after two hours.",\n  schema: z.object({\n    recordingId: z.string().describe("Recording ID"),\n    agentLabel: z\n      .string()\n      .trim()\n      .min(1)\n      .max(60)\n      .optional()\n      .describe(\n        "Name of the agent that will read this link (e.g. \'Fusion\', \'Claude Code\'). Recorded against every read the link produces, so the owner sees a name instead of an unidentified agent.",\n      ),\n    ttlSeconds: z\n      .number()\n      .int()\n      .positive()\n      .max(BUG_REPORT_AGENT_ACCESS_TTL_SECONDS)\n      .optional()\n      .describe(\n        "Optional scoped-link lifetime in seconds, capped at seven days. Defaults to two hours.",\n      ),\n  }),\n  readOnly: true,\n  run: async (args) => {\n    const access = await resolveAccess("recording", args.recordingId);\n    if (!access) {\n      throw new ForbiddenError(`No access to recording ${args.recordingId}`);\n    }\n\n    const recording = access.resource as {\n      id: string;\n      archivedAt?: string | null;\n      trashedAt?: string | null;\n    };\n    if (recording.archivedAt || recording.trashedAt) {\n      throw new ForbiddenError(\n        `Recording ${args.recordingId} is not shareable`,\n      );\n    }\n\n    const grant = createScopedAgentAccessGrant({\n      resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n      resourceId: recording.id,\n      viewerEmail: getRequestUserEmail() || undefined,\n      agentLabel: args.agentLabel,\n      ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,\n    });\n    const origin = appOrigin();\n    const basePath = getServerAppBasePath();\n    const pageUrl = buildAgentAccessUrl({\n      path: `/share/${encodeURIComponent(recording.id)}`,\n      origin,\n      basePath,\n      token: grant.token,\n    });\n    const api = buildAgentApiUrls(recording.id, {\n      origin,\n      basePath,\n      token: grant.token,\n    });\n\n    return {\n      recordingId: recording.id,\n      url: pageUrl,\n      contextUrl: api.contextUrl,\n      expiresAt: grant.expiresAt,\n      ttlSeconds: grant.ttlSeconds,\n    };\n  },\n});\n'
+  }
+  annotations={[
+    {
+      lines: "60-74",
+      label: "يتم التحقق من حالة المورد قبل سكّ أي شيء",
+      note: "يؤكد resolveAccess() أن المستدعي يمكنه رؤية هذا التسجيل أصلاً، ثم يرفض فحص archivedAt/trashedAt الصريح تسليم رابط لمقطع لا ينبغي أن يكون قابلاً للمشاركة بعد الآن، حتى لشخص لا يزال يملك تقنيًا وصولاً إليه.",
+    },
+    {
+      lines: "76-82",
+      label: "سكّ الرمز مفوَّض، لا مُعاد ابتكاره",
+      note: "createScopedAgentAccessGrant() مساعد مشترك في إطار العمل، لذا لا يملك المقاطع أي منطق لتوقيع الرموز. يُحدَّد الحد الأقصى لمدة الصلاحية (TTL) بواسطة مخطط zod ويعود افتراضيًا إلى ثابت مُسمّى بدلاً من رقم سحري.",
+    },
+    {
+      lines: "83-95",
+      label: "كل عنوان URL يحتاجه المستدعي يأتي من المنح نفسه",
+      note: "عنوان URL لصفحة المشاركة وعناوين URL الثلاثة لواجهة برمجة الوكيل (buildAgentApiUrls) جميعها مستمدة من رمز واحد، بحيث يوجد مكان واحد بالضبط قد يُسرّب أو يُعيد استخدام منحًا بشكل غير صحيح، لا ثلاثة أماكن.",
+    },
+    {
+      lines: "79",
+      label: "يتذكر الرابط من طلبه",
+      note: "يُسجَّل viewerEmail وagentLabel مقابل المنح، بحيث يرى مالك التسجيل أي شخص وأي وكيل قرأه، بدلاً من إدخال سجل وصول مجهول.",
+    },
+  ]}
+/>
+
+## مرجع المسارات
+
+<FileTree
+  id="doc-block-clips-routes"
+  title="تخطيط قالب المقاطع"
+  entries={[
+    {
+      path: "actions/",
+      note: "كل إجراء قابل لاستدعاء الوكيل — التسجيلات، والمجلدات، والمساحات، والتعليقات، والمشاركة، والرؤى",
+    },
+    {
+      path: "app/routes/_app.library._index.tsx",
+      note: "شبكة المكتبة؛ _app.library.folder.$folderId.tsx هو مجلد واحد",
+    },
+    { path: "app/routes/_app.shared.tsx", note: "مشترك معي" },
+    {
+      path: "app/routes/_app.spaces._index.tsx",
+      note: "قائمة المساحات؛ _app.spaces.$spaceId.tsx هي مساحة واحدة",
+    },
+    {
+      path: "app/routes/_app.r.$recordingId.tsx",
+      note: "صفحة تفاصيل التسجيل والمحرر",
+    },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "تبويب دردشة الوكيل بملء الصفحة",
+    },
+    {
+      path: "app/routes/_app.settings._index.tsx",
+      note: "الإعدادات، بما فيها تبويب Labs",
+    },
+    { path: "app/routes/record.tsx", note: "المسجّل" },
+    {
+      path: "app/routes/share.$shareId.tsx",
+      note: "صفحة المشاركة العامة؛ embed.$shareId.tsx هو متغير التضمين بـ iframe",
+    },
+    {
+      path: "app/routes/download.tsx",
+      note: "صفحة تنزيل تطبيق سطح المكتب",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "جداول Drizzle — التسجيلات، والمجلدات، والمساحات، والتعليقات",
+    },
+    {
+      path: "server/routes/api/agent-context.json.get.ts",
+      note: "نقاط النهاية القابلة للقراءة من قبل الوكيل، بالإضافة إلى agent-transcript.json وagent-frame.jpg",
+    },
+    {
+      path: "server/lib/google-calendar-client.ts",
+      note: "عميل واجهة برمجة تطبيقات Google Calendar",
+    },
+    {
+      path: "shared/api.ts",
+      note: "أنواع TypeScript مشتركة يستخدمها الخادم والعميل",
+    },
+    {
+      path: "desktop/",
+      note: "تطبيق سطح المكتب المبني على Tauri (التقاط الشاشة/صوت النظام، Rewind)",
+    },
+    {
+      path: "chrome-extension/",
+      note: "ملحق Chrome (تسجيل بالإضافة إلى تشخيصات المتصفح)",
+    },
+  ]}
+/>
+
+## تخصيصه
+
+كل جزء من التطبيق مصدر قابل للتحرير. ابدأ من هنا:
+
+- `templates/clips/actions/` — أضف ملفًا جديدًا باستخدام `defineAction`
+  لكشف قدرة جديدة لكل من الوكيل والواجهة الأمامية.
+- `templates/clips/app/routes/` — واجهة المستخدم، المذكورة أعلاه.
+- `templates/clips/server/db/schema.ts` — أضف أعمدة أو جداول باستخدام
+  Drizzle. حافظ على توافق المخطط مع PostgreSQL حتى يعمل القالب مع PGlite
+  المحلي وPostgres المستضاف.
+- `templates/clips/server/lib/` — تكاملات المزوّدين: `google-calendar-client.ts`،
+  و`s3-upload-provider.ts`، و`slack-oauth.ts`، و`video-remux.ts`،
+  و`video-filmstrip-sprite.ts`.
+- `templates/clips/AGENTS.md` — تعليمات الوكيل. حدّث هذا عندما تُعلّم الوكيل
+  قدرات أو اتفاقيات جديدة.
+- `templates/clips/.agents/skills/` — أنماط مفصّلة يتبعها الوكيل. المهارات
+  ذات الصلة: `recording`، و`ai-video-tools`، و`video-editing`،
+  و`video-sharing`، و`screen-memory`.
+- `templates/clips/shared/api.ts` — أنواع TypeScript المشتركة التي يستخدمها
+  الخادم والعميل كلاهما.
+- `templates/clips/desktop/` و`templates/clips/chrome-extension/` — حزم
+  منفصلة لأسطح الالتقاط الأصلية، كل منها بملف `package.json` وبناء خاص بها.
+
+إذا أضفت ميزة، تذكّر تحديث المجالات الأربعة كلها: واجهة المستخدم، والإجراء،
+والمهارة أو إدخال AGENTS.md، وأي حالة تطبيق يحتاج الوكيل إلى رؤيتها. هذا ما
+يحافظ على تكافؤ الوكيل وواجهة المستخدم.
+
+## ما التالي
+
+- [**المقاطع**](/docs/template-clips) — نظرة عامة وما يحل محله
+- [**الميزات**](/docs/template-clips-features) — السلوك الظاهر للمستخدم الذي
+  تشغّله هذه الإجراءات ونموذج البيانات هذا
+- [**التحدث مع الوكيل**](/docs/template-clips-agent) — كيف يختار الوكيل بين
+  هذه الإجراءات والإجراءات الأقل شيوعًا
+- [**المقاطع في مساحة عمل متعددة التطبيقات**](/docs/template-clips-integrations) —
+  كيف تستخدم تطبيقات أخرى نقاط النهاية القابلة للقراءة من قبل الوكيل وحدث
+  `clip.created`
+- [**تضمين المقاطع**](/docs/template-clips-embed) — تدفق استقبال التسجيل
+  المجهول من جهة خارجية
+- [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي يُبنى هذا
+  القالب عليه
+- [**المشاركة**](/docs/sharing) — نموذج منح المشاركة الذي يستخدمه
+  `recording_shares`

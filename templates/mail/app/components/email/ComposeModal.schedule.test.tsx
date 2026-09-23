@@ -226,8 +226,9 @@ describe("ComposeModal scheduling", () => {
     );
 
     const compose = container.querySelector<HTMLElement>("[data-mail-compose]");
-    expect(compose?.className).toContain("sm:top-14");
-    expect(compose?.className).toContain("sm:bottom-auto");
+    expect(compose?.className).toContain("bottom-0");
+    expect(compose?.className).not.toContain("sm:top-14");
+    expect(compose?.className).not.toContain("sm:bottom-auto");
     expect(compose?.className).toContain("sm:h-[300px]");
     expect(compose?.className).toContain("sm:w-[490px]");
     expect(compose?.className).toContain("sm:rounded-xl");

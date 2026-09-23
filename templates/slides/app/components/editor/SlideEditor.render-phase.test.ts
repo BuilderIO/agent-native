@@ -96,6 +96,113 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("keeps the editor host outside React-owned slide content", () => {
+    const enterStart = source.indexOf("const enterInlineEdit");
+    const enterEnd = source.indexOf("// Exit edit mode", enterStart);
+    const enterBody = source.slice(enterStart, enterEnd);
+    const disposeStart = source.indexOf("const disposeRichTextEditor");
+    const disposeEnd = source.indexOf(
+      "const flushInlineEditDraft",
+      disposeStart,
+    );
+    const disposeBody = source.slice(disposeStart, disposeEnd);
+
+    expect(enterBody).toContain(
+      'editorContext.className = "slide-content slide-rich-editor-context"',
+    );
+    expect(enterBody).toContain("fmdSlide.cloneNode(false) as HTMLElement");
+    expect(enterBody).toContain('fmdSlideContext.style.display = "contents"');
+    expect(enterBody).toContain(
+      "(fmdSlideContext ?? editorContext).append(host)",
+    );
+    expect(enterBody).toContain("document.body.append(editorContext)");
+    expect(enterBody).not.toContain("el.replaceChildren(host)");
+    expect(disposeBody).toContain("session.cleanupHost()");
+    expect(disposeBody).not.toContain(
+      "restoreSlideTextContainerContent(session.element",
+    );
+  });
+
+  it("serializes inspector mutations from the connected live slide root", () => {
+    const readStart = source.indexOf("const readCurrentSlideContentHtml");
+    const readEnd = source.indexOf(
+      "const readCurrentSlideContentHtmlRef",
+      readStart,
+    );
+    const disposeStart = source.indexOf("const disposeRichTextEditor");
+    const disposeEnd = source.indexOf(
+      "const flushInlineEditDraft",
+      disposeStart,
+    );
+
+    expect(source.slice(readStart, readEnd)).toContain(
+      "slideContent.contains(session.element)",
+    );
+    expect(source.slice(disposeStart, disposeEnd)).toContain(
+      "liveSlideContent.contains(session.element)",
+    );
+  });
+
+  it("restores editor-only styles before serializing the live draft", () => {
+    const serializeStart = source.indexOf("const serializeSlideContentHtml");
+    const serializeEnd = source.indexOf(
+      "const readCurrentSlideContentHtml",
+      serializeStart,
+    );
+    const serializeBody = source.slice(serializeStart, serializeEnd);
+    const disposeStart = source.indexOf("const disposeRichTextEditor");
+    const disposeEnd = source.indexOf(
+      "const flushInlineEditDraft",
+      disposeStart,
+    );
+    const disposeBody = source.slice(disposeStart, disposeEnd);
+
+    expect(serializeBody).toContain(
+      "activeOriginalStyle: string | null | undefined = undefined",
+    );
+    expect(serializeBody).toContain("if (activeOriginalStyle !== undefined)");
+    expect(serializeBody).toContain(
+      'activeClone.style.removeProperty("visibility")',
+    );
+    expect(serializeBody).toContain('getPropertyValue("visibility")');
+    expect(serializeBody).not.toContain(
+      'activeClone.setAttribute("style", activeOriginalStyle)',
+    );
+    expect(disposeBody).toContain("session.originalStyle,");
+  });
+
+  it("scales the portalled editor with the transformed canvas", () => {
+    const enterStart = source.indexOf("const enterInlineEdit");
+    const enterEnd = source.indexOf("// Exit edit mode", enterStart);
+    const enterBody = source.slice(enterStart, enterEnd);
+
+    expect(enterBody).toContain(
+      'el.closest<HTMLElement>("[data-slide-canvas]")',
+    );
+    expect(enterBody).toContain("readSlideObjectTransformSnapshot(el)");
+    expect(enterBody).toContain(
+      "host.style.transformOrigin = hasElementTransform",
+    );
+    expect(enterBody).toContain(
+      "`scale(${safeScaleX}, ${safeScaleY}) ${elementTransform}`",
+    );
+    expect(enterBody).toContain(': "top left"');
+    expect(enterBody).toContain(": `scale(${safeScaleX}, ${safeScaleY})`");
+    expect(enterBody).toContain(
+      "const hostRect = host.getBoundingClientRect()",
+    );
+    expect(enterBody).toContain("getBoxQuads");
+    expect(enterBody).toContain("ancestorTranslationX");
+    expect(enterBody).toContain(
+      'host.style.transform = `matrix(${composed.join(", ")})`',
+    );
+    expect(enterBody).toContain("new ResizeObserver(positionHost)");
+    expect(enterBody).toContain("resizeObserver?.observe(slideCanvas)");
+    expect(enterBody).toContain("resizeObserver?.observe(host)");
+    expect(enterBody).toContain("positionHost();");
+    expect(enterBody).toContain("resizeObserver?.disconnect()");
+  });
+
   it("marks and strips only the outer rich-text layer", () => {
     expect(source).toContain(
       'element.setAttribute("data-slide-text-block", "true")',

@@ -4,6 +4,7 @@ import {
   resourceGetByPath,
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
+import { isReasoningEffort } from "@agent-native/core/shared";
 import { z } from "zod";
 
 import {
@@ -36,6 +37,7 @@ import {
   readAutomationDisplayName,
   readAutomationEnabled,
   readAutomationModel,
+  readAutomationReasoningEffort,
   readAutomationSchedule,
   resolveAutomationDisplayName,
   setAutomationFrontmatterField,
@@ -56,6 +58,14 @@ export default defineAction({
     displayName: z.string().trim().max(120).optional(),
     prompt: z.string().trim().min(1).max(20_000),
     model: z.string().trim().max(200).optional(),
+    reasoningEffort: z
+      .string()
+      .trim()
+      .max(20)
+      .optional()
+      .refine((value) => !value || isReasoningEffort(value), {
+        message: "Invalid reasoning effort.",
+      }),
     enabled: z.boolean(),
     slackWorkspace: z.enum(["primary", "secondary"]).optional(),
     slackChannelId: z.string().trim().max(128).optional(),
@@ -286,6 +296,13 @@ export default defineAction({
         input.model.trim() || "",
       );
     }
+    if (input.reasoningEffort !== undefined) {
+      content = setAutomationFrontmatterField(
+        content,
+        "reasoningEffort",
+        input.reasoningEffort.trim() || "",
+      );
+    }
     if (input.displayName !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -362,6 +379,7 @@ export default defineAction({
       promptVersion: readPromptVersion(content),
       configSavedAt: readConfigSavedAt(content),
       model: readAutomationModel(content),
+      reasoningEffort: readAutomationReasoningEffort(content),
       schedule: readAutomationSchedule(content),
       enabled: readAutomationEnabled(content),
       source: config.source,

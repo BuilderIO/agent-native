@@ -83,6 +83,14 @@ function fileEntry(revision: number, content = `revision-${revision}`) {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("design save outbox", () => {
   it.each([undefined, null, false, {}, { ok: true }, { updated: false }])(
     "retains the queued edit when a save has no persistence acknowledgement: %j",
@@ -140,6 +148,37 @@ describe("design save outbox", () => {
     expect(
       (await storage.list("design-1", "user-1"))[0]?.operationRevision,
     ).toBe(5);
+  });
+
+  it("waits for a delayed journal before discarding a cancelled entry", async () => {
+    const backingStorage = new MemoryOutboxStorage();
+    const journalStarted = deferred<void>();
+    const releaseJournal = deferred<void>();
+    const storage: DesignSaveOutboxStorage = {
+      putLatest: async (entry) => {
+        journalStarted.resolve();
+        await releaseJournal.promise;
+        await backingStorage.putLatest(entry);
+      },
+      deleteIfRevision: (entry) => backingStorage.deleteIfRevision(entry),
+      list: (designId, actorScope) => backingStorage.list(designId, actorScope),
+      pruneOlderThan: (updatedAt) => backingStorage.pruneOlderThan(updatedAt),
+    };
+    const entry = fileEntry(6);
+    const journal = journalDesignSaveOutboxEntry(entry, storage);
+    await journalStarted.promise;
+    let discarded = false;
+    const discard = discardDesignSaveOutboxEntry(entry, storage).then(() => {
+      discarded = true;
+    });
+
+    await Promise.resolve();
+    expect(discarded).toBe(false);
+    releaseJournal.resolve();
+    await Promise.all([journal, discard]);
+
+    expect(discarded).toBe(true);
+    expect(await backingStorage.list("design-1", "user-1")).toEqual([]);
   });
 
   it("replays an HTML payload larger than keepalive limits after reload", async () => {

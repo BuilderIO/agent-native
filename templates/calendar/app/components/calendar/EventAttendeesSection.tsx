@@ -487,6 +487,12 @@ function AttendeeRow({
           startIso: event.start,
         })
       : null;
+  const additionalGuestCount =
+    typeof attendee.additionalGuests === "number" &&
+    Number.isFinite(attendee.additionalGuests) &&
+    attendee.additionalGuests > 0
+      ? Math.floor(attendee.additionalGuests)
+      : 0;
 
   // One muted line under the name, the way Notion stacks it. The RSVP state is
   // already on the avatar badge, so it does not get a line of its own; the
@@ -500,6 +506,14 @@ function AttendeeRow({
         : inlineRsvp
           ? t("eventForm.yourResponse", { status: statusLabel })
           : null,
+    additionalGuestCount > 0
+      ? t(
+          additionalGuestCount === 1
+            ? "deleteEvent.guest_one"
+            : "deleteEvent.guest_other",
+          { count: additionalGuestCount },
+        )
+      : null,
     localTimeLabel,
   ]
     .filter(Boolean)
@@ -763,6 +777,7 @@ export function EventAttendeesSection({
       ? others.slice(0, ATTENDEE_INITIAL_SHOW)
       : others;
   const hiddenCount = others.length - visibleOthers.length;
+
   const attendeeStatusCounts = getCalendarAttendeeStatusCounts(attendees);
   const accepted = attendeeStatusCounts.accepted ?? 0;
   const tentative = attendeeStatusCounts.tentative ?? 0;

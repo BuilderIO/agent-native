@@ -7,7 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
@@ -54,7 +57,10 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
+      allowCheckpointFailureSkip: true,
+    });
+    const checkpointField = checkpointSkippedResultField(checkpoint);
 
     const id = nanoid();
     const now = new Date().toISOString();
@@ -187,6 +193,7 @@ export default defineAction({
       ...(advisory.length > 0
         ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }
         : {}),
+      ...checkpointField,
     };
   },
 });

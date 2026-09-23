@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import {
   indexHtml,
+  MOD,
   newDesign,
   node,
   openEditor,
@@ -537,8 +538,14 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
     }
     await expect
       .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain('data-agent-native-node-id="explicit-source"');
-    await openEditor(page, designId);
+      .toContain("grid-column: 3 / 4");
+    expect(
+      (await childrenSnapshot(page, "explicit-grid")).map((child) => child.id),
+    ).toEqual(["e1", "explicit-source", "e2", "e3"]);
+    const persistedBefore = await indexHtml(page, designId);
+    expect(
+      persistedBefore.indexOf('data-agent-native-node-id="explicit-source"'),
+    ).toBeLessThan(persistedBefore.indexOf('data-agent-native-node-id="e2"'));
     const state = await preview(page)
       .locator("body")
       .evaluate(() => {
@@ -568,6 +575,90 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
       span: "1 / span 2",
       gridContains: true,
     });
+
+    await page.keyboard.down(MOD);
+    await page.keyboard.press("z");
+    await page.keyboard.up(MOD);
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .not.toContain("grid-column: 3 / 4");
+    await expect
+      .poll(() =>
+        preview(page)
+          .locator('[data-agent-native-node-id="explicit-source"]')
+          .evaluate((source) => source.parentElement?.tagName),
+      )
+      .toBe("BODY");
+
+    await page.keyboard.down(MOD);
+    await page.keyboard.press("Shift+z");
+    await page.keyboard.up(MOD);
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toContain("grid-column: 3 / 4");
+    await openEditor(page, designId);
+    const redone = await preview(page)
+      .locator('[data-agent-native-node-id="explicit-source"]')
+      .evaluate((source) => ({
+        parent: source.parentElement?.getAttribute("data-agent-native-node-id"),
+        column: (source as HTMLElement).style.gridColumn,
+        row: (source as HTMLElement).style.gridRow,
+      }));
+    expect(redone).toEqual({
+      parent: "explicit-grid",
+      column: "3 / 4",
+      row: "auto",
+    });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("G-5 after-edge grid drop persists through undo, redo, and reload", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, GRID_EXPLICIT_ORACLE_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectNode(page, "explicit-source");
+    const e2 = (await node(page, "e2").boundingBox())!;
+    await dragToHeldPoint(page, "explicit-source", {
+      x: e2.x + e2.width - 4,
+      y: e2.y + e2.height / 2,
+    });
+    try {
+      const guide = await guideSnapshot(page);
+      expect(guide).toMatchObject({ display: "block" });
+      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
+    } finally {
+      await page.mouse.up();
+    }
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toContain("grid-column: 3 / 4");
+    expect(
+      (await childrenSnapshot(page, "explicit-grid")).map((child) => child.id),
+    ).toEqual(["e1", "e2", "explicit-source", "e3"]);
+    const persistedAfter = await indexHtml(page, designId);
+    expect(
+      persistedAfter.indexOf('data-agent-native-node-id="e2"'),
+    ).toBeLessThan(
+      persistedAfter.indexOf('data-agent-native-node-id="explicit-source"'),
+    );
+
+    await page.keyboard.down(MOD);
+    await page.keyboard.press("z");
+    await page.keyboard.up(MOD);
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .not.toContain("grid-column: 3 / 4");
+    await expect
+      .poll(() =>
+        preview(page)
+          .locator('[data-agent-native-node-id="explicit-source"]')
+          .evaluate((source) => source.parentElement?.tagName),
+      )
+      .toBe("BODY");
   } finally {
     await deleteDesign(page, designId);
   }

@@ -10,10 +10,6 @@ const editorSource = readFileSync(
   new URL("./DocumentEditor.tsx", import.meta.url),
   "utf8",
 );
-const sidebarSource = readFileSync(
-  new URL("../sidebar/DocumentSidebar.tsx", import.meta.url),
-  "utf8",
-);
 const treeItemSource = readFileSync(
   new URL("../sidebar/DocumentTreeItem.tsx", import.meta.url),
   "utf8",
@@ -45,10 +41,9 @@ describe("page menu Pin/Unpin", () => {
     expect(toolbarSource).toContain("editor.toolbar.pin");
   });
 
-  it("uses a pin glyph for pinning in the page menu and sidebar", () => {
+  it("uses a pin glyph for the page and sidebar row pin commands", () => {
     for (const source of [
       toolbarSource,
-      sidebarSource,
       treeItemSource,
       databaseSidebarSource,
     ]) {

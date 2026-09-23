@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
+const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
+
 /**
  * Figma parity (unique-paths-5): Ctrl/Cmd-drag overrides a flex/auto-layout
  * parent's normal reorder-only drag resistance, letting the child move (or
@@ -84,12 +86,12 @@ describe("Ctrl-drag out of an auto-layout parent", () => {
       await page.waitForTimeout(50);
 
       await page.mouse.move(74, 54);
-      await page.keyboard.down("Control");
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT_KEY);
       await page.mouse.down();
       await page.mouse.move(74, 130, { steps: 10 });
       await page.waitForTimeout(50);
       await page.mouse.up();
-      await page.keyboard.up("Control");
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT_KEY);
       await page.waitForTimeout(50);
 
       expect(

@@ -11,16 +11,19 @@
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
+import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
 } from "../../server/builder-oauth.js";
+import { hasChatGPTSubscriptionCredential } from "../../server/chatgpt-subscription-oauth.js";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  isTrustedSelfHostedRuntime,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
@@ -35,6 +38,10 @@ import {
 } from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
+import {
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  CHATGPT_SUBSCRIPTION_LAB_KEY,
+} from "../chatgpt-subscription-contract.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
@@ -856,10 +863,13 @@ async function resolveProviderBaseUrl(
     ? readDeployCredentialEnv(envVar)
     : undefined;
 
+  const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
+
   if (!raw) {
     if (!deployValue) return undefined;
     return validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
+      isOllama,
     });
   }
 
@@ -870,9 +880,8 @@ async function resolveProviderBaseUrl(
         // allowance as the explicit deploy-only branch above without extending
         // it to user-, org-, or workspace-scoped endpoint values.
         allowPrivate: deployValue !== undefined && raw === deployValue,
-        allowLocalOllama:
-          envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV !== "production",
+        allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+        isOllama,
       })
     : undefined;
 }
@@ -945,6 +954,24 @@ async function resolveUsableProviderSecret(
   return authFailure ? null : value;
 }
 
+function identityUserEmail(
+  identity?: BuilderCredentialLookupIdentity,
+): string | undefined {
+  const explicit = identity?.userEmail?.trim();
+  if (explicit) return explicit;
+  return getRequestUserEmail()?.trim() || undefined;
+}
+
+async function chatGPTSubscriptionUsableForRequest(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  const email = identityUserEmail(identity);
+  if (!email) return false;
+  const labs = await getUserLabs(email);
+  if (labs[CHATGPT_SUBSCRIPTION_LAB_KEY] !== true) return false;
+  return hasChatGPTSubscriptionCredential(email);
+}
+
 /**
  * Return true only when the supplied key can be positively identified as a
  * usable credential for a different registered provider.
@@ -991,6 +1018,18 @@ async function engineCreateConfigForEntry(
   credentialIdentity?: BuilderCredentialLookupIdentity,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    const email = identityUserEmail(credentialIdentity);
+    if (
+      !email ||
+      !(await chatGPTSubscriptionUsableForRequest(credentialIdentity))
+    ) {
+      throw new Error(
+        "Enable the ChatGPT subscription lab and connect a ChatGPT subscription before using this engine.",
+      );
+    }
+    safeExtra.userEmail = email;
+  }
   let matchingApiKey = apiKey;
   if (
     matchingApiKey === undefined &&
@@ -1055,10 +1094,10 @@ async function engineCreateConfigForEntry(
   }
   if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
+      const isOllama = entry.name === "ai-sdk:ollama";
       safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
-        allowLocalOllama:
-          entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV !== "production",
+        allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+        isOllama,
       });
     }
     if (safeExtra.baseUrl == null) {
@@ -1143,6 +1182,9 @@ export async function isStoredEngineUsableForRequest(
   entry: AgentEngineEntry,
   options: { credentialIdentity?: BuilderCredentialLookupIdentity } = {},
 ): Promise<boolean> {
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
+  }
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
@@ -1172,6 +1214,9 @@ export async function isResolvedEngineUsableForRequest(
   // Custom engines may have their own credential contract outside the core
   // registry metadata, so do not block them speculatively.
   if (!entry) return true;
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
+  }
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 

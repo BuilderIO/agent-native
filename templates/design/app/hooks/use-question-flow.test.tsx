@@ -119,6 +119,26 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
+  it("clears the questionnaire before sending the generating continuation", async () => {
+    const order: string[] = [];
+    clearMock.mockImplementation(() => order.push("clear"));
+    agentChatMocks.sendToDesignAgentChat.mockImplementation(() => {
+      order.push("send");
+      return "generated-tab-id";
+    });
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      await latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    expect(order).toEqual(["clear", "send"]);
+    await cleanup();
+  });
+
   // The continuation is the turn that actually generates. It must re-send the
   // selection the design was started with: a fresh thread has no override, and
   // a reused thread loses its in-memory one across a reload.

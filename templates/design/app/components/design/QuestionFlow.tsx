@@ -81,7 +81,7 @@ export function QuestionFlow({
        column overflows its own padding box, so its `pb` renders above the
        overflow and the scroll container's `py` bottom is dropped. */
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
-      <main className="w-full max-w-[820px] pb-16">
+      <main className="w-full min-w-0 max-w-[820px] pb-16">
         <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
           <h2 className="text-[22px] font-semibold leading-7 tracking-normal text-foreground sm:text-2xl sm:leading-8">
             {title ?? t("questionFlow.defaultTitle")}
@@ -356,7 +356,9 @@ function OptionButton({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] font-semibold leading-4">
-          <span className="min-w-0 truncate">{option.label}</span>
+          <span className="min-w-0 break-words whitespace-normal">
+            {option.label}
+          </span>
           {option.recommended && (
             <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none text-muted-foreground">
               {t("questionFlow.recommended")}
@@ -461,7 +463,7 @@ function ColorOptions({
                 )}
                 style={{ backgroundColor: option.color || option.value }}
               />
-              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4">
+              <span className="min-w-0 flex-1 break-words whitespace-normal text-[12px] font-semibold leading-4">
                 {option.label}
               </span>
               {selected && <IconPalette className="size-3.5 shrink-0" />}

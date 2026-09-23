@@ -1,0 +1,649 @@
+---
+title: "Design: 開発者ガイド"
+description: "クイックスタート、完全な action 一覧、データモデル、action の詳しい解説、ルート、そして Design テンプレートを拡張する方法。"
+---
+
+# 開発者ガイド
+
+このページは、Design テンプレートをカスタマイズしたり、その上に直接構築
+したりする人のためのものです。クイックスタート、すべての action、データ
+モデル、1 つの action の詳しい解説、ルートのサーフェス、そして追加の仕方を
+扱います。アプリが何をするかについては [Design](/docs/template-design) を
+参照してください。
+
+## クイックスタート
+
+<Steps>
+
+### アプリを作成する
+
+```bash
+npx @agent-native/core@latest create my-design --standalone --template design
+cd my-design
+pnpm install
+```
+
+これには [Node.js](https://nodejs.org) 22.22 以降と [pnpm](https://pnpm.io)
+が事前にインストールされている必要があります。どちらもまだインストールして
+いない場合や、LLM 接続 (Builder.io、Anthropic/OpenAI のキー、またはローカルの
+Ollama) を設定していない場合は、[はじめに](/docs/getting-started) を参照して
+ください。Design を他のアプリと一緒に使うワークスペースにする場合は、代わりに
+`npx @agent-native/core@latest create my-platform` を実行し、セットアップ中に
+Design を選んでください。
+
+### 開発サーバーを起動する
+
+```bash
+pnpm dev
+```
+
+アプリは `http://localhost:8099`、Design の既定の開発用ポートで開きます。
+Design は外部接続なしでも完全に動作します。接続プロンプトに出会うのは、
+それらを設定する前に Figma のインポートや Full App Building を試したときだけ
+です。
+
+</Steps>
+
+## Action 一覧
+
+デザイン固有の操作はすべて `templates/design/actions/` にある TypeScript
+ファイルで、`POST /_agent-native/actions/:name` に自動的にマウントされ、CLI
+から `pnpm action <name>` として実行できます。
+
+### デザイン
+
+| Action                    | 何をするか                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `create-design`           | 空のデザイン シェルを作成する                                                 |
+| `generate-design`         | 生成された HTML/JSX ファイルの内容を書き込む                                  |
+| `edit-design`             | 既存のファイルに対して、的を絞った検索/置換の編集を行う                       |
+| `update-design`           | デザインのメタデータ (タイトルやリンクされたデザイン システムなど) を更新する |
+| `get-design`              | id で 1 件のデザインを読み取る                                                |
+| `list-designs`            | アクセス可能なデザインを一覧表示する                                          |
+| `duplicate-design`        | デザインとそのファイルをコピーする                                            |
+| `delete-design`           | デザインを削除する                                                            |
+| `apply-tweaks`            | ライブの調整ノブの値を永続化する                                              |
+| `present-design-variants` | いくつかの方向性を画面として保存し、横並びのピッカーを表示する                |
+| `show-design-questions`   | あいまいなプロンプトに対して、確認の質問オーバーレイを表示する                |
+| `generate-screens`        | 複数の画面を一括で生成する                                                    |
+
+### ファイル
+
+| Action        | 何をするか                         |
+| ------------- | ---------------------------------- |
+| `create-file` | デザインに新しいファイルを追加する |
+| `update-file` | ファイルの内容を更新する           |
+| `list-files`  | デザインのファイルを一覧表示する   |
+| `delete-file` | デザインからファイルを削除する     |
+
+### テンプレート
+
+| Action                        | 何をするか                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------ |
+| `list-design-templates`       | 組み込みおよび保存済みのテンプレートを一覧表示する                             |
+| `create-design-from-template` | テンプレートのファイル、寸法、ロックされたレイヤーを新しいデザインにコピーする |
+| `save-design-as-template`     | 現在のデザインを再利用可能なテンプレートとして保存する                         |
+| `delete-design-template`      | 保存済みのテンプレートを削除する                                               |
+
+### デザイン システムとブランドのインポート
+
+| Action                             | 何をするか                                                                                                                                                      |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-design-system`             | デザイン システムを一から、または Material 3、Carbon、Primer のような公開プリセットから作成する                                                                 |
+| `update-design-system`             | デザイン システムのトークンや設定を更新する                                                                                                                     |
+| `get-design-system`                | id で 1 件のデザイン システムを読み取る                                                                                                                         |
+| `list-design-systems`              | アクセス可能なデザイン システムを一覧表示する                                                                                                                   |
+| `delete-design-system`             | デザイン システムを削除する                                                                                                                                     |
+| `set-default-design-system`        | どのデザイン システムをアカウントの既定にするか設定する                                                                                                         |
+| `analyze-brand-assets`             | アップロードされたブランド アセットから色、タイポグラフィ、ロゴの参照を抽出する                                                                                 |
+| `import-from-url`                  | 実際の Web サイトから算出済みの色、タイポグラフィ、ロゴの参照を取得する                                                                                         |
+| `index-design-system-with-builder` | 接続されたコード、GitHub リポジトリ、または `.fig` を含むデザイン ファイルから、Builder DSI 経由でデザイン システムをインデックスする (Builder.io の接続が必要) |
+| `import-design-tokens`             | デザイン トークンを直接インポートする                                                                                                                           |
+| `import-document`                  | DOCX、PPTX、または PDF のアップロードからブランドのシグナルを抽出する                                                                                           |
+| `import-design-project`            | 既存のデザインまたはデザイン システムからデザイン システムを開始する                                                                                            |
+
+### Figma
+
+| Action                        | 何をするか                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `import-figma-frame`          | Figma のフレームまたはファイルを、忠実度レポート付きで、本物の編集可能な画面としてインポートする                                      |
+| `import-figma-clipboard`      | Figma のクリップボード貼り付けを、隠しメタデータで照合するか、それがなければ確信度の高いテキストの一致を 2 件以上使ってインポートする |
+| `get-figma-design-context`    | 何もインポートせずに、Figma のファイルやフレームの構造を読み取る                                                                      |
+| `get-figma-styles`            | Figma ファイルの公開済み Styles パネルを要約する。Enterprise Variables API ではない                                                   |
+| `get-figma-connection-status` | Figma アカウントが接続されているかどうかを確認する                                                                                    |
+| `list-figma-library-assets`   | Figma に接続されたライブラリから、挿入可能なコンポーネントを一覧表示する                                                              |
+| `insert-figma-library-asset`  | 公開済みの Figma コンポーネントを 1 つ、デザインに挿入する                                                                            |
+| `hydrate-figma-paste-images`  | Figma のクリップボード貼り付けから画像の参照を解決する                                                                                |
+
+### ブレークポイントと画面の状態
+
+| Action                  | 何をするか                                                 |
+| ----------------------- | ---------------------------------------------------------- |
+| `add-breakpoint`        | レスポンシブなブレークポイントを追加する                   |
+| `remove-breakpoint`     | レスポンシブなブレークポイントを削除する                   |
+| `set-active-breakpoint` | どのブレークポイントを編集中にするか設定する               |
+| `create-design-state`   | 空やエラーのような、名前付きの代替状態を保存する           |
+| `apply-design-state`    | 保存済みの状態を適用する                                   |
+| `capture-design-state`  | 現在の状態を名前付きのスナップショットとしてキャプチャする |
+| `list-design-states`    | 保存済みの状態を一覧表示する                               |
+| `delete-design-state`   | 保存済みの状態を削除する                                   |
+
+### コンポーネント
+
+| Action                        | 何をするか                                                           |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `create-component`            | 選択した要素を再利用可能なコンポーネントに昇格させる                 |
+| `index-components`            | 既存の繰り返し要素を検出し、コンポーネントとして登録する             |
+| `get-component-details`       | コンポーネント インスタンスのバリアントと props を読み取る           |
+| `preview-component-prop-edit` | prop の変更を適用する前にプレビューする                              |
+| `apply-component-prop-edit`   | 1 つのコンポーネント インスタンスに prop の変更を適用する            |
+| `detach-component-instance`   | インスタンスをデタッチして、そのコンポーネントを追跡しないようにする |
+| `swap-component-instance`     | インスタンスが指すコンポーネントを入れ替える                         |
+| `go-to-main-component`        | 参照点として、コンポーネントの最も古いインスタンスへジャンプする     |
+| `open-component-source`       | コンポーネントのソースの場所を開く                                   |
+
+### モーションとシェーダー
+
+| Action                   | 何をするか                                                |
+| ------------------------ | --------------------------------------------------------- |
+| `get-motion-timeline`    | 要素のモーション タイムラインを読み取る                   |
+| `apply-motion-edit`      | モーション タイムラインにキーフレームを追加または編集する |
+| `remove-motion-timeline` | モーション タイムラインを削除する                         |
+| `apply-shader`           | シェーダー エフェクトを適用する                           |
+| `apply-shader-fill`      | シェーダーを塗りとして適用する                            |
+| `preview-shader-fill`    | シェーダーの塗りを適用する前にプレビューする              |
+| `get-shader`             | シェーダーの現在のパラメーターを読み取る                  |
+
+### 品質 {#quality}
+
+| Action                   | 何をするか                                                                              |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `run-design-audit`       | 画面のアクセシビリティ、コントラスト、画面間のずれの問題を確認する                      |
+| `apply-a11y-fix`         | 監査結果に対する自動修正を適用する                                                      |
+| `take-design-screenshot` | 実際のブラウザで画面をレンダリングし、はみ出し、壊れた画像、コンソール エラーを確認する |
+| `get-design-review`      | キャッシュされたアクセシビリティとビジュアル差分の検出結果を読み取る                    |
+
+### レビュー フィードバック
+
+フレームワーク レベルのもので、`templates/design/actions` にはありません。
+どのアプリでも取り付けられる同じシステムである `@agent-native/core/review`
+に由来します。
+
+| Action                        | 何をするか                                                 |
+| ----------------------------- | ---------------------------------------------------------- |
+| `get-review-feedback`         | リソースの未解決のレビュー コメントを読み取る              |
+| `create-review-comment`       | 要素に固定されたコメントを残す                             |
+| `reply-review-comment`        | コメント スレッドに返信する                                |
+| `resolve-review-thread`       | 1 行のメモでスレッドを解決する                             |
+| `send-review-thread-to-agent` | コメント スレッドをエージェントに送って対応させる          |
+| `consume-review-feedback`     | フィードバックをエージェントが受け取り済みとしてマークする |
+| `list-review-comments`        | リソースのコメントを一覧表示する                           |
+| `delete-review-comment`       | コメントを削除する                                         |
+| `set-review-status`           | デザイン全体のレビュー ステータスを設定する                |
+
+### エクスポートとハンドオフ
+
+| Action                       | 何をするか                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `export-html`                | 自己完結型の HTML ファイルをエクスポートする                                                                         |
+| `export-zip`                 | 種類ごとに整理されたすべてのデザイン ファイルと、メタデータ ファイルをエクスポートする                               |
+| `export-pdf`                 | 複数画面の概要表示用に、クライアント側でレンダリングされた PDF をエクスポートする                                    |
+| `export-svg`                 | ライブの HTML を包む SVG をエクスポートする                                                                          |
+| `export-design-as-figma-svg` | 本物のベクター形状を、編集可能な Figma SVG としてエクスポートする                                                    |
+| `export-coding-handoff`      | デザイン トークン、ファイル、そして外部のコーディング エージェント向けにそのまま貼り付けられるプロンプトをコピーする |
+
+### Full App Building (fusion、フラグ制御) {#full-app-building}
+
+`full-app-building` フィーチャー フラグの裏にあり、ブランチのプロジェクト id
+が設定された状態で Builder.io の接続が必要です。詳しくは下記の [Full App
+Building](#full-app-building) を参照してください。
+
+| Action                         | 何をするか                                                                              |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
+| `create-fusion-app`            | Builder Fusion ブランチをプロビジョニングし、プロンプトから実際のアプリの雛形を作成する |
+| `sync-fusion-app`              | fusion ブランチのコンテナをポーリングして、プレビュー URL を取得する                    |
+| `add-fusion-screens`           | fusion に裏付けられたデザインに画面を追加する                                           |
+| `queue-fusion-edit`            | アプリ自身のコーディング エージェント向けに編集をキューに入れる                         |
+| `list-fusion-edits`            | キューに入っている、および適用済みの fusion 編集を一覧表示する                          |
+| `apply-fusion-edits`           | キューに入っている編集をアプリのコーディング エージェントへ送る                         |
+| `send-fusion-message`          | fusion アプリのコーディング エージェントへメッセージを送る                              |
+| `push-fusion-app`              | fusion ブランチを push する                                                             |
+| `deploy-fusion-app`            | fusion ブランチを実際の URL にデプロイする                                              |
+| `get-fusion-deploy-status`     | デプロイのステータスを確認する                                                          |
+| `create-design-branch`         | fusion に裏付けられたデザイン用に新しいブランチを作成する                               |
+| `get-design-branch-diff`       | fusion ブランチを以前のバージョンと比較する                                             |
+| `deploy-design-preview`        | fusion に裏付けられたデザインのプレビューをデプロイする                                 |
+| `migrate-inline-design-to-app` | インラインのプロトタイプを fusion に裏付けられたアプリに変換する                        |
+| `connect-builder-app`          | Builder.io の OAuth 接続フローを開始する                                                |
+
+### Localhost ブリッジ (/visual-edit)
+
+| Action                            | 何をするか                                        |
+| --------------------------------- | ------------------------------------------------- |
+| `connect-localhost`               | 実行中のローカル アプリをデザインに登録する       |
+| `list-localhost-connections`      | 接続済みのローカル アプリを一覧表示する           |
+| `add-localhost-screens`           | 接続済みのローカル アプリから画面を追加する       |
+| `request-localhost-write-consent` | ローカル ファイルへの書き戻し許可をリクエストする |
+| `grant-localhost-write-consent`   | その許可を付与する                                |
+| `revoke-localhost-write-consent`  | その許可を取り消す                                |
+
+### ローカルおよびコード ソースの編集
+
+根底にあるファイルがインラインの HTML 行ではない、localhost や fusion に
+裏付けられたデザイン向けです。
+
+| Action                      | 何をするか                                        |
+| --------------------------- | ------------------------------------------------- |
+| `read-source-file`          | 実際のソース ファイルを読み取る                   |
+| `apply-source-edit`         | 実際のソース ファイルに編集を適用する             |
+| `list-source-files`         | 実際のアプリのソース ファイルを一覧表示する       |
+| `get-code-layer-projection` | キャンバス レイヤーをそのソースの場所に対応付ける |
+| `read-local-file`           | 接続済みのローカル アプリからファイルを読み取る   |
+| `write-local-file`          | 接続済みのローカル アプリにファイルを書き込む     |
+| `list-local-files`          | 接続済みのローカル アプリのファイルを一覧表示する |
+
+### コンテキストとナビゲーション
+
+| Action                | 何をするか                                                                 |
+| --------------------- | -------------------------------------------------------------------------- |
+| `view-screen`         | 保留中の質問やバリアントの選択を含め、ユーザーが現在見ているものを確認する |
+| `get-design-snapshot` | 外部のエージェントが続きから作業できるよう、デザインの現在の状態を読み取る |
+| `navigate`            | UI をビュー、パネル、タブ、またはツールに移動する                          |
+
+## データモデル
+
+すべてのデータは Drizzle ORM を介して SQL に存在します。スキーマ:
+`templates/design/server/db/schema.ts`。デザインとデザイン システムは、標準の
+`ownableColumns` と対応するフレームワーク共有テーブルを備えているため、
+ユーザーごと/組織ごとの共有モデルに組み込まれます。
+
+以下の表は、デザイン、ファイル、テンプレート、バージョン、デザイン システム
+という中核の所有可能リソースを扱います。
+
+| テーブル                                 | 内容                                                                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designs`                                | デザイン プロジェクト — `title`、`description`、`project_type` (`prototype` / `other`)、`data` JSON blob、そして任意の `design_system_id` リンク |
+| `design_files`                           | デザインに属する個々のファイル (`filename`、`content`、既定で `html` になる `file_type`)                                                         |
+| `design_templates`                       | 再利用可能なテンプレートのメタデータ、寸法、既定値、元になったデザインへの参照、ロックされたレイヤー数                                           |
+| `design_template_files`                  | ユーザーがテンプレートから開始したときに、通常の編集可能なデザインへコピーされる、スナップショットされたテンプレート ファイル                    |
+| `design_template_shares`                 | 非公開、組織、明示的な共有、公開のテンプレート発見のためのフレームワーク共有テーブル                                                             |
+| `design_versions`                        | 履歴とロールバックのための、任意の `label` を伴うデザインのポイントインタイム `snapshot`                                                         |
+| `design_systems`                         | 再利用可能なブランド トークン — `data` (色/タイポグラフィ/間隔)、`assets`、`custom_instructions`、そして `is_default` フラグ                     |
+| `design_shares` / `design_system_shares` | プリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするフレームワーク共有テーブル                                   |
+
+<DataModel
+  id="doc-block-design11"
+  title="Design のデータモデル"
+  summary={
+    "デザインは自身のファイルとバージョン管理されたスナップショットを所有し、必要に応じて再利用可能なデザイン システムをリンクします。デザインとシステムはどちらも所有可能で、それぞれにフレームワーク共有テーブルがあります。"
+  }
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "デザイン プロジェクト (所有可能)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "初期値は {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "デザイン内のファイル",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "既定値は html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "履歴 / ロールバック",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "再利用可能なブランド トークン (所有可能)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "色 / タイポグラフィ / 間隔",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "フレームワーク共有テーブル",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "フレームワーク共有テーブル",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "適用先",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
+
+デザイン プロジェクトは、コンテンツを持つまではシェルです。`create-design`
+は空の行 (`data: "{}"`) を作り、その後 `generate-design` が実際のスタンドアロン
+HTML/JSX ファイルを書き込みます。生成された成果物、編集可能なソース、そして
+すべてのエクスポートは同じ HTML から来ているので、翻訳すべき独立した「AI
+モックアップ」形式は存在しません。リンクされたデザイン システムは、エージェント
+がすべての生成パスで尊重するトークンと `custom_instructions` を提供します。
+
+他に 7 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
+扱っている機能を支えています。`design_localhost_connections` と
+`design_localhost_write_grants` は [ローカル アプリのインポート](/docs/template-design-features#import)
+を支え、`component_index` は [Design タブのコンポーネント セクション](/docs/template-design-features#design-tab)
+を支え、`motion_timeline` は各要素の編集可能なモーション タイムライン
+(エディター内の Motion ドック) を支え、`design_state` はデザインの名前付き
+代替状態、静的フィクスチャ、ライブアプリのキャプチャを保持し、
+`design_fusion_edits` は上記の [Full App Building](#full-app-building) で
+説明した fusion 編集キューを支え、`design_review_snapshot` は上記の
+[品質](#quality) で説明した `get-design-review` の裏にあるアクセシビリティの
+検出結果とビジュアル差分をキャッシュします。
+
+永続化されたレビュー コメントとスレッド (`get-review-feedback`、
+`resolve-review-thread`、その他) は、Design 専用のテーブルではまったく
+ありません。どのアプリでも取り付けられるのと同じ方法でデザインにスコープ
+された、`@agent-native/core/review` の共有フレームワーク レビュー システム
+(`agent_review_comments` / `agent_review_statuses`) です。ユーザー向けの動作
+については [コメント タブ](/docs/template-design-features#comments-tab) を
+参照してください。
+
+## 1 つの action を詳しく見る
+
+`save-design-as-template` は、どの action でも再利用する価値のあるパターンを
+示しています。何か作業をする前にサポートされていない入力形式を拒否すること、
+何も保存しない事態を防ぐこと、id を各読み取り側でではなく一度だけ再マッピング
+すること、そして 1 つのトランザクションで 2 つのテーブルに書き込むことで、
+テンプレートがメタデータだけでファイルがない状態に絶対にならないようにする
+ことです。
+
+<AnnotatedCode
+  id="doc-block-design-template-walkthrough"
+  title="デザインをテンプレートとして保存する"
+  filename="templates/design/actions/save-design-as-template.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "42-45",
+      label: "編集者だけが保存できる",
+      note: "resolveAccess() は呼び出し元がそもそもそのデザインに到達できるかを確認し、ロール チェックはスナップショット作業が始まる前に閲覧者を拒否します。",
+    },
+    {
+      lines: "56-63",
+      label: "サポートされていないソース種別を防ぐ",
+      note: "fusion または localhost に裏付けられたデザインの実際のファイルは、このデータベースの行の外にあります。そのため、ここでテンプレートとして保存すると、空またはすでに古くなったコピーが黙って作られてしまいます。事前に拒否するほうが、こっそり動かないテンプレートより安上がりで正直です。",
+    },
+    {
+      lines: "66-71",
+      label: "少なくとも 1 つの実際の画面が必要",
+      note: "空のデザインは上記のすべてのチェックを通過してしまうため、このチェックが明示的に検出し、誰も使えないテンプレートが保存されるのを防ぎます。",
+    },
+    {
+      lines: "78-84",
+      label: "ファイル id は一度だけ再マッピングされる",
+      note: "fileIdMap は保存されるすべてのファイルに新しい id を与えるので、同じデザインを複数のテンプレートとして、あるいは複数のアカウントから保存しても、古い id で衝突することはありません。",
+    },
+    {
+      lines: "94-129",
+      label: "1 つのトランザクション、2 つのテーブル",
+      note: "テンプレートのメタデータ行とそのファイルは一緒に挿入されます。どちらか片方だけが失敗すると、読み取り側はファイルのないテンプレートや、所有するテンプレート行のないファイルを目にすることになりかねません。",
+    },
+  ]}
+/>
+
+## エディター モデル
+
+Design は、複数画面の作業では概要表示を最初に使います。生成や大きな更新の
+後、エディターは画面概要を開きます。これは無限キャンバスで、各画面は選択、
+移動、リサイズ、ドロップ、複製できる静的なフレームです。1 つの画面に集中した
+スクロールやプロトタイプの操作が必要なときは、フレームのフルビュー ボタンを
+使います。
+
+単一画面モードは、スクロール、プロトタイプの動作とのインタラクション、そして
+1 つのレンダリング済みファイル内の DOM/コード レイヤーの編集のためのもの
+です。レイヤー パネルもこの分割を反映しており、画面が最上位のフレームで、
+アクティブな画面の DOM/コード レイヤーがその下にネストされます。
+
+すべての画面は、ブレークポイントごとの別々のコピーではなく、異なる幅で
+レンダリングされる 1 つのドキュメントです。ベース (最も幅広い) フレームが
+下にカスケードし、より狭いアクティブなブレークポイントで行った編集は、その
+上に幅スコープのオーバーライドとして保持されます。
+
+## エディター拡張機能
+
+エディターには **調整** の後に **拡張機能** インスペクター タブがあります。
+これは Design 専用のプラグイン レーンのように動作します。ユーザーは
+**+ 拡張機能** をクリックしてエージェントに拡張機能の作成を依頼するか、
+Design 専用の action ではなく、フレームワークの `create-extension`、
+`add-extension-slot-target`、`install-extension` の各 action を使って
+`design.editor.inspector` スロットを宣言する拡張機能をインストールできます。
+
+Design の拡張機能は、標準の拡張機能サンドボックスを通じて、アートボードの
+横にインラインで表示されます。ホストは `window.slotContext` と
+`window.onSlotContext(...)` の更新として、現在の `designId`、アクティブな
+ファイル、画面一覧、選択中の画面 id、選択中の要素のメタデータ、表示モード、
+ズーム、アクティブなツール、調整の値を渡します。これにより、拡張機能は
+現在の選択に関する情報を表示したり、スタイルのコントロールを提供したり、
+開いているデザインの周辺にコンパクトなワークフローを構築したりできます。
+
+決定的な処理では、拡張機能は拡張機能ブリッジを通じてアプリの actions を
+呼び出せます。AI 主導の変更では、選択中の要素のセレクター/ソース id と
+要求された変更を添えて、拡張機能に `agentNative.chat.send(...)` を呼び出させて
+ください。エージェントはまず `view-screen` を呼び出し、要素のスタイル、
+クラス、テキスト、移動の変更には `apply-visual-edit` を、アートボードの配置
+変更には `canvasFrames` を伴う `update-design` / `generate-design` を使うべき
+です。サンドボックス、永続状態、ブリッジ API については
+[拡張機能](/docs/extensions#capabilities) を参照してください。
+
+## ルート リファレンス
+
+<FileTree
+  id="doc-block-design12"
+  title="templates/design/: ルート、スキーマ、skills"
+  entries={[
+    {
+      path: "actions/",
+      note: "約 240 ファイル、エージェントが呼び出せる操作ごとに 1 つ",
+    },
+    { path: "app/routes/_index.tsx", note: "デザイン一覧のルート" },
+    { path: "app/routes/design.$id.tsx", note: "エディターのルート" },
+    {
+      path: "app/routes/present.$id.tsx",
+      note: "プレゼンテーション / 共有ビュー",
+    },
+    { path: "app/routes/templates.tsx", note: "テンプレート ページ" },
+    {
+      path: "app/routes/design-systems.tsx",
+      note: "デザイン システムの一覧。design-systems_.setup.tsx が新規作成を行う",
+    },
+    {
+      path: "app/routes/visual-edit.tsx",
+      note: "/visual-edit のローカル アプリ ブリッジ用のランディング ルート",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "デザイン、ファイル、バージョン、システム、共有に加え、7 つの機能テーブル用の Drizzle スキーマ",
+    },
+    {
+      path: ".agents/skills/design-generation/SKILL.md",
+      note: "5 段階の生成フロー、審美的な品質基準",
+    },
+    {
+      path: ".agents/skills/design-systems/SKILL.md",
+      note: "ブランド トークン、Figma のインポート/読み取り/貼り付け",
+    },
+    {
+      path: ".agents/skills/full-app-build/SKILL.md",
+      note: "フラグで制御される fusion (フル アプリ) モード",
+    },
+  ]}
+/>
+
+`templates/design/app/routes/` 配下のその他のルート: `examples.tsx`、
+`extensions.tsx` とそのネストされたルート、`observability.tsx`、それに
+`settings.tsx` と `team.tsx`。
+
+## カスタマイズする
+
+Design は完全な、複製可能なテンプレートです。実践的な拡張のアイデアを
+いくつか挙げます。
+
+- 「自分たちのトークンとサンプル コンポーネントを使った、再利用可能な e コマース デザイン システムを追加して。」
+- 「ZIP を社内のレビュー システムにアップロードするエクスポート手順を追加して。」
+- 「既存のランディング ページの HTML を貼り付けて、より強力な 3 つのバージョンをエージェントに頼めるようにして。」
+- 「製品ページ、ダッシュボード、オンボーディング画面のブリーフ用に、保存されたプロンプト ライブラリを追加して。」
+- 「関係者レビュー用のカスタム PDF エクスポート プリセットを追加して。」
+
+エージェントは必要に応じてルート、コンポーネント、actions、SQL に基づく
+モデルを編集します。クローン、カスタマイズ、デプロイの全体的な流れについては
+[テンプレート](/docs/cloneable-saas) を、これがはじめてのエージェントネイティブ
+テンプレートであれば [はじめに](/docs/getting-started) を参照してください。
+
+## 次は何ですか
+
+- [**Design**](/docs/template-design) — 概要と使い始めの手順
+- [**機能**](/docs/template-design-features) — これらの action とこのデータモデルが実現するユーザー向けの動作
+- [**Agent との対話**](/docs/template-design-agent) — エージェントがこれらの action をどう使い分けるか
+- [**マルチアプリ ワークスペースでの Design のクロスアプリ利用**](/docs/template-design-integrations) — これらの action が他のアプリや外部エージェントにどのように公開されるか
+- [**Actions**](/docs/actions-overview) — このテンプレートが構築されている action システム
+- [**共有**](/docs/sharing) — `design_shares` と `design_system_shares` が使う共有権限モデル
+- [**拡張機能**](/docs/extensions) — エディターの拡張機能スロットの裏にあるサンドボックスとブリッジ API

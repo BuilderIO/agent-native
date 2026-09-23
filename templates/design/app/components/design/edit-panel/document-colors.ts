@@ -496,6 +496,7 @@ function colorTokenSpansInCss(
 function colorTokenSpansInHtml(
   content: string,
   properties?: ReadonlySet<string>,
+  options: { includeStyleBlocks?: boolean } = {},
 ): ColorTokenSpan[] {
   const maskedContent = maskNonRenderedHtml(content);
   const styleBlocks = styleBlockSpans(maskedContent);
@@ -511,11 +512,45 @@ function colorTokenSpansInHtml(
     }
   }
 
-  for (const block of styleBlocks) {
-    tokens.push(...colorTokenSpansInCss(block.value, block.start, properties));
+  if (options.includeStyleBlocks !== false) {
+    for (const block of styleBlocks) {
+      tokens.push(
+        ...colorTokenSpansInCss(block.value, block.start, properties),
+      );
+    }
   }
 
   return tokens.sort((left, right) => left.start - right.start);
+}
+
+/**
+ * Per-file color counts by file id. Tokenizing every file is ~1ms per screen
+ * and an edit changes one of them. Owned by its caller so the file contents
+ * it holds go away with the editor that read them.
+ */
+export type DocumentColorCountCache = Map<
+  string,
+  { content: string; counts: Map<string, number> }
+>;
+
+export function documentFileColorCounts(
+  file: DocumentColorSourceFile,
+  cache: DocumentColorCountCache,
+): Map<string, number> {
+  const cached = cache.get(file.id);
+  if (cached?.content === file.content) return cached.counts;
+  const counts = new Map<string, number>();
+  for (const { value: token } of colorTokenSpansInHtml(file.content)) {
+    const parsed = parseCssColor(token);
+    if (!parsed) continue;
+    // Skip fully transparent tokens — not a meaningful "document color"
+    // swatch (matches selectionColorValues' same filter below).
+    if (parsed.a === 0) continue;
+    const hex = rgbaToHex(parsed).toUpperCase();
+    counts.set(hex, (counts.get(hex) ?? 0) + 1);
+  }
+  cache.set(file.id, { content: file.content, counts });
+  return counts;
 }
 
 /**
@@ -532,19 +567,19 @@ function colorTokenSpansInHtml(
 export function extractDocumentColorPalette(
   files: DocumentColorSourceFile[],
   limit = 24,
+  cache: DocumentColorCountCache = new Map(),
 ): string[] {
   const countByHex = new Map<string, number>();
+  const fileIds = new Set<string>();
   for (const file of files) {
+    fileIds.add(file.id);
     if (!file.content) continue;
-    for (const { value: token } of colorTokenSpansInHtml(file.content)) {
-      const parsed = parseCssColor(token);
-      if (!parsed) continue;
-      // Skip fully transparent tokens — not a meaningful "document color"
-      // swatch (matches selectionColorValues' same filter below).
-      if (parsed.a === 0) continue;
-      const hex = rgbaToHex(parsed).toUpperCase();
-      countByHex.set(hex, (countByHex.get(hex) ?? 0) + 1);
+    for (const [hex, count] of documentFileColorCounts(file, cache)) {
+      countByHex.set(hex, (countByHex.get(hex) ?? 0) + count);
     }
+  }
+  for (const fileId of cache.keys()) {
+    if (!fileIds.has(fileId)) cache.delete(fileId);
   }
   return Array.from(countByHex.entries())
     .sort((a, b) => b[1] - a[1])
@@ -885,9 +920,9 @@ export function selectionColorValues(
     for (const group of groups) {
       for (const range of mergeSelectionColorRanges(group.ranges)) {
         const content = group.content.slice(range.start, range.end);
-        colorTokenSpansInHtml(content).forEach(({ value: token }) =>
-          addColorValue(values, "color", token),
-        );
+        colorTokenSpansInHtml(content, undefined, {
+          includeStyleBlocks: false,
+        }).forEach(({ value: token }) => addColorValue(values, "color", token));
       }
     }
   }

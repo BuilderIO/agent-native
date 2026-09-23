@@ -19,7 +19,117 @@ import {
 } from "../ui/select.js";
 import { cn } from "../utils.js";
 
-export const FONT_FAMILY_OPTIONS = [
+export interface FontFamilyOption {
+  value: string;
+  key?: string;
+  label?: string;
+}
+
+/**
+ * Curated Google Fonts that the editors can load directly from the CSS2 API.
+ * Keep the variable/static split because requesting an unsupported weight axis
+ * makes the API reject the entire family request.
+ */
+export const GOOGLE_FONT_FAMILIES = [
+  ["Archivo", "ital,wght@0,100..900;1,100..900"],
+  ["Asap", "ital,wght@0,100..900;1,100..900"],
+  ["Catamaran", "ital,wght@0,100..900;1,100..900"],
+  ["Chivo", "ital,wght@0,100..900;1,100..900"],
+  ["DM Sans", "ital,wght@0,100..900;1,100..900"],
+  ["Epilogue", "ital,wght@0,100..900;1,100..900"],
+  ["Exo 2", "ital,wght@0,100..900;1,100..900"],
+  ["Geist", "ital,wght@0,100..900;1,100..900"],
+  ["Geist Mono", "ital,wght@0,100..900;1,100..900"],
+  ["Heebo", "ital,wght@0,100..900;1,100..900"],
+  ["Inter", "ital,wght@0,100..900;1,100..900"],
+  ["Jost", "ital,wght@0,100..900;1,100..900"],
+  ["League Spartan", "ital,wght@0,100..900;1,100..900"],
+  ["Lexend", "ital,wght@0,100..900;1,100..900"],
+  ["Libre Franklin", "ital,wght@0,100..900;1,100..900"],
+  ["Montserrat", "ital,wght@0,100..900;1,100..900"],
+  ["Noto Sans", "ital,wght@0,100..900;1,100..900"],
+  ["Noto Serif", "ital,wght@0,100..900;1,100..900"],
+  ["Onest", "ital,wght@0,100..900;1,100..900"],
+  ["Outfit", "ital,wght@0,100..900;1,100..900"],
+  ["Overpass", "ital,wght@0,100..900;1,100..900"],
+  ["Public Sans", "ital,wght@0,100..900;1,100..900"],
+  ["Raleway", "ital,wght@0,100..900;1,100..900"],
+  ["Roboto", "ital,wght@0,100..900;1,100..900"],
+  ["Roboto Condensed", "ital,wght@0,100..900;1,100..900"],
+  ["Roboto Slab", "ital,wght@0,100..900;1,100..900"],
+  ["Urbanist", "ital,wght@0,100..900;1,100..900"],
+  ["Work Sans", "ital,wght@0,100..900;1,100..900"],
+  ["Abril Fatface", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Anton", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Arimo", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Assistant", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Barlow", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Barlow Condensed", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Bebas Neue", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Bodoni Moda", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Bricolage Grotesque", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Cabin", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Caveat", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Cormorant Garamond", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Cousine", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Crimson Text", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Dancing Script", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["David Libre", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["EB Garamond", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Figtree", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Fira Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Hind", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Homemade Apple", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["IBM Plex Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Inconsolata", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Instrument Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Josefin Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["JetBrains Mono", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Kanit", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Karla", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Lato", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Libre Baskerville", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Lora", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Manrope", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Merriweather", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Mulish", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Nova Square", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Nunito", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Nunito Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Open Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Oswald", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Oxygen", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["PT Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["PT Serif", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Pacifico", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Playfair Display", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Plus Jakarta Sans", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Poppins", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Prompt", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Quicksand", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Red Hat Display", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Roboto Mono", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Rubik", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Schibsted Grotesk", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Sora", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Source Sans 3", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Space Grotesk", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Syne", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Teko", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Tinos", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Titillium Web", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Ubuntu", "ital,wght@0,400;0,700;1,400;1,700"],
+  ["Yanone Kaffeesatz", "ital,wght@0,400;0,700;1,400;1,700"],
+] as const;
+
+export const GOOGLE_FONT_QUERIES = Object.fromEntries(
+  GOOGLE_FONT_FAMILIES.map(([family, axis]) => [
+    family,
+    `${family.replace(/ /g, "+")}:${axis}`,
+  ]),
+) as Record<string, string>;
+
+const BUILTIN_FONT_FAMILY_OPTIONS = [
   { value: "inherit", key: "inherit" },
   { value: "sans-serif", key: "sansSerif" },
   { value: "serif", key: "serif" },
@@ -28,7 +138,23 @@ export const FONT_FAMILY_OPTIONS = [
   { value: "'Poppins', sans-serif", key: "poppins" },
   { value: "'Playfair Display', serif", key: "playfairDisplay" },
   { value: "'JetBrains Mono', monospace", key: "jetBrainsMono" },
-] as const;
+] as const satisfies readonly FontFamilyOption[];
+
+const BUILTIN_FONT_FAMILY_NAMES = new Set(
+  BUILTIN_FONT_FAMILY_OPTIONS.map((option) =>
+    option.value.replace(/^['"]([^'"]+)['"].*$/, "$1"),
+  ),
+);
+
+export const FONT_FAMILY_OPTIONS: readonly FontFamilyOption[] = [
+  ...BUILTIN_FONT_FAMILY_OPTIONS,
+  ...GOOGLE_FONT_FAMILIES.filter(
+    ([family]) => !BUILTIN_FONT_FAMILY_NAMES.has(family),
+  ).map(([family]) => ({
+    value: `'${family}', sans-serif`,
+    label: family,
+  })),
+];
 
 function cleanFontFamilyName(value: string): string {
   const trimmed = value.trim();

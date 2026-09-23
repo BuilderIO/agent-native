@@ -145,6 +145,13 @@ describe("exportDeckAsPdf", () => {
   // stubRangeLayout spies on document.createRange and calls through; without a
   // restore, the next test's spy wraps the previous one and recurses forever.
   afterEach(() => {
+    document.head
+      .querySelectorAll<HTMLStyleElement>("[data-pdf-export-font-faces]")
+      .forEach((style) => style.remove());
+    document.head
+      .querySelectorAll<HTMLLinkElement>('link[data-pdf-export-test="font"]')
+      .forEach((link) => link.remove());
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -225,6 +232,155 @@ describe("exportDeckAsPdf", () => {
         },
       ],
     });
+  });
+
+  it("makes loaded Google Font CSS readable during raster capture", async () => {
+    const fontCss =
+      '@font-face { font-family: "Geist"; src: url(https://fonts.gstatic.com/geist.woff2); }';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => fontCss,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.dataset.pdfExportTest = "font";
+    link.href = "https://fonts.googleapis.com/css2?family=Geist";
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, "querySelectorAll").mockImplementation((selector) => {
+      if (selector === 'link[rel~="stylesheet"][href]') {
+        return [link] as unknown as NodeListOf<Element>;
+      }
+      return querySelectorAll(selector);
+    });
+    mocks.domToJpeg.mockImplementationOnce(async () => {
+      expect(
+        document.querySelector("[data-pdf-export-font-faces]")?.textContent,
+      ).toContain(fontCss);
+      return "data:image/jpeg;base64,AA==";
+    });
+    renderSlide("s1");
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      link.href,
+      expect.objectContaining({ credentials: "omit", mode: "cors" }),
+    );
+    expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+  });
+
+  it("cleans up temporary font styles when stylesheet loading is cancelled", async () => {
+    const fontCss =
+      '@font-face { font-family: "Geist"; src: url(https://fonts.gstatic.com/geist.woff2); }';
+    const controller = new AbortController();
+    const firstLink = document.createElement("link");
+    firstLink.rel = "stylesheet";
+    firstLink.href = "https://fonts.googleapis.com/css2?family=Geist";
+    const secondLink = document.createElement("link");
+    secondLink.rel = "stylesheet";
+    secondLink.href = "https://fonts.googleapis.com/css2?family=Inter";
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, "querySelectorAll").mockImplementation((selector) => {
+      if (selector === 'link[rel~="stylesheet"][href]') {
+        return [firstLink, secondLink] as unknown as NodeListOf<Element>;
+      }
+      return querySelectorAll(selector);
+    });
+    let releaseFirstText!: (cssText: string) => void;
+    const fetchMock = vi.fn((href: string) => {
+      if (href.endsWith("Geist")) {
+        return Promise.resolve({
+          ok: true,
+          text: () =>
+            new Promise<string>((resolve) => {
+              releaseFirstText = resolve;
+            }),
+        });
+      }
+      controller.abort();
+      return new Promise<never>((_, reject) => {
+        queueMicrotask(() => reject(new Error("stylesheet request aborted")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSlide("s1");
+
+    await expect(
+      exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+    releaseFirstText(fontCss);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+  });
+
+  it("cleans up temporary font styles when font readiness is cancelled", async () => {
+    const fontCss =
+      '@font-face { font-family: "Geist"; src: url(https://fonts.gstatic.com/geist.woff2); }';
+    const controller = new AbortController();
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.dataset.pdfExportTest = "font";
+    link.href = "https://fonts.googleapis.com/css2?family=Geist";
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, "querySelectorAll").mockImplementation((selector) => {
+      if (selector === 'link[rel~="stylesheet"][href]') {
+        return [link] as unknown as NodeListOf<Element>;
+      }
+      return querySelectorAll(selector);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => fontCss,
+      }),
+    );
+    let releaseSecondReady!: () => void;
+    const originalFonts = document.fonts;
+    const secondReadyStarted = new Promise<void>((resolve) => {
+      releaseSecondReady = resolve;
+    });
+    let readyCalls = 0;
+    const fonts = {};
+    Object.defineProperty(fonts, "ready", {
+      get: () => {
+        readyCalls += 1;
+        if (readyCalls === 2) releaseSecondReady();
+        return readyCalls === 1
+          ? Promise.resolve()
+          : new Promise<void>(() => {});
+      },
+    });
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: fonts,
+    });
+    renderSlide("s1");
+
+    try {
+      const exportPromise = exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal },
+      );
+      await secondReadyStarted;
+      controller.abort(new Error("PDF export cancelled"));
+      await expect(exportPromise).rejects.toThrow("PDF export cancelled");
+      expect(document.querySelector("[data-pdf-export-font-faces]")).toBeNull();
+    } finally {
+      Object.defineProperty(document, "fonts", {
+        configurable: true,
+        value: originalFonts,
+      });
+    }
   });
 
   it("still writes a text layer for a slide measured from a sidebar thumbnail", async () => {

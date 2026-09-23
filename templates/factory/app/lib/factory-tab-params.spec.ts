@@ -20,7 +20,7 @@ describe("retainFactoryTabParams", () => {
     expect(next.get("range")).toBe("today");
     expect(next.get("source")).toBe("slack");
     expect(next.get("auditRunId")).toBeNull();
-    expect(next.get("automationId")).toBe("a1");
+    expect(next.get("automationId")).toBeNull();
     expect(next.get("node")).toBeNull();
   });
 
@@ -35,13 +35,16 @@ describe("retainFactoryTabParams", () => {
     expect(next.get("status")).toBeNull();
   });
 
-  it("keeps automationId when switching to Audit", () => {
+  it("drops automationId when switching away from Automations", () => {
     const current = new URLSearchParams(
       "factoryId=f1&tab=automations&automationId=a1",
     );
     const next = retainFactoryTabParams(current, "audit");
     expect(next.get("tab")).toBe("audit");
-    expect(next.get("automationId")).toBe("a1");
+    // Only the Automations tab owns this param now; the last selection is
+    // remembered per factory in localStorage instead of riding along in the
+    // URL on every other tab (see AutomationsView's persistedLastAutomationId).
+    expect(next.get("automationId")).toBeNull();
   });
 
   it("keeps audit filters and drops inbox filters", () => {

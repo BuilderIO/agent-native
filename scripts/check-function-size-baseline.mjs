@@ -230,7 +230,10 @@ function dirSize(dir) {
 /**
  * Payloads whose presence is decided by the deploy environment rather than by
  * anything in the app, so the same commit emits them in one build context and
- * not another. These are reported, never subtracted — see below for why.
+ * not another. They are reported at measurement time. Platform-native Resvg
+ * binaries are excluded from the comparison because the committed baselines
+ * are platform-neutral; ffmpeg stays in the raw metric because its historical
+ * baselines are a mix of payload-inclusive and payload-free values.
  *
  * `ffmpeg-static` is bundled only when `AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH`
  * names an architecture matching the serverless target (`build.ts`,
@@ -260,8 +263,12 @@ const DEPLOY_GATED_RUNTIME_PAYLOADS = [
   {
     relativePath: path.join("node_modules", "ffmpeg-static"),
     reason: "bundled only when AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH matches",
+    excludeFromBaseline: false,
   },
 ];
+
+const RESVG_NATIVE_PACKAGE_NAME =
+  /^resvg-js-(?:darwin|win32|linux|android|freebsd)-[a-z0-9]+(?:-[a-z0-9]+)?$/;
 
 /** Deploy-gated payloads present in one emitted function, for reporting. */
 function deployGatedPayloads(functionDir) {
@@ -271,6 +278,22 @@ function deployGatedPayloads(functionDir) {
     if (!existsSync(payloadDir)) continue;
     found.push({ ...payload, bytes: dirSize(payloadDir) });
   }
+
+  const resvgScopeDir = path.join(functionDir, "node_modules", "@resvg");
+  if (existsSync(resvgScopeDir)) {
+    for (const entry of readdirSync(resvgScopeDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !RESVG_NATIVE_PACKAGE_NAME.test(entry.name))
+        continue;
+      const packageDir = path.join(resvgScopeDir, entry.name);
+      found.push({
+        relativePath: path.relative(functionDir, packageDir),
+        reason: "selected for the serverless runtime platform",
+        excludeFromBaseline: true,
+        bytes: dirSize(packageDir),
+      });
+    }
+  }
+
   return found;
 }
 
@@ -280,20 +303,25 @@ function measure(functionsDir) {
   for (const entry of readdirSync(functionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const functionDir = path.join(functionsDir, entry.name);
-    sizes[entry.name] = dirSize(functionDir);
-    for (const payload of deployGatedPayloads(functionDir)) {
+    const payloads = deployGatedPayloads(functionDir);
+    const excluded = payloads
+      .filter((payload) => payload.excludeFromBaseline)
+      .reduce((total, payload) => total + payload.bytes, 0);
+    sizes[entry.name] = dirSize(functionDir) - excluded;
+    for (const payload of payloads) {
       gated.push({ fn: entry.name, ...payload });
     }
   }
   if (gated.length > 0) {
     console.log(
       `\n[size-baseline] ${gated.length} deploy-gated runtime payload(s) are in this ` +
-        "build and counted in the sizes below. A baseline recorded in the other " +
-        "build context differs by this much before any app code changes:",
+        "build. Platform-native payloads are excluded from the comparison; the " +
+        "remaining payloads stay in the raw size:",
     );
     for (const item of gated) {
       console.log(
-        `  ${item.fn}: ${item.relativePath} ${mb(item.bytes)}MB (${item.reason})`,
+        `  ${item.fn}: ${item.relativePath} ${mb(item.bytes)}MB ` +
+          `(${item.reason}; ${item.excludeFromBaseline ? "excluded" : "included"})`,
       );
     }
   }

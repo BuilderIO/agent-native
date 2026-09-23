@@ -79,6 +79,7 @@ export function runtimeStructureNodeSignature(args: {
 
 export interface PendingVisualStyleEdit {
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -133,8 +134,19 @@ export interface PendingVisualStyleEdit {
   };
 }
 
+let lastPendingLiveEditTimestamp = 0;
+
+/** Keep mixed pending edits strictly ordered even when several land in one millisecond. */
+export function nextPendingLiveEditTimestamp(now = Date.now()): number {
+  lastPendingLiveEditTimestamp = Math.max(
+    lastPendingLiveEditTimestamp + 1,
+    now,
+  );
+  return lastPendingLiveEditTimestamp;
+}
+
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
-  return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
+  return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
 
 export function mergePendingLiveNonStyleEdits(
@@ -161,6 +173,24 @@ export function mergePendingLiveNonStyleEdits(
         merged.splice(supersededInsertIndex, 1);
         continue;
       }
+      if (edit.transactionId) {
+        const transactionIndex = merged.findIndex(
+          (candidate) =>
+            candidate.kind === "structure" &&
+            candidate.transactionId === edit.transactionId,
+        );
+        if (transactionIndex !== -1) {
+          const previous = merged[transactionIndex] as PendingLiveStructureEdit;
+          merged[transactionIndex] = {
+            ...edit,
+            groupedEdits: [
+              ...(previous.groupedEdits ?? [previous]),
+              ...(edit.groupedEdits ?? [edit]),
+            ],
+          };
+          continue;
+        }
+      }
       merged.push(edit);
       continue;
     }
@@ -185,6 +215,29 @@ export function mergePendingLiveNonStyleEdits(
         ...previous,
         ...edit,
         originalEnabled: previous.originalEnabled,
+      };
+      continue;
+    }
+    if (edit.kind === "layer-name") {
+      const index = merged.findIndex(
+        (candidate) =>
+          candidate.kind === "layer-name" &&
+          pendingLiveEditSubjectKey(candidate) ===
+            pendingLiveEditSubjectKey(edit),
+      );
+      if (index === -1) {
+        merged.push(edit);
+        continue;
+      }
+      const previous = merged[index] as PendingLiveLayerNameEdit;
+      if (previous.originalName === edit.name) {
+        merged.splice(index, 1);
+        continue;
+      }
+      merged[index] = {
+        ...previous,
+        ...edit,
+        originalName: previous.originalName,
       };
       continue;
     }
@@ -233,6 +286,7 @@ export function pendingLiveTextUndoRevertValue(
 export interface PendingLiveTextEdit {
   kind: "text";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -250,6 +304,7 @@ export interface PendingLiveTextEdit {
 export interface PendingLiveLayerStateEdit {
   kind: "layer-state";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   layerId: string;
@@ -261,6 +316,23 @@ export interface PendingLiveLayerStateEdit {
   state: "hidden" | "locked";
   enabled: boolean;
   originalEnabled: boolean;
+  updatedAt: number;
+}
+
+export interface PendingLiveLayerNameEdit {
+  kind: "layer-name";
+  screenId: string;
+  routePath?: string;
+  filename: string;
+  screenName: string;
+  layerId: string;
+  selector: string;
+  sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
+  tagName?: string | null;
+  classes: string[];
+  name: string;
+  originalName: string;
   updatedAt: number;
 }
 
@@ -277,6 +349,18 @@ export function pendingLiveLayerStateUndoRevertValue(
   return currentForTarget?.enabled ?? nextEdit.originalEnabled;
 }
 
+export function pendingLiveLayerNameUndoRevertValue(
+  currentEdits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveLayerNameEdit,
+): string {
+  const currentForTarget = currentEdits.find(
+    (edit): edit is PendingLiveLayerNameEdit =>
+      edit.kind === "layer-name" &&
+      pendingLiveEditSubjectKey(edit) === pendingLiveEditSubjectKey(nextEdit),
+  );
+  return currentForTarget?.name ?? nextEdit.originalName;
+}
+
 export function shouldRedoPendingLiveNonStyleBeforeStyle(
   styleEntry: { edit: { updatedAt: number } } | undefined,
   nonStyleEntry: { edit: { updatedAt: number } } | undefined,
@@ -290,6 +374,7 @@ export function shouldRedoPendingLiveNonStyleBeforeStyle(
 export interface PendingLiveStructureEdit {
   kind: "structure";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -315,12 +400,29 @@ export interface PendingLiveStructureEdit {
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
   anchorRect?: { x: number; y: number; width: number; height: number };
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
   /**
    * Markup this edit ADDED to the running app. Present only for a drop whose
    * subject had no counterpart in the screen's source, so the coding agent
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  remintCollidingNodeIds?: boolean;
   /** The inserted markup replaced `selector` instead of landing beside it. */
   replaced?: true;
   /** Runtime identity of the optimistic replacement used for verification. */
@@ -340,6 +442,8 @@ export interface PendingLiveStructureEdit {
    */
   removed?: true;
   requestId?: string;
+  transactionId?: string;
+  groupedEdits?: PendingLiveStructureEdit[];
   updatedAt: number;
 }
 
@@ -539,6 +643,7 @@ export function reactSourceAnchorUnavailableReason(
 export type PendingLiveNonStyleEdit =
   | PendingLiveTextEdit
   | PendingLiveLayerStateEdit
+  | PendingLiveLayerNameEdit
   | PendingLiveStructureEdit;
 export type PendingVisualStyleUndoTarget = {
   edit: PendingVisualStyleEdit;
@@ -592,25 +697,37 @@ export type PendingLiveTextUndoEntry = {
 export type PendingLiveStructureUndoEntry = {
   kind: "structure";
   edit: PendingLiveStructureEdit;
+  groupedEdits?: PendingLiveStructureEdit[];
 };
 export type PendingLiveLayerStateUndoEntry = {
   kind: "layer-state";
   edit: PendingLiveLayerStateEdit;
   revertEnabled: boolean;
 };
+export type PendingLiveLayerNameUndoEntry = {
+  kind: "layer-name";
+  edit: PendingLiveLayerNameEdit;
+  revertName: string;
+};
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveLayerStateUndoEntry
+  | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
-/** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
- * per event. The first revert is kept so one undo still restores the pre-gesture value. */
+/** Coalesce only explicit multi-target gesture ticks. A missing gesture id is
+ * one committed change, so it must stay an independent undo step. */
 export function appendPendingVisualStyleUndoEntry(
   stack: PendingVisualStyleUndoEntry[],
   entry: PendingVisualStyleUndoEntry,
 ): void {
   const last = stack[stack.length - 1];
-  if (entry.gestureId && last?.gestureId === entry.gestureId) {
+  if (
+    entry.gestureId &&
+    last?.gestureId === entry.gestureId &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
+  ) {
     const targets = pendingVisualStyleUndoTargets(last);
     const index = targets.findIndex(
       (target) =>
@@ -647,24 +764,6 @@ export function appendPendingVisualStyleUndoEntry(
     last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
     return;
   }
-  if (
-    !entry.gestureId &&
-    !last?.gestureId &&
-    last &&
-    pendingVisualStyleEditKey(last.edit) ===
-      pendingVisualStyleEditKey(entry.edit)
-  ) {
-    last.edit = {
-      ...entry.edit,
-      styles: { ...last.edit.styles, ...entry.edit.styles },
-      originalStyles: {
-        ...entry.edit.originalStyles,
-        ...last.edit.originalStyles,
-      },
-    };
-    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
-    return;
-  }
   stack.push(entry);
 }
 
@@ -688,9 +787,11 @@ export function pendingVisualStyleEditsFromUndoStack(
 export function appendPendingLiveNonStyleUndoEntry(
   stack: PendingLiveNonStyleUndoEntry[],
   entry: PendingLiveNonStyleUndoEntry,
+  coalesceAdjacent = true,
 ): void {
   const last = stack[stack.length - 1];
   if (
+    coalesceAdjacent &&
     last?.kind === "text" &&
     entry.kind === "text" &&
     pendingLiveEditSubjectKey(last.edit) ===
@@ -699,7 +800,68 @@ export function appendPendingLiveNonStyleUndoEntry(
     last.edit = entry.edit;
     return;
   }
+  if (
+    last?.kind === "structure" &&
+    entry.kind === "structure" &&
+    entry.edit.transactionId &&
+    last.edit.transactionId === entry.edit.transactionId
+  ) {
+    last.groupedEdits = [
+      ...(last.groupedEdits ?? [last.edit]),
+      ...pendingLiveStructureEditsFromUndoEntry(entry),
+    ];
+    last.edit = entry.edit;
+    return;
+  }
+  if (
+    coalesceAdjacent &&
+    last?.kind === "layer-name" &&
+    entry.kind === "layer-name" &&
+    pendingLiveEditSubjectKey(last.edit) ===
+      pendingLiveEditSubjectKey(entry.edit)
+  ) {
+    last.edit = entry.edit;
+    return;
+  }
   stack.push(entry);
+}
+
+export function pendingLiveStructureEditsFromUndoEntry(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit[] {
+  return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
+}
+
+/**
+ * Redo receives the final member as `entry.edit`, while a coalesced live move
+ * keeps the full transaction on the undo entry. Reattach those members before
+ * choosing the replay command so cross-screen insert/delete pairs stay atomic.
+ */
+export function pendingLiveStructureRedoSourceEdit(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit {
+  const edits = pendingLiveStructureEditsFromUndoEntry(entry);
+  return edits.length > 1 ? { ...entry.edit, groupedEdits: edits } : entry.edit;
+}
+
+export function pendingLiveStructureEditsFromEdit(
+  edit: PendingLiveStructureEdit,
+): PendingLiveStructureEdit[] {
+  return edit.groupedEdits ?? [edit];
+}
+
+export function pendingLiveNonStyleEditsFromUndoStack(
+  stack: readonly PendingLiveNonStyleUndoEntry[],
+): PendingLiveNonStyleEdit[] {
+  const edits: PendingLiveNonStyleEdit[] = [];
+  for (const entry of stack) {
+    if (entry.kind === "structure") {
+      edits.push(...pendingLiveStructureEditsFromUndoEntry(entry));
+    } else {
+      edits.push(entry.edit);
+    }
+  }
+  return edits;
 }
 
 /**
@@ -712,25 +874,30 @@ export function appendPendingLiveNonStyleUndoEntry(
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
-  const required = [
-    ...(edit.insertedHtml && !edit.replaced
+  const required = pendingLiveStructureEditsFromEdit(edit).flatMap((member) => [
+    ...(member.insertedHtml && !member.replaced
       ? []
-      : [edit.sourceAnchor?.relPath ?? edit.sourceAnchor?.ownerRelPath]),
-    ...(edit.removed || edit.replaced
+      : [member.sourceAnchor?.relPath ?? member.sourceAnchor?.ownerRelPath]),
+    ...(member.removed || member.replaced
       ? []
       : [
-          edit.anchorSourceAnchor?.relPath ??
-            edit.anchorSourceAnchor?.ownerRelPath ??
-            (edit.insertedHtml ? edit.routeSourceFile : undefined),
+          member.anchorSourceAnchor?.relPath ??
+            member.anchorSourceAnchor?.ownerRelPath ??
+            (member.insertedHtml ? member.routeSourceFile : undefined),
         ]),
-  ];
+  ]);
   if (required.some((path) => !path)) return null;
   return required as string[];
 }
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string; replaceAnchor?: boolean }
+  | {
+      kind: "insert";
+      html: string;
+      replaceAnchor?: boolean;
+      remintCollidingNodeIds?: boolean;
+    }
   | { kind: "move" };
 
 /**
@@ -742,12 +909,18 @@ export type PendingStructureRedoCommand =
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
-  if (edit.removed) return { kind: "delete" };
-  return edit.insertedHtml
+  const insertedEdit = [edit, ...(edit.groupedEdits ?? [])].find(
+    (candidate) => candidate.insertedHtml,
+  );
+  if (!insertedEdit && edit.removed) return { kind: "delete" };
+  return insertedEdit?.insertedHtml
     ? {
         kind: "insert",
-        html: edit.insertedHtml,
-        ...(edit.replaced ? { replaceAnchor: true } : {}),
+        html: insertedEdit.insertedHtml,
+        ...(insertedEdit.replaced ? { replaceAnchor: true } : {}),
+        ...(insertedEdit.remintCollidingNodeIds
+          ? { remintCollidingNodeIds: true }
+          : {}),
       }
     : { kind: "move" };
 }
@@ -774,9 +947,14 @@ export function pendingLiveStructureEditsMatch(
 function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
     edit.screenId,
+    edit.routePath ?? "",
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
+}
+
+function pendingVisualStylePropertyKey(edit: PendingVisualStyleEdit): string {
+  return Object.keys(edit.styles).sort().join("::");
 }
 
 export function mergePendingVisualStyleEdit(
@@ -871,6 +1049,7 @@ export function buildPendingVisualStyleRevertPatches(
   return edits
     .map((edit) => ({
       screenId: edit.screenId,
+      routePath: edit.routePath,
       selector: edit.selector,
       sourceId: edit.sourceId,
       // Carried, not resolved: consumers replay into the live frame (prefer the
@@ -892,11 +1071,13 @@ export function buildPendingVisualStyleRevertPatches(
 
 export type PendingVisualStyleRuntimePatch = {
   screenId: string;
+  routePath?: string;
   selector: string;
   sourceId?: string | null;
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   styles: Record<string, string>;
+  interactionState?: InteractionState;
 };
 
 function nodeIdSelector(nodeId: string): string {
@@ -945,8 +1126,17 @@ export type SendPendingVisualStyleRuntimeProperty = (
   options: {
     selectorCandidates: string[];
     nodeId?: string | null;
+    routePath?: string;
+    interactionState?: InteractionState;
   },
 ) => boolean;
+
+export function pendingVisualStyleRouteMatches(
+  patch: Pick<PendingVisualStyleRuntimePatch, "routePath">,
+  currentRoutePath: string | null | undefined,
+): boolean {
+  return !patch.routePath || patch.routePath === currentRoutePath;
+}
 
 /**
  * Forward, undo, and redo all use this exact per-property runtime channel.
@@ -970,6 +1160,10 @@ export function replayPendingVisualStyleRuntimePatch(
     sendProperty(patch.screenId, target.selector, property, value, {
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
+      ...(patch.routePath ? { routePath: patch.routePath } : {}),
+      ...(patch.interactionState
+        ? { interactionState: patch.interactionState }
+        : {}),
     }),
   );
 }
@@ -1039,15 +1233,20 @@ export function formatPendingVisualStylePrompt(args: {
     (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
   const title = args.designTitle?.trim();
   const editPayload = args.edits.map((edit) => ({
+    operation: "update-style" as const,
     screenId: edit.screenId,
+    ...(edit.routePath ? { routePath: edit.routePath } : {}),
     screen: nameScreen(edit.screenId, edit.filename),
     screenName: edit.screenName,
     selector: edit.selector,
     sourceId: edit.sourceId ?? null,
     sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+    provenance: redactReactSourceAnchor(edit.sourceAnchor),
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
+    before: edit.originalStyles,
+    after: edit.styles,
     ...(edit.interactionState
       ? { interactionState: edit.interactionState }
       : {}),
@@ -1081,17 +1280,22 @@ export function formatPendingVisualStylePrompt(args: {
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
       return {
+        operation: "update-text" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         value: edit.value,
         html: edit.html,
+        before: edit.originalValue,
+        after: edit.value,
       };
     }
     if (edit.kind === "layer-state") {
@@ -1104,21 +1308,46 @@ export function formatPendingVisualStylePrompt(args: {
           })
         : null;
       return {
+        operation: "update-layer-state" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         state: edit.state,
         enabled: edit.enabled,
+        before: edit.originalEnabled,
+        after: edit.enabled,
         attributeName: `data-agent-native-${edit.state}`,
         ...(semanticHandoff?.ok
           ? { semanticHandoff: semanticHandoff.handoff }
           : {}),
+      };
+    }
+    if (edit.kind === "layer-name") {
+      return {
+        operation: "metadata" as const,
+        kind: edit.kind,
+        screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
+        screen: nameScreen(edit.screenId, edit.filename),
+        screenName: edit.screenName,
+        selector: edit.selector,
+        sourceId: edit.sourceId ?? null,
+        sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
+        tagName: edit.tagName ?? null,
+        classes: edit.classes,
+        metadata: "data-agent-native-layer-name",
+        before: edit.originalName,
+        after: edit.name,
+        desiredChange: `Set the source layer metadata name to ${JSON.stringify(edit.name)} for the anchored element. Preserve the existing component structure and use the project's idiomatic naming convention.`,
       };
     }
     const subjectAnchor = edit.sourceAnchor
@@ -1226,6 +1455,12 @@ export function formatPendingVisualStylePrompt(args: {
                       : edit.dropMode === "absolute-container"
                         ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
                         : "Preserve the runtime layout behavior observed in the preview.",
+                    edit.gridPlacement
+                      ? `The target is grid cell column ${edit.gridPlacement.column} / ${edit.gridPlacement.columnEnd}, row ${edit.gridPlacement.row} / ${edit.gridPlacement.rowEnd}; preserve this explicit placement in source.`
+                      : "",
+                    edit.gridDisplacements?.length
+                      ? `The target cell was occupied; move ${edit.gridDisplacements.length} displaced element(s) into the recorded free grid cells.`
+                      : "",
                   ].join(" "),
                   sourceAnchors: [subjectAnchor, targetAnchor],
                   runtimeRelationship: {
@@ -1248,13 +1483,51 @@ export function formatPendingVisualStylePrompt(args: {
                   },
                 };
     return {
+      operation: edit.removed
+        ? "remove"
+        : edit.replaced
+          ? "replace"
+          : edit.insertedHtml
+            ? "insert"
+            : edit.placement === "inside"
+              ? "reparent"
+              : "move",
       kind: edit.kind,
       screenId: edit.screenId,
+      ...(edit.routePath ? { routePath: edit.routePath } : {}),
       screen: nameScreen(edit.screenId, edit.filename),
       screenName: edit.screenName,
+      ...(edit.transactionId ? { transactionId: edit.transactionId } : {}),
+      ...(edit.groupedEdits
+        ? {
+            groupedEdits: edit.groupedEdits.map((member) => ({
+              selector: member.selector,
+              ...(member.routePath ? { routePath: member.routePath } : {}),
+              sourceId: member.sourceId ?? null,
+              sourceAnchor: redactReactSourceAnchor(member.sourceAnchor),
+              anchorSelector: member.anchorSelector,
+              anchorSourceId: member.anchorSourceId ?? null,
+              anchorSourceAnchor: redactReactSourceAnchor(
+                member.anchorSourceAnchor,
+              ),
+              placement: member.placement,
+              ...(member.dropMode ? { dropMode: member.dropMode } : {}),
+              ...(member.gridPlacement
+                ? { gridPlacement: member.gridPlacement }
+                : {}),
+              ...(member.gridDisplacements
+                ? { gridDisplacements: member.gridDisplacements }
+                : {}),
+            })),
+          }
+        : {}),
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+      provenance: {
+        subject: redactReactSourceAnchor(edit.sourceAnchor),
+        target: redactReactSourceAnchor(edit.anchorSourceAnchor),
+      },
       ...(edit.subjectSignature
         ? { subjectSignature: edit.subjectSignature }
         : {}),
@@ -1291,6 +1564,10 @@ export function formatPendingVisualStylePrompt(args: {
         : {}),
       ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
       ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
+      ...(edit.gridPlacement ? { gridPlacement: edit.gridPlacement } : {}),
+      ...(edit.gridDisplacements
+        ? { gridDisplacements: edit.gridDisplacements }
+        : {}),
       ...(insertedHtml
         ? {
             insertedHtml: insertedHtml.value,
@@ -1321,7 +1598,7 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     "",
     codingAgent
-      ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
+      ? "These were made against the running app in a visual canvas. Treat each item as a source operation: use provenance/sourceAnchor to locate the owning source, compare before with the live after, and make the smallest idiomatic source edit. Runtime selectors and node ids are correlation hints only; never hand off inline-style mutations as the final implementation. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
     hasOutsideConnectedRootPaths
       ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."

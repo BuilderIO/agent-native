@@ -34,7 +34,6 @@ import { getAppConfig } from "../app-config/index.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
-import { isLoopbackRequest } from "./auth.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   DEV_ACTION_DISCOVERY_PATH,
@@ -274,6 +273,7 @@ export function mountDevActionForwardRoute(
   getH3App(nitroApp).use(
     DEV_ACTION_ROUTE,
     defineEventHandler(async (event: H3Event) => {
+      const { isLoopbackRequest } = await import("./auth.js");
       // No discovery token is ever generated outside a local dev server, so
       // this also fails closed in practice without the explicit check —
       // it's kept explicit so a production deploy never even compares tokens.
@@ -381,6 +381,7 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
   getH3App(nitroApp).use(
     DEV_DB_QUERY_ROUTE,
     defineEventHandler(async (event: H3Event) => {
+      const { isLoopbackRequest } = await import("./auth.js");
       if (resolveDeployEnvironment() === "production") {
         setResponseStatus(event, 401);
         return { ok: false, error: "Not available outside local development." };

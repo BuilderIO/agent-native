@@ -1,7 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, canvasZoom, designFrame, gotoEditor } from "./helpers";
+import {
+  appPath,
+  canvasZoom,
+  designFrame,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 /**
  * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
@@ -175,6 +181,39 @@ async function selectionContext(page: Page) {
   return response.json();
 }
 
+function layerRow(page: Page, name: string) {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
+}
+
+async function layerParentName(
+  page: Page,
+  name: string,
+): Promise<string | null> {
+  return layerRow(page, name).evaluate((row) => {
+    const item = row.closest<HTMLElement>('[role="treeitem"]');
+    const tree = item?.closest<HTMLElement>('[role="tree"]');
+    if (!item || !tree) return null;
+    const level = Number(item.getAttribute("aria-level"));
+    const items = Array.from(
+      tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const index = items.indexOf(item);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (Number(items[i]?.getAttribute("aria-level")) < level) {
+        return (
+          items[i]?.querySelector<HTMLElement>("span[title]")?.title ?? null
+        );
+      }
+    }
+    return null;
+  });
+}
+
 /**
  * Immediate-parent node id of `nodeId` inside `html`, using a real tag-depth
  * walk (not a non-greedy regex, which stops at the wrong closing tag as soon
@@ -330,6 +369,32 @@ test.describe("drag reparent parity", () => {
         },
       )
       .toBe("footer");
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("main");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("footer");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      designFrame(page, screenId).locator(
+        'footer [data-agent-native-node-id="widget"]',
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("footer");
   });
 
   test("dragging an element out of the footer to the screen root reparents it to the root", async ({
@@ -358,7 +423,17 @@ test.describe("drag reparent parity", () => {
       { steps: 24 },
     );
     await page.waitForTimeout(400);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    const guideBox = await guide.boundingBox().catch(() => null);
+    const trace = await dumpTrace(page);
     await page.mouse.up();
+
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a visible root insertion guide while hovering before drop; got guideBox=${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
 
     await expect
       .poll(
@@ -415,6 +490,41 @@ test.describe("drag reparent parity", () => {
       paintsAfterDropTarget: true,
       remainsBelowLaterSibling: true,
     });
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
+      .toBe("footer");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
+      .toBeNull();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      designFrame(page, screenId).locator(
+        '[data-agent-native-node-id="footer-item"]',
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
+      .toBeNull();
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
@@ -978,6 +1088,103 @@ test.describe("drag reparent parity", () => {
         );
       })
       .toBe(true);
+  });
+
+  test("returning a held cross-screen drag to its source keeps the source intact", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page);
+    await gotoEditor(page, id);
+    await expandAllLayers(page);
+    await page.keyboard.press("Shift+1");
+    const screenOneId = await fileIdFor(page, id, "index.html");
+    const screenTwoId = await fileIdFor(page, id, "page-two.html");
+
+    let lastTargetBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await boxFor(page, screenTwoId, "page2-target");
+          const stable =
+            lastTargetBox !== null &&
+            Math.abs(box.x - lastTargetBox.x) < 1 &&
+            Math.abs(box.y - lastTargetBox.y) < 1;
+          lastTargetBox = box;
+          return stable;
+        },
+        { timeout: 5_000, message: "zoom-to-fit never settled" },
+      )
+      .toBe(true);
+
+    const widget = await boxFor(page, screenOneId, "widget");
+    const target = await boxFor(page, screenTwoId, "page2-target");
+    const sourceBefore = await fileContent(page, id, "index.html");
+    const destinationBefore = await fileContent(page, id, "page-two.html");
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      widget.x + widget.width / 2 + 20,
+      widget.y + widget.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 30 },
+    );
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").isVisible(), {
+        timeout: 5_000,
+        message: "cross-screen target guide must appear while held",
+      })
+      .toBe(true);
+
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+      { steps: 30 },
+    );
+    await page.waitForTimeout(300);
+    expect(pageErrors).toEqual([]);
+    await expect.poll(() => layerParentName(page, "Widget")).toBe("Main");
+    expect(await fileContent(page, id, "index.html")).toBe(sourceBefore);
+    expect(await fileContent(page, id, "page-two.html")).toBe(
+      destinationBefore,
+    );
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const source = await fileContent(page, id, "index.html");
+        const destination = await fileContent(page, id, "page-two.html");
+        return (
+          source.includes('data-agent-native-node-id="widget"') &&
+          !destination.includes('data-agent-native-node-id="widget"')
+        );
+      })
+      .toBe(true);
+    expect(pageErrors).toEqual([]);
   });
 
   test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({

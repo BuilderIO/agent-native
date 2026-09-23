@@ -28,9 +28,13 @@ evidence:
     "../../../app/components/sidebar/document-sidebar-sections.test.ts",
     "../../../app/components/sidebar/DocumentSidebar.layout.test.ts",
     "../../../app/components/editor/database/sidebar.tsx",
+    "../../../actions/content-recent.test.ts",
+    "../../../actions/content-personal-navigation-patch.test.ts",
+    "../../../app/components/editor/database/DatabaseView.recent.test.ts",
+    "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-18"
 ---
 
 # Personal sidebar
@@ -76,6 +80,38 @@ Existing sidebar section tests and sidebar rendering show useful donor behavior.
 not prove the full Reference/query, access, recovery, and personal-state contract; this
 Capability remains `approved_shape`.
 
+Personal section settings and bounded Recent navigation use per-user Actions. Recent
+stores one entry per Database with its latest successfully visited View, resolves
+current labels under current access, and records successful foreground visits rather
+than reads or edits. New pins prepend in personal custom order without changing shared
+parentage or membership. The persistent Search launcher opens the existing command
+menu instead of maintaining a second sidebar search implementation.
+
+The sidebar now selects one existing Content space without changing organization
+context. Pinned and Recent are filtered at the Action boundary by authoritative current
+Files membership before display limits, while aggregate Favorites remains reachable for
+legacy and unassigned pins. The selected space's Files tree is the only tree rendered;
+section order, visibility, and expansion persist, while five-row Pinned and Recent
+display counts are deliberately transient. Contextual pin reorder patches only the
+loaded subset and preserves unrelated personal order entries. Files, Pinned, and Recent
+share a presentational navigation row; Recent retains its real icon and exact View link
+without inheriting tree expansion or mutation controls.
+
+Each section's menu opens its complete selected-space collection: scoped personal pins,
+the retained Recent window, or the canonical Files table. Section headers use one grid
+for the toggle/drag surface and menu; pointer dragging works from the icon, label, or
+empty header space while the menu remains separate. Tree paging rows share the file-row
+grid so nested Show more controls align with their child depth.
+
+Database-backed workspace trees read at most 20 roots or immediate children per page,
+use cursor-based Show more, and resolve an active path without enumerating every
+document. Focused tests cover paging limits, parent-scoped reads, access filtering,
+cursor scope and staleness, active-path context, bounded deletion outcomes, bounded
+recency, legacy Recent migration, personal pin ordering, and navigation patch
+concurrency. These are useful implementation and test evidence, not complete atomic
+contract proof. Local authenticated UI evidence and mounted lifecycle recovery remain
+incomplete, so this Capability remains `approved_shape`.
+
 The September 9, 2026 SB-01–03 controls pass exercised collapsed and expanded
 Search, Escape focus return, accessible control names, keyboard and pointer
 resizing within 240–480px, width persistence after reload, and a 390px mobile
@@ -92,4 +128,15 @@ or recovery contracts.
 
 ## Open questions
 
-The first dynamic-section catalog and section-level personalization controls need design.
+- The initial catalog is Pinned and Recent alongside selected-space Files navigation.
+  Pinned and Recent start visible and expanded, show five entries initially, and allow
+  five-entry increments up to fifty. Section order, visibility, and expansion are
+  personal preferences; display limits reset after refresh, collapse/reopen, or a
+  Content-space switch.
+- Database Recent identity is one entry per Database, retaining its latest visited View;
+  plain Pages remain separate destinations. Explicit exact-View links and existing
+  exact-View pins are not changed by this behavior.
+- Database-backed workspace navigation is bounded to 20 roots or children per page.
+  Local-file mode still builds its sidebar from an unbounded document inventory and is
+  the explicit residual before the full bounded-navigation promise can be proven.
+- Additional dynamic sections remain outside this slice.

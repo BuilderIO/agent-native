@@ -99,11 +99,22 @@ describe("track route forwarding", () => {
       { userId: "steve@builder.io" },
     );
 
-    expect(captured).toHaveLength(1);
+    expect(captured).toHaveLength(2);
     expect(captured[0]).toMatchObject({
       name: "checkout.completed",
       userId: "steve@builder.io",
       properties: { total: 49.99, source: "client", org_id: "org_1" },
+    });
+    expect(captured[1]).toMatchObject({
+      name: "checkout_completed",
+      userId: "steve@builder.io",
+      properties: {
+        total: 49.99,
+        source: "client",
+        org_id: "org_1",
+        canonical_event_name: "checkout_completed",
+        legacy_event_name: "checkout.completed",
+      },
     });
   });
 });

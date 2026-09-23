@@ -173,8 +173,14 @@ async function cleanupDatabaseFixture(page: Page, fixture: DatabaseFixture) {
     databaseId: fixture.databaseId,
   });
   expect(trashed.documentId).toBe(fixture.databaseDocumentId);
+  const plan = await runAction(page, "plan-content-trash-purge", {
+    mode: "selection",
+    documentIds: [fixture.databaseDocumentId],
+  });
   await runAction(page, "permanently-delete-document", {
     id: fixture.databaseDocumentId,
+    planId: plan.planId,
+    scopeToken: plan.scopeToken,
   });
 }
 

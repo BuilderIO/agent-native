@@ -1,6 +1,5 @@
 import { createError, getHeader, type H3Event } from "h3";
 
-import { resolveOrgIdForEmail, getOrgContext } from "../org/context.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -10,11 +9,22 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
-import { getSession } from "./auth.js";
 import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
+
+const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
+  (...args) =>
+    import("../org/context.js").then(({ resolveOrgIdForEmail }) =>
+      resolveOrgIdForEmail(...args),
+    );
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
 
 export type AgentRunOwnerContext = {
   owner: string;
@@ -181,6 +191,7 @@ export async function resolveAgentRunOwnerContext(
     | undefined;
   if (seeded) return seeded;
 
+  const { getSession } = await import("./auth.js");
   const session = await getSession(event);
   if (session?.email) {
     return seedAgentRunOwnerContext(event, {
@@ -219,6 +230,7 @@ export async function resolveAgentRunOrgId(options: {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
   } else {
     try {
+      const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
     } catch {

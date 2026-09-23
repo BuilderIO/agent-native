@@ -23,6 +23,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));

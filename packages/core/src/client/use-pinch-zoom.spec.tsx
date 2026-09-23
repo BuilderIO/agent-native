@@ -92,12 +92,14 @@ describe("usePinchZoom", () => {
   function Harness({
     zoom,
     setZoom,
+    enabled,
     onRef,
     onZoomFrame,
     onZoomEnd,
   }: {
     zoom: number;
     setZoom: (n: number) => void;
+    enabled?: boolean;
     onRef: (el: HTMLDivElement) => void;
     onZoomFrame?: (n: number) => void;
     onZoomEnd?: (n: number) => void;
@@ -107,6 +109,7 @@ describe("usePinchZoom", () => {
       containerRef: ref,
       zoom,
       setZoom,
+      enabled,
       onZoomFrame,
       onZoomEnd,
     });
@@ -127,6 +130,7 @@ describe("usePinchZoom", () => {
       onZoomFrame?: (n: number) => void;
       onZoomEnd?: (n: number) => void;
     },
+    enabled = true,
   ) {
     let zoom = initialZoom;
     let scrollEl: HTMLDivElement | null = null;
@@ -139,6 +143,7 @@ describe("usePinchZoom", () => {
         <Harness
           zoom={zoom}
           setZoom={setZoom}
+          enabled={enabled}
           onZoomFrame={callbacks?.onZoomFrame}
           onZoomEnd={callbacks?.onZoomEnd}
           onRef={(el) => {
@@ -172,6 +177,15 @@ describe("usePinchZoom", () => {
       getZoom: () => zoom,
     };
   }
+
+  it("ignores pinch gestures while disabled", async () => {
+    const { scrollEl, setZoom } = await renderHarness(100, undefined, false);
+
+    dispatchWheel(scrollEl, { clientX: 100, clientY: 100, deltaY: -20 });
+    flushRaf();
+
+    expect(setZoom).not.toHaveBeenCalled();
+  });
 
   it("applies a single wheel event's zoom-to-cursor compensation (baseline, unchanged behavior)", async () => {
     const { scrollEl, setZoom } = await renderHarness(100);

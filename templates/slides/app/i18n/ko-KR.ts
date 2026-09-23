@@ -183,6 +183,12 @@ const messages = {
     emptyTitle: "브랜드 아이덴티티 설정",
     emptyDescription:
       "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",
+    tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
+    tierLimitDescription:
+      "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
+    tierLimitDescriptionWithCount:
+      "Builder {{plan}} 플랜에서 디자인 시스템을 {{current}}/{{max}}개 사용 중입니다. 업그레이드하여 새로 만드세요.",
+    tierLimitUpgrade: "Builder 플랜 업그레이드",
   },
   editorToolbar: {
     layoutTitle: "제목",
@@ -744,6 +750,8 @@ const messages = {
     websitePlaceholder: "example.com 또는 Nike",
     add: "추가",
     githubRepository: "코드 연결: GitHub 저장소",
+    codeIndexingEnterpriseOnly:
+      "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
     githubRef: "브랜치, 태그 또는 커밋 (선택 사항)",
     githubPaths: "파일 또는 폴더, 쉼표로 구분 (선택 사항)",
     codeFiles: "코드 파일 연결",
@@ -813,10 +821,6 @@ const messages = {
     continue: "계속",
     continueToGenerate: "생성 계속",
     designSystem: "디자인 시스템",
-    designSystemIndexing: "인덱싱 중…",
-    designSystemUnavailable: "사용 불가",
-    designSystemIndexingNotice:
-      "이 디자인 시스템은 아직 인덱싱 중입니다. 계속하기 전에 다른 시스템을 선택하거나 인덱싱이 끝날 때까지 기다리세요.",
     referenceDeck: "참고 덱",
     referenceDeckPlaceholder: "기존 덱의 스타일을 따르기",
     referenceDeckNone: "사용 안 함",

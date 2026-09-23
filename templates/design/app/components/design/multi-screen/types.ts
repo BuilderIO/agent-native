@@ -10,7 +10,7 @@ import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import type {
   IframeContextMenuPayload,
@@ -23,6 +23,8 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   PortableStyleSnapshot,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 } from "../types";
 import type { ScreenHeightMode } from "./screen-height";
 
@@ -170,6 +172,13 @@ export interface DuplicateRequest {
 export interface ScreenContentRenderOptions {
   onBootStart?: () => void;
   onBootReady?: () => void;
+  /**
+   * Invalidates the cached React element without changing the renderer
+   * callback. Runtime requests use this while the overview keeps the same
+   * live iframe mounted: the element must receive the new one-shot request,
+   * but its iframe document must not be remounted.
+   */
+  cacheKey?: string | number | null;
 }
 
 export interface MultiScreenCanvasProps {
@@ -201,8 +210,13 @@ export interface MultiScreenCanvasProps {
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
+  /** One overview screen may temporarily pass pointer input through its
+   * mounted live editor without remounting or changing the global view. */
+  interactScreenId?: string | null;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
+  /** Live localhost screens whose DOM editor may receive pointer input. */
+  editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -319,8 +333,18 @@ export interface MultiScreenCanvasProps {
     geometry: FrameGeometry,
     options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  /**
+   * Changes to a transient per-screen runtime request must invalidate the
+   * cached React element so a mounted DesignCanvas receives the request. This
+   * is intentionally separate from the renderer identity: changing it updates
+   * props in place and preserves the iframe document and running-app state.
+   */
+  screenContentRenderKey?: string | number | null;
   /** Cached inert HTML used while a live screen is waiting for a boot slot. */
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
+  /** The design's resolved tweak CSS custom properties. Editors receive them
+   *  from their own DesignCanvas; static previews are posted them here. */
+  tweakValues?: Record<string, string>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview
@@ -486,9 +510,41 @@ export interface MultiScreenCanvasProps {
   // ── Board edit callbacks (active-target model) ───────────────────────────
   /**
    * When true the board <DesignCanvas> is in edit mode.
-   * Pass `canEditDesign` from DesignEditor. Defaults to false.
+   * Pass the persisted-design or public visual-edit capability from
+   * DesignEditor. Defaults to false.
    */
   boardEditMode?: boolean;
+  /** Runtime-only requests targeted at the board iframe. */
+  boardRuntimeStructureInsertRequest?:
+    | (RuntimeStructureInsertRequest & {
+        screenId: string;
+      })
+    | null;
+  boardRuntimeStructureRollbackRequest?:
+    | (RuntimeStructureRollbackRequest & {
+        screenId: string;
+      })
+    | null;
+  /** Shared admission lock used to associate a board timeout with its transaction. */
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
+  onBoardRuntimeStructureInsertRejected?: (
+    reason: string,
+    transactionId?: string,
+  ) => boolean | void;
+  onBoardRuntimeStructureInsertApplied?: (details: {
+    requestId: string;
+    transactionId?: string;
+    routePath?: string;
+    selector: string;
+    sourceId?: string;
+    applied?: boolean;
+  }) => void;
+  onBoardRuntimeStructureRollbackResult?: (details: {
+    requestId: string;
+    transactionId?: string;
+    applied: boolean;
+    reason?: string;
+  }) => void;
   /**
    * When true the board is the active surface (activeFileId === boardFileId),
    * so the board <DesignCanvas> owns the global window runtime bridge
@@ -750,6 +806,7 @@ export interface ScreenContentCacheEntry {
   renderScreenContent: NonNullable<
     MultiScreenCanvasProps["renderScreenContent"]
   >;
+  renderKey: string | number | null | undefined;
   contentNode: ReactNode;
 }
 
@@ -1181,6 +1238,8 @@ export type {
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
   IframeImagePastePayload,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 };
 
 export interface ResolvedScreenMetadata {

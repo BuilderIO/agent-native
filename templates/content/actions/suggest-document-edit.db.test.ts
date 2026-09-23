@@ -6,6 +6,10 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "../shared/nfm.js";
+import { resolveMarkdownSuggestionRange } from "../shared/suggestion-rebase.js";
+import { suggestionTextPresentationForSource } from "../shared/suggestion-text.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-suggest-document-edit-${process.pid}-${Date.now()}.pglite`,
@@ -107,10 +111,107 @@ describe("suggest-document-edit", () => {
         const listed = (await listResourceSuggestions.run(
           { resourceType: "document", resourceId: id },
           ctx,
-        )) as { suggestions: Array<{ id: string; status: string }> };
+        )) as {
+          suggestions: Array<{
+            id: string;
+            status: string;
+            operations: Array<{
+              before?: unknown;
+              after?: unknown;
+              anchor?: unknown;
+            }>;
+          }>;
+        };
         expect(listed.suggestions.map((s) => s.id)).toContain(
           result.suggestionId,
         );
+        const persisted = listed.suggestions.find(
+          (suggestion) => suggestion.id === result.suggestionId,
+        )!;
+        const operation = persisted.operations[0]!;
+        const before = operation.before as {
+          markdown: string;
+          changedText: string;
+        };
+        const afterPayload = operation.after as {
+          markdown: string;
+          changedText: string;
+        };
+        const anchor = operation.anchor as { from: number; to: number };
+        expect(
+          suggestionTextPresentationForSource(before.changedText, {
+            source: before.markdown,
+            from: anchor.from,
+            to: anchor.to,
+          }),
+        ).not.toBeNull();
+        expect(
+          suggestionTextPresentationForSource(afterPayload.changedText, {
+            source: afterPayload.markdown,
+            from: anchor.from,
+            to: anchor.from + afterPayload.changedText.length,
+          }),
+        ).not.toBeNull();
+      },
+    );
+  });
+
+  it("round-trips an action suggestion through canonical preview coordinates", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const content =
+          "# Review notes\n\nEditors publish carefully.\n\n- Verify preview\n- Verify highlight";
+        const find = "Editors publish carefully.";
+        const replace = "Editors publish deliberately.";
+        const { id, revision } = await createPage(content);
+        const created = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `presentation-${id}`,
+            find,
+            replace,
+          },
+          ctx,
+        )) as { suggestionId: string };
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            operations: Array<{
+              before: { markdown: string; changedText: string };
+              after: { markdown: string; changedText: string };
+              anchor: { from: number; to: number };
+            }>;
+          }>;
+        };
+        const operation = listed.suggestions.find(
+          (suggestion) => suggestion.id === created.suggestionId,
+        )!.operations[0]!;
+        const canonical = canonicalizeNfm(content);
+        const range = resolveMarkdownSuggestionRange(canonical, operation);
+
+        expect(range).toEqual({
+          from: canonical.indexOf(find),
+          to: canonical.indexOf(find) + find.length,
+        });
+        expect(
+          suggestionTextPresentationForSource(operation.before.changedText, {
+            source: operation.before.markdown,
+            from: operation.anchor.from,
+            to: operation.anchor.to,
+          }),
+        ).not.toBeNull();
+        expect(
+          suggestionTextPresentationForSource(operation.after.changedText, {
+            source: operation.after.markdown,
+            from: operation.anchor.from,
+            to: operation.anchor.from + operation.after.changedText.length,
+          }),
+        ).not.toBeNull();
       },
     );
   });

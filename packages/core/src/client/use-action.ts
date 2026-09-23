@@ -42,10 +42,13 @@ import {
   clientCompatibilityVersion,
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
+import { isTerminalAuthFailure } from "./create-query-client.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
-const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
+function actionPrefix(): string {
+  return agentNativePath("/_agent-native/actions");
+}
 
 /**
  * Upper bound on how long a single action fetch may stay in flight (headers
@@ -351,7 +354,7 @@ async function performActionFetch<T>(
   options?: InternalActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
-  let url = `${ACTION_PREFIX}/${name}`;
+  let url = `${actionPrefix()}/${name}`;
   const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -629,6 +632,49 @@ function actionTelemetryNow(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
+/**
+ * Bumped every time the document transitions to hidden. `actionFetch`
+ * snapshots this at request start and diffs it at completion so a call
+ * spanning a backgrounded tab is flagged even if the tab is visible again by
+ * the time the call settles — its wall-clock duration was inflated by
+ * browser timer throttling for however long it was hidden, which is exactly
+ * how a suspended tab produces a multi-minute "timeout". Guarded for SSR/no
+ * DOM; never installed twice because this module only evaluates once.
+ */
+let pageHiddenEpoch = 0;
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") pageHiddenEpoch += 1;
+  });
+}
+
+/**
+ * `undefined` when there is no document to ask (SSR, a non-browser caller) —
+ * "unknown" must stay absent rather than default to a guessed `false`.
+ *
+ * `hiddenEpochAtStart`/`hiddenEpochNow` only catch a transition INTO hidden
+ * that happens during the call. A call that starts already hidden (a
+ * background tab load, a cmd-click, a hidden desktop webview) sees no such
+ * transition even if the tab surfaces again before the call completes, so
+ * `hiddenAtStart` is checked directly instead of being inferred from a
+ * transition that never fires.
+ *
+ * @internal exported for tests
+ */
+export function computePageHidden(
+  hiddenAtStart: boolean,
+  hiddenEpochAtStart: number,
+  hiddenEpochNow: number,
+  visibilityState: DocumentVisibilityState | undefined,
+): boolean | undefined {
+  if (visibilityState === undefined) return undefined;
+  return (
+    hiddenAtStart ||
+    hiddenEpochAtStart !== hiddenEpochNow ||
+    visibilityState !== "visible"
+  );
+}
+
 function parseServerTiming(
   response: Response | undefined,
 ): Map<string, number> {
@@ -686,6 +732,10 @@ async function actionFetch<T>(
 ): Promise<T> {
   assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
+  const hiddenEpochAtStart = pageHiddenEpoch;
+  const hiddenAtStart =
+    typeof document !== "undefined" && document.visibilityState !== "visible";
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
   let response: Response | undefined;
   let responseAt: number | undefined;
   let error: unknown;
@@ -722,7 +772,28 @@ async function actionFetch<T>(
         const timedOut =
           (error as { timedOut?: unknown } | undefined)?.timedOut === true;
         const cancelled = options?.signal?.aborted === true && !timedOut;
-        const contentLength = Number(response?.headers.get("content-length"));
+        // `Number(null)` is 0 — an absent header must not read the same as a
+        // server-declared empty body, so check presence before coercing.
+        const contentLengthHeader = response?.headers.get("content-length");
+        const contentLength =
+          contentLengthHeader == null ? undefined : Number(contentLengthHeader);
+        // `boot`/`init` only ride the Server-Timing header on the "app"
+        // phase a live (non-cacheable) response reports (see
+        // http-response-telemetry.ts); a shared-cacheable response instead
+        // gets a single `origin` snapshot entry with neither, and their
+        // absence there says nothing about boot state. `cold_start` below is
+        // keyed on `app` specifically, not on the header merely being
+        // present, for the same reason.
+        const serverBootMs = serverTiming.get("boot");
+        const serverInitMs = serverTiming.get("init");
+        const pageHidden = computePageHidden(
+          hiddenAtStart,
+          hiddenEpochAtStart,
+          pageHiddenEpoch,
+          typeof document === "undefined"
+            ? undefined
+            : document.visibilityState,
+        );
 
         trackEvent("action.response", {
           request_id:
@@ -766,9 +837,20 @@ async function actionFetch<T>(
           startup_db_operation_wall_ms: serverTiming.get("startup-db"),
           startup_db_connect_total_ms: serverTiming.get("startup-db-connect"),
           response_bytes:
-            Number.isFinite(contentLength) && contentLength >= 0
-              ? contentLength
-              : undefined,
+            contentLength === undefined ||
+            !Number.isFinite(contentLength) ||
+            contentLength < 0
+              ? undefined
+              : contentLength,
+          server_boot_ms:
+            serverBootMs === undefined ? undefined : Math.round(serverBootMs),
+          server_init_ms:
+            serverInitMs === undefined ? undefined : Math.round(serverInitMs),
+          cold_start: serverTiming.has("app")
+            ? serverTiming.has("boot")
+            : undefined,
+          page_hidden: pageHidden,
+          timeout_ms: timeoutMs,
         });
       }
     } catch {
@@ -995,6 +1077,27 @@ export function tryCallActionKeepalive<
 // ---------------------------------------------------------------------------
 
 /**
+ * Wraps a caller-supplied `refetchInterval` so polling stops once the query's
+ * last error is a terminal auth failure (401/403) instead of reissuing the
+ * identical rejection on every tick — the same condition useDbSync's
+ * `hasTerminalAuthFailure` already skips sync-driven invalidation for. A
+ * remount, a mutation's invalidation, or an explicit `refetch()` still
+ * retries: this only gates the interval timer, not the query's error state.
+ *
+ * @internal exported for tests
+ */
+export function guardActionQueryRefetchInterval<TData = unknown>(
+  refetchInterval: NonNullable<UseQueryOptions<TData>["refetchInterval"]>,
+): NonNullable<UseQueryOptions<TData>["refetchInterval"]> {
+  return (query) => {
+    if (isTerminalAuthFailure(query.state.error)) return false;
+    return typeof refetchInterval === "function"
+      ? refetchInterval(query)
+      : refetchInterval;
+  };
+}
+
+/**
  * Query an action exposed as GET.
  *
  * When the action type registry is generated, the return type and parameter
@@ -1024,6 +1127,7 @@ export function useActionQuery<
   // the caller asked for, and an unfired query reads as "no data" rather than
   // as an error the UI has to special-case.
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
+  const { refetchInterval, ...restOptions } = options ?? {};
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     // Thread React Query's per-fetch AbortSignal into the network request so
@@ -1033,7 +1137,10 @@ export function useActionQuery<
       actionFetch<R>(actionName, "GET", params, { signal }),
     retry: defaultActionQueryRetry,
     retryDelay: defaultActionQueryRetryDelay,
-    ...options,
+    ...restOptions,
+    ...(refetchInterval !== undefined
+      ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
+      : {}),
     ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }

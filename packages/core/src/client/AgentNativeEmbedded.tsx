@@ -1,11 +1,7 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 
-import {
-  AgentChatSurface,
-  AgentSidebar,
-  type AgentChatSurfaceProps,
-  type AgentSidebarProps,
-} from "./AgentPanel.js";
+import { AgentChatSurface, type AgentChatSurfaceProps } from "./AgentPanel.js";
+import { AgentSidebar, type AgentSidebarProps } from "./AgentSidebar.js";
 import {
   createAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,

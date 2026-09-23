@@ -53,7 +53,7 @@ describe("WebMCP registration lifecycle ownership", () => {
     vi.restoreAllMocks();
   });
 
-  it("stops only the unmounted surface's registration", () => {
+  it("stops only the unmounted surface's registration", async () => {
     act(() => {
       root.render(
         <>
@@ -62,6 +62,9 @@ describe("WebMCP registration lifecycle ownership", () => {
         </>,
       );
     });
+    await vi.waitFor(() =>
+      expect(registrationFactory).toHaveBeenCalledTimes(2),
+    );
     expect(registrationFactory).toHaveBeenCalledTimes(2);
 
     act(() => {
@@ -80,7 +83,7 @@ describe("WebMCP registration lifecycle ownership", () => {
     expect(stops[1]).toHaveBeenCalledTimes(1);
   });
 
-  it("stops only the unmounted surface's registration in the reverse order", () => {
+  it("stops only the unmounted surface's registration in the reverse order", async () => {
     act(() => {
       root.render(
         <>
@@ -89,6 +92,9 @@ describe("WebMCP registration lifecycle ownership", () => {
         </>,
       );
     });
+    await vi.waitFor(() =>
+      expect(registrationFactory).toHaveBeenCalledTimes(2),
+    );
     expect(registrationFactory).toHaveBeenCalledTimes(2);
 
     act(() => {
@@ -113,8 +119,10 @@ describe("WebMCP registration lifecycle ownership", () => {
         <AgentNativeWebMcpActionRegistration excludeActionNames={["first"]} />,
       );
     });
-    expect(registrationFactory).toHaveBeenCalledWith({
-      excludeActionNames: ["first"],
+    await vi.waitFor(() => {
+      expect(registrationFactory).toHaveBeenCalledWith({
+        excludeActionNames: ["first"],
+      });
     });
 
     act(() => {

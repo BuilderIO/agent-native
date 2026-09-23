@@ -86,15 +86,15 @@ async function portableStyleSnapshotStylesFor(
 }
 
 /**
- * Same drive-a-real-browser flow, but with `document.createElement("iframe")`
- * stubbed to throw before the bridge script loads — the only way
- * portableStyleProbeDocument's own try/catch can fail (sandboxed iframe, CSP,
- * etc.). Returns the snapshot plus the capture-failure marker so a caller can
- * distinguish an omitted failed capture from a legitimate absent snapshot.
+ * Same drive-a-real-browser flow, but with the probe iframe made unavailable
+ * before the bridge script loads. Returns the snapshot plus the capture-failure
+ * marker so a caller can distinguish an omitted failed capture from a
+ * legitimate absent snapshot.
  */
-async function portableStyleSnapshotWithBrokenIframeProbe(
+async function portableStyleSnapshotWithIframeProbe(
   html: string,
   selector: string,
+  mode: "throw" | "null",
 ): Promise<{
   snapshot?: { nodes?: Array<{ styles: Record<string, string> }> };
   styleSnapshotCaptureFailed?: boolean;
@@ -105,18 +105,29 @@ async function portableStyleSnapshotWithBrokenIframeProbe(
       viewport: { width: 800, height: 600 },
     });
     await page.setContent(html);
-    await page.evaluate(() => {
+    await page.evaluate((probeMode) => {
       const realCreateElement = document.createElement.bind(document);
       document.createElement = ((
         tagName: string,
         options?: ElementCreationOptions,
       ) => {
         if (tagName.toLowerCase() === "iframe") {
-          throw new Error("iframe creation blocked (test)");
+          if (probeMode === "throw") {
+            throw new Error("iframe creation blocked (test)");
+          }
+          const iframe = realCreateElement(
+            tagName,
+            options,
+          ) as HTMLIFrameElement;
+          Object.defineProperty(iframe, "contentDocument", {
+            configurable: true,
+            get: () => null,
+          });
+          return iframe;
         }
         return realCreateElement(tagName, options);
       }) as typeof document.createElement;
-    });
+    }, mode);
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
@@ -278,16 +289,36 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       const html = `<!doctype html><html><body style="margin:0">
         <button data-agent-native-node-id="btn">Click</button>
       </body></html>`;
-      const capture = await portableStyleSnapshotWithBrokenIframeProbe(
+      const capture = await portableStyleSnapshotWithIframeProbe(
         html,
         '[data-agent-native-node-id="btn"]',
+        "throw",
       );
-      // A `{}` default here would make every computed property look
-      // "customized" (nothing to diff against) — the over-carrying bug this
-      // The failed snapshot is omitted, while the explicit marker keeps it
-      // distinct from a legitimate selection with no captured snapshot.
+      // Failed capture is omitted and marked distinctly from an absent snapshot.
       expect(capture.snapshot).toBeUndefined();
       expect(capture.styleSnapshotCaptureFailed).toBe(true);
+    },
+  );
+
+  it(
+    "uses the same-document fallback when the probe iframe has no readable document",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>div{background-color:teal}</style></head><body style="margin:0;color:rgb(128, 0, 128);font-family:Courier New">
+        <div data-agent-native-node-id="btn">Click</div>
+      </body></html>`;
+      const capture = await portableStyleSnapshotWithIframeProbe(
+        html,
+        '[data-agent-native-node-id="btn"]',
+        "null",
+      );
+      const styles = capture.snapshot?.nodes?.[0]?.styles;
+
+      expect(capture.styleSnapshotCaptureFailed).toBeUndefined();
+      expect(styles?.backgroundColor).toBe("rgb(0, 128, 128)");
+      expect(styles?.color).toBe("rgb(128, 0, 128)");
+      expect(styles?.visibility).toBeUndefined();
+      expect(styles?.pointerEvents).toBeUndefined();
     },
   );
 });

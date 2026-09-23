@@ -89,6 +89,22 @@ describe("slide rich text normalization", () => {
     expect(html).toContain("<p></p>");
   });
 
+  it("keeps legacy bullet row layout while editing", () => {
+    const html = contentForSlideTextContainer(
+      "DIV",
+      '<div style="display:flex;align-items:baseline;gap:20px;font-size:22px"><span style="font-size:8px">●</span><span>First point</span></div>',
+    );
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const paragraph = wrapper.querySelector("p") as HTMLElement;
+
+    expect(paragraph).toBeTruthy();
+    expect(paragraph.style.display).toBe("flex");
+    expect(paragraph.style.alignItems).toBe("baseline");
+    expect(paragraph.style.gap).toBe("20px");
+    expect(paragraph.textContent).toBe("●First point");
+  });
+
   it("preserves explicit blank paragraphs as line breaks", () => {
     expect(
       normalizeSlideEditorContent("<p>First</p><p></p><p>Second</p>"),
@@ -153,6 +169,238 @@ describe("slide rich text normalization", () => {
     expect((rows[0] as HTMLElement).style.gap).toBe("20px");
   });
 
+  it("restores a single legacy bullet row after editing", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li style="display:flex;gap:20px"><p>Updated point</p></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(element.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(element.textContent).toBe("●Updated point");
+  });
+
+  it("preserves single legacy bullet row formatting after editing", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li style="color:red;font-size:24px;display:flex;gap:16px"><p>Updated point</p></li></ul>',
+      source,
+    );
+
+    expect(element.style.color).toBe("red");
+    expect(element.style.fontSize).toBe("24px");
+    expect(element.style.display).toBe("flex");
+    expect(element.style.gap).toBe("16px");
+  });
+
+  it("unwraps ordinary single-row bullet edits back into the row template", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<p><strong>Updated point</strong></p>",
+      source,
+    );
+
+    expect(element.querySelector(":scope > p")).toBeNull();
+    expect(element.querySelector(":scope > li")).toBeNull();
+    expect(element.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(element.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(
+      element.querySelector(":scope > span:nth-child(2) strong")?.textContent,
+    ).toBe("Updated point");
+  });
+
+  it("preserves every item and its marker when a legacy bullet becomes a multi-item list (ENG-13998)", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    // Realistic TipTap output for pressing Enter at the end of the row: a
+    // second <li> carrying the --slide-legacy-marker-* vars normalizeSlide-
+    // EditorContent stamped on entry (see the "converts legacy bullet rows"
+    // test above). Regression coverage for the raw `outerHTML` bail-out that
+    // used to leak this editor-only markup into persisted slide content.
+    restoreSlideTextContainerContent(
+      element,
+      '<ul style="--slide-legacy-list:1"><li style="--slide-legacy-marker-content:&quot;●&quot;"><p>First point</p></li><li style="--slide-legacy-marker-content:&quot;●&quot;"><p>Second point</p></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector("ul")).toBeNull();
+    const rows = element.querySelectorAll(":scope > div");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(rows[0]?.textContent).toBe("●First point");
+    expect(rows[1]?.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(rows[1]?.textContent).toBe("●Second point");
+    expect(element.innerHTML).not.toContain("--slide-legacy-marker");
+    expect(element.innerHTML).not.toContain("--slide-legacy-list");
+    // The original row's flex-row layout (marker beside text) must become a
+    // stack, or the two new rows render crammed side by side.
+    expect(element.style.flexDirection).toBe("column");
+  });
+
+  it("keeps a numbered AI bullet list as an ordered list", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ol><li><p>First</p></li><li><p>Second</p></li></ol>",
+      source,
+    );
+
+    expect(element.querySelectorAll("ol > li")).toHaveLength(2);
+    expect(element.textContent).not.toContain("•");
+  });
+
+  it("keeps a numbered sub-list under an AI bullet as an ordered list", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul style="--slide-legacy-list:1"><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>First</p><ol style="--slide-legacy-list:1;list-style:none"><li><p>Sub</p></li></ol></li><li><p>Second</p></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector("ul")).toBeNull();
+    expect(element.querySelector("ol > li")?.textContent).toBe("Sub");
+    expect(element.innerHTML).not.toContain("--slide-legacy");
+    expect(element.textContent).toBe("•FirstSub•Second");
+  });
+
+  it("strips editor-only legacy marker styling from a numbered list", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ol style="--slide-legacy-list:1;list-style:none;padding-left:0"><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>Only item</p></li></ol>',
+      source,
+    );
+
+    const list = element.querySelector("ol");
+    expect(list?.querySelectorAll("li")).toHaveLength(1);
+    expect(list?.style.listStyle).toBe("");
+    expect(element.innerHTML).not.toContain("--slide-legacy");
+  });
+
+  it("flattens a Tab-nested item in a multi-row AI bullet block into marker rows", () => {
+    const element = document.createElement("div");
+    const row = (text: string) =>
+      `<div style="display:flex;gap:10px"><span style="color:#5ec8e5">•</span><span>${text}</span></div>`;
+    const source = row("First") + row("Second");
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul style="--slide-legacy-list:1"><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>First</p><ul><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>Second</p></li></ul></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector("ul")).toBeNull();
+    expect(element.innerHTML).not.toContain("--slide-legacy");
+    const rows = element.querySelectorAll<HTMLElement>(":scope > div");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.textContent).toBe("•Second");
+    expect(rows[1]?.style.paddingLeft).toBe("24px");
+  });
+
+  it("keeps the marker on a Tab-indented sub-bullet instead of dropping it (ENG-13998)", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#9aa3ad">—</span><span>Point</span>';
+    element.innerHTML = source;
+
+    // Realistic TipTap output for Tab on the second item: sinkListItem nests
+    // it inside the first item's <li> as a child <ul>.
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li><p>First point</p><ul><li style="--slide-legacy-marker-content:&quot;—&quot;"><p>Sub point</p></li></ul></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector("ul")).toBeNull();
+    const rows = element.querySelectorAll<HTMLElement>(":scope > div");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toBe("—First point");
+    expect(rows[0]?.style.paddingLeft).toBe("");
+    expect(rows[1]?.textContent).toBe("—Sub point");
+    expect(rows[1]?.style.paddingLeft).toBe("24px");
+    expect(element.innerHTML).not.toContain("--slide-legacy-marker");
+  });
+
+  it("stays marker-recognizable after an Enter-created row is edited again (undo/re-edit stability)", () => {
+    const element = document.createElement("div");
+    element.setAttribute(
+      "style",
+      "display:flex;gap:10px;align-items:baseline;",
+    );
+    const source = '<span style="color:red">•</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ul><li><p>First point</p></li><li><p>Second point</p></li></ul>",
+      source,
+    );
+
+    // The reconciled DOM must round-trip through the same recognizer the
+    // deck's bullet heuristics (and a future re-edit or undo snapshot) use:
+    // each restored row is independently a legacy bullet row again.
+    const rows = Array.from(element.querySelectorAll(":scope > div"));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.firstElementChild?.tagName).toBe("SPAN");
+      const editorContent = contentForSlideTextContainer(
+        "DIV",
+        (row as HTMLElement).outerHTML,
+      );
+      const seed = document.createElement("div");
+      seed.innerHTML = editorContent;
+      expect(seed.firstElementChild?.tagName).toBe("P");
+    }
+  });
+
+  it("preserves sibling editor blocks after a legacy bullet", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ul><li><p>First point</p></li></ul><p>Second paragraph</p>",
+      source,
+    );
+
+    expect(element.querySelector(":scope > ul > li")?.textContent).toBe(
+      "First point",
+    );
+    expect(element.querySelector(":scope > p")?.textContent).toBe(
+      "Second paragraph",
+    );
+  });
+
   it("keeps persisted semantic lists styled without an editor marker", () => {
     document.body.innerHTML = `
       <div class="slide-content">
@@ -208,6 +456,20 @@ describe("slide rich text normalization", () => {
     // margin is asserted below because the matching rule sets it to a literal
     // "0" rather than "inherit".
     expect(getComputedStyle(inner).margin).toBe("0px");
+  });
+
+  it("keeps the body-mounted editor host as a layout box", () => {
+    document.body.innerHTML = `
+      <div class="slide-content slide-rich-editor-context">
+        <div class="fmd-slide">
+          <div class="slide-rich-editor-host"></div>
+        </div>
+      </div>
+    `;
+
+    expect(
+      getComputedStyle(document.querySelector(".slide-rich-editor-host")!),
+    ).toMatchObject({ display: "block" });
   });
 
   it("renders an empty slide paragraph as a visible line break", () => {

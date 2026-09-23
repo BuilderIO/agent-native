@@ -32,12 +32,18 @@ function documentWithModelContext(modelContext: Record<string, unknown>) {
 }
 
 describe("WebMCP client", () => {
-  it("initializes the page-local polyfill when native WebMCP is unavailable", () => {
+  it("initializes the page-local polyfill without native WebMCP or Object.hasOwn", () => {
     const originalModelContext = Object.getOwnPropertyDescriptor(
       document,
       "modelContext",
     );
+    const originalHasOwn = Object.getOwnPropertyDescriptor(Object, "hasOwn");
+    Object.defineProperty(Object, "hasOwn", {
+      configurable: true,
+      value: undefined,
+    });
     initializeWebMCPPolyfill.mockImplementation(() => {
+      Object.hasOwn(document, "modelContext");
       Object.defineProperty(document, "modelContext", {
         configurable: true,
         value: {
@@ -52,6 +58,8 @@ describe("WebMCP client", () => {
       expect(initializeAgentNativeWebMcp()).toBe(true);
       expect(initializeWebMCPPolyfill).toHaveBeenCalledOnce();
     } finally {
+      if (originalHasOwn)
+        Object.defineProperty(Object, "hasOwn", originalHasOwn);
       if (originalModelContext) {
         Object.defineProperty(document, "modelContext", originalModelContext);
       } else {

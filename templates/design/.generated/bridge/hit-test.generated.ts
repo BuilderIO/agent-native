@@ -457,10 +457,27 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return nearestChildInsertionTarget(document.body, clientX, clientY);
     }
-    function resolveHitTarget(clientX, clientY) {
+    function resolveHitTarget(clientX, clientY, forceNestedAutoLayout = false) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
       var cursor = hit;
+      if (forceNestedAutoLayout) {
+        while (cursor && cursor !== document.body) {
+          if (isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+            return null;
+          }
+          if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+            return nearestChildInsertionTarget(cursor, clientX, clientY) || {
+              anchor: cursor,
+              placement: "inside",
+              axis: parentFlowAxis(cursor),
+              dropMode: "flow-insert"
+            };
+          }
+          cursor = cursor.parentElement;
+        }
+        cursor = hit;
+      }
       while (cursor && cursor !== document.body) {
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
@@ -562,6 +579,43 @@ export const hitTestBridgeScript: string = `"use strict";
         blockCursor = blockCursor.parentElement;
       }
       return null;
+    }
+    function ignoreAutoLayoutHitTarget(target, ignoreAutoLayout = false) {
+      if (!ignoreAutoLayout || !target || target.dropMode !== "flow-insert") {
+        return target;
+      }
+      var container = target.placement === "inside" ? target.anchor : target.anchor.parentElement;
+      if (!container || !isAutoLayoutElement(container)) return target;
+      return {
+        anchor: container,
+        placement: "inside",
+        axis: parentFlowAxis(container),
+        dropMode: "absolute-container"
+      };
+    }
+    function applyHitTestSizeGuard(target, clientX, clientY, sourceElementSize, modifiers) {
+      if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" || !sourceElementSize || modifiers?.metaKey || modifiers?.ctrlKey || modifiers?.ignoreAutoLayout) {
+        return target;
+      }
+      var container = target.anchor;
+      if (container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+        return target;
+      }
+      var crect = container.getBoundingClientRect();
+      if (crect.width >= sourceElementSize.width && crect.height >= sourceElementSize.height) {
+        return target;
+      }
+      var parent = container.parentElement;
+      if (!parent) return null;
+      var pAxis = parentFlowAxis(parent);
+      var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
+      var pointer = pAxis === "x" ? clientX : clientY;
+      return {
+        anchor: container,
+        placement: pointer < center ? "before" : "after",
+        axis: pAxis,
+        dropMode: "flow-insert"
+      };
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -830,7 +884,25 @@ export const hitTestBridgeScript: string = `"use strict";
       var x = Number(e.data.x);
       var y = Number(e.data.y);
       if (!correlationId) return;
-      var result = resolveHitTarget(x, y);
+      var sourceElementSize = e.data.sourceElementSize;
+      var validSourceElementSize = sourceElementSize && Number.isFinite(sourceElementSize.width) && Number.isFinite(sourceElementSize.height) && sourceElementSize.width > 0 && sourceElementSize.height > 0 ? {
+        width: sourceElementSize.width,
+        height: sourceElementSize.height
+      } : void 0;
+      var result = ignoreAutoLayoutHitTarget(
+        applyHitTestSizeGuard(
+          resolveHitTarget(
+            x,
+            y,
+            e.data.modifiers?.forceNestedAutoLayout === true
+          ),
+          x,
+          y,
+          validSourceElementSize,
+          e.data.modifiers
+        ),
+        e.data.modifiers?.ignoreAutoLayout === true
+      );
       if (e.data.preview) showInsertionGuideFor(result);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var pendingNodeId = result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";

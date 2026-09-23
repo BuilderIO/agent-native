@@ -6,7 +6,7 @@ import {
   getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
-import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -18,10 +18,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import {
-  DefaultSpinner,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -268,6 +265,16 @@ function PrivateAppContent() {
   );
 }
 
+/**
+ * Bypass requires an actual embed credential, not just the `embedded=1`
+ * display flag: the Electron desktop shell opens every app tab with that
+ * flag and no token, and a bare-flag bypass sent those signed-out tabs
+ * straight into an infinite 401 poll instead of sign-in.
+ */
+export function computeSessionBypass(): boolean {
+  return Boolean(getEmbedAuthToken());
+}
+
 export default function Root() {
   const [queryClient] = useState(() =>
     createAgentNativeQueryClient({
@@ -297,8 +304,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        sessionBypass={isEmbedAuthActive()}
-        clientOnlyFallback={<DefaultSpinner />}
+        sessionBypass={computeSessionBypass()}
         toaster={<Toaster richColors position="bottom-center" />}
         i18n={{
           catalog: i18nCatalog,

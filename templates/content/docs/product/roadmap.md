@@ -30,9 +30,9 @@ Pages, Blocks, Collections, Search, history, and recovery form one trustworthy m
 
 **Example workflow:** A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context.
 
-**What works today:** Content already has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. People and agents can perform much of the ordinary creation and editing loop on the same durable objects.
+**What works today:** Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. Page saves and external edits use revision and retry identities, while editor recovery fences delayed stale drafts after confirmed saves.
 
-**What remains:** Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation.
+**What remains:** Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation; the new Page recovery contract still needs deployed multi-client validation.
 
 **What this Feature includes:**
 
@@ -161,9 +161,9 @@ Comments, Discussion, messages, notifications, and history stay anchored to the 
 
 **Example workflow:** A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together.
 
-**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, and document history. These already keep precise feedback closer to the artifact than an external chat can.
+**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. Browser and external edits to independent regions reconcile through one canonical body without routine version-choice interruption.
 
-**What remains:** Every Page and Collection needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions.
+**What remains:** Every Page and Collection needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, clearly attributable message revisions, and deployed proof of the editor's recovery ordering across multiple clients.
 
 **What this Feature includes:**
 

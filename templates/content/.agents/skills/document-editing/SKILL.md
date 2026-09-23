@@ -162,8 +162,13 @@ Restore the root subtree, or permanently delete it only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123
-pnpm action permanently-delete-document --id abc123
+pnpm action plan-content-trash-purge --mode selection --documentIds '["abc123"]'
+pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>' --scopeToken '<opaque plan token>'
 ```
+
+Permanent deletion requires the exact `planId` and `scopeToken` returned by
+`plan-content-trash-purge`. Inspect the plan's affected and blocked items before
+executing it; if Trash changes after review, create and inspect a new plan.
 
 ## Comments
 

@@ -160,6 +160,20 @@ const messages = {
       saveFailed: "검토 상태를 업데이트할 수 없습니다",
     },
   },
+  designSystems: {
+    ...messagesByLocale["ko-KR"].designSystems,
+    tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
+    tierLimitDescription:
+      "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
+    tierLimitDescriptionWithCount:
+      "Builder {{plan}} 플랜에서 디자인 시스템을 {{current}}/{{max}}개 사용 중입니다. 업그레이드하여 새로 만드세요.",
+    tierLimitUpgrade: "Builder 플랜 업그레이드",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["ko-KR"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
+  },
 };
 
 export default messages;

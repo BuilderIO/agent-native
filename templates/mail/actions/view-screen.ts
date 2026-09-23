@@ -576,6 +576,7 @@ export default defineAction({
         label: nav.label ?? null,
         filter: nav.filter ?? null,
         activeInboxTab: nav.activeInboxTab ?? null,
+        sort: nav.sort ?? "newest",
         activeAccounts: nav.activeAccounts ?? [],
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),

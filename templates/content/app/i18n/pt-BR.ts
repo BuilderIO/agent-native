@@ -864,6 +864,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Espaço do Content",
     addChild: "Adicionar filho",
     addChildTo: "Adicionar filho a {{title}}",
     database: "Coleção",
@@ -901,6 +902,9 @@ const landing = {
   requestedPageUnavailable:
     "Essa página não está disponível para sua conta, então abrimos a página de boas-vindas.",
   saveFailed: "Não foi possível salvar sua localização",
+  workspaceWelcomeUnavailableTitle: "Ainda não há nada aberto aqui",
+  workspaceWelcomeUnavailableDescription:
+    "Você pode ver este espaço de trabalho, mas não tem permissão para criar a página de boas-vindas.",
 };
 
 const comments = {
@@ -970,6 +974,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "Recentes",
+  customizeSidebar: "Personalizar barra lateral",
+  noRecentVisits: "Nenhuma visita recente",
+  noPinnedItems: "Nenhum item fixado",
+  showMore: "Mostrar mais",
+  showLess: "Mostrar menos",
+  seeAll: "Ver tudo…",
+  seeAllFiles: "Ver todos os arquivos",
   pinned: "Fixados",
   loadingPinned: "Carregando itens fixados…",
   dragToReorder: "Arraste para reordenar {{label}}",

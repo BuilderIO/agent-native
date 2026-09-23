@@ -313,6 +313,237 @@ test.afterAll(async () => {
   if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
 });
 
+function sourceNodeIds(html: string, sourceNodeId: string): string[] {
+  return elementTags(html).flatMap((tag) => {
+    if (
+      attributeValue(tag, "data-agent-native-component-source-node-id") !==
+      sourceNodeId
+    ) {
+      return [];
+    }
+    const nodeId = attributeValue(tag, "data-agent-native-node-id");
+    return nodeId ? [nodeId] : [];
+  });
+}
+
+test("real component instances propagate, detach, and persist a variant", async ({
+  page,
+  request,
+}) => {
+  let designId = "";
+  try {
+    const created = await action(request, "create-design", {
+      title: "Component instance reporter path",
+      projectType: "prototype",
+    });
+    designId = created.id ?? created.data?.id ?? "";
+    if (!designId) throw new Error("create-design returned no id");
+    await action(request, "create-file", {
+      designId,
+      filename: "index.html",
+      content: fs.readFileSync(INLINE_FIXTURE, "utf8"),
+      fileType: "html",
+    });
+
+    await gotoEditor(page, designId);
+    await selectNodeById(page, "card-main");
+    const promoted = await action(request, "create-component", {
+      designId,
+      nodeId: "card-main",
+      name: "ReusableCard",
+    });
+    expect(promoted.persisted).toBe(true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    let html = await source(request, designId);
+    const componentId = attributeValue(
+      tagForNode(html, "card-main") ?? "",
+      "data-agent-native-component-id",
+    );
+    expect(componentId).toBeTruthy();
+
+    await selectNodeById(page, "card-main");
+    await page.keyboard.press("ControlOrMeta+d");
+    await expect
+      .poll(
+        async () =>
+          componentRoots(await source(request, designId), componentId!).length,
+      )
+      .toBe(2);
+    await selectNodeById(page, "card-main");
+    await page.keyboard.press("ControlOrMeta+d");
+    await expect
+      .poll(
+        async () =>
+          componentRoots(await source(request, designId), componentId!).length,
+      )
+      .toBe(3);
+
+    html = await source(request, designId);
+    const instances = componentRoots(html, componentId!).filter(
+      (root) => !root.main,
+    );
+    expect(instances).toHaveLength(2);
+    const instanceTitleIds = sourceNodeIds(html, "card-title-text");
+    expect(instanceTitleIds).toHaveLength(2);
+
+    const mainEdit = await action(request, "apply-visual-edit", {
+      source: { kind: "design-file", designId, filename: "index.html" },
+      intent: {
+        kind: "textContent",
+        target: { nodeId: "card-title-text" },
+        value: "Propagated main edit",
+      },
+    });
+    expect(mainEdit.persisted, JSON.stringify(mainEdit)).toBe(true);
+    await expect
+      .poll(async () => {
+        const current = await source(request, designId);
+        return [
+          nodeText(current, "card-title-text"),
+          ...instanceTitleIds.map((nodeId) => nodeText(current, nodeId)),
+        ];
+      })
+      .toEqual([
+        "Propagated main edit",
+        "Propagated main edit",
+        "Propagated main edit",
+      ]);
+
+    const detached = instances[0]!;
+    const attached = instances[1]!;
+    const detachedTitleId = instanceTitleIds[0]!;
+    const attachedTitleId = instanceTitleIds[1]!;
+    const file = await indexFile(request, designId);
+    await action(request, "detach-component-instance", {
+      designId,
+      fileId: file.id,
+      nodeId: detached.nodeId,
+    });
+    html = await source(request, designId);
+    expect(tagForNode(html, detached.nodeId)).not.toContain(
+      "data-agent-native-component",
+    );
+
+    const afterDetachEdit = await action(request, "apply-visual-edit", {
+      source: { kind: "design-file", designId, filename: "index.html" },
+      intent: {
+        kind: "textContent",
+        target: { nodeId: "card-title-text" },
+        value: "Attached only edit",
+      },
+    });
+    expect(afterDetachEdit.persisted, JSON.stringify(afterDetachEdit)).toBe(
+      true,
+    );
+    await expect
+      .poll(async () => {
+        const current = await source(request, designId);
+        return [
+          nodeText(current, "card-title-text"),
+          nodeText(current, attachedTitleId),
+          nodeText(current, detachedTitleId),
+        ];
+      })
+      .toEqual([
+        "Attached only edit",
+        "Attached only edit",
+        "Propagated main edit",
+      ]);
+
+    const propEdit = await action(request, "apply-component-prop-edit", {
+      designId,
+      fileId: file.id,
+      nodeId: "card-main",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-variant",
+        value: "secondary",
+      },
+      source: { expectedFiles: await expectedFiles(request, designId) },
+    });
+    expect(propEdit.persisted, JSON.stringify(propEdit)).toBe(true);
+    html = await source(request, designId);
+    expect(tagForNode(html, "card-main")).toContain(
+      'data-agent-native-prop-variant="secondary"',
+    );
+    expect(tagForNode(html, attached.nodeId)).toContain(
+      'data-agent-native-prop-variant="secondary"',
+    );
+    expect(tagForNode(html, detached.nodeId)).not.toContain(
+      "data-agent-native-prop-variant",
+    );
+
+    const instancePropEdit = await action(
+      request,
+      "apply-component-prop-edit",
+      {
+        designId,
+        fileId: file.id,
+        nodeId: attached.nodeId,
+        edit: {
+          kind: "attribute",
+          attribute: "data-agent-native-prop-variant",
+          value: "tertiary",
+        },
+        source: { expectedFiles: await expectedFiles(request, designId) },
+      },
+    );
+    expect(instancePropEdit.persisted, JSON.stringify(instancePropEdit)).toBe(
+      true,
+    );
+    html = await source(request, designId);
+    expect(tagForNode(html, attached.nodeId)).toContain(
+      'data-agent-native-prop-variant="tertiary"',
+    );
+    expect(tagForNode(html, attached.nodeId)).toContain(
+      "data-agent-native-component-overrides",
+    );
+
+    const secondPropEdit = await action(request, "apply-component-prop-edit", {
+      designId,
+      fileId: file.id,
+      nodeId: "card-main",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-variant",
+        value: "primary",
+      },
+      source: { expectedFiles: await expectedFiles(request, designId) },
+    });
+    expect(secondPropEdit.persisted, JSON.stringify(secondPropEdit)).toBe(true);
+    html = await source(request, designId);
+    expect(tagForNode(html, "card-main")).toContain(
+      'data-agent-native-prop-variant="primary"',
+    );
+    expect(tagForNode(html, attached.nodeId)).toContain(
+      'data-agent-native-prop-variant="tertiary"',
+    );
+    expect(tagForNode(html, detached.nodeId)).not.toContain(
+      "data-agent-native-prop-variant",
+    );
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    html = await source(request, designId);
+    expect(nodeText(html, attachedTitleId)).toBe("Attached only edit");
+    expect(tagForNode(html, attached.nodeId)).toContain(
+      'data-agent-native-prop-variant="tertiary"',
+    );
+    expect(tagForNode(html, detached.nodeId)).not.toContain(
+      "data-agent-native-component",
+    );
+  } finally {
+    if (designId) {
+      await action(request, "delete-design", { id: designId }).catch(
+        () => undefined,
+      );
+    }
+  }
+});
+
 test("Design components preserve identity across inline and URL-backed React boundaries", async ({
   page,
   request,
@@ -460,6 +691,94 @@ test("Design components preserve identity across inline and URL-backed React bou
     expect(nodeText(html, afterOverrideReferenceTitle!)).toBe(
       "Instance override",
     );
+
+    const propFile = await indexFile(request, designId);
+    const propReferenceButtonId = attributeValue(
+      tagForSourceNode(html, "card-button") ?? "",
+      "data-agent-native-node-id",
+    );
+    expect(propReferenceButtonId).toBeTruthy();
+    if (!propReferenceButtonId)
+      throw new Error("reference button was not cloned");
+    const propMainEdit = await action(request, "apply-component-prop-edit", {
+      designId,
+      fileId: propFile.id,
+      nodeId: "card-button",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-label",
+        value: "Continue",
+      },
+      source: { expectedFiles: await expectedFiles(request, designId) },
+    });
+    expect(propMainEdit.persisted).toBe(true);
+    html = await source(request, designId);
+    expect(
+      attributeValue(
+        tagForNode(html, "card-button") ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Continue");
+    expect(
+      attributeValue(
+        tagForNode(html, propReferenceButtonId) ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Continue");
+
+    const propInstanceEdit = await action(
+      request,
+      "apply-component-prop-edit",
+      {
+        designId,
+        fileId: propFile.id,
+        nodeId: propReferenceButtonId,
+        edit: {
+          kind: "attribute",
+          attribute: "data-agent-native-prop-label",
+          value: "Learn more",
+        },
+        source: { expectedFiles: await expectedFiles(request, designId) },
+      },
+    );
+    expect(propInstanceEdit.persisted).toBe(true);
+    html = await source(request, designId);
+    expect(
+      attributeValue(
+        tagForNode(html, propReferenceButtonId) ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Learn more");
+
+    const propSecondMainEdit = await action(
+      request,
+      "apply-component-prop-edit",
+      {
+        designId,
+        fileId: propFile.id,
+        nodeId: "card-button",
+        edit: {
+          kind: "attribute",
+          attribute: "data-agent-native-prop-label",
+          value: "Submit",
+        },
+        source: { expectedFiles: await expectedFiles(request, designId) },
+      },
+    );
+    expect(propSecondMainEdit.persisted).toBe(true);
+    html = await source(request, designId);
+    expect(
+      attributeValue(
+        tagForNode(html, "card-button") ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Submit");
+    expect(
+      attributeValue(
+        tagForNode(html, propReferenceButtonId) ?? "",
+        "data-agent-native-prop-label",
+      ),
+    ).toBe("Learn more");
 
     const file = await indexFile(request, designId);
     const reparented = await action(request, "apply-component-prop-edit", {

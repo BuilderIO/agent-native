@@ -294,7 +294,9 @@ function patchHistoryMethod(
 }
 
 function patchReload(win: Window, state: RouteChunkRecoveryState): void {
-  const originalReload = win.location.reload.bind(win.location);
+  const originalReload = win.location.reload;
+  if (typeof originalReload !== "function") return;
+  const boundReload = originalReload.bind(win.location);
   const patchedReload = function patchedReload() {
     if (Date.now() - state.routeModuleFailureAt <= 1_000) {
       // The console hook may already have started the recovery navigation.
@@ -318,7 +320,7 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
       reloadForStaleChunk(win);
       return;
     }
-    originalReload();
+    boundReload();
   };
 
   try {

@@ -27,6 +27,7 @@ import {
 import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import {
   getAppBasePath,
   getOrigin,
@@ -1352,7 +1353,7 @@ export function buildBuilderCliAuthUrl(
  * request-bound owner and the connect route can fall back to Fetch Metadata.
  */
 export function getBuilderBrowserConnectUrl(origin: string): string {
-  return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;
+  return `${normalizeOrigin(origin)}${getAppBasePath()}${publicFrameworkPath("/_agent-native/builder/connect")}`;
 }
 
 export function getBuilderBrowserConnectUrlForOwner(

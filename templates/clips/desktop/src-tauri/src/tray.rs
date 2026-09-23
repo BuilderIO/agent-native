@@ -521,6 +521,9 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .build(app)?;
+    if let Err(err) = tray.set_visible(true) {
+        eprintln!("[clips-tray] failed to make tray visible: {err}");
+    }
     eprintln!("[clips-tray] tray built — should be visible in menu bar");
     // Persist the tray so it isn't dropped at the end of setup.
     app.manage(tray);

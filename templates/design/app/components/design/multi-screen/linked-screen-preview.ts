@@ -17,9 +17,19 @@ export type LinkedScreenPreviewStyleFn = (
   options?: { selectorCandidates?: string[]; nodeId?: string | null },
 ) => boolean;
 
+export type LinkedScreenPreviewInteractionStateFn = (args: {
+  selector: string;
+  selectorCandidates?: string[];
+  nodeId?: string | null;
+  state: string;
+  styles: Record<string, string>;
+  routePath?: string;
+}) => boolean;
+
 type LinkedPreviewHandlers = {
   replaceContent: LinkedScreenPreviewReplaceFn;
   sendStyleChange: LinkedScreenPreviewStyleFn;
+  sendInteractionStatePreviewStyle?: LinkedScreenPreviewInteractionStateFn;
 };
 
 const linkedPreviewHandlersByFrameId = new Map<string, LinkedPreviewHandlers>();
@@ -102,6 +112,22 @@ export function sendLinkedScreenPreviewStyleChange(
     if (handlers.sendStyleChange(selector, property, value, options)) {
       sent = true;
     }
+  }
+  return sent;
+}
+
+/** Apply an interaction-state preview only to the mounted frames for one
+ * screen. The active route is checked by each frame handler before posting so
+ * overview siblings cannot paint a preview onto a different route. */
+export function sendLinkedScreenPreviewInteractionStateStyle(
+  screenId: string,
+  args: Parameters<LinkedScreenPreviewInteractionStateFn>[0],
+): boolean {
+  if (!screenId) return false;
+  let sent = false;
+  for (const [frameId, handlers] of linkedPreviewHandlersByFrameId) {
+    if (!isLinkedScreenPreviewFrameId(screenId, frameId)) continue;
+    if (handlers.sendInteractionStatePreviewStyle?.(args)) sent = true;
   }
   return sent;
 }

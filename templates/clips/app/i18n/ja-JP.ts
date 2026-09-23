@@ -1,4 +1,64 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "先にそのセクションをクリックしてから、赤い線を右へドラッグします。",
+    helpOtherSideTerm: "代わりに右側のセクションから素材を削る",
+    helpRemove: "クリックして Delete を押します。",
+    helpRemoveTerm: "セクションごと削除する",
+    helpRestore: "クリックしてもう一度 Delete を押すか、矢印を使います。",
+    helpRestoreTerm: "削除した区間を戻す",
+    helpShorten:
+      "赤い線を左へドラッグします。通り過ぎた分が、その左側のセクションの末尾から取り除かれます。",
+    helpShortenTerm: "セクションを短くする",
+    helpSplit: "S を押します。再生位置で分割されます。",
+    helpSplitTerm: "現在位置でクリップを分割する",
+    helpTitle: "タイムラインの使い方",
+    putBack: "このセクションを戻す",
+    removedSection: "削除したセクション、{{duration}}",
+    section: "{{start}} から {{end}} までのセクション",
+    sectionEndsAt: "セクションの終了位置 {{at}} — ドラッグして移動",
+    sectionStartsAt: "セクションの開始位置 {{at}} — ドラッグして移動",
+  },
+  redaction: {
+    box: "マスク枠",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "マスクの終了位置 {{at}}",
+    goTo: "このマスクへ移動",
+    helpDraw: "画面上をドラッグします。",
+    helpDrawTerm: "何かを覆う",
+    helpFollow:
+      "少し先に進めてから、対象が移動した位置へ枠をドラッグします。枠は設定した点の間を移動します。覆う対象より少し大きめに描いてください。",
+    helpFollowTerm: "動くものを追いかける",
+    helpLead:
+      "「焼き込む」を押すまで何も隠れません。それまで枠は上に描かれているだけで、下の映像はすべて見えたままです。",
+    helpMove: "枠そのもの、または角をドラッグします。",
+    helpMoveTerm: "枠を移動またはサイズ変更する",
+    helpRemove: "枠をクリックして Delete を押します。Cmd+Z で元に戻ります。",
+    helpRemoveTerm: "枠を削除する",
+    helpStylesTerm: "ぼかし または 塗りつぶし",
+    helpTiming:
+      "タイムライン下のレーンで、バーのどちらかの端をドラッグします。",
+    helpTimingTerm: "枠が表示される時間を変える",
+    helpTitle: "マスクの使い方",
+    helpWaypoint:
+      "それぞれが設定した点です。ドラッグすると時間を変更でき、2 回押すと削除できます。",
+    helpWaypointTerm: "バー上のひし形",
+    helpWhenInDoubt: "どちらのスタイルでも領域は完全に隠れます。",
+    notYetBurned:
+      "{{count}} 件のマスクが描かれていますが、まだ適用されていません。焼き込むまで、その下の映像はすべて残ったままです。",
+    range: "{{start}} から {{end}} までのマスク",
+    remove: "マスク {{number}} を削除",
+    resize: "このマスクのサイズを変更",
+    resizeTopLeft: "このマスクを左上からサイズ変更",
+    startsAt: "マスクの開始位置 {{at}}",
+    styleBlur: "ぼかし",
+    styleBlurHint:
+      "ぼかし：その領域の上に生成される色のにじみです。下にあったものは一切使われないため、そこから復元できるものはありません。",
+    styleSolid: "塗りつぶし",
+    styleSolidHint:
+      "塗りつぶし：領域を一色で塗ります。ぼかしと同じ安全性で、どちらも覆った内容からは作られません。クリップに合う方を選んでください。",
+    waypoint: "{{at}} の中継点",
+  },
   common: {
     cancel: "キャンセル",
     create: "作成",
@@ -66,7 +126,7 @@ const messages = {
     folders: "フォルダ",
     recordings: "録画",
     newFolder: "新規フォルダ",
-    noSpaces: "スペースはまだありません",
+    noSpaces: "チームの Clips をひとつの場所にまとめましょう",
     noSpacesAdminCta: "組織の管理者に最初のスペース作成を依頼してください。",
     desktopCta: "デスクトップアプリを入手",
     desktopTitle: "Clips デスクトップアプリを入手しましょう。",
@@ -85,35 +145,35 @@ const messages = {
   },
   empty: {
     library: {
-      title: "ライブラリは空です",
-      body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
-      cta: "最初の Clip を録画",
+      title: "ここから Clips が始まります",
+      body: "画面、カメラ、または両方を録画できます。Clip はここで確認して共有できます。",
+      cta: "Clip を録画",
     },
     shared: {
-      title: "共有されたクリップはまだありません",
-      body: "チームメンバーがあなたと共有したクリップがここに表示されます。",
+      title: "共有された録画を見てみましょう",
+      body: "チームメンバーの Clips を見て、コメントで会話に参加できます。",
     },
     folder: {
-      title: "このフォルダは空です",
-      body: "録画をドラッグするか、録画を押してこのフォルダで新しい内容を始めましょう。",
-      cta: "ここに録画",
+      title: "この作業をひとつにまとめましょう",
+      body: "関連する録画をこのフォルダに移動するか、このプロジェクト用に新しい Clip を録画しましょう。",
+      cta: "Clip を録画",
     },
     space: {
-      title: "このスペースにはまだ録画がありません",
-      body: "録画をスペースに共有するか、新しく録画するとチームがここで確認できます。",
-      cta: "このスペース用に録画",
+      title: "このスペースに最初の Clip を追加しましょう",
+      body: "Clip を録画または移動して、チームがひとつの場所で見つけられるようにしましょう。",
+      cta: "Clip を録画",
     },
     archive: {
-      title: "アーカイブはありません",
-      body: "アーカイブした録画はライブラリから非表示になりますが、安全に保持されます。後でいつでも復元できます。",
+      title: "アーカイブした録画はありません",
+      body: "アーカイブした Clips は、戻すまでここに保管されます。",
     },
     trash: {
       title: "ゴミ箱は空です",
-      body: "削除した録画は完全に削除される前に 30 日間ここに表示されます。",
+      body: "削除した Clips は完全に削除されるまで 30 日間ここに保管されます。",
     },
     search: {
-      title: "一致する結果はありません",
-      body: "別の検索語を試すか、フィルターを確認してください。",
+      title: "この検索に一致するものはありません",
+      body: "別の語を試すか、フィルターを解除して Clip を探してください。",
     },
   },
   trashRoute: {
@@ -162,6 +222,10 @@ const messages = {
     aiRequestFailed: "AI リクエストが失敗しました",
     titleUpdated: "タイトルを更新しました",
     descriptionUpdated: "説明を更新しました",
+    tags: "タグ",
+    addTag: "タグを追加…",
+    tagsUpdateFailed: "タグを更新できませんでした",
+    tagTooLong: "タグは{{max}}文字以内で入力してください",
     chaptersGenerated: "チャプターを生成しました",
     fillerCompleted: "フィラーワードの削除が完了しました",
     workflowReady: "ワークフローの準備ができました",
@@ -371,6 +435,9 @@ const messages = {
     ownerInsights: "所有者インサイト",
     ownerInsightsDescription:
       "視聴数、完了率、視聴者の詳細は、このクリップの編集者に表示されます。",
+    beingEdited: "編集中です",
+    beingEditedMessage:
+      "所有者がこのクリップを編集しています。完了するとリンクは再び使えるようになります。",
   },
   meetingDetail: {
     untitledMeeting: "無題の会議",
@@ -557,6 +624,9 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
+    redactionsPendingBody:
+      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
+    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",
@@ -1236,6 +1306,15 @@ const messages = {
     loadingRecording: "録画を読み込み中…",
     recordingNotFound: "録画が見つかりません",
     noVideoYet: "利用できる動画はまだありません。",
+    burnFailed: "マスクを焼き込めませんでした",
+    burnProgressUnreadable:
+      "マスク処理の進捗を確認できません。おそらくまだレンダリング中です。しばらくしてから再読み込みしてください。",
+    burnedRedactionsDone:
+      "マスクしました。該当部分はファイルから消え、元のファイルは削除されました。",
+    burningRedactions: "マスクを動画に焼き込んでいます…",
+    burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
+    editFailed: "その編集を保存できませんでした",
+    nothingToRedo: "やり直す操作がありません",
   },
   transcriptEditor: {
     transcript: "文字起こし",
@@ -1246,7 +1325,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "新しいスペース",
-    description: "スペースは組織で録画を整理するための共有の場所です。",
+    description:
+      "録画をプロジェクトやチームごとに整理して、誰もが大切な仕事を見つけられるようにしましょう。",
     name: "名前",
     color: "色",
     useColor: "色 {{color}} を使用",
@@ -1442,6 +1522,25 @@ const messages = {
     exportedMp4: "Exported MP4 (ローカライズ済み)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (ローカライズ済み)",
+    backToEditing: "編集に戻る",
+    burnIn: "{{count}} 件を焼き込む",
+    burnInConfirm: "焼き込んで元のファイルを削除",
+    burnInHint: "マスクを動画に完全に焼き込み、元のファイルを削除します",
+    burnInTitle: "この動画に {{count}} 件のマスクを焼き込みますか？",
+    burnInWarning:
+      "覆われた部分は新しい動画コピー内で破棄され、元のファイルは削除されます。取り消せません。",
+    burning: "焼き込み中…",
+    burningPercent: "焼き込み中… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "先にマスクを焼き込んでください",
+    exportUnredactedWarning:
+      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っており、このコピーも同じです。焼き込むと再び利用できます。",
+    redact: "マスク",
+    redactHint: "画面の一部を覆います。焼き込むまで何も隠されません。",
+    redactOn: "マスク中",
+    redoTooltip: "やり直す（Cmd/Ctrl+Shift+Z）",
+    scrollBack: "左側のコントロールを表示",
+    scrollOn: "右側のコントロールを表示",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (ローカライズ済み)",
@@ -1549,7 +1648,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (ローカライズ済み)",
     loomImported: "Loom imported (ローカライズ済み)",
-    couldNotImportLoom: "Could not import that Loom. (ローカライズ済み)",
+    couldNotImportLoom: "この Loom をインポートできませんでした。",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
     linkCopied: "リンクをコピーしました",
@@ -1618,7 +1717,7 @@ const messages = {
     howToUse: "How to use Dictate (ローカライズ済み)",
     browserDictation: "Browser dictation (ローカライズ済み)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (ローカライズ済み)",
+      "話した内容をテキストに残せます。文字起こしをコピーしたり、AI で整えたりできます。",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (ローカライズ済み)",
     quickNoteTitle: "Quick dictation note (ローカライズ済み)",
@@ -1628,19 +1727,45 @@ const messages = {
     desktopShortcutsDescriptionSuffix:
       ", in the desktop app. (ローカライズ済み)",
     holdFn: "Hold Fn (ローカライズ済み)",
+    mobileDictation: "モバイル音声入力",
+    fnShortcut: "Fnショートカット",
+    customShortcut: "カスタムショートカット",
+    otherSource: "その他のソース",
+    voiceSource: "音声",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation. (ローカライズ済み)",
     browserUnavailableShort:
       "Browser speech recognition is unavailable here (ローカライズ済み)",
     startSpeaking: "Start speaking... (ローカライズ済み)",
-    replacedOriginal: "Replaced original with cleaned text (ローカライズ済み)",
+    newDictation: "新しい音声入力",
+    startDictation: "音声入力を開始",
+    stop: "停止",
+    saving: "保存中",
+    listening: "聞き取り中",
+    lastCapture: "最後のキャプチャ",
+    copy: "コピー",
+    copied: "コピーしました",
+    copyFailed: "コピーできませんでした",
+    aiProcessed: "AI処理済み",
+    aiCleaned: "AIでクリーンアップ済み",
+    original: "オリジナル",
+    cleaned: "クリーンアップ済み",
+    delete: "削除",
+    deleteDictationTitle: "この音声入力を削除しますか？",
+    deleteDictationDescription: "音声入力は履歴から完全に削除されます。",
+    deleted: "音声入力を削除しました",
+    deleteFailed: "音声入力を削除できませんでした",
+    showDetails: "詳細",
+    info: "音声入力の情報",
+    time: "時刻",
+    duration: "長さ",
+    hideDetails: "詳細を隠す",
     noText: "No text (ローカライズ済み)",
-    emptyTranscript: "Empty transcript (ローカライズ済み)",
-    replaceOriginal: "Replace original with cleaned (ローカライズ済み)",
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (ローカライズ済み)',
-    startFirst: "Start your first dictation (ローカライズ済み)",
+    cleanupComplete: "ディクテーションをクリーンアップしました",
+    cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    startFirst: "考えをテキストに変えましょう",
+    recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (ローカライズ済み)",
     emptyWebDescription:
@@ -1671,18 +1796,18 @@ const messages = {
       "Agent-Native\nエージェントネイティブ → Agent-Native",
     dictionaryTermsRequired: "用語を1つ以上入力してください。",
     dictionarySearch: "辞書を検索",
-    dictionaryNoMatches: "一致する用語はありません。",
+    dictionaryNoMatches: "この検索に一致する用語はありません",
     dictionaryRemoveTitle: "「{{term}}」を削除しますか？",
     dictionaryRemoveDescription:
       "今後の音声入力ではこの修正が使われなくなります。",
     dictionaryDescription:
-      "音声認識で優先したい表記をこれらの用語から学習します。",
+      "好みの表記を追加すると、Clips が使う言葉を認識しやすくなります。",
     dictionaryTermPlaceholder: "Term (ローカライズ済み)",
     dictionaryReplacementPlaceholder:
       "Replacement (optional) (ローカライズ済み)",
     dictionaryAdd: "Add (ローカライズ済み)",
     dictionaryLoading: "Loading dictionary... (ローカライズ済み)",
-    dictionaryEmpty: "学習した用語はまだありません。",
+    dictionaryEmpty: "Clips にあなたの語彙を教えましょう",
     dictionaryUsesCount: "{{count}}回使用",
     dictionaryRemove: "削除",
     vocabularyAddFailed: "用語を追加できませんでした",
@@ -1792,9 +1917,9 @@ const messages = {
     pastRecordings: "Past recordings (ローカライズ済み)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
-    connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
+    connectGoogleCalendar: "すべての会議をもっと印象深く",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (ローカライズ済み)",
+      "Google カレンダーを接続して今後の会議を確認し、Clips Desktop でノートを記録しましょう。",
     getDesktopApp: "Get desktop app (ローカライズ済み)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (ローカライズ済み)",
@@ -1817,20 +1942,20 @@ const messages = {
       "Disconnect Google Calendar? (ローカライズ済み)",
     title: "Meetings (ローカライズ済み)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
+      "会議中に Clips Desktop でノートを開始しましょう。文字起こしとノートはここに保存されます。",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (ローカライズ済み)",
     agendaTab: "Agenda (ローカライズ済み)",
     pastTab: "Past (ローカライズ済み)",
     now: "Now (ローカライズ済み)",
-    noPastMeetings: "No past meetings yet (ローカライズ済み)",
+    noPastMeetings: "会議の履歴はここから始まります",
     loadOlder: "Load older (ローカライズ済み)",
     searchFailed:
       "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",
     clearSearch: "Clear search (ローカライズ済み)",
-    noMeetingsYet: "No meetings yet (ローカライズ済み)",
+    noMeetingsYet: "予定はありません",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (ローカライズ済み)",
+      "接続したカレンダーに今後の予定が登録されると、ここに表示されます。",
     noMeetingsMatch: 'No meetings match "{{query}}" (ローカライズ済み)',
     refreshing: "Refreshing… (ローカライズ済み)",
     howToTriggerTitle: "How to trigger meeting notes (ローカライズ済み)",

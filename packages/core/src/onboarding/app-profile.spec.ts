@@ -61,11 +61,11 @@ describe("onboarding app profiles", () => {
         }),
         expect.objectContaining({
           id: "system-one",
-          label: "System one model (Jev)",
+          label: "Decision model (Jev)",
           required: false,
           suggested: true,
           builderIncluded: true,
-          keySummary: expect.stringContaining("Builder-managed Jev"),
+          keySummary: "Jev decision model key",
         }),
       ]),
     );
@@ -84,7 +84,7 @@ describe("onboarding app profiles", () => {
       "transcription",
     ]);
     expect(clips.capabilities[2]?.required).toBe(true);
-    expect(clips.capabilities[2]?.keySummary).toContain("S3");
+    expect(clips.capabilities[2]?.keySummary).toBe("Object storage");
     expect(clips.capabilities[2]?.label).toBe("Object storage");
     expect(clips.capabilities[4]?.required).toBe(false);
 

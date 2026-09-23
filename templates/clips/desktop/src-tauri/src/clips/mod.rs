@@ -1418,7 +1418,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
         clamp_existing_bubble_window(&app, &existing);
-        let _ = existing.show();
+        crate::util::show_without_activation(&existing);
         dlog!("[clips-tray] bubble reused");
         return Ok(());
     }
@@ -1515,7 +1515,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     // `getDisplayMedia`, which matches the other Clips chrome (popover,
     // toolbar, countdown) but NOT what users want for the camera bubble.
     configure_overlay_behavior(&win);
-    let _ = win.show();
+    crate::util::show_without_activation(&win);
     dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, win_w);
     Ok(())
 }

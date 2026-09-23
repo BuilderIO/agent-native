@@ -403,7 +403,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-이 후크는 여러분의 actions 밖에서 일어나는 데이터베이스 변경 — 에이전트의 쓰기, 웹훅, 다른 브라우저 탭에서의 변경 등 — 과 UI를 동기화하기 위한 것입니다. 서버-전송 이벤트(server-sent events)로 변경을 수신하며, 서버-전송 이벤트를 사용할 수 없을 때는 폴링으로 대체합니다.
+이 후크는 여러분의 actions 밖에서 일어나는 데이터베이스 변경 — 에이전트의 쓰기, 웹훅, 다른 브라우저 탭에서의 변경 등 — 과 UI를 동기화하기 위한 것입니다. 서버-전송 이벤트(server-sent events)로 변경을 수신하며, 서버-전송 이벤트를 사용할 수 없을 때는 폴링으로 대체합니다. 프로덕션 서버리스 배포에서는 앱 자체의 `/_agent-native/events` 스트림이 설계상 사용할 수 없습니다 — 서버가 함수 인스턴스를 열어 두는 대신 즉시 204를 응답합니다 — 그래서 앱이 [호스팅형 실시간 동기화 게이트웨이](/docs/real-time-collaboration#hosted-gateway)를 사용하도록 설정하지 않은 한, 그런 환경에서는 폴링이 동일한 주기로 모든 동기화를 담당합니다.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

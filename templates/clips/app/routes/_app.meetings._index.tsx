@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AppEmptyState } from "@/components/library/empty-state";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import {
   AgendaCard,
@@ -48,14 +49,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -354,24 +347,18 @@ function ConnectCalendarEmptyState({
 }) {
   const t = useT();
   return (
-    <Empty className="min-h-[24rem] w-full rounded-none border-0">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <IconCalendar />
-        </EmptyMedia>
-        <EmptyTitle>{t("meetingsRoute.connectGoogleCalendar")}</EmptyTitle>
-        <EmptyDescription>
-          {t("meetingsRoute.desktopReminder")}
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
+    <AppEmptyState
+      icon={IconCalendar}
+      title={t("meetingsRoute.connectGoogleCalendar")}
+      description={t("meetingsRoute.desktopReminder")}
+      content={
         <CalendarConnectionAction
-          label={t("meetingsRoute.connectGoogleCalendar")}
+          label={t("meetingsRoute.connectCalendar")}
           onConnect={onConnect}
           isPending={isPending}
         />
-      </EmptyContent>
-    </Empty>
+      }
+    />
   );
 }
 
@@ -954,18 +941,12 @@ export default function MeetingsIndexRoute() {
                   })}
                 </div>
               ) : searchResults.length === 0 ? (
-                <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <IconSearch />
-                    </EmptyMedia>
-                    <EmptyTitle className="text-base">
-                      {t("meetingsRoute.noMeetingsMatch", {
-                        query: trimmedQuery,
-                      })}
-                    </EmptyTitle>
-                  </EmptyHeader>
-                  <EmptyContent>
+                <AppEmptyState
+                  icon={IconSearch}
+                  title={t("meetingsRoute.noMeetingsMatch", {
+                    query: trimmedQuery,
+                  })}
+                  content={
                     <Button
                       variant="ghost"
                       size="sm"
@@ -974,8 +955,8 @@ export default function MeetingsIndexRoute() {
                     >
                       {t("meetingsRoute.clearSearch")}
                     </Button>
-                  </EmptyContent>
-                </Empty>
+                  }
+                />
               ) : (
                 <MeetingHistoryList
                   meetings={searchResults}
@@ -1017,16 +998,11 @@ export default function MeetingsIndexRoute() {
                       isPending={isCalendarBusy}
                     />
                   ) : (
-                    <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <IconCalendar />
-                        </EmptyMedia>
-                        <EmptyTitle className="text-base">
-                          {t("meetingsRoute.noMeetingsYet")}
-                        </EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
+                    <AppEmptyState
+                      icon={IconCalendar}
+                      title={t("meetingsRoute.noMeetingsYet")}
+                      description={t("meetingsRoute.noMeetingsDescription")}
+                    />
                   )}
                 </TabsContent>
 
@@ -1057,18 +1033,11 @@ export default function MeetingsIndexRoute() {
                       ) : null}
                     </>
                   ) : (
-                    <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <IconCalendar />
-                        </EmptyMedia>
-                        <EmptyTitle className="text-base">
-                          {t("meetingsRoute.noPastMeetings", {
-                            defaultValue: "No past meetings yet",
-                          })}
-                        </EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
+                    <AppEmptyState
+                      icon={IconCalendar}
+                      title={t("meetingsRoute.noPastMeetings")}
+                      description={t("meetingsRoute.intro")}
+                    />
                   )}
                 </TabsContent>
               </Tabs>
