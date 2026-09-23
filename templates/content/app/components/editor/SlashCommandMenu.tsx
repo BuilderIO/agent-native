@@ -866,10 +866,26 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      let pageId: string;
+      const pageId = crypto.randomUUID();
       try {
-        pageId = await createPage(documentId);
-      } catch {
+        await createPage(documentId, pageId);
+      } catch (error) {
+        try {
+          await rollbackCreatedSlashDocument.mutateAsync({
+            id: pageId,
+            parentId: documentId,
+          });
+        } catch (cleanupError) {
+          toast.error(t("editor.failedToCreatePage"), {
+            description: [error, cleanupError]
+              .map((value) =>
+                value instanceof Error
+                  ? value.message
+                  : t("empty.genericError"),
+              )
+              .join("; "),
+          });
+        }
         return;
       }
       let parentPersisted = false;
