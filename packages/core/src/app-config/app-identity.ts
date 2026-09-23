@@ -86,11 +86,14 @@ function workspaceManifestHomePath(
           ? (parsed as { apps?: unknown }).apps
           : null;
       if (Array.isArray(entries)) {
+        // Match the launcher (`parseWorkspaceAppLinks`): trimmed ids, and the
+        // first entry wins a duplicate id, so both always agree on one home.
         for (const entry of entries) {
           if (!entry || typeof entry !== "object") continue;
-          const { id, homePath } = entry as Record<string, unknown>;
-          if (typeof id !== "string" || typeof homePath !== "string") continue;
-          homePaths.set(id, normalizeWorkspaceAppHomePath(homePath));
+          const record = entry as Record<string, unknown>;
+          const id = typeof record.id === "string" ? record.id.trim() : "";
+          if (!id || homePaths.has(id)) continue;
+          homePaths.set(id, normalizeWorkspaceAppHomePath(record.homePath));
         }
       }
     } catch {
@@ -98,7 +101,7 @@ function workspaceManifestHomePath(
     }
     cachedManifestHomePaths = { appsJson, homePaths };
   }
-  return cachedManifestHomePaths.homePaths.get(workspaceId);
+  return cachedManifestHomePaths.homePaths.get(workspaceId.trim());
 }
 
 export function resolveAppHomePath(

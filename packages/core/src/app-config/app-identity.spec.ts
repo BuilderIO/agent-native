@@ -5,6 +5,7 @@ import {
   isFirstPartyApp,
   resolveAppHomePath,
 } from "./app-identity.js";
+import { parseWorkspaceAppLinks } from "../client/org/workspace-app-links.js";
 import { getAppConfig, resetAppConfigForTests } from "./store.js";
 
 const base = { packageName: undefined } as Parameters<
@@ -159,6 +160,42 @@ describe("deriveAppIdentity", () => {
         workspace(JSON.stringify([{ id: "adoption", homePath: "//evil" }])),
       ),
     ).toBe("/home");
+  });
+
+  it("resolves duplicate manifest ids the same way as the launcher", () => {
+    const manifests = [
+      [
+        { id: "adoption", path: "/adoption", homePath: "/" },
+        { id: "adoption", path: "/adoption", homePath: "/home" },
+      ],
+      [
+        { id: "adoption", path: "/adoption", homePath: "/home" },
+        { id: "adoption", path: "/adoption", homePath: "/" },
+      ],
+      // A first entry without a home path still wins, with the default home.
+      [
+        { id: "adoption", path: "/adoption" },
+        { id: "adoption", path: "/adoption", homePath: "/" },
+      ],
+      [
+        { id: " adoption ", path: "/adoption", homePath: "/" },
+        { id: "adoption", path: "/adoption", homePath: "/home" },
+      ],
+    ];
+    for (const manifest of manifests) {
+      const homePath = resolveAppHomePath(
+        { ...base, workspaceId: "adoption" },
+        { appsJson: JSON.stringify(manifest) } as Parameters<
+          typeof resolveAppHomePath
+        >[1],
+      );
+      const link = parseWorkspaceAppLinks(manifest, {})?.find(
+        (app) => app.id === "adoption",
+      );
+      expect(link?.href).toBe(
+        homePath === "/" ? "/adoption" : `/adoption${homePath}`,
+      );
+    }
   });
 
   it("reads the manifest home from resolved workspace env", () => {
