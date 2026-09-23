@@ -1267,6 +1267,8 @@ const overrides = {
     aiModel: "نموذج الذكاء الاصطناعي",
     aiRemoveRecipient: "إزالة مستلم الذكاء الاصطناعي",
     aiSend: "إرسال إلى الذكاء الاصطناعي",
+    aiSendShort: "إرسال",
+    aiResponseMode: "الرد",
     aiChooseSendMode: "اختيار وضع الإرسال إلى الذكاء الاصطناعي",
     aiSuggestChanges: "اقتراح تغييرات",
     aiUnavailable: "غير متاح",

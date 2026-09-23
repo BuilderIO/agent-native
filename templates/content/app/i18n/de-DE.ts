@@ -1321,6 +1321,8 @@ const overrides = {
     aiModel: "KI-Modell",
     aiRemoveRecipient: "KI-Empfänger entfernen",
     aiSend: "An KI senden",
+    aiSendShort: "Senden",
+    aiResponseMode: "Antwort",
     aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
     aiUnavailable: "Nicht verfügbar",

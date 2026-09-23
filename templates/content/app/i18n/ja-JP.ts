@@ -1286,6 +1286,8 @@ const overrides = {
     aiModel: "AI モデル",
     aiRemoveRecipient: "AI 宛先を削除",
     aiSend: "AI に送信",
+    aiSendShort: "送信",
+    aiResponseMode: "応答",
     aiChooseSendMode: "AI 送信モードを選択",
     aiSuggestChanges: "変更を提案",
     aiUnavailable: "利用不可",

@@ -1260,6 +1260,8 @@ const overrides = {
     aiModel: "AI मॉडल",
     aiRemoveRecipient: "AI प्राप्तकर्ता हटाएँ",
     aiSend: "AI को भेजें",
+    aiSendShort: "भेजें",
+    aiResponseMode: "जवाब",
     aiChooseSendMode: "AI भेजने का मोड चुनें",
     aiSuggestChanges: "बदलाव सुझाएँ",
     aiUnavailable: "उपलब्ध नहीं",

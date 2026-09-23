@@ -319,6 +319,109 @@ describe("CommentComposer rich recipient", () => {
     });
   });
 
+  it("replaces the AI recipient when a model is typed and chosen with Enter", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="typed-ai"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "auto",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    await typeRichEditorText(editor(), " @");
+    await typeRichEditorText(editor(), "Sonnet");
+    const options = [
+      ...document.querySelectorAll(
+        '[data-agent-native-composer-popover="true"] [data-mention-index]',
+      ),
+    ].map((option) => option.textContent);
+    expect(options[0]).toContain("Claude Sonnet 5");
+    await act(async () => {
+      editor().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const pills = container.querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pills).toHaveLength(1);
+    expect(pills[0]?.textContent).toContain("Claude Sonnet 5");
+    expect(editor().textContent).not.toContain("@Sonnet");
+    expect(aiSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps one AI recipient when a second model pill is inserted", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="single-ai"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "reply",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(
+      container
+        .querySelector("[data-comment-composer]")
+        ?.hasAttribute("data-model-switchable"),
+    ).toBe(true);
+
+    // Paste, drafts, and handle calls skip the mention menu's replacement.
+    await act(async () =>
+      handle?.insertReference({
+        label: "Claude Sonnet 5",
+        source: "content",
+        refType: "content-comment-ai-recipient",
+        refId: "anthropic:claude-sonnet-5",
+        metadata: {
+          selection: {
+            model: "claude-sonnet-5",
+            engine: "anthropic",
+            provider: "Anthropic",
+          },
+        },
+      }),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const pills = container.querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pills).toHaveLength(1);
+    expect(pills[0]?.textContent).toContain("Claude Sonnet 5");
+    expect(onAiDraftChange).toHaveBeenLastCalledWith({
+      selection: {
+        model: "claude-sonnet-5",
+        engine: "anthropic",
+        provider: "Anthropic",
+      },
+      mode: "reply",
+    });
+  });
+
   it("supports caret selection and controlled recipient removal", async () => {
     await act(async () =>
       handle?.replaceReference("content-comment-ai-recipient", {

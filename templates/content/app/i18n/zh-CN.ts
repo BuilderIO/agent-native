@@ -1351,6 +1351,8 @@ const overrides = {
     aiModel: "AI 模型",
     aiRemoveRecipient: "移除 AI 接收者",
     aiSend: "发送给 AI",
+    aiSendShort: "发送",
+    aiResponseMode: "回应",
     aiChooseSendMode: "选择 AI 发送模式",
     aiSuggestChanges: "建议更改",
     aiUnavailable: "不可用",

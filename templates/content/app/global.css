@@ -2596,6 +2596,23 @@ audio.media-block__content {
   [data-mention-ref-type="content-comment-ai-recipient"]:hover {
   background: hsl(var(--accent));
 }
+/* A chevron marks the AI pill as the model picker when there is a choice. */
+[data-comment-composer][data-model-switchable]
+  [data-mention-ref-type="content-comment-ai-recipient"] {
+  padding-inline-end: 6px;
+}
+[data-comment-composer][data-model-switchable]
+  [data-mention-ref-type="content-comment-ai-recipient"]::after {
+  content: "";
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  margin-inline-start: -1px;
+  background-color: currentColor;
+  opacity: 0.55;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
 [data-comment-composer] [data-mention-reference] > [aria-hidden="true"] {
   width: 18px;
   height: 18px;

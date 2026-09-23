@@ -374,14 +374,27 @@ export const CommentComposer = forwardRef<
 
   const handleReferencesChange = useCallback((references: Reference[]) => {
     const currentAiDraft = aiDraftRef.current;
-    const ai = [...references]
-      .reverse()
-      .find((reference) => reference.refType === AI_REFERENCE_TYPE);
+    const aiReferences = references.filter(
+      (reference) => reference.refType === AI_REFERENCE_TYPE,
+    );
+    const selectionOf = (reference: Reference) =>
+      (reference.metadata as { selection?: CommentAiSelection } | undefined)
+        ?.selection;
+    // References arrive in document order; the newest pill is the one that
+    // differs from the current draft.
+    const ai =
+      aiReferences.find((reference) => {
+        const selection = selectionOf(reference);
+        return (
+          selection &&
+          currentAiDraft &&
+          commentAiSelectionKey(selection) !==
+            commentAiSelectionKey(currentAiDraft.selection)
+        );
+      }) ?? aiReferences[aiReferences.length - 1];
     if (ai) aiReferenceSeen.current = true;
     if (ai) {
-      const selection = (
-        ai.metadata as { selection?: CommentAiSelection } | undefined
-      )?.selection;
+      const selection = selectionOf(ai);
       const selectionChanged =
         selection &&
         (!currentAiDraft ||
@@ -396,6 +409,17 @@ export const CommentComposer = forwardRef<
         aiDraftRef.current = nextDraft;
         onModelChangeRef.current(selection.model, selection.engine);
         onAiDraftChangeRef.current?.(nextDraft);
+      }
+      // A comment goes to one model. However a second model pill got in
+      // (typed, pasted, or restored), keep only the newest one.
+      const kept = aiDraftRef.current;
+      if (aiReferences.length > 1 && kept) {
+        setTimeout(() =>
+          composerRef.current?.replaceReference(
+            AI_REFERENCE_TYPE,
+            aiReference(kept),
+          ),
+        );
       }
     } else if (
       !hydratingControlledText.current &&
@@ -500,9 +524,6 @@ export const CommentComposer = forwardRef<
       disabled={!canSend || !models.selectionReady}
       onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
       onSubmit={submitAi}
-      models={connectedModels}
-      selected={aiDraft.selection}
-      onModelChange={changeModel}
     />
   ) : (
     <Tooltip>
@@ -528,6 +549,9 @@ export const CommentComposer = forwardRef<
       ref={wrapperRef}
       data-comment-composer
       data-state={expanded ? "expanded" : "resting"}
+      data-model-switchable={
+        aiDraft && connectedModels.length > 1 ? "" : undefined
+      }
       className={cn("relative min-w-0", className)}
       onFocusCapture={() => setFocused(true)}
       onBlurCapture={(event) => {

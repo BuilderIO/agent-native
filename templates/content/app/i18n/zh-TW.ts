@@ -923,6 +923,8 @@ const overrides = {
     aiModel: "AI 模型",
     aiRemoveRecipient: "移除 AI 收件者",
     aiSend: "傳送給 AI",
+    aiSendShort: "傳送",
+    aiResponseMode: "回應",
     aiChooseSendMode: "選擇 AI 傳送模式",
     aiAttribution: "由 AI 代表 {{name}} 發佈",
     aiSourceMcp: "MCP",

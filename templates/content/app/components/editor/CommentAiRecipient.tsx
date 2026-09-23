@@ -7,7 +7,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -33,8 +32,7 @@ export function modelAliases(model: string): string[] {
 }
 
 /**
- * The connected models, shown from the AI pill and from the AI Send menu so
- * the model can be changed by pointer or keyboard.
+ * The connected models, shown when the AI pill is clicked.
  */
 export function CommentAiModelList({
   models,
@@ -45,9 +43,15 @@ export function CommentAiModelList({
   selected: CommentAiSelection | null;
   onSelect: (selection: CommentAiSelection) => void;
 }) {
+  const t = useT();
   const selectedKey = selected ? commentAiSelectionKey(selected) : null;
   return (
-    <div role="listbox" className="grid gap-0.5" data-comment-ai-model-list>
+    <div
+      role="listbox"
+      aria-label={t("comments.aiModel")}
+      className="grid gap-0.5"
+      data-comment-ai-model-list
+    >
       {models.map((selection) => {
         const key = commentAiSelectionKey(selection);
         const active = key === selectedKey;
@@ -89,24 +93,19 @@ export function CommentAiModelList({
 
 /**
  * Send control shown once an AI recipient is in the draft. The main segment
- * sends; the chevron picks how AI should handle it and which model runs.
+ * sends; the chevron picks how AI should respond. The model is chosen from
+ * the recipient pill itself.
  */
 export function CommentAiSendControl({
   mode,
   disabled,
   onModeChange,
   onSubmit,
-  models = [],
-  selected = null,
-  onModelChange,
 }: {
   mode: CommentAiMode;
   disabled: boolean;
   onModeChange: (mode: CommentAiMode) => void;
   onSubmit: () => void;
-  models?: CommentAiSelection[];
-  selected?: CommentAiSelection | null;
-  onModelChange?: (selection: CommentAiSelection) => void;
 }) {
   const t = useT();
   const modes: Array<[CommentAiMode, string]> = [
@@ -127,10 +126,11 @@ export function CommentAiSendControl({
         )}
         disabled={disabled}
         onClick={onSubmit}
+        aria-label={t("comments.aiSend")}
         data-comment-send
       >
         <IconSparkles size={14} aria-hidden />
-        {t("comments.aiSend")}
+        {t("comments.aiSendShort")}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -146,7 +146,7 @@ export function CommentAiSendControl({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
-          <DropdownMenuLabel>{t("comments.aiSend")}</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("comments.aiResponseMode")}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={mode}
             onValueChange={(value) => onModeChange(value as CommentAiMode)}
@@ -157,30 +157,6 @@ export function CommentAiSendControl({
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
-          {models.length > 1 && onModelChange ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>{t("comments.aiModel")}</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={selected ? commentAiSelectionKey(selected) : ""}
-                onValueChange={(key) => {
-                  const next = models.find(
-                    (candidate) => commentAiSelectionKey(candidate) === key,
-                  );
-                  if (next) onModelChange(next);
-                }}
-              >
-                {models.map((selection) => (
-                  <DropdownMenuRadioItem
-                    key={commentAiSelectionKey(selection)}
-                    value={commentAiSelectionKey(selection)}
-                  >
-                    {modelDisplayName(selection.model)}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

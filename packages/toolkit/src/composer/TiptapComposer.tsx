@@ -216,6 +216,17 @@ function composerReferenceFromMentionItem(
   };
 }
 
+export function mentionItemMatchesQuery(
+  item: MentionItem,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [item.label, ...(item.aliases ?? []), item.description ?? ""].some(
+    (candidate) => candidate.toLowerCase().includes(normalizedQuery),
+  );
+}
+
 export function findExactMentionItem(
   items: MentionItem[],
   query: string,
@@ -2547,16 +2558,23 @@ export function TiptapComposer({
     popover?.type === "@" ? popover.query : "",
     includeDefaultMentionSearch && popover?.type === "@",
   );
+  const mentionQuery = popover?.type === "@" ? popover.query : "";
   const filteredMentionItems = useMemo(
     () =>
       filterMentionItemsForSlots(
-        [...hostMentionItems, ...mentionItems].filter(
+        [
+          // Host items arrive unfiltered; the default search filters itself.
+          ...hostMentionItems.filter((item) =>
+            mentionItemMatchesQuery(item, mentionQuery),
+          ),
+          ...mentionItems,
+        ].filter(
           (item, index, items) =>
             items.findIndex((candidate) => candidate.id === item.id) === index,
         ),
         slotReferences,
       ),
-    [hostMentionItems, mentionItems, slotReferences],
+    [hostMentionItems, mentionItems, mentionQuery, slotReferences],
   );
 
   const {

@@ -1271,6 +1271,8 @@ const overrides = {
     aiModel: "AI 모델",
     aiRemoveRecipient: "AI 수신자 제거",
     aiSend: "AI로 보내기",
+    aiSendShort: "보내기",
+    aiResponseMode: "응답",
     aiChooseSendMode: "AI 전송 모드 선택",
     aiSuggestChanges: "변경 제안",
     aiUnavailable: "사용할 수 없음",

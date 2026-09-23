@@ -1565,6 +1565,8 @@ const overrides = {
     aiModel: "Modelo de IA",
     aiRemoveRecipient: "Eliminar destinatario de IA",
     aiSend: "Enviar a la IA",
+    aiSendShort: "Enviar",
+    aiResponseMode: "Respuesta",
     aiChooseSendMode: "Elegir modo de envío de IA",
     aiSuggestChanges: "Sugerir cambios",
     aiUnavailable: "No disponible",
