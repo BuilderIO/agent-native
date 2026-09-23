@@ -14,6 +14,7 @@ import {
   getRequestContext,
   getJevContextCredentials,
   isJevEnabled,
+  readDeployCredentialEnv,
   requestJevThroughBuilder,
   runWithRequestContext,
   type JevContextCredentials,
@@ -390,15 +391,32 @@ async function canUseAutomationModel(
 ): Promise<{
   available: boolean;
   jevCredentials?: JevContextCredentials;
+  legacyTypesafeApiKey?: string;
 }> {
   if (settings.engine === TYPESAFE_AUTOMATION_ENGINE) {
     return runWithRequestContext(
       { ...getRequestContext(), userEmail: ownerEmail },
       async () => {
         const jevCredentials = await getJevContextCredentials(ownerEmail);
+        const legacyTypesafeApiKey =
+          readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim() || undefined;
+        let available: boolean;
+        try {
+          available = await isJevEnabled(jevCredentials);
+        } catch (error) {
+          if (!legacyTypesafeApiKey) throw error;
+          console.warn(
+            "[automation-engine] Jev entitlement check failed; using the legacy Typesafe deployment key.",
+            error,
+          );
+          available = false;
+        }
         return {
-          available: await isJevEnabled(jevCredentials),
+          available: available || Boolean(legacyTypesafeApiKey),
           jevCredentials,
+          ...(!available && legacyTypesafeApiKey
+            ? { legacyTypesafeApiKey }
+            : {}),
         };
       },
     );
@@ -550,6 +568,7 @@ async function evaluateRulesWithJev(
   rules: RuleRecord[],
   ownerEmail: string,
   credentials: JevContextCredentials,
+  legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
   const questionEntries = emails.flatMap((email, emailIndex) =>
     rules.map((rule, ruleIndex) => {
@@ -592,7 +611,7 @@ async function evaluateRulesWithJev(
   };
 
   let payload: JevResponse;
-  if (credentials.builderAuth) {
+  if (credentials.builderAuth && !legacyTypesafeApiKey) {
     try {
       payload = await requestJevThroughBuilder(credentials.builderAuth, body, {
         timeoutMs: 12_000,
@@ -603,6 +622,8 @@ async function evaluateRulesWithJev(
     }
   } else if (credentials.personalApiKey) {
     payload = await requestJevDirect(credentials.personalApiKey, body);
+  } else if (legacyTypesafeApiKey) {
+    payload = await requestJevDirect(legacyTypesafeApiKey, body);
   } else {
     throw new Error("Jev is not enabled.");
   }
@@ -660,6 +681,7 @@ async function evaluateRules(
   modelSettings: AutomationModelSettings,
   aiFilterState?: AiFilterState,
   jevCredentials?: JevContextCredentials,
+  legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
   // Returns: messageId → array of matched rules with model confidence/reason.
   const results = new Map<string, RuleMatch[]>();
@@ -667,7 +689,13 @@ async function evaluateRules(
 
   if (modelSettings.engine === TYPESAFE_AUTOMATION_ENGINE) {
     if (!jevCredentials) throw new Error("Jev is not enabled.");
-    return evaluateRulesWithJev(emails, rules, ownerEmail, jevCredentials);
+    return evaluateRulesWithJev(
+      emails,
+      rules,
+      ownerEmail,
+      jevCredentials,
+      legacyTypesafeApiKey,
+    );
   }
 
   // Process in batches of 10 emails per call
@@ -1014,6 +1042,7 @@ export async function previewAutomationRules(
     model,
     aiFilterState,
     modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
   );
   return { matches, model };
 }
@@ -1169,6 +1198,7 @@ export async function processAutomationsForAccount(
     modelSettings,
     aiFilterState,
     modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
   );
 
   // 6. Execute matched actions

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
   isJevEnabled: vi.fn(),
+  readDeployCredentialEnv: vi.fn(),
   requestJevThroughBuilder: vi.fn(),
 }));
 
@@ -10,6 +11,7 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => undefined,
   getJevContextCredentials: mocks.getJevContextCredentials,
   isJevEnabled: mocks.isJevEnabled,
+  readDeployCredentialEnv: mocks.readDeployCredentialEnv,
   requestJevThroughBuilder: mocks.requestJevThroughBuilder,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
@@ -64,6 +66,7 @@ describe("Mail Jev automation routing", () => {
       builderAuth,
     });
     mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.readDeployCredentialEnv.mockReturnValue(undefined);
     mocks.requestJevThroughBuilder.mockResolvedValue({
       answers: { q_0_0: { noul: 0.91 } },
     });
@@ -123,5 +126,71 @@ describe("Mail Jev automation routing", () => {
       ),
     ).rejects.toThrow("Builder proxy unavailable");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps using the legacy Typesafe deployment key for saved automation settings", async () => {
+    mocks.isJevEnabled.mockResolvedValue(false);
+    mocks.readDeployCredentialEnv.mockReturnValue("legacy-typesafe-key");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ answers: { q_0_0: { noul: 0.91 } } }), {
+            status: 200,
+          }),
+        ),
+    );
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Work from the finance team",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      {} as never,
+    );
+
+    expect(result.matches.get("email-1")).toEqual([
+      expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.typesafe.ai/v1/systemone",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer legacy-typesafe-key",
+        }),
+      }),
+    );
+    expect(mocks.requestJevThroughBuilder).not.toHaveBeenCalled();
+  });
+
+  it("surfaces entitlement lookup failures rather than reporting Jev disabled", async () => {
+    mocks.isJevEnabled.mockRejectedValue(
+      new Error("Could not check Jev credentials or Builder entitlement."),
+    );
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        {} as never,
+      ),
+    ).rejects.toThrow(
+      "Could not check Jev credentials or Builder entitlement.",
+    );
   });
 });

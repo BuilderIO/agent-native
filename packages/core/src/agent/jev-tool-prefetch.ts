@@ -331,39 +331,64 @@ export async function requestJevThroughBuilder(
   options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<JevResponse> {
   const controller = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal;
   const timeout = setTimeout(
     () => controller.abort(),
     options.timeoutMs ?? JEV_TIMEOUT_MS,
   );
   try {
-    const response = await fetch(
-      `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: auth.authorization,
-          ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
-          ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
-          ...getBuilderGatewayRequestHeaders(),
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      signal.throwIfAborted();
+      const response = await fetch(
+        `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: auth.authorization,
+            ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+            ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
+            ...getBuilderGatewayRequestHeaders(),
+          },
+          body: JSON.stringify(request),
+          signal,
         },
-        body: JSON.stringify(request),
-        signal: options.signal
-          ? AbortSignal.any([options.signal, controller.signal])
-          : controller.signal,
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`Builder Jev proxy returned HTTP ${response.status}.`);
+      );
+      if (!response.ok) {
+        if (attempt === 0 && [429, 529].includes(response.status)) {
+          await response.body?.cancel().catch(() => undefined);
+          await waitForJevRetry(signal);
+          continue;
+        }
+        throw new Error(`Builder Jev proxy returned HTTP ${response.status}.`);
+      }
+      const result = (await response.json()) as unknown;
+      if (!isJevResponse(result)) {
+        throw new Error("Builder Jev proxy returned an invalid response.");
+      }
+      return result;
     }
-    const result = (await response.json()) as unknown;
-    if (!isJevResponse(result)) {
-      throw new Error("Builder Jev proxy returned an invalid response.");
-    }
-    return result;
+    throw new Error("Builder Jev proxy request failed.");
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function waitForJevRetry(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, 200);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
 }
 
 export async function isBuilderJevEnabled(

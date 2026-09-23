@@ -418,6 +418,55 @@ describe("preloadJevTools", () => {
     expect(JSON.parse(init?.body as string)).toEqual(request);
   });
 
+  it.each([429, 529])(
+    "retries Builder Jev inference once after HTTP %s",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(new Response("busy", { status }))
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ answers: { q_0: { noul: 0.9 } } }), {
+              status: 200,
+            }),
+          ),
+      );
+
+      await expect(
+        requestJevThroughBuilder(
+          { authorization: "Bearer builder-test-token" },
+          { model: "jev-latest", state: {}, questions: { q_0: {} } },
+          { timeoutMs: 12_000 },
+        ),
+      ).resolves.toMatchObject({ answers: { q_0: { noul: 0.9 } } });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal).toBe(
+        vi.mocked(fetch).mock.calls[1]?.[1]?.signal,
+      );
+    },
+  );
+
+  it("does not retry Builder Jev inference after the caller aborts", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementationOnce(async () => {
+        controller.abort("cancelled");
+        return new Response("busy", { status: 429 });
+      }),
+    );
+
+    await expect(
+      requestJevThroughBuilder(
+        { authorization: "Bearer builder-test-token" },
+        { model: "jev-latest", state: {}, questions: { q_0: {} } },
+        { signal: controller.signal, timeoutMs: 12_000 },
+      ),
+    ).rejects.toBe("cancelled");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("checks Builder Jev entitlement without running inference", async () => {
     vi.stubGlobal(
       "fetch",
