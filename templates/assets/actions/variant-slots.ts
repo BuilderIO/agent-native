@@ -24,6 +24,7 @@ type VariantScopeInput = {
 type VariantSlotInput = VariantScopeInput & {
   prompt: string;
   slotId: string;
+  ownerEmail?: string | null;
   status: "pending" | "ready" | "failed";
   assetId?: string;
   previewUrl?: string;
@@ -133,12 +134,21 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     const nextSlot = {
       slotId: input.slotId,
       runId: input.runId,
+      ownerEmail:
+        input.ownerEmail !== undefined
+          ? input.ownerEmail
+          : existingSlot?.runId === input.runId
+            ? existingSlot.ownerEmail
+            : undefined,
       status: input.status,
       assetId: input.assetId,
       previewUrl: input.previewUrl,
       thumbnailUrl: input.thumbnailUrl,
       error: input.error,
-      createdAt: existingSlot?.createdAt ?? now,
+      createdAt:
+        existingSlot?.runId === input.runId
+          ? (existingSlot.createdAt ?? now)
+          : now,
       updatedAt: now,
     };
     const index = state.slots.findIndex((slot) => slot.slotId === input.slotId);

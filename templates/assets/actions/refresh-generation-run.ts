@@ -7,10 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyGenerationRunFinished } from "../server/lib/generation-run-notifications.js";
 import { nowIso, parseJson } from "../server/lib/json.js";
-import {
-  assertCanDraft,
-  assertCanDraftAuthoredBy,
-} from "../server/lib/library-access.js";
+import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { normalizeCallerAppId } from "../shared/api.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
@@ -71,6 +68,7 @@ async function syncImageVariantSlot(
     threadId,
     variantScopeId,
     prompt: run.prompt,
+    ownerEmail: run.ownerEmail,
     slotId,
     status,
     assetId: serialized?.id,
@@ -176,7 +174,11 @@ export default defineAction({
         Number.isFinite(timestamp) &&
         Date.now() - timestamp >= STALE_IMAGE_RUN_MS
       ) {
-        await assertCanDraft(state.libraryId);
+        await assertCanDraftAuthoredBy(
+          state.libraryId,
+          slot.ownerEmail,
+          "A generation run",
+        );
         const reconciled = await failMissingVariantRun({
           runId,
           libraryId: state.libraryId,

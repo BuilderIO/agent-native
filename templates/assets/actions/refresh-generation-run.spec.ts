@@ -237,6 +237,7 @@ describe("refresh-generation-run", () => {
         {
           runId: "missing-run",
           slotId: "slot-1",
+          ownerEmail: "author@example.test",
           status: "pending",
           createdAt: "2026-05-28T11:49:00.000Z",
         },
@@ -251,7 +252,11 @@ describe("refresh-generation-run", () => {
       threadId: "thread-1",
     });
 
-    expect(libraryAccessMock).toHaveBeenCalledWith("library-1");
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
     expect(failMissingVariantRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: "missing-run",
@@ -288,6 +293,36 @@ describe("refresh-generation-run", () => {
       action.run({ runId: "missing-run", threadId: "thread-1" }),
     ).rejects.toThrow("Generation run not found.");
     expect(libraryAccessMock).not.toHaveBeenCalled();
+    expect(failMissingVariantRunMock).not.toHaveBeenCalled();
+  });
+
+  it("does not reconcile a missing run authored by another user", async () => {
+    getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
+    readVariantStateMock.mockResolvedValue({
+      libraryId: "library-1",
+      slots: [
+        {
+          runId: "missing-run",
+          slotId: "slot-1",
+          ownerEmail: "other@example.test",
+          status: "pending",
+          createdAt: "2026-05-28T11:49:00.000Z",
+        },
+      ],
+    });
+    libraryAccessMock.mockRejectedValue(new Error("Forbidden"));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
+
+    await expect(
+      action.run({ runId: "missing-run", threadId: "thread-1" }),
+    ).rejects.toThrow("Forbidden");
+
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "other@example.test",
+      "A generation run",
+    );
     expect(failMissingVariantRunMock).not.toHaveBeenCalled();
   });
 

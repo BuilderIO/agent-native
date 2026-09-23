@@ -1508,7 +1508,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
           error,
         );
-        await getDb().delete(schema.bookings).where(eq(schema.bookings.id, id));
+        // Zoom may have created the meeting even if its response was lost or
+        // unreadable, so keep the booking to reserve the slot and prevent a
+        // retry from silently creating a duplicate meeting.
         setResponseStatus(event, 502);
         return { error: "Failed to create booking" };
       }
