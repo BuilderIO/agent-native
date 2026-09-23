@@ -87,6 +87,7 @@ jobs:
         run: |
           netlify deploy \
             --site "$NETLIFY_SITE_ID" \
+            --filter "@agent-native/community-templates" \
             --dir community-templates/dist \
             --functions community-templates/.netlify/functions-internal \
             --no-build \
