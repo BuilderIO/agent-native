@@ -96,9 +96,12 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
 ) {
+  const normalizedArgs = Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value != null),
+  );
   return useActionQuery<number>(
     "list-recordings",
-    { ...args, countOnly: true } as any,
+    { ...normalizedArgs, countOnly: true } as any,
     {
       select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
       retry: false,
