@@ -472,14 +472,9 @@ jobs:
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
-          # Fleet-wide Sentry source-map upload credentials (see
-          # scripts/sync-template-netlify-env.ts). Withheld from the
-          # secret-free offline PR preview build, same as NETLIFY_AUTH_TOKEN
-          # above; createSentrySourceMapUploadPlugin no-ops when these are
-          # unset instead of failing the build.
           SENTRY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.SENTRY_AUTH_TOKEN || '' }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_ORG: bridge-tm
+          SENTRY_PROJECT: agent-native-browser
         run: |
           set -euo pipefail
           if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then
