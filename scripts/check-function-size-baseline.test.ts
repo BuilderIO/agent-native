@@ -43,6 +43,22 @@ function emitFunction(
   }
 }
 
+function emitResvgNativePackage(
+  root: string,
+  name: string,
+  bytes: number,
+): void {
+  const packageDir = path.join(
+    root,
+    name,
+    "node_modules",
+    "@resvg",
+    "resvg-js-linux-x64-gnu",
+  );
+  mkdirSync(packageDir, { recursive: true });
+  writeFileSync(path.join(packageDir, "resvg.node"), Buffer.alloc(bytes));
+}
+
 function runGuard(
   functionsDir: string,
   baselineFile: string,
@@ -93,6 +109,28 @@ describe("serverless function size baseline", () => {
     const checked = runGuard(withPayload, baselineFile);
     assert.equal(checked.status, 1, checked.output);
     assert.match(checked.output, /function payload grew/);
+  });
+
+  it("excludes platform-native Resvg binaries from the size comparison", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+
+    const baseline = build(root, "baseline");
+    emitFunction(baseline, "server", 4 * MB);
+    assert.equal(runGuard(baseline, baselineFile, ["--update"]).status, 0);
+
+    const withResvg = build(root, "with-resvg");
+    emitFunction(withResvg, "server", 4 * MB);
+    emitResvgNativePackage(withResvg, "server", 16 * MB);
+
+    const checked = runGuard(withResvg, baselineFile);
+    assert.equal(checked.status, 0, checked.output);
+    assert.match(checked.output, /resvg-js-linux-x64-gnu/);
+    assert.match(
+      checked.output,
+      /selected for the serverless runtime platform; excluded/,
+    );
+    assert.match(checked.output, /server 4\.0MB -> 4\.0MB/);
   });
 
   /**
