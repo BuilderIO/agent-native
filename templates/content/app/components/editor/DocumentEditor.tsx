@@ -1757,6 +1757,7 @@ function PageEditorSessionBody({
   } | null>(null);
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
   const decisionRefreshInFlightRef = useRef(false);
+  const suggestionDecisionInFlightRef = useRef(false);
   const [preserveInlineReviewSpace, setPreserveInlineReviewSpace] =
     useState(false);
   // Registry blocks do not yet produce typed suggestion operations. Keep their
@@ -4155,6 +4156,7 @@ function PageEditorSessionBody({
         patchDocumentCaches(queryClient, documentId, refreshedDocument);
         if (continueSuggesting) continueSuggestionModeFrom(refreshedDocument);
         setPendingSuggestionDecision(null);
+        suggestionDecisionInFlightRef.current = false;
       } catch (error) {
         setDecisionRefreshFailed(true);
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
@@ -5433,15 +5435,31 @@ function PageEditorSessionBody({
         return suggestion ?? null;
       }}
       canDecideSuggestions={canEdit}
-      decidingSuggestion={decideSuggestion.isPending}
+      decidingSuggestion={
+        decideSuggestion.isPending ||
+        isSubmittingSuggestions ||
+        !!pendingSuggestionDecision
+      }
       onDecideSuggestion={async (suggestion, decision) => {
-        if (decideSuggestion.isPending || isSubmittingSuggestions) return;
+        if (
+          suggestionDecisionInFlightRef.current ||
+          pendingSuggestionDecision ||
+          decideSuggestion.isPending ||
+          isSubmittingSuggestions
+        )
+          return;
+        suggestionDecisionInFlightRef.current = true;
         const continueSuggesting = isSuggesting;
         let observedSuggestion = suggestion;
-        if (suggestion.id === editingSuggestionId) {
+        if (continueSuggesting) {
           const persisted = await flushSuggestionDraft({ keepMode: true });
-          if (!persisted) return;
-          observedSuggestion = [...persisted.values()][0] ?? suggestion;
+          if (!persisted) {
+            suggestionDecisionInFlightRef.current = false;
+            return;
+          }
+          if (suggestion.id === editingSuggestionId) {
+            observedSuggestion = [...persisted.values()][0] ?? suggestion;
+          }
         }
         if (showInlineComments) setPreserveInlineReviewSpace(true);
         setPendingSuggestionDecision({
@@ -5462,6 +5480,7 @@ function PageEditorSessionBody({
         } catch (error) {
           setPendingSuggestionDecision(null);
           setDecisionRefreshFailed(false);
+          suggestionDecisionInFlightRef.current = false;
           toast.error(t("empty.genericError"), {
             description:
               error instanceof Error ? error.message : t("empty.genericError"),

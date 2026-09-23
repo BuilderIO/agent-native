@@ -2126,6 +2126,12 @@ describe("document editor layout", () => {
     );
 
     expect(decision).toContain("flushSuggestionDraft({ keepMode: true })");
+    expect(decision).toMatch(
+      /if \(continueSuggesting\) \{\s+const persisted = await flushSuggestionDraft\(\{ keepMode: true \}\)/,
+    );
+    expect(decision).toContain("suggestionDecisionInFlightRef.current = true");
+    expect(decision).toContain("suggestionDecisionInFlightRef.current = false");
+    expect(source).toContain("!!pendingSuggestionDecision");
     expect(decision).toContain("setPendingSuggestionDecision({");
     expect(decision).toContain("continueSuggesting,");
     expect(decision).toContain(
