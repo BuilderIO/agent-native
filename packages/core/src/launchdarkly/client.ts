@@ -66,10 +66,15 @@ export function getLaunchDarklyClient(): Promise<LaunchDarkly.LDClient | null> {
     .then(() => client)
     .catch((error: unknown) => {
       console.warn(
-        `[launchdarkly] client failed to initialize within ${INIT_TIMEOUT_MS}ms; flags will evaluate to their caller-supplied default until the next process start.`,
+        `[launchdarkly] client did not confirm initialization within ${INIT_TIMEOUT_MS}ms; evaluating against its caller-supplied default until it connects.`,
         error,
       );
-      return null;
+      // Return the client anyway rather than `null`: the SDK keeps retrying
+      // in the background regardless of this timeout, `variation()` already
+      // answers with the caller's default before the client is ready, and
+      // caching `null` here would leave every flag stuck on its default for
+      // the rest of the process even after a transient outage recovers.
+      return client;
     });
   return state[INIT_KEY];
 }

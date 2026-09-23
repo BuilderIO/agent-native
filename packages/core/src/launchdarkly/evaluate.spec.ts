@@ -5,8 +5,11 @@ vi.mock("./client.js", () => ({
   getLaunchDarklyClient: () => getLaunchDarklyClientMock(),
 }));
 
-const { getLaunchDarklyVariation, getAllLaunchDarklyFlags } =
-  await import("./evaluate.js");
+const {
+  getLaunchDarklyVariation,
+  isLaunchDarklyFlagEnabled,
+  getAllLaunchDarklyFlags,
+} = await import("./evaluate.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -48,6 +51,32 @@ describe("getLaunchDarklyVariation", () => {
     await expect(
       getLaunchDarklyVariation("new-editor", {}, "fallback"),
     ).resolves.toBe("fallback");
+  });
+});
+
+describe("isLaunchDarklyFlagEnabled", () => {
+  it("uses boolVariation so a non-boolean dashboard flag cannot evaluate truthy", async () => {
+    const boolVariation = vi.fn().mockResolvedValue(false);
+    getLaunchDarklyClientMock.mockResolvedValue({ boolVariation });
+
+    await expect(
+      isLaunchDarklyFlagEnabled("new-editor", { userEmail: "ada@example.com" }),
+    ).resolves.toBe(false);
+    expect(boolVariation).toHaveBeenCalledWith(
+      "new-editor",
+      { kind: "user", key: "ada@example.com", anonymous: false },
+      false,
+    );
+  });
+
+  it("fails closed to the default value when evaluation throws", async () => {
+    getLaunchDarklyClientMock.mockResolvedValue({
+      boolVariation: vi.fn().mockRejectedValue(new Error("network error")),
+    });
+
+    await expect(
+      isLaunchDarklyFlagEnabled("new-editor", {}, true),
+    ).resolves.toBe(true);
   });
 });
 

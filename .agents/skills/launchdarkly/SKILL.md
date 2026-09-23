@@ -65,10 +65,12 @@ For a non-boolean flag (string/number/JSON variation), use
 LaunchDarkly currently evaluates for that context; prefer the single-flag
 functions when only a few keys matter.
 
-`actor` is `{ userEmail?, orgId? }`. A caller with no `userEmail` evaluates as
-an anonymous LaunchDarkly context — identity-based and percentage targeting
-still applies through LaunchDarkly's own device-anonymous bucketing, but this
-is LaunchDarkly's behavior, not something this integration adds.
+`actor` is `{ userEmail?, orgId?, anonymousId? }`. A signed-in caller evaluates
+by `userEmail`. A caller with neither `userEmail` nor `anonymousId` falls back
+to one shared `"anonymous"` context — every such caller gets the *same*
+variation from a percentage rollout, since LaunchDarkly buckets by context key.
+Pass a stable `anonymousId` (a device or session id) when an unauthenticated
+caller needs its own bucket.
 
 ## Client usage
 

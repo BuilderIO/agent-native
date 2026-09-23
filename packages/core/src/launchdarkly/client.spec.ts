@@ -46,18 +46,22 @@ describe("getLaunchDarklyClient", () => {
     expect(initMock).toHaveBeenCalledTimes(1);
   });
 
-  it("resolves null instead of hanging when initialization never settles", async () => {
+  it("returns the client instead of hanging or discarding it when initialization never settles", async () => {
+    // The SDK keeps retrying in the background regardless of this timeout, so
+    // the client is still returned (not null) — it self-heals once connected
+    // instead of leaving every flag on its default for the rest of the process.
     vi.useFakeTimers();
     getAppConfigMock.mockReturnValue({ launchDarkly: { sdkKey: "sdk-key" } });
-    initMock.mockReturnValue({
+    const client = {
       waitForInitialization: vi.fn(() => new Promise(() => {})),
       close: vi.fn(),
-    });
+    };
+    initMock.mockReturnValue(client);
 
     const pending = getLaunchDarklyClient();
     await vi.advanceTimersByTimeAsync(6_000);
 
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).resolves.toBe(client);
     vi.useRealTimers();
   });
 });
