@@ -103,10 +103,14 @@ describe("settings store", () => {
       // Seed the request cache with the raw corrupt string via the batch
       // path, which isolates it as null instead of throwing.
       await getSettings(["corrupt-cached"]);
+      rawClient.execute.mockClear();
 
       // getSetting must still throw when serving that same cached raw value,
-      // not silently return the batch path's null.
+      // not silently return the batch path's null. Asserting no DB call
+      // happened confirms this is the cache-hit branch throwing, not a
+      // fallback re-query that happens to also throw.
       await expect(getSetting("corrupt-cached")).rejects.toThrow(SyntaxError);
+      expect(rawClient.execute).not.toHaveBeenCalled();
     });
   });
 
