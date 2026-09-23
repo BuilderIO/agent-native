@@ -1223,6 +1223,12 @@ export default function RecordingPage() {
       startAiRequestToast(t(aiRequestProgressKey(kind)));
       return;
     }
+    if (status === "cancelled") {
+      activeAiRequestKindRef.current = null;
+      cancelCompletionCue();
+      dismissAiRequestToast();
+      return;
+    }
     if (activeAiRequestKindRef.current !== kind) return;
 
     if (status === "completed") {
@@ -1249,6 +1255,7 @@ export default function RecordingPage() {
     aiRequestStatus?.updatedAt,
     cancelCompletionCue,
     completeAiRequestToast,
+    dismissAiRequestToast,
     failAiRequestToast,
     playCompletionCue,
     startAiRequestToast,

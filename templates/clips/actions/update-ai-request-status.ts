@@ -12,7 +12,7 @@ const STATUS_KEY_PREFIX = "clips-ai-request-status-";
 
 export default defineAction({
   description:
-    "Report progress or completion for queued Clips AI work so the recording page can show its current status.",
+    "Report progress, completion, failure, or cancellation for queued Clips AI work so the recording page can show its current status.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     kind: z.enum(CLIPS_AI_REQUEST_KINDS).describe("Queued request kind"),
@@ -21,7 +21,7 @@ export default defineAction({
       .datetime()
       .describe("Exact timestamp of the queued request being updated"),
     status: z
-      .enum(["working", "completed", "failed"])
+      .enum(["working", "completed", "failed", "cancelled"])
       .describe("Current request status"),
     message: z
       .string()
@@ -59,7 +59,20 @@ export default defineAction({
         statusCode: 409,
       });
     }
-    if (current.status === "completed" || current.status === "failed") {
+    if (
+      current.status === "completed" ||
+      current.status === "failed" ||
+      current.status === "cancelled"
+    ) {
+      if (args.status === "cancelled") {
+        return {
+          recordingId: args.recordingId,
+          kind: args.kind,
+          requestedAt: args.requestedAt,
+          status: current.status,
+          cancelled: false,
+        };
+      }
       fail(`The ${args.kind} request is already ${current.status}.`, {
         errorCode: "request_finished",
         statusCode: 409,
@@ -78,6 +91,7 @@ export default defineAction({
       kind: args.kind,
       requestedAt: args.requestedAt,
       status: args.status,
+      cancelled: args.status === "cancelled",
     };
   },
 });

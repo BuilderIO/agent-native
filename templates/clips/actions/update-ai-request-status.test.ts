@@ -81,6 +81,51 @@ describe("update-ai-request-status", () => {
     );
   });
 
+  it("records cancellation for the matching active request", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "regenerate-chapters",
+      status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    });
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "regenerate-chapters",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      status: "cancelled",
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      recordingId: "rec_123",
+      kind: "regenerate-chapters",
+      status: "cancelled",
+      cancelled: true,
+    });
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "clips-ai-request-status-rec_123",
+      expect.objectContaining({ status: "cancelled" }),
+    );
+  });
+
+  it("does not overwrite an already completed request with cancellation", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "regenerate-chapters",
+      status: "completed",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    });
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "regenerate-chapters",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      status: "cancelled",
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      status: "completed",
+      cancelled: false,
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("rejects a stale update for a different active request", async () => {
     mockReadAppState.mockResolvedValue({
       kind: "remove-silences",
