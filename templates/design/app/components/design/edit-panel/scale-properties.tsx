@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown, IconX } from "@tabler/icons-react";
+import { IconChevronDown, IconResize, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -151,7 +151,10 @@ export function ScaleProperties({
           >
             <div className="min-w-0 flex-1">
               <ScrubStyleInput
-                label="×"
+                label={factorLabel}
+                hideIcon={false}
+                icon={IconResize}
+                labelClassName="[&>span]:sr-only"
                 ariaLabel={factorLabel}
                 value={String(roundFactor(factor))}
                 unit="x"

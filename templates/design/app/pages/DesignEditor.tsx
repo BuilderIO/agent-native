@@ -2143,6 +2143,29 @@ function DesignEditor() {
   const handleTextEditingStateChangeForScreen = useCallback(
     (screenId: string, state: Omit<TextEditingState, "screenId">) => {
       const screenState = { ...state, screenId };
+      const rect = state.rect;
+      if (rect) {
+        setSelectedElement((current) =>
+          current &&
+          current.sourceId === state.sourceId &&
+          (current.boundingRect.width !== rect.width ||
+            current.boundingRect.height !== rect.height)
+            ? {
+                ...current,
+                boundingRect: {
+                  ...current.boundingRect,
+                  width: rect.width,
+                  height: rect.height,
+                },
+                computedStyles: {
+                  ...current.computedStyles,
+                  width: `${rect.width}px`,
+                  height: `${rect.height}px`,
+                },
+              }
+            : current,
+        );
+      }
       if (state.active || state.hasRange) {
         activeTextEditingSessionRef.current = {
           screenId,

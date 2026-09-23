@@ -9898,7 +9898,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           sourceId: el ? getSourceId(el) || void 0 : void 0,
           hasRange,
           computedStyles,
-          inlineStyles
+          inlineStyles,
+          rect: el ? {
+            width: el.getBoundingClientRect().width,
+            height: el.getBoundingClientRect().height
+          } : void 0
         },
         "*"
       );

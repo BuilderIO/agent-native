@@ -303,6 +303,8 @@ export interface TextEditingState {
   hasRange?: boolean;
   computedStyles?: Record<string, string>;
   inlineStyles?: Record<string, string>;
+  /** The edited text box's live size; typing grows a hug-sized text. */
+  rect?: { width: number; height: number };
   /** Added by the host so overview iframes cannot exchange range styles. */
   screenId?: string;
 }

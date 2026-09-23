@@ -4727,6 +4727,14 @@ export function DesignCanvas({
             !Array.isArray(e.data.inlineStyles)
               ? (e.data.inlineStyles as Record<string, string>)
               : undefined,
+          rect:
+            Number.isFinite(e.data.rect?.width) &&
+            Number.isFinite(e.data.rect?.height)
+              ? {
+                  width: Number(e.data.rect.width),
+                  height: Number(e.data.rect.height),
+                }
+              : undefined,
         };
         textEditingStateRef.current = textState;
         onTextEditingStateChange?.(textState);

@@ -231,16 +231,17 @@ function AdjustmentSlider({
   onChange: (value: number) => void;
   onCommit: (value: number) => void;
 }) {
+  const position = (value + 100) / 2;
   return (
     <InspectorGrid className="items-center">
-      <InspectorGridCell span={9}>
+      <InspectorGridCell span={10}>
         <span className="truncate !text-[11px] text-muted-foreground">
           {label}
         </span>
       </InspectorGridCell>
-      <InspectorGridCell span={13} className="flex items-center">
-        {/* Figma's adjustment slider: a neutral pill, no filled range, and
-            the knob resting at the centre for zero. */}
+      <InspectorGridCell span={18} className="flex items-center">
+        {/* Figma's adjustment slider: a neutral pill, the knob at the centre
+            for zero, and an accent fill from the centre once it moves. */}
         <SliderPrimitive.Root
           aria-label={label}
           value={[value]}
@@ -251,21 +252,27 @@ function AdjustmentSlider({
           onValueCommit={([next]) => onCommit(next ?? 0)}
           className="relative flex h-4 w-full touch-none select-none items-center"
         >
-          <SliderPrimitive.Track className="relative h-4 w-full grow rounded-full border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]" />
-          <SliderPrimitive.Thumb className="block size-3.5 rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          <SliderPrimitive.Track className="relative h-4 w-full grow overflow-hidden rounded-full border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
+            {value !== 0 ? (
+              <>
+                <span
+                  className="absolute inset-y-0 rounded-full bg-[var(--design-editor-accent-color)]"
+                  style={{
+                    left: `${Math.min(50, position)}%`,
+                    width: `${Math.abs(position - 50)}%`,
+                  }}
+                />
+                <span className="absolute top-1/2 left-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background" />
+              </>
+            ) : null}
+          </SliderPrimitive.Track>
+          {/* guard:allow-raw-color — Figma's knob is white in both themes. */}
+          <SliderPrimitive.Thumb className="flex size-4 items-center justify-center rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {value !== 0 ? (
+              <span className="size-1.5 rounded-full bg-[var(--design-editor-accent-color)]" />
+            ) : null}
+          </SliderPrimitive.Thumb>
         </SliderPrimitive.Root>
-      </InspectorGridCell>
-      <InspectorGridCell span={6}>
-        <div className="flex h-6 items-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5">
-          <NumberField
-            label={label}
-            value={value}
-            min={-100}
-            max={100}
-            onCommit={onCommit}
-            className="w-full"
-          />
-        </div>
       </InspectorGridCell>
     </InspectorGrid>
   );

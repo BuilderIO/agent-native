@@ -303,10 +303,12 @@ const EMPTY_SCREEN_SIZE_CONSTRAINTS: ScreenSizeConstraints = {
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
-  /** The vertex selected in vector edit, whose handle mirroring Figma shows. */
+  /** The vertex selected in vector edit: Figma's Vector section (X/Y, mirroring). */
   vectorVertexMirroring?: {
     mirroring: PenMirroring;
     onChange: (mirroring: PenMirroring) => void;
+    point: { x: number; y: number };
+    onPointChange: (point: { x: number; y: number }) => void;
   };
   textEditingState?: TextEditingState;
   selectionHidden?: boolean;
@@ -3347,24 +3349,39 @@ export const EditPanel = memo(function EditPanel({
 
               {inspectorElement && (
                 <>
-                  <PositionLayoutProperties
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    onAlignSelection={onAlignSelection}
-                    alignSelectionDisabled={alignSelectionDisabled}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                    breakpointOverrideContext={breakpointOverrideFieldContext}
-                  />
-                  <LayoutContextProperties
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    onDisableAutoLayout={onDisableAutoLayout}
-                    onApplyLayoutFlow={onApplyLayoutFlow}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                    breakpointOverrideContext={breakpointOverrideFieldContext}
-                  />
+                  {/* Figma swaps Position/Layout for the Vector section while a point is selected. */}
+                  {vectorVertexMirroring ? (
+                    <VectorVertexMirroring {...vectorVertexMirroring} />
+                  ) : (
+                    <>
+                      <PositionLayoutProperties
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
+                        onAlignSelection={onAlignSelection}
+                        alignSelectionDisabled={alignSelectionDisabled}
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                        breakpointOverrideContext={
+                          breakpointOverrideFieldContext
+                        }
+                      />
+                      <LayoutContextProperties
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
+                        onDisableAutoLayout={onDisableAutoLayout}
+                        onApplyLayoutFlow={onApplyLayoutFlow}
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                        breakpointOverrideContext={
+                          breakpointOverrideFieldContext
+                        }
+                      />
+                    </>
+                  )}
                   {scaleTool && scaleSectionActive ? (
                     <ScaleProperties
                       key={inspectorElement.selector}
@@ -3373,9 +3390,6 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : (
                     <>
-                      {vectorVertexMirroring ? (
-                        <VectorVertexMirroring {...vectorVertexMirroring} />
-                      ) : null}
                       <AppearanceProperties
                         element={
                           stateResolvedInspectorElement ?? inspectorElement

@@ -328,11 +328,13 @@ function prefixReferences(
 export const measureSvgInDocument: MeasureSvg = (root, size) => {
   const host = document.createElement("div");
   host.style.cssText =
+    // guard:allow-raw-color — offscreen measuring host; currentColor must resolve to a paint
     "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;color:#000";
   const shadow = host.attachShadow({ mode: "closed" });
   const mounted = document.importNode(root, true);
   mounted.setAttribute("width", String(size.width));
   mounted.setAttribute("height", String(size.height));
+  // guard:allow-raw-color — same offscreen measurement as the host above
   mounted.style.cssText = "display:block;color:#000";
   shadow.append(mounted);
   document.body.append(host);

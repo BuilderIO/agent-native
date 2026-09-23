@@ -13426,6 +13426,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hasRange,
         computedStyles,
         inlineStyles,
+        rect: el
+          ? {
+              width: el.getBoundingClientRect().width,
+              height: el.getBoundingClientRect().height,
+            }
+          : undefined,
       },
       "*",
     );

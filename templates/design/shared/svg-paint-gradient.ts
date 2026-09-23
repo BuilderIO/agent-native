@@ -156,6 +156,7 @@ export function parseSvgPaintGradient(css: string): SvgPaintGradient | null {
         ? 0
         : (index / (parts.length - 1)) * 100;
     stops.push({
+      // guard:allow-raw-color — the paint's own transparent stop, not UI chrome.
       color: color.toLowerCase() === "transparent" ? "rgba(0, 0, 0, 0)" : color,
       offset: Math.min(100, Math.max(0, offset)),
     });

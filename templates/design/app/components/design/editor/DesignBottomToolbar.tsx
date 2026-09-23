@@ -11,7 +11,7 @@ import {
   IconMessage,
   IconPhotoVideo,
   IconPointer,
-  IconScale,
+  IconResize,
   IconScribble,
   IconSquare,
   IconStar,
@@ -209,7 +209,7 @@ export function DesignBottomToolbar({
         activeTool === "hand" ? (
           <IconHandStop className="size-[18px]" />
         ) : activeTool === "scale" ? (
-          <IconScale className="size-[18px]" />
+          <IconResize className="size-[18px]" />
         ) : (
           <IconPointer className="size-[18px]" />
         ),
@@ -237,7 +237,7 @@ export function DesignBottomToolbar({
         {
           key: "scale",
           label: t("designEditor.tools.scale"),
-          icon: <IconScale className="size-4" />,
+          icon: <IconResize className="size-4" />,
           shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut,
           active: activeTool === "scale",
           onSelect: onScale,
