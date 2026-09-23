@@ -163,6 +163,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Sugerir fila",
+    noQueueMatch: "Nenhuma fila correspondente",
+    urgentProbability: "Probabilidade de urgência {{percent}}%",
+    applyRoute: "Aplicar fila",
+    routingError: "Não foi possível sugerir uma fila.",
     panelTitle: "Campos",
     panelSubtitle: "Detalhes da tarefa",
     closeLabel: "Fechar painel de campos",

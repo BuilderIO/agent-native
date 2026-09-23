@@ -166,6 +166,7 @@ export {
   executeAgentToolCall,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
+  getOwnerJevApiKey,
   resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,

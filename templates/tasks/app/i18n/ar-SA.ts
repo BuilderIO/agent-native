@@ -151,6 +151,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "اقتراح قائمة انتظار",
+    noQueueMatch: "لا توجد قائمة انتظار مطابقة",
+    urgentProbability: "احتمال الاستعجال {{percent}}%",
+    applyRoute: "تطبيق قائمة الانتظار",
+    routingError: "تعذر اقتراح قائمة انتظار.",
     panelTitle: "الحقول",
     panelSubtitle: "تفاصيل المهمة",
     closeLabel: "إغلاق لوحة الحقول",

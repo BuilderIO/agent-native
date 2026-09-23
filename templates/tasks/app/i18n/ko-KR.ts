@@ -156,6 +156,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "대기열 추천",
+    noQueueMatch: "일치하는 대기열 없음",
+    urgentProbability: "긴급 확률 {{percent}}%",
+    applyRoute: "대기열 적용",
+    routingError: "대기열을 추천할 수 없습니다.",
     panelTitle: "필드",
     panelSubtitle: "할 일 상세 정보",
     closeLabel: "필드 패널 닫기",

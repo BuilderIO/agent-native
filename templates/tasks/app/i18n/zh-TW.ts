@@ -149,6 +149,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "建議處理佇列",
+    noQueueMatch: "沒有符合的佇列",
+    urgentProbability: "緊急機率 {{percent}}%",
+    applyRoute: "套用佇列",
+    routingError: "無法產生佇列建議。",
     panelTitle: "欄位",
     panelSubtitle: "任務詳細資料",
     closeLabel: "關閉欄位面板",

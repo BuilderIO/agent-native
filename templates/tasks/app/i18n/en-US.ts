@@ -155,6 +155,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Suggest queue",
+    noQueueMatch: "No matching queue",
+    urgentProbability: "Urgency likelihood {{percent}}%",
+    applyRoute: "Apply queue",
+    routingError: "Could not suggest a queue.",
     panelTitle: "Fields",
     panelSubtitle: "Task details",
     closeLabel: "Close fields panel",
