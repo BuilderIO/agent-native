@@ -111,7 +111,9 @@ describe("BigQuery delivery queue", () => {
     expect(mocks.insertWithResults).toHaveBeenCalledWith(
       [eventRow],
       queueRow.table_ref,
+      { maxRowsPerRequest: 500, maxConcurrentRequests: 4 },
     );
+    expect(claimTx.execute.mock.calls[0]?.[0]?.args?.[1]).toBe(2_000);
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         sql: expect.stringContaining("deliveryState"),
@@ -125,6 +127,57 @@ describe("BigQuery delivery queue", () => {
     const reconcileSql = db.execute.mock.calls[0]?.[0]?.sql as string;
     expect(reconcileSql).toMatch(
       /deliveryState[\s\S]*NOT EXISTS[\s\S]*LIMIT \$2/,
+    );
+  });
+
+  it("expires terminal source events after their recovery retention", async () => {
+    const terminalEventId = "evt_terminal";
+    const claimTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const cleanupTx = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ event_id: terminalEventId }] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rowsAffected: 1 }),
+    };
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rowsAffected: 0 })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              pending_count: "0",
+              oldest_pending_at: null,
+              last_delivered_at: null,
+              last_error: null,
+            },
+          ],
+        }),
+      transaction: vi
+        .fn()
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(claimTx))
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) =>
+          fn(cleanupTx),
+        ),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(
+      runFirstPartyAnalyticsBigQueryDeliveryOnce(),
+    ).resolves.toMatchObject({
+      status: "idle",
+      cleaned: 1,
+    });
+
+    expect(cleanupTx.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("DELETE FROM analytics_events"),
+        args: [terminalEventId],
+      }),
     );
   });
 

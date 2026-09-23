@@ -10,15 +10,15 @@ import {
 import type { AnalyticsScope } from "./first-party-analytics.js";
 
 const DELIVERY_TABLE = "analytics_bigquery_delivery_queue";
-const DELIVERY_BATCH_SIZE = 200;
-const MAX_DELIVERY_BATCHES_PER_SWEEP = 4;
+const DELIVERY_BATCH_SIZE = 2_000;
+// Minute triggers may overlap safely because claims use SKIP LOCKED.
+const MAX_DELIVERY_BATCHES_PER_SWEEP = 30;
 const DELIVERY_LEASE_MS = 5 * 60 * 1000;
 const DELIVERY_RETRY_BASE_MS = 60 * 1000;
 const DELIVERY_RETRY_MAX_MS = 60 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS = 10;
 const DELIVERY_CLEANUP_RETENTION_MS = 10 * 60 * 1000;
-// Keep terminal failures auditable for a week; the source event remains in
-// Postgres so the purge guard still sees an unconfirmed delivery afterward.
+// Keep terminal failures in Postgres for a week to allow recovery, then expire them.
 export const FIRST_PARTY_ANALYTICS_DELIVERY_TERMINAL_RETENTION_MS =
   7 * 24 * 60 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS = 10 * 60 * 1000;
@@ -628,18 +628,17 @@ async function cleanupDeliveryRows(db: Executor): Promise<number> {
           : "",
       )
       .filter(Boolean);
-    const uniqueIds = [...new Set([...ids, ...fallbackIds])];
-    const markerIds = [...new Set([...uniqueIds, ...terminalIds])];
-    if (!uniqueIds.length && !terminalIds.length) return 0;
-    if (uniqueIds.length) {
-      await tx.execute({
-        sql: `DELETE FROM analytics_events
-               WHERE id IN (${idPlaceholders(1, uniqueIds.length)})`,
-        args: uniqueIds,
-        timeoutMs: 5_000,
-        maxAttempts: 1,
-      });
-    }
+    const deliveredIds = [...new Set([...ids, ...fallbackIds])];
+    const sourceEventIds = [...new Set([...deliveredIds, ...terminalIds])];
+    const markerIds = sourceEventIds;
+    if (!sourceEventIds.length) return 0;
+    await tx.execute({
+      sql: `DELETE FROM analytics_events
+             WHERE id IN (${idPlaceholders(1, sourceEventIds.length)})`,
+      args: sourceEventIds,
+      timeoutMs: 5_000,
+      maxAttempts: 1,
+    });
     if (markerIds.length) {
       await tx.execute({
         sql: `DELETE FROM settings
@@ -681,7 +680,7 @@ async function cleanupDeliveryRows(db: Executor): Promise<number> {
         "Cleaning terminal BigQuery delivery rows",
       );
     }
-    return uniqueIds.length + terminalIds.length;
+    return sourceEventIds.length;
   });
 }
 
@@ -732,7 +731,10 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
         const insertResult = await runWithRequestContext(
           { userEmail: first.ownerEmail, orgId: first.orgId ?? undefined },
           () =>
-            insertFirstPartyAnalyticsRowsWithResults(events, first.tableRef),
+            insertFirstPartyAnalyticsRowsWithResults(events, first.tableRef, {
+              maxRowsPerRequest: 500,
+              maxConcurrentRequests: 4,
+            }),
         );
         const acceptedIds = new Set(insertResult.acceptedIds);
         const rejectedIds = new Set(insertResult.rejectedIds);
