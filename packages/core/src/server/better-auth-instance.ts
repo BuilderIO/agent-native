@@ -134,7 +134,10 @@ import {
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
-import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
+import {
+  getConfiguredOriginAllowlist,
+  requestForwardedOrigin,
+} from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -2221,6 +2224,7 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const configuredOrigins = [...getConfiguredOriginAllowlist()];
   const cookieNamespace = resolveAuthCookieNamespace();
   const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
@@ -2355,7 +2359,12 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
-    trustedOrigins: [...getConfiguredOriginAllowlist()],
+    // With no https public URL configured (a cloud dev container behind an
+    // https proxy), the proxied host's own same-origin POSTs would fail Better
+    // Auth's origin check. Configured deployments keep the static allowlist.
+    trustedOrigins: appUrl.startsWith("https://")
+      ? configuredOrigins
+      : (request) => [...configuredOrigins, requestForwardedOrigin(request)],
     secret,
     emailAndPassword: {
       enabled: true,

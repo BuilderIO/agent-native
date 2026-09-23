@@ -9,7 +9,7 @@ import {
   assertAccess,
   currentAccess,
 } from "@agent-native/core/sharing";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -109,7 +109,7 @@ function pruneDesignVariantSets(
   return next;
 }
 
-function pruneDeletedFileMetadata(
+export function pruneDeletedFileMetadata(
   data: Record<string, unknown>,
   fileId: string,
 ): Record<string, unknown> {
@@ -245,6 +245,53 @@ function snapshotDeletedFile(
     updatedAt: file.updatedAt ?? "",
     ...deletedFileMetadataSnapshot(data, file.id),
   };
+}
+
+/**
+ * Delete every file saved under one operation-source prefix (an aborted
+ * browser import) and its canvas metadata in one transaction. Idempotent.
+ */
+export async function deleteDesignFilesByOperationSourcePrefix(
+  designId: string,
+  prefix: string,
+): Promise<string[]> {
+  await assertAccess("design", designId, "editor");
+  return getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+    );
+    const deleted = await tx
+      .delete(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          like(
+            schema.designFiles.contentOperationSource,
+            `${prefix.replace(/[\\%_]/g, "\\$&")}%`,
+          ),
+        ),
+      )
+      .returning({ id: schema.designFiles.id });
+    if (deleted.length === 0) return [];
+    const [design] = await tx
+      .select({
+        data: schema.designs.data,
+        updatedAt: schema.designs.updatedAt,
+      })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .for("update");
+    if (!design) throw new Error("Design " + designId + " not found.");
+    let data = parseDesignData(designId, design.data);
+    for (const { id } of deleted) data = pruneDeletedFileMetadata(data, id);
+    const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
+    data.updatedAt = updatedAt;
+    await tx
+      .update(schema.designs)
+      .set({ data: JSON.stringify(data), updatedAt })
+      .where(eq(schema.designs.id, designId));
+    return deleted.map(({ id }) => id);
+  });
 }
 
 export default defineAction({

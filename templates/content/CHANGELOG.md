@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-21
+
+### Improved
+
+- Search now ranks exact and partial title matches above incidental matches in document bodies.
+
 ## 2026-09-16
 
 ### Fixed
@@ -19,6 +25,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Trash now uses table-native metadata filters to find nested Pages, preview their content, and empty reviewed scopes with progress that survives navigation.
 - Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
 
 ### Fixed

@@ -5,8 +5,6 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,7 +15,6 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -904,7 +901,10 @@ describe("Netlify static root shell", () => {
 
 async function importGeneratedWorker(
   entrySource: string,
-  options: { responseHeaders?: Record<string, string> } = {},
+  options: {
+    responseHeaders?: Record<string, string>;
+    rootDataLocation?: string;
+  } = {},
 ) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
@@ -920,6 +920,18 @@ export function createRequestHandler() {
   return async (request) => {
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
+      if (url.pathname === "/.data") {
+        const rootDataLocation = ${JSON.stringify(options.rootDataLocation ?? null)};
+        if (rootDataLocation) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: rootDataLocation },
+          });
+        }
+        return new Response(url.pathname, {
+          headers: { "content-type": "text/x-script" },
+        });
+      }
       if (url.pathname === "/custom.data") {
         return new Response('{"ok":true}', {
           headers: {
@@ -1401,6 +1413,37 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
+  it("strips the mount from React Router's root data URL", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs.data"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("/.data");
+  });
+
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        rootDataLocation: location,
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/docs.data"),
+        { APP_BASE_PATH: "/docs" },
+        {},
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+    },
+  );
+
   it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1731,17 +1774,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain("__agentNativeLoadingLabelIndex");
-    expect(html).toContain("Math.random()");
-    expect(html).toContain("setInterval");
-    expect(html).toContain("__agentNativeLoadingLabelHydrated");
-    expect(html).toContain("__agentNativeLoadingLabelInterval");
-    expect(html).toContain("__agentNativeLoadingLabelCleanup");
-    expect(html).toContain("clearInterval");
-    expect(html).toContain("MutationObserver");
-    expect(html).toContain("loader.isConnected");
-    expect(html).toContain("an-cube-pulse");
-    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).toContain('data-agent-native-app-skeleton="true"');
+    expect(html).not.toContain("data-agent-native-session-bootstrap");
+    expect(html).not.toContain("data-agent-native-cube-loader");
+    expect(html).not.toContain("an-cube-pulse");
     expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
@@ -2608,7 +2644,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     }
   });
 
-  it("ships externally required React with the generated function manifest", () => {
+  it("ships externally required SSR packages with the generated function manifest", () => {
     const root = fs.mkdtempSync(
       path.join(process.cwd(), ".tmp-external-ssr-test-"),
     );
@@ -2616,8 +2652,26 @@ describe("copyInstalledExternalSsrPackages", () => {
     const nodeModules = path.join(root, "node_modules");
     const reactDir = path.join(nodeModules, "react");
     const looseEnvifyDir = path.join(nodeModules, "loose-envify");
+    const reactRouterDir = path.join(nodeModules, "react-router");
+    const cookieEsDir = path.join(nodeModules, "cookie-es");
+    const reactQueryDir = path.join(nodeModules, "@tanstack", "react-query");
+    const queryCoreDir = path.join(nodeModules, "@tanstack", "query-core");
+    const queryCodemodsDir = path.join(
+      reactQueryDir,
+      "build",
+      "query-codemods",
+    );
+    const queryCodemodsBuildDir = path.join(reactQueryDir, "build", "codemods");
+    const queryModernDir = path.join(reactQueryDir, "build", "modern");
     fs.mkdirSync(reactDir, { recursive: true });
     fs.mkdirSync(looseEnvifyDir, { recursive: true });
+    fs.mkdirSync(reactRouterDir, { recursive: true });
+    fs.mkdirSync(cookieEsDir, { recursive: true });
+    fs.mkdirSync(reactQueryDir, { recursive: true });
+    fs.mkdirSync(queryCoreDir, { recursive: true });
+    fs.mkdirSync(queryCodemodsDir, { recursive: true });
+    fs.mkdirSync(queryCodemodsBuildDir, { recursive: true });
+    fs.mkdirSync(queryModernDir, { recursive: true });
     fs.writeFileSync(
       path.join(reactDir, "package.json"),
       JSON.stringify({
@@ -2630,6 +2684,39 @@ describe("copyInstalledExternalSsrPackages", () => {
       path.join(looseEnvifyDir, "package.json"),
       JSON.stringify({ name: "loose-envify", version: "1.4.0" }),
     );
+    fs.writeFileSync(
+      path.join(reactRouterDir, "package.json"),
+      JSON.stringify({
+        name: "react-router",
+        version: "8.1.0",
+        dependencies: { "cookie-es": "3.1.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(cookieEsDir, "package.json"),
+      JSON.stringify({ name: "cookie-es", version: "3.1.1" }),
+    );
+    fs.writeFileSync(
+      path.join(reactQueryDir, "package.json"),
+      JSON.stringify({
+        name: "@tanstack/react-query",
+        version: "5.101.2",
+        dependencies: { "@tanstack/query-core": "5.101.2" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(queryCoreDir, "package.json"),
+      JSON.stringify({ name: "@tanstack/query-core", version: "5.101.2" }),
+    );
+    fs.writeFileSync(
+      path.join(queryCodemodsDir, "root.eslint.config.js"),
+      'import "@vitest/runner";\n',
+    );
+    fs.writeFileSync(
+      path.join(queryCodemodsBuildDir, "transform.cjs"),
+      'require("@vitest/runner");\n',
+    );
+    fs.writeFileSync(path.join(queryModernDir, "index.js.map"), "source map");
 
     const serverDir = path.join(root, "server");
     fs.mkdirSync(serverDir, { recursive: true });
@@ -2642,12 +2729,18 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
     fs.writeFileSync(
       path.join(serverDir, "chunk.mjs"),
-      "const react = require(`react`); export { react };",
+      "throw Error(`Did you accidentally import `RouterProvider` from `react-router`?`);",
+    );
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(0);
+    expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nexport { react };',
     );
 
     expect(
       copyInstalledExternalSsrPackages(serverDir, root),
-    ).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(6);
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "react", "package.json"),
@@ -2659,9 +2752,318 @@ describe("copyInstalledExternalSsrPackages", () => {
       ),
     ).toBe(true);
     expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "cookie-es", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js.map",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "query-core",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
       JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8"))
         .dependencies,
-    ).toEqual({ react: "19.2.7" });
+    ).toEqual({
+      react: "19.2.7",
+      "react-router": "8.1.0",
+      "@tanstack/react-query": "5.101.2",
+    });
+  });
+
+  it("also ships react-router and react-query so the SSR provider and consumer share one instance", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-external-ssr-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    for (const [name, version] of [
+      ["react-dom", "19.2.7"],
+      ["react-router", "8.1.0"],
+      ["@tanstack/react-query", "5.101.2"],
+    ] as const) {
+      const dir = path.join(nodeModules, ...name.split("/"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name, version }),
+      );
+    }
+    const reactDomCjsDir = path.join(nodeModules, "react-dom", "cjs");
+    fs.mkdirSync(reactDomCjsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nodeModules, "react-dom", "server.browser.js"),
+      "module.exports = {};\n",
+    );
+    for (const fileName of [
+      "react-dom-profiling.profiling.js",
+      "react-dom-server-legacy.browser.production.js",
+      "react-dom-server.browser.production.js",
+      "react-dom-server.edge.production.js",
+      "react-dom-server.node.production.js",
+    ]) {
+      fs.writeFileSync(
+        path.join(reactDomCjsDir, fileName),
+        "module.exports = {};\n",
+      );
+    }
+    const reactQueryModernDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "modern",
+    );
+    fs.mkdirSync(reactQueryModernDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.d.cts"),
+      "export {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.js"),
+      "export {};\n",
+    );
+    const reactQueryLegacyDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "legacy",
+    );
+    fs.mkdirSync(reactQueryLegacyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryLegacyDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.mkdirSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+      ),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+        "root.eslint.config.js",
+      ),
+      'import "@vitest/runner";\n',
+    );
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      [
+        'import { useLocation } from "react-router";',
+        'import "react-dom/server";',
+        'import { useQuery } from "@tanstack/react-query";',
+        "export { useLocation, useQuery };",
+      ].join("\n"),
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.node.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server-legacy.browser.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-dom", "server.browser.js"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.browser.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.edge.production.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "legacy",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-profiling.profiling.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

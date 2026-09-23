@@ -64,6 +64,25 @@ describe("extractLayerPosition", () => {
     );
   });
 
+  it("preserves live node identity when preparing a move", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" data-agent-native-source-id="source" style="transform:translate3d(60px, 0, 0)"><span data-agent-native-node-id="child">Source</span></div>',
+      ],
+      { preserveIncomingNodeIds: true },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-node-id")).toBe("source");
+    expect(
+      clone.querySelector("span")?.getAttribute("data-agent-native-node-id"),
+    ).toBe("child");
+    expect((clone as HTMLElement).style.transform).toBe(
+      "translate3d(60px, 0, 0)",
+    );
+  });
+
   it("keeps a transform-inclusive paste target near the canvas origin", () => {
     vi.stubGlobal(
       "DOMMatrixReadOnly",

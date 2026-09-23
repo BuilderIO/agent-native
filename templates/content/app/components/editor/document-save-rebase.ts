@@ -15,6 +15,8 @@ export type DocumentContentBase = {
 };
 export type RebasedDocumentSaveResult =
   | { status: "saved"; document: Document; content: string }
+  | { status: "displaced"; document: Document; localDraft: string }
+  | { status: "superseded"; document: Document }
   | { status: "conflict"; localDraft: string };
 
 let contentSchema: ReturnType<typeof getSchema> | undefined;
@@ -38,6 +40,7 @@ export async function saveDocumentWithRebase({
   owner?: {
     version: number;
     current: () => { version: number; content: string };
+    canPreferLive: (winner: Document) => boolean;
     confirm: (content: string) => void;
   };
 }): Promise<RebasedDocumentSaveResult> {
@@ -78,13 +81,31 @@ export async function saveDocumentWithRebase({
     try {
       contentSchema ??= getSchema(createVisualEditorExtensions());
       const localDoc = contentSchema.nodeFromJSON(nfmToDoc(candidate));
-      const plan = planDocReconcile(
+      let plan = planDocReconcile(
         localDoc,
         contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
         contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
       );
-      // Carry an unambiguous three-way merge into the retry. Ambiguous edits
-      // still need recovery because choosing either side would discard work.
+      if (
+        plan.status === "conflict" &&
+        owner &&
+        owner.current().version === owner.version &&
+        owner.canPreferLive(winner)
+      ) {
+        plan = planDocReconcile(
+          localDoc,
+          contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
+          contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
+          { overlapPolicy: "prefer-live" },
+        );
+      } else if (plan.status === "conflict" && owner) {
+        if (owner.current().version !== owner.version) {
+          return { status: "superseded", document: winner };
+        }
+        // This queued operation was not authored from the winning revision.
+        // Preserve it as displaced work before adopting the canonical winner.
+        return { status: "displaced", document: winner, localDraft: candidate };
+      }
       if (plan.status === "applied") {
         candidate = docToNfm(plan.mergedDoc.toJSON());
       } else if (plan.status !== "noop") {

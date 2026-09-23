@@ -66,7 +66,6 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
-import { LOADING_LABELS } from "../shared/loading-labels.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -1481,6 +1480,7 @@ function getAppBasePath() {
 function stripAppBasePath(pathname) {
   const basePath = getAppBasePath();
   if (!basePath) return pathname;
+  if (pathname === basePath + ".data") return "/.data";
   if (pathname === basePath) return "/";
   if (pathname === basePath + "//") return "/";
   if (pathname.startsWith(basePath + "/")) {
@@ -1537,7 +1537,8 @@ function requestWithMountedApiPrefixStripped(request) {
 
 function prefixMountedPath(path, basePath) {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
-  if (path === basePath || path.startsWith(basePath + "/")) return path;
+  const pathname = path.split(/[?#]/, 1)[0] || path;
+  if (pathname === basePath || pathname === basePath + ".data" || pathname.startsWith(basePath + "/")) return path;
   return basePath + path;
 }
 
@@ -2702,44 +2703,32 @@ const EMPTY_REACT_ROUTER_TURBO_STREAM =
 const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
 
-const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 const STATIC_SHELL_LOADING_MARKUP = [
-  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:var(--agent-native-viewport-height, 100vh);width:100%">',
-  '<div style="display:flex;align-items:center;gap:12px">',
-  '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
+  '<div role="status" aria-label="Loading application" data-agent-native-app-skeleton="true" style="display:flex;height:var(--agent-native-viewport-height, 100vh);width:100%;overflow:hidden;background-color:hsl(var(--background, 0 0% 100%));color:hsl(var(--foreground, 240 10% 3.9%))">',
   `<style>
-        @keyframes an-cube-pulse {
-          0%, 100% { opacity: 0.15; }
-          50% { opacity: 0.95; }
+        [data-agent-native-app-skeleton] [aria-hidden="true"] {
+          animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;
         }
-        .an-cube-cell {
-          animation: an-cube-pulse 650ms ease-in-out infinite;
-          fill: currentColor;
-          opacity: 0.15;
+        @keyframes an-app-shell-skeleton-pulse {
+          0%, 100% { opacity: 0.45; }
+          50% { opacity: 0.85; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .an-cube-cell { animation: none; }
+          [data-agent-native-app-skeleton] [aria-hidden="true"] { animation: none; }
+        }
+        @media (max-width: 767px) {
+          [data-agent-native-app-skeleton] [data-agent-native-app-skeleton-sidebar] { display: none; }
         }
       </style>`,
-  ...STATIC_SHELL_CUBE_DELAYS.map(
-    (delay, index) =>
-      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
-  ),
-  `</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">${LOADING_LABELS[0]}</span>`,
-  `<\/div><style>
-        html {
-          background: hsl(var(--background, 0 0% 100%));
-          color: hsl(var(--foreground, 240 10% 3.9%));
-        }
-        @media (prefers-color-scheme: dark) {
-          html {
-            background: hsl(var(--background, 240 10% 3.9%));
-            color: hsl(var(--foreground, 0 0% 98%));
-          }
-        }
-      </style></div>`,
+  '<aside data-agent-native-app-skeleton-sidebar="true" aria-hidden="true" style="display:flex;width:248px;flex-shrink:0;flex-direction:column;gap:16px;border-right:1px solid hsl(var(--border, 240 5.9% 90%));padding:16px">',
+  '<span aria-hidden="true" style="display:block;width:132px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span>',
+  '<div style="display:flex;flex-direction:column;gap:10px"><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div>',
+  "</aside>",
+  '<main style="display:flex;min-width:0;flex:1;flex-direction:column">',
+  '<header aria-hidden="true" style="display:flex;height:48px;flex-shrink:0;align-items:center;gap:12px;border-bottom:1px solid hsl(var(--border, 240 5.9% 90%));padding:0 16px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:128px;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></header>',
+  '<section aria-hidden="true" style="display:flex;width:100%;max-width:960px;flex:1;flex-direction:column;gap:12px;margin:0 auto;padding:24px"><span aria-hidden="true" style="display:block;width:38%;height:28px;margin-bottom:8px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:24%;height:14px;margin-bottom:16px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:34%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:44%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:54%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:64%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:74%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:84%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div></section>',
+  "</main></div>",
 ].join("");
-const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var label=document.querySelector('[data-agent-native-loading-label]');var loader=document.querySelector('[data-agent-native-cube-loader]');var observer;var cleanup=function(){if(window.__agentNativeLoadingLabelInterval!==undefined){window.clearInterval(window.__agentNativeLoadingLabelInterval);delete window.__agentNativeLoadingLabelInterval;}if(observer)observer.disconnect();if(window.__agentNativeLoadingLabelCleanup===cleanup)delete window.__agentNativeLoadingLabelCleanup;};window.__agentNativeLoadingLabelCleanup=cleanup;var update=function(){var now=window.performance.now();if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');if(label){label.textContent=labels[window.__agentNativeLoadingLabelIndex];label.style.animationDelay='-'+now%2600+'ms';}};window.__agentNativeLoadingLabelIndex=Math.floor(Math.random()*labels.length);update();window.__agentNativeLoadingLabelInterval=window.setInterval(function(){if(window.__agentNativeLoadingLabelHydrated||!loader||!loader.isConnected){cleanup();return;}window.__agentNativeLoadingLabelIndex=(window.__agentNativeLoadingLabelIndex+1)%labels.length;update();},3000);if(window.MutationObserver){observer=new MutationObserver(function(){if(!loader.isConnected)cleanup();});observer.observe(document,{childList:true,subtree:true});}})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
@@ -2776,7 +2765,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}${STATIC_SHELL_LOADING_LABEL_SCRIPT}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -3394,7 +3383,58 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
-const SERVERLESS_EXTERNAL_SSR_PACKAGES = ["react"] as const;
+// Must track every package createAgentNativeConfig's ssr.external adds beyond
+// @agent-native/core and yjs (which have their own dedicated copy paths
+// below) — anything left off this list keeps its build-machine-only copy,
+// so the deployed function and the prebuilt route chunks resolve two
+// different module instances of the "same" package (e.g. a Router provider
+// from one react-router copy and useLocation() from another).
+const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
+  "react",
+  "react-dom",
+  "react-router",
+  "@tanstack/react-query",
+] as const;
+const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
+  {
+    "react-dom": [
+      // Netlify's Node runtime resolves react-dom/server to server.node, while
+      // the shared streaming entrypoint imports react-dom/server.browser.
+      // Keep that browser wrapper and its production implementation; the
+      // other browser, edge, bun, and profiling renderers cannot be reached.
+      "cjs/react-dom-client.development.js",
+      "cjs/react-dom-profiling.development.js",
+      "cjs/react-dom-profiling.profiling.js",
+      "cjs/react-dom-server-legacy.browser.development.js",
+      "cjs/react-dom-server-legacy.node.development.js",
+      "cjs/react-dom-server.browser.development.js",
+      "cjs/react-dom-server.bun.development.js",
+      "cjs/react-dom-server.bun.production.js",
+      "cjs/react-dom-server.edge.development.js",
+      "cjs/react-dom-server.edge.production.js",
+      "cjs/react-dom-server.node.development.js",
+      "cjs/react-dom-test-utils.development.js",
+      "cjs/react-dom-test-utils.production.js",
+      "cjs/react-dom.development.js",
+      "cjs/react-dom.react-server.development.js",
+      "profiling.js",
+      "server.bun.js",
+      "server.edge.js",
+      "server.react-server.js",
+      "static.browser.js",
+      "static.edge.js",
+      "static.react-server.js",
+      "test-utils.js",
+    ],
+    "react-router": ["dist/development", "docs", "CHANGELOG.md"],
+    "@tanstack/react-query": [
+      "build/codemods",
+      "build/legacy",
+      "build/query-codemods",
+      "src",
+    ],
+    "@tanstack/query-core": ["build/legacy", "src"],
+  };
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3662,6 +3702,39 @@ function copyRuntimePackageTree(
   return copiedCount;
 }
 
+function pruneExternalSsrPackageArtifacts(
+  serverDir: string,
+  packageName: string,
+): void {
+  const packageDir = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  if (!fs.existsSync(packageDir)) return;
+
+  for (const relativePath of SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS[
+    packageName
+  ] ?? []) {
+    fs.rmSync(path.join(packageDir, relativePath), {
+      recursive: true,
+      force: true,
+    });
+  }
+  for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
+    fs.rmSync(path.join(packageDir, sourceMap), { force: true });
+  }
+  if (packageName.startsWith("@tanstack/")) {
+    for (const cjsFile of fs.globSync("**/*.cjs", { cwd: packageDir })) {
+      if (cjsFile.startsWith("build/modern/")) continue;
+      fs.rmSync(path.join(packageDir, cjsFile), { force: true });
+    }
+    for (const declaration of fs.globSync("**/*.d.cts", { cwd: packageDir })) {
+      fs.rmSync(path.join(packageDir, declaration), { force: true });
+    }
+  }
+}
+
 export function copyInstalledBrowserRuntimePackages(
   serverDir: string | undefined,
   projectCwd = cwd,
@@ -3779,6 +3852,9 @@ export function copyInstalledExternalSsrPackages(
       nodeModulesRoots,
       copiedPackages,
     );
+  }
+  for (const packageName of copiedPackages) {
+    pruneExternalSsrPackageArtifacts(serverDir, packageName);
   }
 
   if (copiedCount === 0) return 0;
@@ -4626,9 +4702,14 @@ const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
-    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
-  ).test(source);
+  const quote = `["\'\\\`]`;
+  const staticModuleReference = new RegExp(
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+  );
+  const dynamicImport = new RegExp(
+    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+  );
+  return staticModuleReference.test(source) || dynamicImport.test(source);
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {

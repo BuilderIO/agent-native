@@ -27,6 +27,11 @@ import {
 import { DEFAULT_LOCALE, useOptionalLocale, type LocaleCode } from "../i18n.js";
 import { cn } from "../utils.js";
 
+export {
+  getChangelogLatestId,
+  useChangelogSeen,
+} from "./use-changelog-seen.js";
+
 // ─── Date formatting ──────────────────────────────────────────────────────────
 
 function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
@@ -114,52 +119,6 @@ function ChangelogBody({ markdown }: { markdown: string }) {
       {markdown}
     </ReactMarkdown>
   );
-}
-
-// ─── Unseen tracking ──────────────────────────────────────────────────────────
-
-function seenStorageKey(appKey: string): string {
-  return `an:changelog-seen:${appKey}`;
-}
-
-/**
- * Tracks the latest release a user has already seen (per browser, via
- * localStorage). Returns whether there's an unseen release and a `markSeen`
- * callback to clear the indicator once the changelog is opened.
- */
-export function useChangelogSeen(
-  appKey: string,
-  latestId: string | undefined,
-): { unseen: boolean; markSeen: () => void } {
-  const [seenId, setSeenId] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    try {
-      setSeenId(window.localStorage.getItem(seenStorageKey(appKey)));
-    } catch {
-      // Private mode / disabled storage — treat as "nothing seen yet".
-    }
-    setHydrated(true);
-  }, [appKey]);
-
-  const markSeen = React.useCallback(() => {
-    if (!latestId) return;
-    setSeenId(latestId);
-    try {
-      window.localStorage.setItem(seenStorageKey(appKey), latestId);
-    } catch {
-      // Ignore storage failures; the dot just won't persist.
-    }
-  }, [appKey, latestId]);
-
-  // Don't flag "unseen" until hydrated, and never on a first-ever visit (no
-  // stored value) — only once the user has seen *something* and a newer
-  // release appears. This avoids nagging brand-new users.
-  const unseen =
-    hydrated && !!latestId && seenId !== null && seenId !== latestId;
-
-  return { unseen, markSeen };
 }
 
 // ─── Shared markup ────────────────────────────────────────────────────────────

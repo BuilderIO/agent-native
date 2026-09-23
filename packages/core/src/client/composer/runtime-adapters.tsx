@@ -35,7 +35,7 @@ import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogDeferred.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { useVoiceProviderStatus } from "../voice-provider-status.js";
 import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
@@ -74,7 +74,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
   },
   builder: {
     useConnectFlow: useBuilderConnectFlow,
-    BuilderConnectPopover,
+    BuilderConnectPopover: DeferredBuilderConnectPopover,
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,

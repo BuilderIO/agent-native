@@ -10,7 +10,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -79,6 +82,12 @@ function fileNotFound(id: string): Error & { statusCode?: number } {
  * that remains persisted. `skippedStaleOperation?: true` means an equal or
  * newer revision from that same browser tab was already accepted, so this
  * late request was treated as an idempotent content no-op.
+ *
+ * `checkpoint: { skipped: true, reason }` means the write above succeeded but
+ * the auxiliary pre-write version-history checkpoint could not be captured
+ * (e.g. a design over 256 KiB with no private-blob provider configured for
+ * this owner) — content is NOT lost, only that checkpoint. Omitted in every
+ * other case.
  */
 export default defineAction({
   description:
@@ -248,7 +257,12 @@ export default defineAction({
     }
 
     await assertAccess("design", file.designId, "editor");
-    await snapshotDesignBeforeAgentEdit(file.designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(
+      file.designId,
+      context,
+      { allowCheckpointFailureSkip: true },
+    );
+    const checkpointField = checkpointSkippedResultField(checkpoint);
 
     if (identityOnly === true) {
       if (
@@ -274,7 +288,12 @@ export default defineAction({
         operationSource,
         operationRevision,
       });
-      return { id, updated: true, versionHash: write.versionHash };
+      return {
+        id,
+        updated: true,
+        versionHash: write.versionHash,
+        ...checkpointField,
+      };
     }
 
     // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
@@ -306,6 +325,7 @@ export default defineAction({
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
     let persistedVersionHash: string | undefined;
+    let persistedUpdatedAt: string | undefined;
 
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
@@ -314,6 +334,7 @@ export default defineAction({
           skippedStaleMirror = false;
           skippedStaleOperation = false;
           exactOperationAlreadyPersisted = false;
+          persistedUpdatedAt = undefined;
           const [persistedFile] = await tx
             .select({
               content: schema.designFiles.content,
@@ -673,6 +694,7 @@ export default defineAction({
             .update(schema.designs)
             .set({ updatedAt: now })
             .where(eq(schema.designs.id, file.designId));
+          persistedUpdatedAt = now;
           return;
         }
         logSaveConflictDebug("retry-exhausted", {
@@ -707,7 +729,12 @@ export default defineAction({
     }
 
     if (skippedStaleMirror) {
-      return { id, updated: true, skippedStaleMirror: true };
+      return {
+        id,
+        updated: true,
+        skippedStaleMirror: true,
+        ...checkpointField,
+      };
     }
     if (operationSource !== undefined && operationRevision !== undefined) {
       return {
@@ -715,8 +742,10 @@ export default defineAction({
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
         versionHash: persistedVersionHash,
+        ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
+        ...checkpointField,
       };
     }
-    return { id, updated: true };
+    return { id, updated: true, ...checkpointField };
   },
 });

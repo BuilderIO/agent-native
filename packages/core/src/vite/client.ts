@@ -3921,18 +3921,34 @@ function aliasArrayFrom(alias: unknown): any[] {
   return [];
 }
 
-const DEFAULT_VITE_WATCH_IGNORES = [
-  "**/.git/**",
-  "**/node_modules/**",
-  "**/.react-router/**",
-  "**/.generated/**",
-  "**/.agents/**",
-  "**/.claude/**",
-  "**/.data/**",
-  "**/data/**",
-  "**/dist/**",
-  "**/build/**",
-];
+const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".react-router",
+  ".generated",
+  ".agents",
+  ".claude",
+  ".data",
+  "data",
+  "dist",
+  "build",
+]);
+
+/**
+ * Ignores files inside these directories, judged from the app root only. A
+ * `**\/.claude/**` glob also matches the root's own ancestors, so an app run
+ * from a `.claude/worktrees/*` checkout silently got no file watching or HMR.
+ */
+export function defaultViteWatchIgnored(
+  root: string,
+): (file: string) => boolean {
+  return (file) =>
+    path
+      .relative(root, file)
+      .split(/[\\/]/)
+      .slice(0, -1)
+      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+}
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
@@ -4474,7 +4490,7 @@ function createAgentNativeConfig(
       watch: {
         ...userWatch,
         ignored: [
-          ...DEFAULT_VITE_WATCH_IGNORES,
+          defaultViteWatchIgnored(path.resolve(cwd, userConfig.root ?? "")),
           ...arrayFrom((userWatch as { ignored?: any })?.ignored),
         ],
         ...(forcePollingWatch
@@ -4532,7 +4548,13 @@ function createAgentNativeConfig(
     ssr: isBuildCommand(command)
       ? {
           ...(userConfig.ssr ?? {}),
-          noExternal: /^(?!node:)/,
+          // Keep the framework router and its React peers external in the
+          // intermediate SSR graph. Nitro consumes this graph as a prebuilt
+          // server chunk and bundles the same packages for the final runtime;
+          // inlining them here creates a second Router context in serverless
+          // output, so <ServerRouter> and route hooks disagree at request time.
+          noExternal:
+            /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
             // Yjs is used by both server-side collaboration actions and the
             // client SSR graph. If Vite inlines it here, Nitro also emits its
@@ -4674,7 +4696,7 @@ function createAgentNativeConfig(
       ],
       alias: [
         // Published npm installs: one react-router instance for app + core.
-        ...getReactRouterAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Production must use compiled exports so the React Router SSR graph

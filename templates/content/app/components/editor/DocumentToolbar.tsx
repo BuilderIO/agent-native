@@ -570,6 +570,9 @@ interface DocumentToolbarProps {
   onRedo?: () => void;
   canSuggest?: boolean;
   suggesting?: boolean;
+  onCaptureEditorSelection?: (includeRemembered?: boolean) => void;
+  onPreserveEditorSelection?: () => void;
+  onRestoreEditorSelection?: () => void;
   onSuggestingChange?: (suggesting: boolean) => void;
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
@@ -609,6 +612,9 @@ export function DocumentToolbar({
   onRedo,
   canSuggest = false,
   suggesting = false,
+  onCaptureEditorSelection,
+  onPreserveEditorSelection,
+  onRestoreEditorSelection,
   onSuggestingChange,
   editorEscapeTargetRef,
 }: DocumentToolbarProps) {
@@ -660,6 +666,22 @@ export function DocumentToolbar({
   >(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pageActionsPreservationFrameRef = useRef<number | null>(null);
+  const pageActionsRestoreFrameRef = useRef<number | null>(null);
+  const pageActionsTriggerClosingRef = useRef(false);
+  const pageActionsOpenRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      if (pageActionsPreservationFrameRef.current != null) {
+        cancelAnimationFrame(pageActionsPreservationFrameRef.current);
+      }
+      if (pageActionsRestoreFrameRef.current != null) {
+        cancelAnimationFrame(pageActionsRestoreFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
@@ -984,9 +1006,19 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
+  const flushPendingPageActionsRestore = () => {
+    if (pageActionsRestoreFrameRef.current == null) return;
+    cancelAnimationFrame(pageActionsRestoreFrameRef.current);
+    pageActionsRestoreFrameRef.current = null;
+    onRestoreEditorSelection?.();
+  };
+
   return (
     <>
-      <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
+      <div
+        className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4"
+        data-editor-selection-continuation=""
+      >
         {sidebarTrigger}
         {!compact ? (
           <ToolbarBreadcrumb
@@ -1166,7 +1198,37 @@ export function DocumentToolbar({
             </Tooltip>
           ) : null}
 
-          <DropdownMenu modal={false}>
+          <DropdownMenu
+            modal={false}
+            onOpenChange={(nextOpen) => {
+              pageActionsOpenRef.current = nextOpen;
+              if (nextOpen) {
+                flushPendingPageActionsRestore();
+                pageActionsPreservationFrameRef.current = requestAnimationFrame(
+                  () => {
+                    pageActionsPreservationFrameRef.current = null;
+                    onPreserveEditorSelection?.();
+                  },
+                );
+                return;
+              }
+              if (pageActionsPreservationFrameRef.current != null) {
+                cancelAnimationFrame(pageActionsPreservationFrameRef.current);
+                pageActionsPreservationFrameRef.current = null;
+              }
+              if (pageActionsTriggerClosingRef.current) {
+                pageActionsTriggerClosingRef.current = false;
+                pageActionsRestoreFrameRef.current = requestAnimationFrame(
+                  () => {
+                    pageActionsRestoreFrameRef.current = null;
+                    onRestoreEditorSelection?.();
+                  },
+                );
+                return;
+              }
+              onRestoreEditorSelection?.();
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -1177,6 +1239,25 @@ export function DocumentToolbar({
                       utilityPanel === "info" && "bg-accent text-foreground",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
+                    onPointerDownCapture={() => {
+                      if (pageActionsOpenRef.current) {
+                        pageActionsTriggerClosingRef.current = true;
+                        return;
+                      }
+                      flushPendingPageActionsRestore();
+                      onCaptureEditorSelection?.(false);
+                    }}
+                    onKeyDownCapture={(event) => {
+                      if (pageActionsOpenRef.current) return;
+                      if (
+                        event.key === "Enter" ||
+                        event.key === " " ||
+                        event.key === "ArrowDown"
+                      ) {
+                        flushPendingPageActionsRestore();
+                        onCaptureEditorSelection?.(true);
+                      }
+                    }}
                   >
                     <IconDotsVertical size={16} />
                   </button>
@@ -1190,6 +1271,7 @@ export function DocumentToolbar({
               align="end"
               className="w-60"
               data-database-preview-portal={compact ? "" : undefined}
+              onCloseAutoFocus={(event) => event.preventDefault()}
             >
               {canSuggest ? (
                 <>

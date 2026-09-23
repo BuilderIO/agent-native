@@ -18,6 +18,7 @@ import {
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
+  lifecycleKeepaliveDisposition,
   metadataUpdatesWithPendingTitle,
   pendingCommentTargetMatches,
   pageEditorSessionKey,
@@ -29,6 +30,9 @@ import {
   suggestionAmendmentTargetIsResolved,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
+  retainThenAdoptDisplacedWinner,
+  shouldAttestUnchangedEditorSave,
+  shouldSubmitDocumentContent,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
   updateAdditionalBlockContents,
@@ -43,6 +47,114 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("attests an identified revert even when its snapshot matches the saved page", () => {
+    const base = {
+      hasUpdates: false,
+      contentChanged: false,
+      editorSessionId: "editor-session",
+      editGeneration: 4,
+      isLinkedLocalSource: false,
+      isLocalFile: false,
+    };
+
+    expect(shouldAttestUnchangedEditorSave(base)).toBe(true);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, editorSessionId: undefined }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, contentChanged: true }),
+    ).toBe(false);
+    expect(
+      shouldAttestUnchangedEditorSave({ ...base, isLocalFile: true }),
+    ).toBe(false);
+  });
+
+  it("falls back when keepalive stale guards omit changed work", () => {
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: false,
+        contentChanged: true,
+        sendsTitle: false,
+        sendsContent: false,
+      }),
+    ).toBe("fallback");
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: false,
+        contentChanged: false,
+        sendsTitle: false,
+        sendsContent: false,
+      }),
+    ).toBe("skip");
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: true,
+        contentChanged: true,
+        sendsTitle: true,
+        sendsContent: false,
+      }),
+    ).toBe("fallback");
+    expect(
+      lifecycleKeepaliveDisposition({
+        titleChanged: true,
+        contentChanged: true,
+        sendsTitle: true,
+        sendsContent: true,
+      }),
+    ).toBe("send");
+  });
+
+  it("does not adopt a displaced winner after a newer editor generation takes ownership", async () => {
+    let releaseRetention!: () => void;
+    const currentVersion = 1;
+    let currentGeneration = 1;
+    const retain = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseRetention = resolve;
+        }),
+    );
+    const adopt = vi.fn();
+    const result = retainThenAdoptDisplacedWinner({
+      ownerVersion: 1,
+      currentVersion: () => currentVersion,
+      ownerGeneration: 1,
+      currentGeneration: () => currentGeneration,
+      retain,
+      adopt,
+    });
+
+    currentGeneration = 2;
+    releaseRetention();
+
+    await expect(result).resolves.toBe(false);
+    expect(retain).toHaveBeenCalledOnce();
+    expect(adopt).not.toHaveBeenCalled();
+  });
+
+  it("lets remote stale saves reach the guarded rebase path", () => {
+    expect(
+      shouldSubmitDocumentContent({
+        changed: true,
+        stale: true,
+        canRebase: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSubmitDocumentContent({
+        changed: true,
+        stale: true,
+        canRebase: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSubmitDocumentContent({
+        changed: false,
+        stale: false,
+        canRebase: true,
+      }),
+    ).toBe(false);
+  });
   it("leaves room for title descenders", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -1680,7 +1792,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const teardown = source.slice(
-      source.indexOf("const flushForTeardown"),
+      source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
     );
 
@@ -1690,12 +1802,63 @@ describe("document editor layout", () => {
     expect(teardown).toContain("lastSavedContentRef.current.content");
     expect(teardown).toContain("documentRevisionRef.current !==");
     expect(teardown).toContain("lastSavedContentRef.current.revision");
-    expect(teardown).toContain("...lastSavedContentRef.current");
+    expect(teardown).not.toContain("const optimisticAt");
+    expect(teardown).not.toContain("lastSavedContentRef.current =");
     expect(teardown).not.toContain(
       "serverUpdatedAt > lastSavedContentRef.current.updatedAt",
     );
     expect(teardown).toContain("{ loadedContentWasEmpty }");
     expect(teardown).toContain("{ loadedUpdatedAt }");
+    expect(teardown).toContain("const attempt = tryCallActionKeepalive(");
+    expect(teardown).toContain('"update-document"');
+  });
+
+  it("starts an unload-safe copy before processing a hidden-tab save", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const hidden = source.slice(
+      source.indexOf("const onVisibilityChange"),
+      source.indexOf(
+        'window.addEventListener("pagehide"',
+        source.indexOf("const onVisibilityChange"),
+      ),
+    );
+
+    expect(hidden.indexOf("sendKeepaliveSave(pending)")).toBeLessThan(
+      hidden.indexOf("flushPendingDocumentSave(pending)"),
+    );
+  });
+
+  it("preserves unobserved overlapping edits before adopting the winner", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const displaced = source.slice(
+      source.indexOf('if (result.status === "displaced")'),
+      source.indexOf(
+        "} else {",
+        source.indexOf('if (result.status === "displaced")'),
+      ),
+    );
+
+    expect(displaced).toContain("await retainThenAdoptDisplacedWinner");
+    expect(displaced).toContain("if (!adopted)");
+    const save = source.slice(
+      source.indexOf("result = await saveDocumentWithRebase"),
+      source.indexOf(
+        "if (result.status",
+        source.indexOf("result = await saveDocumentWithRebase"),
+      ),
+    );
+    expect(save).toContain(
+      "options.contentAuthoredAfterRevision === winner.revision",
+    );
+    expect(save).not.toContain(
+      "documentRevisionRef.current === winner.revision",
+    );
   });
 
   it("keeps the canonical body read-only after collaborative initialization fails", () => {
@@ -2221,7 +2384,7 @@ describe("document editor layout", () => {
       { encoding: "utf8" },
     );
 
-    expect(source).toContain("<DropdownMenu modal={false}");
+    expect(source).toMatch(/<DropdownMenu\s+modal=\{false\}/);
     expect(source).toContain('item.iconKind === "folder"');
     expect(source).toContain('menuItem.iconKind === "folder"');
   });
