@@ -399,7 +399,6 @@ templates/clips/app/i18n/es-ES|recordRoute.recordingScreen|Recording your screen
 templates/clips/app/i18n/es-ES|recordRoute.savingRecording|Saving your recording…
 templates/clips/app/i18n/es-ES|recordRoute.sessionExpiredDescription|Your login session has expired. Log in again to start recording.
 templates/clips/app/i18n/es-ES|recordRoute.sessionExpired|Session expired
-templates/clips/app/i18n/es-ES|recordRoute.storageNeededToFinishLoomImport|Storage needed to finish Loom import
 templates/clips/app/i18n/es-ES|recordRoute.technicalDetails|Technical details
 templates/clips/app/i18n/es-ES|recordRoute.uploadFailed|Upload failed
 templates/clips/app/i18n/es-ES|recordRoute.videoReadyToUpload|Video is ready to upload
@@ -576,7 +575,6 @@ templates/clips/app/i18n/pt-BR|recordRoute.recordingScreen|Recording your screen
 templates/clips/app/i18n/pt-BR|recordRoute.savingRecording|Saving your recording…
 templates/clips/app/i18n/pt-BR|recordRoute.sessionExpiredDescription|Your login session has expired. Log in again to start recording.
 templates/clips/app/i18n/pt-BR|recordRoute.sessionExpired|Session expired
-templates/clips/app/i18n/pt-BR|recordRoute.storageNeededToFinishLoomImport|Storage needed to finish Loom import
 templates/clips/app/i18n/pt-BR|recordRoute.technicalDetails|Technical details
 templates/clips/app/i18n/pt-BR|recordRoute.uploadFailed|Upload failed
 templates/clips/app/i18n/pt-BR|recordRoute.videoReadyToUpload|Video is ready to upload

@@ -1651,7 +1651,8 @@ const messages = {
     videoReadyToUpload: "Video is ready to upload",
     videoUploaded: "Video uploaded",
     videoTooLarge: "Video is too large",
-    storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
+    storageNeededToFinishLoomImport:
+      "É necessário conectar o armazenamento para concluir a importação do Loom",
     loomImported: "Loom imported",
     couldNotImportLoom: "Could not import that Loom.",
     recordingReadyToUpload: "Recording is ready to upload",

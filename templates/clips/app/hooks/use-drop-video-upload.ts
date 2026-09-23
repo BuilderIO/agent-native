@@ -268,6 +268,7 @@ export function useDropVideoUpload(scope: {
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t("recordRoute.uploadFailed");
+        console.warn("[clips] dropped video upload failed", err);
         if (createdId) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
@@ -277,7 +278,9 @@ export function useDropVideoUpload(scope: {
             console.warn("[clips] dropped-upload cleanup failed", abortError);
           });
         }
-        toast.error(t("recordRoute.uploadFailed"), { description: message });
+        toast.error(t("recordRoute.uploadFailed"), {
+          description: t("recordRoute.tryAgain"),
+        });
         void invalidateRecordings().catch((refreshError) => {
           console.warn(
             "[clips] dropped-upload list refresh failed",
@@ -303,11 +306,9 @@ export function useDropVideoUpload(scope: {
         if (item) await uploadOne(item.file, item.scope);
       }
     } catch (error) {
+      console.warn("[clips] dropped video upload queue failed", error);
       toast.error(t("recordRoute.uploadFailed"), {
-        description:
-          error instanceof Error
-            ? error.message
-            : t("recordRoute.uploadFailed"),
+        description: t("recordRoute.tryAgain"),
       });
     } finally {
       drainingQueueRef.current = false;
