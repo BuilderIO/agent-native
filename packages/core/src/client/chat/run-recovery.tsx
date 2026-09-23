@@ -20,7 +20,6 @@ import {
   IconClipboardList,
 } from "@tabler/icons-react";
 import {
-  cloneElement,
   lazy,
   Suspense,
   useState,
@@ -37,38 +36,18 @@ import {
 } from "../error-format.js";
 import { useFormatters, useT } from "../i18n.js";
 import { LazyChunkErrorBoundary } from "../lazy-chunk-error-boundary.js";
-import type { BuilderConnectPopoverProps } from "../settings/BuilderConnectPopover.js";
+import {
+  DeferredBuilderConnectPopover,
+  LazyChunkRetryFallback,
+} from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
-
-const LazyBuilderConnectPopover = lazy(() =>
-  import("../settings/BuilderConnectPopover.js").then((module) => ({
-    default: module.BuilderConnectPopover,
-  })),
-);
 
 const LazyAgentProviderSetupForm = lazy(() =>
   import("../settings/ProviderSetupForm.js").then((module) => ({
     default: module.AgentProviderSetupForm,
   })),
 );
-
-export function DeferredBuilderConnectPopover(
-  props: BuilderConnectPopoverProps,
-) {
-  return (
-    <LazyChunkErrorBoundary fallback={null}>
-      <Suspense
-        fallback={cloneElement(props.children, {
-          disabled: true,
-          "aria-busy": true,
-        })}
-      >
-        <LazyBuilderConnectPopover {...props} />
-      </Suspense>
-    </LazyChunkErrorBoundary>
-  );
-}
 
 // ─── Type definitions ─────────────────────────────────────────────────────────
 
@@ -397,7 +376,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
     <div
       role="status"
       aria-busy="true"
-      aria-label={t("common.loading")}
+      aria-label={t("agentChat.common.loading")}
       className="space-y-2 rounded-md border border-border bg-accent/20 p-2.5"
     >
       <div
@@ -416,7 +395,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
   );
 
   return (
-    <LazyChunkErrorBoundary fallback={loadingForm}>
+    <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
       <Suspense fallback={loadingForm}>
         <LazyAgentProviderSetupForm
           onConnected={() => onConnected?.()}

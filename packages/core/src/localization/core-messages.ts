@@ -1,5 +1,6 @@
 import englishMessages from "./core-messages/en-US.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
+import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
@@ -218,9 +219,10 @@ const englishCoreMessages = {
   },
 };
 
-// Non-English Core catalogs load with the app catalog.
+// Non-English chat and settings catalogs load with the app locale.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
-  return locale === DEFAULT_LOCALE || !isLocaleCode(locale)
-    ? englishCoreMessages
-    : {};
+  if (locale === DEFAULT_LOCALE || !isLocaleCode(locale)) {
+    return englishCoreMessages;
+  }
+  return { environmentBadge: environmentBadgeMessagesForLocale(locale) };
 }

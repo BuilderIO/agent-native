@@ -168,6 +168,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "読み込み中...",
   "common.no": "いいえ",
   "common.retry": "再試行",
+  "common.chunkLoadFailed": "読み込めませんでした。もう一度お試しください。",
   "common.save": "保存",
   "agents.hostedAgent": "ホスト型エージェント",
   "agents.provider": "プロバイダー",

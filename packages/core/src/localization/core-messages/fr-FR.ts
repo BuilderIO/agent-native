@@ -175,6 +175,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "Chargement...",
   "common.no": "Non",
   "common.retry": "Réessayer",
+  "common.chunkLoadFailed": "Impossible de charger. Veuillez réessayer.",
   "common.save": "Enregistrer",
   "agents.hostedAgent": "Agent hébergé",
   "agents.provider": "Fournisseur",

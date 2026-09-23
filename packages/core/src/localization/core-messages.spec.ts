@@ -38,8 +38,11 @@ describe("built-in Core chat translations", () => {
     }
   });
 
-  it("keeps non-English catalogs out of the synchronous boot messages", () => {
-    expect(coreMessagesForLocale("es-ES")).toEqual({});
+  it("keeps localized environment badges in synchronous boot messages", () => {
+    expect(coreMessagesForLocale("es-ES")).toEqual({
+      environmentBadge: ENVIRONMENT_BADGE_MESSAGES["es-ES"],
+    });
+    expect(coreMessagesForLocale("es-ES")).not.toHaveProperty("settings");
     expect(coreMessagesForLocale("en-US").environmentBadge).toEqual(
       ENVIRONMENT_BADGE_MESSAGES["en-US"],
     );

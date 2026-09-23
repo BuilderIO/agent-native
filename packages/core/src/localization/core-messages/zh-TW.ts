@@ -158,6 +158,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "載入中...",
   "common.no": "否",
   "common.retry": "重試",
+  "common.chunkLoadFailed": "無法載入。請重試。",
   "common.save": "儲存",
   "agents.hostedAgent": "託管代理",
   "agents.provider": "提供者",

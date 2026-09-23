@@ -163,6 +163,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "불러오는 중...",
   "common.no": "아니요",
   "common.retry": "다시 시도",
+  "common.chunkLoadFailed": "불러오지 못했습니다. 다시 시도해 주세요.",
   "common.save": "저장",
   "agents.hostedAgent": "호스팅된 에이전트",
   "agents.provider": "제공업체",

@@ -162,6 +162,7 @@ const messages = {
   "common.loading": "Loading...",
   "common.no": "No",
   "common.retry": "Retry",
+  "common.chunkLoadFailed": "Couldn't load this. Please try again.",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
   "agents.provider": "Provider",

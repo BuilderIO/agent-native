@@ -161,6 +161,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "लोड हो रहा है...",
   "common.no": "नहीं",
   "common.retry": "फिर से प्रयास करें",
+  "common.chunkLoadFailed": "लोड नहीं हो सका। कृपया फिर से कोशिश करें।",
   "common.save": "सहेजें",
   "agents.hostedAgent": "होस्ट किया गया एजेंट",
   "agents.provider": "प्रदाता",

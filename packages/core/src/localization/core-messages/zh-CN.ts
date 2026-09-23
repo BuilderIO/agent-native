@@ -157,6 +157,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "正在加载...",
   "common.no": "否",
   "common.retry": "重试",
+  "common.chunkLoadFailed": "无法加载。请重试。",
   "common.save": "保存",
   "agents.hostedAgent": "托管代理",
   "agents.provider": "提供商",

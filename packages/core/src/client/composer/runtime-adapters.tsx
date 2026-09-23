@@ -28,17 +28,14 @@ import {
   isTrustedBuilderMessage,
   tryDelegateBuildRequestToBuilder,
 } from "../builder-frame.js";
-import {
-  BuilderSetupCard,
-  BuilderSetupContent,
-  DeferredBuilderConnectPopover,
-} from "../chat/run-recovery.js";
+import { BuilderSetupCard, BuilderSetupContent } from "../chat/run-recovery.js";
 import { isTrustedFrameMessage } from "../frame.js";
 import { useFormatters, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogDeferred.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { useVoiceProviderStatus } from "../voice-provider-status.js";
 import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
