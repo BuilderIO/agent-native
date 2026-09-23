@@ -128,10 +128,19 @@ export interface BuilderDesignSystemDocument {
 export interface BuilderDesignSystemHydratedReference extends BuilderDesignSystemProxyReference {
   docs: BuilderDesignSystemDocument[];
   tokenValues: Record<string, string>;
+  /** Builder-reported indexed document count; the only trusted readiness signal. */
   docCount: number;
-  /** True only when Builder explicitly confirms that indexing is complete. */
+  /** True only when Builder reports at least one indexed document. */
   completionConfirmed?: boolean;
 }
+
+export type BuilderDesignSystemDocumentCountResult =
+  | { ok: true; docCount: number }
+  | {
+      ok: false;
+      reason: "unreachable" | "invalid-response";
+      detail: string;
+    };
 
 export interface BuilderDesignSystemIndexOptions {
   projectName?: string;
@@ -1460,14 +1469,68 @@ function normalizeBuilderDesignSystemStatus(
   }
 }
 
-function isConfirmedBuilderDesignSystemStatus(value: unknown): boolean {
-  const status = normalizeBuilderDesignSystemStatus(value);
-  return status === "ready" || status === "complete" || status === "completed";
+/**
+ * Builder's own status field drifts out of sync with reality, so the indexed
+ * document count is the only readiness signal worth branching on. Every
+ * consumer shares this one definition rather than re-deriving the comparison.
+ */
+export function isBuilderDesignSystemReadyByCount(docCount: number): boolean {
+  return docCount > 0;
+}
+
+/**
+ * Reads docCount from Builder's design-system detail endpoint. A count that
+ * cannot be read is never reported as zero: "still indexing" and "Builder did
+ * not answer" must stay distinguishable, or a stalled network reads as a
+ * legitimately empty system forever.
+ */
+export async function fetchBuilderDesignSystemDocumentCount(
+  designSystemId: string,
+): Promise<BuilderDesignSystemDocumentCountResult> {
+  let response: Response;
+  try {
+    response = await requestBuilderDesignSystem(
+      "builder:designsystem:read",
+      (authorization) => {
+        const url = makeBuilderDesignSystemUrl(
+          encodeURIComponent(designSystemId),
+          authorization,
+        );
+        url.searchParams.set("includeDocumentCount", "true");
+        return fetchWithTimeout(url, {
+          method: "GET",
+          headers: makeBuilderHeaders(authorization),
+        });
+      },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "unreachable",
+      detail:
+        error instanceof Error
+          ? error.message
+          : "Builder design-system document count request failed.",
+    };
+  }
+  if (!response.ok) {
+    const body = await parseErrorBody(response);
+    return {
+      ok: false,
+      reason: "unreachable",
+      detail:
+        "Builder answered " +
+        response.status +
+        " for the design-system document count: " +
+        body,
+    };
+  }
+  const json = await response.json();
+  return { ok: true, docCount: json.docCount ?? 0 };
 }
 
 interface BuilderDesignSystemDocsResponse {
   docs: BuilderDesignSystemDocument[];
-  completionConfirmed: boolean;
   status?: BuilderDesignSystemStatus;
 }
 
@@ -1499,10 +1562,7 @@ async function fetchBuilderDesignSystemDocsResponse(
   await assertOk(response, "Builder design-system docs fetch failed");
   const json = (await response.json()) as unknown;
   if (Array.isArray(json)) {
-    return {
-      docs: json.map(normalizeBuilderDesignSystemDocument),
-      completionConfirmed: false,
-    };
+    return { docs: json.map(normalizeBuilderDesignSystemDocument) };
   }
   if (!json || typeof json !== "object") {
     throw new Error(
@@ -1521,15 +1581,8 @@ async function fetchBuilderDesignSystemDocsResponse(
     typeof rawStatus === "string"
       ? normalizeBuilderDesignSystemStatus(rawStatus)
       : undefined;
-  const isTerminalFailure =
-    status === "error" || status === "failed" || status === "cancelled";
   return {
     docs: rawDocs.map(normalizeBuilderDesignSystemDocument),
-    completionConfirmed:
-      !isTerminalFailure &&
-      (envelope.complete === true ||
-        envelope.completed === true ||
-        isConfirmedBuilderDesignSystemStatus(status)),
     ...(status ? { status } : {}),
   };
 }
@@ -1553,9 +1606,19 @@ export async function hydrateBuilderDesignSystemReference(
     options.pageSize && options.pageSize > 0
       ? options.pageSize
       : DEFAULT_BUILDER_DOC_PAGE_SIZE;
+  const count = await fetchBuilderDesignSystemDocumentCount(
+    reference.builderDesignSystemId,
+  );
+  if (!count.ok) {
+    throw new Error(
+      "Builder design-system document count could not be read (" +
+        count.reason +
+        "): " +
+        count.detail,
+    );
+  }
   const docs: BuilderDesignSystemDocument[] = [];
   let page = Math.max(0, options.page ?? 0);
-  let completionConfirmed = false;
   let builderStatus = reference.builderStatus;
   for (let pageNumber = 0; pageNumber < MAX_BUILDER_DOC_PAGES; pageNumber++) {
     const response = await fetchBuilderDesignSystemDocsResponse(
@@ -1563,7 +1626,6 @@ export async function hydrateBuilderDesignSystemReference(
       { ...options, page, pageSize },
     );
     docs.push(...response.docs);
-    completionConfirmed ||= response.completionConfirmed;
     builderStatus = response.status ?? builderStatus;
     if (response.docs.length < pageSize || options.minimal) break;
     page += 1;
@@ -1585,10 +1647,8 @@ export async function hydrateBuilderDesignSystemReference(
     ...(builderStatus ? { builderStatus } : {}),
     docs,
     tokenValues,
-    docCount: docs.length,
-    completionConfirmed:
-      completionConfirmed ||
-      isConfirmedBuilderDesignSystemStatus(builderStatus),
+    docCount: count.docCount,
+    completionConfirmed: isBuilderDesignSystemReadyByCount(count.docCount),
   };
 }
 

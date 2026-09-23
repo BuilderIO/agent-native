@@ -799,10 +799,6 @@ const messages = {
     continue: "繼續",
     continueToGenerate: "繼續生成",
     designSystem: "設計系統",
-    designSystemIndexing: "正在索引…",
-    designSystemUnavailable: "無法使用",
-    designSystemIndexingNotice:
-      "此設計系統仍在索引中。請選擇其他設計系統，或等待索引完成後再繼續。",
     referenceDeck: "參考幻燈片",
     referenceDeckPlaceholder: "參照現有幻燈片的風格",
     referenceDeckNone: "不使用參考",

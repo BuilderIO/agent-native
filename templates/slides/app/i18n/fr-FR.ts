@@ -854,10 +854,6 @@ const messages = {
     continue: "Continuer",
     continueToGenerate: "Continuer pour générer",
     designSystem: "Système de design",
-    designSystemIndexing: "Indexation…",
-    designSystemUnavailable: "Indisponible",
-    designSystemIndexingNotice:
-      "Ce système de design est toujours en cours d'indexation. Choisissez-en un autre ou attendez la fin de l'indexation avant de continuer.",
     referenceDeck: "Deck de référence",
     referenceDeckPlaceholder: "Reprendre le style d'un deck existant",
     referenceDeckNone: "Ne pas en utiliser",

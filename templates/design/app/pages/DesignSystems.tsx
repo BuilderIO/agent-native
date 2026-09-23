@@ -108,17 +108,20 @@ interface DesignSystem {
 type BuilderRefreshResult = {
   synced: boolean;
   status?: string;
+  docCount?: number;
   rejectedTokenCount?: number;
 };
 
-function isTerminalBuilderStatus(status?: string): boolean {
+/**
+ * Builder's status string lags the real index state, so polling only stops on
+ * a positive document count or on a status that reports outright failure.
+ */
+function isSettledBuilderRefresh(result: BuilderRefreshResult): boolean {
+  if (typeof result.docCount === "number" && result.docCount > 0) return true;
   return (
-    status === "ready" ||
-    status === "complete" ||
-    status === "completed" ||
-    status === "error" ||
-    status === "failed" ||
-    status === "cancelled"
+    result.status === "error" ||
+    result.status === "failed" ||
+    result.status === "cancelled"
   );
 }
 
@@ -463,7 +466,7 @@ export default function DesignSystems() {
           stoppedBuilderRefreshesRef.current.add(entry.key);
           return;
         }
-        if (isTerminalBuilderStatus(result.status)) {
+        if (isSettledBuilderRefresh(result)) {
           activeBuilderRefreshesRef.current.delete(entry.key);
           settledBuilderRefreshesRef.current.add(entry.key);
           return;
