@@ -1,5 +1,20 @@
 # @agent-native/toolkit
 
+## 0.20.7
+
+### Patch Changes
+
+- 2427195: Add Claude Opus 5.5 and GPT-6 Sol/Luna to direct API model selection.
+- d43305d: Allow editors to keep the latest local intent for overlapping changes while still merging independent server edits.
+- Release all public npm packages with a patch version bump.
+
+## 0.20.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- e973e00: Move the auth form to the top of the page on small screens and hide the learn-more link there.
+
 ## 0.20.5
 
 ### Patch Changes

@@ -4150,6 +4150,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       ai:
         specifier: ^7.0.84
         version: 7.0.84(zod@4.4.3)
@@ -4165,6 +4168,15 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sql-formatter:
         specifier: 15.7.3
         version: 15.7.3
@@ -4277,9 +4289,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -4334,15 +4343,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -4352,9 +4355,6 @@ importers:
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -4406,6 +4406,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -4421,6 +4424,15 @@ importers:
       p-limit:
         specifier: ^7.3.0
         version: 7.3.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -4491,9 +4503,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -4515,15 +4524,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -4557,6 +4557,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -4572,6 +4575,9 @@ importers:
       react-dom:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4618,9 +4624,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^25.8.0
         version: 25.9.3
@@ -4645,9 +4648,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -4690,6 +4690,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       chrono-node:
         specifier: 2.9.1
         version: 2.9.1
@@ -4708,6 +4711,15 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.15
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       vgpu:
         specifier: 0.3.1
         version: 0.3.1
@@ -4814,9 +4826,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -4871,24 +4880,15 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -4955,6 +4955,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       ai:
         specifier: 6.0.258
         version: 6.0.258(zod@4.4.3)
@@ -4970,6 +4973,15 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       use-sync-external-store:
         specifier: ^1.6.0
         version: 1.6.0(react@19.2.7)
@@ -5073,9 +5085,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -5115,24 +5124,15 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5184,6 +5184,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -5199,6 +5202,15 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       yjs:
         specifier: 'catalog:'
         version: 13.6.32
@@ -5296,9 +5308,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -5338,24 +5347,15 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -5550,6 +5550,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@tiptap/core':
         specifier: 'catalog:'
         version: 3.30.1(@tiptap/pm@3.30.1)
@@ -5643,6 +5646,15 @@ importers:
       prosemirror-markdown:
         specifier: ^1.13.4
         version: 1.13.4
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       remark-mdx:
         specifier: ^3.1.1
         version: 3.1.1
@@ -5710,9 +5722,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/diff-match-patch':
         specifier: ^1.0.36
         version: 1.0.36
@@ -5743,15 +5752,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5785,6 +5785,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.3.0
         version: 5.3.0
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -5800,6 +5803,9 @@ importers:
       react-dom:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zod:
         specifier: ^4.3.6
         version: 4.4.3
@@ -5834,9 +5840,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5867,9 +5870,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5924,6 +5924,9 @@ importers:
       '@tailwindcss/browser':
         specifier: ^4.3.3
         version: 4.3.3
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       acorn:
         specifier: ^8.18.0
         version: 8.18.0
@@ -5987,6 +5990,15 @@ importers:
       prettier:
         specifier: ^3.9.4
         version: 3.9.4
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       yjs:
         specifier: 'catalog:'
         version: 13.6.32
@@ -6090,9 +6102,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/diff-match-patch':
         specifier: ^1.0.36
         version: 1.0.36
@@ -6138,24 +6147,15 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -6228,6 +6228,15 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6259,15 +6268,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tailwindcss:
         specifier: 'catalog:'
         version: 4.3.1
@@ -6307,6 +6307,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -6322,6 +6325,12 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6425,9 +6434,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -6467,15 +6473,9 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
@@ -6566,6 +6566,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6587,15 +6590,24 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.15
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -6663,9 +6675,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -6696,15 +6705,6 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6744,6 +6744,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@tanstack/react-virtual':
         specifier: ^3.14.5
         version: 3.14.5(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6777,9 +6780,18 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.15
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -6886,9 +6898,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@testing-library/react':
         specifier: 16.3.3
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -6961,21 +6970,12 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -7027,6 +7027,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@tiptap/core':
         specifier: 'catalog:'
         version: 3.30.1(@tiptap/pm@3.30.1)
@@ -7063,9 +7066,18 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
@@ -7187,9 +7199,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -7229,24 +7238,15 @@ importers:
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -7319,6 +7319,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@tiptap/core':
         specifier: 'catalog:'
         version: 3.30.1(@tiptap/pm@3.30.1)
@@ -7415,9 +7418,18 @@ importers:
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       rehype-raw:
         specifier: ^7.0.0
         version: 7.0.0
@@ -7536,9 +7548,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@testing-library/react':
         specifier: ^16.3.0
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -7596,24 +7605,15 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)
@@ -7668,6 +7668,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -7683,6 +7686,15 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: ^8.1.0
+        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -7783,9 +7795,6 @@ importers:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@tanstack/react-query':
-        specifier: 5.101.2
-        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -7831,24 +7840,15 @@ importers:
       oxfmt:
         specifier: 'catalog:'
         version: 0.56.0
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-day-picker:
         specifier: ^9.14.0
         version: 9.14.0(react@19.2.7)
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
       react-hook-form:
         specifier: ^7.71.2
         version: 7.80.0(react@19.2.7)
       react-resizable-panels:
         specifier: ^4.10.0
         version: 4.12.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react-router:
-        specifier: ^8.1.0
-        version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.8.1
         version: 3.9.2(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@19.2.7)(react@19.2.7)(redux@5.0.1)

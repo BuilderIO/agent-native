@@ -245,6 +245,9 @@ const overrides = {
     requestedPageUnavailable:
       "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
+    workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
+    workspaceWelcomeUnavailableDescription:
+      "您可以瀏覽此空間，但沒有建立歡迎頁面的權限。",
   },
   team: {
     metaTitle: "工作區存取 - Content",
@@ -277,6 +280,14 @@ const overrides = {
     labCreativeContext: "創意上下文",
     labCreativeContextDescription:
       "在 Content 中連接並重複使用受管治的參考上下文。",
+    labSlashAdvancedCode: "進階程式碼區塊",
+    labSlashAdvancedCodeDescription: "在斜線選單中加入程式碼和程式碼分頁區塊。",
+    labSlashLayouts: "版面配置區塊",
+    labSlashLayoutsDescription: "在斜線選單中加入自訂 HTML 和分頁區塊。",
+    labSlashVisuals: "視覺化區塊",
+    labSlashVisualsDescription: "在斜線選單中加入圖表、Mermaid 和線框圖區塊。",
+    labSlashDeveloperDocs: "開發者文件區塊",
+    labSlashDeveloperDocsDescription: "在斜線選單中加入 API 和開發者文件區塊。",
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",
@@ -1539,8 +1550,17 @@ const overrides = {
     sidebar: "側邊欄",
   },
   sidebar: {
+    contentSpace: "Content 空間",
     cannotReorderPages: "無法重新排序頁面",
     pinned: "已釘選",
+    recent: "最近瀏覽",
+    customizeSidebar: "自訂側邊欄",
+    noRecentVisits: "尚無最近瀏覽記錄",
+    noPinnedItems: "尚無已釘選項目",
+    showMore: "顯示更多",
+    showLess: "顯示更少",
+    seeAll: "查看全部…",
+    seeAllFiles: "查看所有檔案",
     loadingPinned: "正在載入已釘選項目…",
     dragToReorder: "拖曳以重新排序 {{label}}",
     moveUp: "上移",
@@ -1659,7 +1679,7 @@ const overrides = {
     page: "頁面",
     private: "私人",
     results: "結果",
-    search: "搜尋",
+    search: "搜尋...",
     searchPages: "搜尋頁面...",
     refreshConnection: "重新整理連線",
     restoreDatabase: "還原",

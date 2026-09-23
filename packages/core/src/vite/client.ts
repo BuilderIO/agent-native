@@ -3812,6 +3812,7 @@ function arrayFrom<T>(value: T | T[] | undefined): T[] {
 }
 
 const LOCAL_WORKSPACE_SOURCE_ALIAS_EXCLUDES = new Set([
+  "@agent-native/core",
   "@agent-native/pinpoint",
 ]);
 
@@ -3920,18 +3921,34 @@ function aliasArrayFrom(alias: unknown): any[] {
   return [];
 }
 
-const DEFAULT_VITE_WATCH_IGNORES = [
-  "**/.git/**",
-  "**/node_modules/**",
-  "**/.react-router/**",
-  "**/.generated/**",
-  "**/.agents/**",
-  "**/.claude/**",
-  "**/.data/**",
-  "**/data/**",
-  "**/dist/**",
-  "**/build/**",
-];
+const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".react-router",
+  ".generated",
+  ".agents",
+  ".claude",
+  ".data",
+  "data",
+  "dist",
+  "build",
+]);
+
+/**
+ * Ignores files inside these directories, judged from the app root only. A
+ * `**\/.claude/**` glob also matches the root's own ancestors, so an app run
+ * from a `.claude/worktrees/*` checkout silently got no file watching or HMR.
+ */
+export function defaultViteWatchIgnored(
+  root: string,
+): (file: string) => boolean {
+  return (file) =>
+    path
+      .relative(root, file)
+      .split(/[\\/]/)
+      .slice(0, -1)
+      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+}
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
@@ -4473,7 +4490,7 @@ function createAgentNativeConfig(
       watch: {
         ...userWatch,
         ignored: [
-          ...DEFAULT_VITE_WATCH_IGNORES,
+          defaultViteWatchIgnored(path.resolve(cwd, userConfig.root ?? "")),
           ...arrayFrom((userWatch as { ignored?: any })?.ignored),
         ],
         ...(forcePollingWatch
@@ -4531,7 +4548,13 @@ function createAgentNativeConfig(
     ssr: isBuildCommand(command)
       ? {
           ...(userConfig.ssr ?? {}),
-          noExternal: /^(?!node:)/,
+          // Keep the framework router and its React peers external in the
+          // intermediate SSR graph. Nitro consumes this graph as a prebuilt
+          // server chunk and bundles the same packages for the final runtime;
+          // inlining them here creates a second Router context in serverless
+          // output, so <ServerRouter> and route hooks disagree at request time.
+          noExternal:
+            /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
             // Yjs is used by both server-side collaboration actions and the
             // client SSR graph. If Vite inlines it here, Nitro also emits its
@@ -4541,6 +4564,15 @@ function createAgentNativeConfig(
             // bundle still owns and bundles the dependency, so both paths
             // share one portable module instance.
             "yjs",
+            // Nitro owns the final Core graph. Keeping Core external here
+            // prevents Vite's intermediate SSR build from duplicating it.
+            "@agent-native/core",
+            // Core's external client entries must share singleton contexts with
+            // the SSR graph or prerendering sees duplicate providers.
+            "react",
+            "react-dom",
+            "react-router",
+            "@tanstack/react-query",
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
           // Pick the workspace-core's compiled `dist/` exports in prod —
@@ -4664,12 +4696,14 @@ function createAgentNativeConfig(
       ],
       alias: [
         // Published npm installs: one react-router instance for app + core.
-        ...getReactRouterAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
+        // Production must use compiled exports so the React Router SSR graph
+        // and Nitro do not bundle separate copies of Core.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
-        ...getCoreSourceAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
         // Standard path aliases (prefix matching is fine here)
         { find: "@", replacement: path.resolve(cwd, "./app") },

@@ -460,7 +460,7 @@ async function heldSnapshot(
   page: Page,
   screenId: string,
   sourceId: string,
-  targetId: string,
+  targetId: string | null,
   stage: string,
 ): Promise<HeldSnapshot> {
   return designFrame(page, screenId)
@@ -470,14 +470,21 @@ async function heldSnapshot(
         const source = body.querySelector<HTMLElement>(
           `[data-agent-native-node-id="${ids.sourceId}"]`,
         );
-        const target = body.querySelector<HTMLElement>(
-          `[data-agent-native-node-id="${ids.targetId}"]`,
-        );
+        const target = ids.targetId
+          ? body.querySelector<HTMLElement>(
+              `[data-agent-native-node-id="${ids.targetId}"]`,
+            )
+          : null;
         const sourceStyle = source ? getComputedStyle(source) : null;
-        const guide =
-          body.ownerDocument.documentElement.querySelector<HTMLElement>(
+        const guide = Array.from(
+          body.ownerDocument.documentElement.querySelectorAll<HTMLElement>(
             "[data-agent-native-insertion-guide]",
-          );
+          ),
+        ).find((candidate) => {
+          const style = getComputedStyle(candidate);
+          const rect = candidate.getBoundingClientRect();
+          return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        });
         const guideStyle = guide ? getComputedStyle(guide) : null;
         const guideRect = guide?.getBoundingClientRect();
         const targetRect = target?.getBoundingClientRect();
@@ -545,6 +552,40 @@ async function heldSnapshot(
       },
       { sourceId, targetId, stage },
     );
+}
+
+async function settledHeldSnapshot(
+  page: Page,
+  screenId: string,
+  sourceId: string,
+  targetId: string | null,
+  stage: string,
+): Promise<HeldSnapshot> {
+  await expect
+    .poll(
+      async () => {
+        const snapshot = await heldSnapshot(
+          page,
+          screenId,
+          sourceId,
+          targetId,
+          stage,
+        );
+        return Boolean(
+          snapshot.guide &&
+          snapshot.guide.display !== "none" &&
+          snapshot.guide.width > 0 &&
+          snapshot.guide.height > 0 &&
+          (targetId === null || snapshot.guide.overlapsTarget),
+        );
+      },
+      {
+        timeout: 5_000,
+        message: `${stage} insertion guide did not settle while held`,
+      },
+    )
+    .toBe(true);
+  return heldSnapshot(page, screenId, sourceId, targetId, stage);
 }
 
 function childMoved(
@@ -722,19 +763,27 @@ async function dragHeld(
     }
     await page.mouse.move(end.x, end.y, { steps: 24 });
     await page.waitForTimeout(250);
-    const guide = designFrame(page, screenId).locator(
-      "[data-agent-native-insertion-guide]",
-    );
-    const during = await guide.evaluate((element) => {
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return {
-        display: style.display,
-        width: rect.width,
-        height: rect.height,
-        border: style.border,
-      };
-    });
+    const during = await designFrame(page, screenId)
+      .locator("body")
+      .evaluate((body) => {
+        const guide = Array.from(
+          body.ownerDocument.documentElement.querySelectorAll<HTMLElement>(
+            "[data-agent-native-insertion-guide]",
+          ),
+        ).find((candidate) => {
+          const style = getComputedStyle(candidate);
+          const rect = candidate.getBoundingClientRect();
+          return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        });
+        const style = guide ? getComputedStyle(guide) : null;
+        const rect = guide?.getBoundingClientRect();
+        return {
+          display: style?.display ?? "none",
+          width: rect?.width ?? 0,
+          height: rect?.height ?? 0,
+          border: style?.border ?? "",
+        };
+      });
     return { source, target, during };
   } finally {
     if (mouseHeld) await page.mouse.up();
@@ -866,9 +915,123 @@ async function assertReloadedOrder(
     .toEqual(expected);
 }
 
+function serializedOrder(html: string, ids: string[]): string[] {
+  const positions = ids.map((id) => ({
+    id,
+    index: html.indexOf(`data-agent-native-node-id="${id}"`),
+  }));
+  // A missing marker must fail the caller's expected-order assertion rather
+  // than sorting ahead of every present marker as if it were valid HTML.
+  if (positions.some(({ index }) => index < 0)) return [];
+  return positions
+    .sort((left, right) => left.index - right.index)
+    .map(({ id }) => id);
+}
+
 test.use({ viewport: { width: 1600, height: 1100 } });
 
 test.describe("physical Figma auto-layout drag/drop matrix", () => {
+  test("held drag previews multiple targets without committing until mouseup", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request);
+    try {
+      await gotoEditor(page, design.id);
+      await selectLayer(
+        page,
+        await layerNameForNode(page, design.primaryId, "h-last"),
+      );
+
+      const source = await boxFor(page, design.primaryId, "h-last");
+      const firstTarget = await boxFor(page, design.primaryId, "h-first");
+      const secondTarget = await boxFor(page, design.primaryId, "h-middle");
+      const initialChildren = await directChildren(
+        page,
+        design.primaryId,
+        "hrow",
+      );
+      const initialHtml = await fileHtml(request, design.id, design.primaryId);
+      const center = (box: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }) => ({
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+      });
+      const start = center(source);
+      const first = center(firstTarget);
+      const second = center(secondTarget);
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      try {
+        await page.mouse.move(first.x, first.y, { steps: 12 });
+        const firstGuide = await settledHeldSnapshot(
+          page,
+          design.primaryId,
+          "h-last",
+          "h-first",
+          "first-target",
+        );
+        await page.mouse.move(second.x, second.y, { steps: 12 });
+        const secondGuide = await settledHeldSnapshot(
+          page,
+          design.primaryId,
+          "h-last",
+          "h-middle",
+          "second-target",
+        );
+
+        expect(firstGuide.guide?.display).toBe("block");
+        expect(secondGuide.guide?.display).toBe("block");
+        expect(firstGuide.guide?.left).not.toBe(secondGuide.guide?.left);
+        expect(firstGuide.children.map((child) => child.id)).toEqual(
+          initialChildren,
+        );
+        expect(secondGuide.children.map((child) => child.id)).toEqual(
+          initialChildren,
+        );
+        expect(await directChildren(page, design.primaryId, "hrow")).toEqual(
+          initialChildren,
+        );
+        expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+          initialHtml,
+        );
+        await page.mouse.move(first.x, first.y, { steps: 12 });
+        await settledHeldSnapshot(
+          page,
+          design.primaryId,
+          "h-last",
+          "h-first",
+          "final-first-target",
+        );
+      } finally {
+        await page.mouse.up();
+      }
+
+      await expect
+        .poll(() => directChildren(page, design.primaryId, "hrow"))
+        .toEqual(["h-last", "h-first", "h-middle"]);
+      await expect
+        .poll(() =>
+          fileHtml(request, design.id, design.primaryId).then((html) =>
+            serializedOrder(html, ["h-last", "h-first", "h-middle"]),
+          ),
+        )
+        .toEqual(["h-last", "h-first", "h-middle"]);
+      await assertReloadedOrder(page, design.primaryId, "hrow", [
+        "h-last",
+        "h-first",
+        "h-middle",
+      ]);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
   test("horizontal nowrap first, middle, and end slots expose a held marker and persist", async ({
     page,
     request,
@@ -2693,11 +2856,11 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         await page.mouse.move(destination.x, destination.y, { steps: 24 });
         await page.waitForTimeout(16);
         snapshots.push(
-          await heldSnapshot(
+          await settledHeldSnapshot(
             page,
             design.primaryId,
             "flow-child",
-            "flow-origin",
+            null,
             "free-canvas",
           ),
         );

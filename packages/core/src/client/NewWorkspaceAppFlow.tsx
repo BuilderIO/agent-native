@@ -15,7 +15,7 @@ import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { PromptComposer } from "./composer/index.js";
-import { BuilderConnectPopover } from "./settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { useDevMode } from "./use-dev-mode.js";
 
@@ -418,7 +418,7 @@ export function NewWorkspaceAppFlow({
               </div>
               {failureReason === "builder-not-connected" ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <BuilderConnectPopover flow={connectFlow}>
+                  <DeferredBuilderConnectPopover flow={connectFlow}>
                     <button
                       type="button"
                       disabled={connectFlow.connecting}
@@ -428,7 +428,7 @@ export function NewWorkspaceAppFlow({
                         ? "Connecting..."
                         : "Connect Builder"}
                     </button>
-                  </BuilderConnectPopover>
+                  </DeferredBuilderConnectPopover>
                   <a
                     href={LOCAL_APP_DOCS_URL}
                     target="_blank"

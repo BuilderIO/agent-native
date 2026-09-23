@@ -1084,6 +1084,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Espacio de Content",
     addChild: "Agregar hijo",
     addChildTo: "Agregar hijo a {{title}}",
     completeStepsAboveFirst: "Completa primero los pasos anteriores",
@@ -1165,6 +1166,9 @@ const landing = {
   requestedPageUnavailable:
     "Esa página no está disponible para tu cuenta, así que abrimos la página de bienvenida.",
   saveFailed: "No se pudo guardar tu ubicación",
+  workspaceWelcomeUnavailableTitle: "Todavía no hay nada abierto aquí",
+  workspaceWelcomeUnavailableDescription:
+    "Puedes ver este espacio de trabajo, pero no tienes permiso para crear su página de bienvenida.",
 };
 
 const comments = {
@@ -1234,6 +1238,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "Recientes",
+  customizeSidebar: "Personalizar barra lateral",
+  noRecentVisits: "No hay visitas recientes",
+  noPinnedItems: "No hay elementos fijados",
+  showMore: "Mostrar más",
+  showLess: "Mostrar menos",
+  seeAll: "Ver todo…",
+  seeAllFiles: "Ver todos los archivos",
   pinned: "Fijados",
   loadingPinned: "Cargando elementos fijados…",
   dragToReorder: "Arrastra para reordenar {{label}}",
@@ -1496,6 +1508,18 @@ const overrides = {
     labCreativeContext: "Contexto creativo",
     labCreativeContextDescription:
       "Conecta y reutiliza contexto de referencia regulado en Content.",
+    labSlashAdvancedCode: "Bloques de código avanzados",
+    labSlashAdvancedCodeDescription:
+      "Añade bloques de código y pestañas de código al menú de comandos.",
+    labSlashLayouts: "Bloques de diseño",
+    labSlashLayoutsDescription:
+      "Añade bloques de HTML personalizado y pestañas al menú de comandos.",
+    labSlashVisuals: "Bloques visuales",
+    labSlashVisualsDescription:
+      "Añade diagramas, Mermaid y wireframes al menú de comandos.",
+    labSlashDeveloperDocs: "Bloques de documentación técnica",
+    labSlashDeveloperDocsDescription:
+      "Añade bloques de API y documentación técnica al menú de comandos.",
   },
   chat: {
     publicEmptyState: "Pregúntame cualquier cosa sobre este documento",

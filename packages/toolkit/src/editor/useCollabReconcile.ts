@@ -94,6 +94,8 @@ export interface UseCollabReconcileOptions {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  /** Controls how overlapping live and server hunks are reconciled. */
+  overlapPolicy?: "conflict" | "prefer-live";
   /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
   editable: boolean;
   /**
@@ -274,6 +276,7 @@ export function useCollabReconcile({
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  overlapPolicy = "conflict",
   editable,
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
@@ -1015,6 +1018,7 @@ export function useCollabReconcile({
             editor,
             baseDoc,
             serverDoc,
+            { overlapPolicy },
           );
           if (
             reconciled.status === "conflict" ||
@@ -1115,6 +1119,7 @@ export function useCollabReconcile({
     normalizeValue,
     isEditorFocused,
     onBaseAwareReconcile,
+    overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
   ]);

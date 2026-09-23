@@ -1,11 +1,17 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItem,
+  ContentDatabaseNavigationItem,
+  ContentDatabaseNavigationPageResponse,
+  ContentDatabaseNavigationSort,
   ContentDatabaseOpenPagesIn,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentDatabaseViewConfig,
   ContentSidebarViewOrder,
+  Document,
 } from "@shared/api";
 import {
   IconChevronDown,
@@ -20,10 +26,10 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
-import { Link } from "react-router";
 
 import { ContentIcon } from "@/components/icons/ContentIcon";
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
+import { SidebarNavigationRow } from "@/components/sidebar/SidebarNavigationRow";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -76,6 +82,273 @@ export interface ContentFilesSidebarManualReorder {
 export interface ContentFilesSidebarRenderReorder {
   controls: ReturnType<typeof useSidebarReorderItem>;
   labels: SidebarReorderLabels;
+}
+
+export function navigationItemAsDatabaseItem(
+  item: ContentDatabaseNavigationItem,
+  document: Document | undefined,
+): ContentDatabaseItem {
+  return {
+    id: item.membershipId,
+    databaseId: "",
+    position: item.membershipPosition,
+    properties: [],
+    document: document ?? {
+      id: item.documentId,
+      spaceId: item.spaceId,
+      parentId: item.parentId,
+      title: item.title,
+      content: "",
+      icon: item.icon,
+      position: item.membershipPosition,
+      isFavorite: item.isFavorite,
+      hideFromSearch: false,
+      canEdit: item.canEdit,
+      canManage: item.canManage,
+      source: item.sourceKind
+        ? { mode: "database", kind: item.sourceKind }
+        : undefined,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    },
+  };
+}
+
+export function PagedContentFilesSidebarView({
+  databaseId,
+  sort,
+  viewId,
+  activeDocumentId,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
+  documentMetadata,
+  activePathDocuments = [],
+  onOpenItem,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
+  navigationLabel,
+  untitledLabel,
+}: {
+  databaseId: string;
+  sort: ContentDatabaseNavigationSort;
+  viewId?: string;
+  activeDocumentId?: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
+  documentMetadata: ReadonlyMap<string, Document>;
+  activePathDocuments?: readonly Document[];
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  navigationLabel: string;
+  untitledLabel: string;
+}) {
+  return (
+    <nav
+      aria-label={navigationLabel}
+      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+      data-paged-files-navigation
+    >
+      <PagedContentFilesBranch
+        key={`${databaseId}:root:${sort}:${viewId ?? ""}`}
+        databaseId={databaseId}
+        parentId={null}
+        sort={sort}
+        viewId={viewId}
+        depth={0}
+        activeDocumentId={activeDocumentId}
+        expandedDocumentIds={expandedDocumentIds}
+        onDocumentExpandedChange={onDocumentExpandedChange}
+        documentMetadata={documentMetadata}
+        activePathDocuments={activePathDocuments}
+        onOpenItem={onOpenItem}
+        onCreateChildPage={onCreateChildPage}
+        onCreateChildDatabase={onCreateChildDatabase}
+        onDeleteItem={onDeleteItem}
+        onToggleFavorite={onToggleFavorite}
+        untitledLabel={untitledLabel}
+      />
+    </nav>
+  );
+}
+
+function PagedContentFilesBranch({
+  cursor,
+  precedingDocumentIds = new Set(),
+  ...props
+}: {
+  databaseId: string;
+  parentId: string | null;
+  cursor?: string;
+  precedingDocumentIds?: ReadonlySet<string>;
+  sort: ContentDatabaseNavigationSort;
+  viewId?: string;
+  depth: number;
+  activeDocumentId?: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
+  documentMetadata: ReadonlyMap<string, Document>;
+  activePathDocuments: readonly Document[];
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  untitledLabel: string;
+}) {
+  const t = useT();
+  const [nextPageVisible, setNextPageVisible] = useState(false);
+  const query = useActionQuery("query-content-database-items", {
+    databaseId: props.databaseId,
+    limit: 20,
+    navigation: {
+      parentId: props.parentId,
+      sort: props.sort,
+      viewId: props.viewId,
+      cursor,
+    },
+  });
+  const data =
+    query.data && !("available" in query.data)
+      ? (query.data as ContentDatabaseNavigationPageResponse)
+      : undefined;
+
+  if (query.isLoading) {
+    return (
+      <div aria-hidden="true" className="grid gap-1 p-1">
+        {[70, 55, 85].map((width) => (
+          <div key={width} className="flex h-7 items-center gap-1.5 px-1.5">
+            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+            <Skeleton className="h-3 rounded" style={{ width: `${width}%` }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (query.isError || !data) {
+    return (
+      <div className="px-1 py-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {t("database.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  const pageItems = data.items.filter(
+    (item) => !precedingDocumentIds.has(item.documentId),
+  );
+  const pageDocumentIds = new Set([
+    ...precedingDocumentIds,
+    ...pageItems.map((item) => item.documentId),
+  ]);
+  const revealedItems = props.activePathDocuments
+    .filter(
+      (document) =>
+        document.parentId === props.parentId &&
+        !pageDocumentIds.has(document.id),
+    )
+    .map((document) => ({
+      membershipId: `active-path-${document.id}`,
+      membershipPosition: document.position,
+      documentId: document.id,
+      parentId: document.parentId,
+      title: document.title,
+      icon: serializeIconValue(parseIconValue(document.icon)),
+      type: document.database ? ("database" as const) : ("page" as const),
+      hasChildren: props.activePathDocuments.some(
+        (candidate) => candidate.parentId === document.id,
+      ),
+      spaceId: null,
+      sourceKind: document.source?.kind ?? null,
+      isFavorite: document.isFavorite,
+      canEdit: document.canEdit !== false,
+      canManage: document.canManage === true,
+      createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+    }));
+  const items = [...pageItems, ...revealedItems];
+  const composedDocumentIds = new Set([
+    ...pageDocumentIds,
+    ...revealedItems.map((item) => item.documentId),
+  ]);
+
+  return (
+    <>
+      {items.map((navigationItem) => {
+        const metadata = props.documentMetadata.get(navigationItem.documentId);
+        const item = navigationItemAsDatabaseItem(navigationItem, metadata);
+        const expanded = props.expandedDocumentIds.has(
+          navigationItem.documentId,
+        );
+        return (
+          <div key={navigationItem.membershipId} className="min-w-0">
+            <DatabaseSidebarRow
+              item={item}
+              openPagesIn="full_page"
+              onPreview={() => {}}
+              onOpenItem={props.onOpenItem}
+              active={navigationItem.documentId === props.activeDocumentId}
+              onCreateChildPage={props.onCreateChildPage}
+              onCreateChildDatabase={props.onCreateChildDatabase}
+              onDeleteItem={props.onDeleteItem}
+              onToggleFavorite={props.onToggleFavorite}
+              untitledLabel={props.untitledLabel}
+              depth={props.depth}
+              hasChildren={navigationItem.hasChildren}
+              expanded={expanded}
+              onToggleExpanded={(open) =>
+                props.onDocumentExpandedChange(navigationItem.documentId, open)
+              }
+            />
+            {expanded && navigationItem.hasChildren ? (
+              <PagedContentFilesBranch
+                {...props}
+                key={`${props.databaseId}:${navigationItem.documentId}:${props.sort}:${props.viewId ?? ""}`}
+                parentId={navigationItem.documentId}
+                depth={props.depth + 1}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+      {data.pagination.hasMore && data.pagination.nextCursor ? (
+        nextPageVisible ? (
+          <PagedContentFilesBranch
+            {...props}
+            key={data.pagination.nextCursor}
+            cursor={data.pagination.nextCursor}
+            precedingDocumentIds={composedDocumentIds}
+          />
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="grid min-h-[38px] w-full items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            style={{
+              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false) + 28}px minmax(0, 1fr)`,
+            }}
+            onClick={() => setNextPageVisible(true)}
+          >
+            <span className="col-start-2 truncate">
+              {t("sidebar.showMore")}
+            </span>
+          </Button>
+        )
+      ) : null}
+    </>
+  );
 }
 
 export function databaseSidebarReorderItems(
@@ -170,6 +443,7 @@ export function ContentFilesSidebarView({
   labels,
   onSelectView,
   sidebarOrder,
+  serverOrdered = false,
   manualReorder,
   onOpenItem,
   onCreateChildPage,
@@ -188,6 +462,7 @@ export function ContentFilesSidebarView({
   onSelectView?: (viewId: string) => void;
   /** A parent-owned, user-scoped Files order. It never writes database membership. */
   sidebarOrder?: ContentSidebarViewOrder;
+  serverOrdered?: boolean;
   manualReorder?: ContentFilesSidebarManualReorder;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   onCreateChildPage?: (item: ContentDatabaseItem) => void;
@@ -248,9 +523,10 @@ export function ContentFilesSidebarView({
         activeView.filterMode ?? "and",
       )
     : [];
-  const items = sidebarOrder
-    ? contentSidebarOrderedItems(filteredItems, sidebarOrder)
-    : filteredItems;
+  const items =
+    sidebarOrder && !serverOrdered
+      ? contentSidebarOrderedItems(filteredItems, sidebarOrder)
+      : filteredItems;
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(
       items,
@@ -270,8 +546,8 @@ export function ContentFilesSidebarView({
     Boolean(manualReorder) &&
     !items.some((item) => item.document.source?.kind === "folder") &&
     (sidebarOrder?.mode ?? "custom") === "custom" &&
-    activeView.sorts.length === 0 &&
-    activeView.filters.length === 0 &&
+    (Boolean(sidebarOrder) ||
+      (activeView.sorts.length === 0 && activeView.filters.length === 0)) &&
     !databaseViewGroupingProperty(activeView, usableData?.properties ?? []);
   return (
     <div className="min-w-0">
@@ -805,14 +1081,15 @@ function DatabaseSidebarRow({
             />
           </button>
         ) : null}
-        <Link
+        <SidebarNavigationRow
           to={`/page/${item.document.id}`}
+          icon={item.document.icon}
+          hideIconOnHover={hasChildren}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
           data-sidebar-reorder-item-id={reorder?.controls.itemId}
           role="link"
           className={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             reorder && "touch-none cursor-pointer select-none",
             reorder?.controls.isDragging && "cursor-grabbing",
             active && "font-semibold text-foreground",
@@ -826,22 +1103,6 @@ function DatabaseSidebarRow({
         >
           <span
             className={cn(
-              "flex size-7 shrink-0 items-center justify-center",
-              hasChildren &&
-                "group-hover:opacity-0 group-focus-within:opacity-0",
-            )}
-            aria-hidden="true"
-          >
-            <ContentIcon
-              value={item.document.icon}
-              size={14}
-              fallback={
-                <IconFileText className="size-3.5 text-muted-foreground" />
-              }
-            />
-          </span>
-          <span
-            className={cn(
               "min-w-0 flex-1 truncate",
               (hasMenuActions || canCreateChild) &&
                 "group-hover:pe-12 group-focus-within:pe-12",
@@ -849,7 +1110,7 @@ function DatabaseSidebarRow({
           >
             {title}
           </span>
-        </Link>
+        </SidebarNavigationRow>
 
         {(hasMenuActions || canCreateChild) && (
           <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">

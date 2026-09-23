@@ -179,6 +179,21 @@ describe("record route lifecycle shell", () => {
     expect(source).not.toContain("autoOpenUpload=");
   });
 
+  it("clears the saving toolbar state before showing the saved recording", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const start = source.indexOf("const finishSavedRecording");
+    const end = source.indexOf("const doStop = useCallback", start);
+    const finish = source.slice(start, end);
+
+    expect(finish.indexOf("setSavingKind(null);")).toBeGreaterThanOrEqual(0);
+    expect(finish.indexOf("setSavingKind(null);")).toBeLessThan(
+      finish.indexOf('setUiState("complete");'),
+    );
+  });
+
   it("keeps the browser route free of server-only app-state imports", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/routes/record.tsx"),

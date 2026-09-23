@@ -12,6 +12,7 @@ import {
   actionErrorMessage,
   callAction,
   setClientAppState,
+  tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
   useSession,
@@ -55,7 +56,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -83,6 +84,7 @@ import {
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
+import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
   type ContentSpaceSummary,
@@ -196,7 +198,6 @@ import {
   suggestionSessionVisuals,
   type DraftSuggestion,
   type SuggestionDraftSession,
-  type SuggestionDraftCaret,
   unpersistedDraftSuggestions,
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
@@ -217,9 +218,26 @@ import type {
   VisualEditorHistoryController,
   VisualEditorHistoryState,
   VisualEditorPersistenceController,
+  VisualEditorSelectionController,
+  VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function shouldResumeSelectedSuggestionFromPageActions(
+  capturedSelection: VisualEditorSelectionSnapshot | null,
+) {
+  return capturedSelection == null;
+}
+
+export function restoreCapturedEditorSelection(
+  controller: VisualEditorSelectionController | null,
+  snapshot: VisualEditorSelectionSnapshot | null,
+) {
+  controller?.releaseSelectionPreservation();
+  if (!controller || !snapshot) return false;
+  return controller.restoreSelection(snapshot);
+}
 
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
@@ -260,6 +278,7 @@ interface DocumentEditorProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  foreground?: boolean;
 }
 
 export interface PageEditorSession {
@@ -435,6 +454,24 @@ export function refreshUnchangedTitleSaveWatermark(args: {
   return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
 }
 
+export function shouldAttestUnchangedEditorSave(args: {
+  hasUpdates: boolean;
+  contentChanged: boolean;
+  editorSessionId?: string;
+  editGeneration?: number;
+  isLinkedLocalSource: boolean;
+  isLocalFile: boolean;
+}) {
+  return (
+    !args.hasUpdates &&
+    !args.contentChanged &&
+    !!args.editorSessionId &&
+    args.editGeneration !== undefined &&
+    !args.isLinkedLocalSource &&
+    !args.isLocalFile
+  );
+}
+
 export function refreshUnchangedContentSaveWatermark(args: {
   serverContent: string;
   serverUpdatedAt: string | null;
@@ -544,6 +581,7 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
   viewId,
+  foreground = false,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
@@ -551,6 +589,7 @@ export function DocumentEditor({
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      foreground={foreground}
       host="page"
     />
   );
@@ -572,6 +611,7 @@ export function PageEditorSurface({
   databaseId,
   databaseDocumentId,
   viewId,
+  foreground = false,
   host,
   onSessionChange,
   onDelete,
@@ -642,6 +682,18 @@ export function PageEditorSurface({
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
+  useRecordContentVisit(
+    { documentId },
+    foreground &&
+      host === "page" &&
+      !viewId &&
+      !!document &&
+      !document.database &&
+      !isError &&
+      isFetchedAfterMount &&
+      loadState.view === "editor",
+  );
+
   async function retryDocumentQuery() {
     setManualRetryDocumentId(documentId);
     try {
@@ -700,6 +752,18 @@ export function PageEditorSurface({
     );
   }
 
+  if (
+    viewId &&
+    document &&
+    (!document.database || document.database.id !== databaseId)
+  ) {
+    return host === "page" ? (
+      <Navigate to="/home" replace />
+    ) : (
+      <DocumentUnavailable />
+    );
+  }
+
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
   // A database/list snapshot can optimistically seed the document cache with a
@@ -722,6 +786,9 @@ export function PageEditorSurface({
         })}
         documentId={documentId}
         document={document}
+        foreground={
+          foreground && host === "page" && !isError && isFetchedAfterMount
+        }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
@@ -1032,10 +1099,12 @@ interface DocumentEditorBodyProps {
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
+  foreground?: boolean;
 }
 
 type PendingDocumentSave = {
   historySessionId: string;
+  editorSessionId: string;
   title: string;
   content: string;
   save: (
@@ -1045,17 +1114,24 @@ type PendingDocumentSave = {
   ) => Promise<DocumentSaveResult>;
   canEditWhenQueued: boolean;
   contentEditVersion: number;
+  editGeneration: number;
+  contentAuthoredAfterRevision?: string;
   expectedLocalSourceRevision?: string | null;
   timeout: ReturnType<typeof setTimeout>;
 };
 
 type DocumentSaveOptions = {
   historySessionId?: string;
+  editorSessionId?: string;
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
   contentBase?: DocumentContentBase;
   titleBase?: string;
   contentEditVersion?: number;
+  editGeneration?: number;
+  contentAuthoredAfterRevision?: string;
+  editorSnapshotTitle?: string;
+  editorSnapshotContent?: string;
 };
 
 type DocumentUpdates = {
@@ -1080,6 +1156,47 @@ export function enqueueDocumentSave<T>(
     () => undefined,
   );
   return queued;
+}
+
+export function shouldSubmitDocumentContent(input: {
+  changed: boolean;
+  stale: boolean;
+  canRebase: boolean;
+}) {
+  return input.changed && (!input.stale || input.canRebase);
+}
+
+export function lifecycleKeepaliveDisposition(input: {
+  titleChanged: boolean;
+  contentChanged: boolean;
+  sendsTitle: boolean;
+  sendsContent: boolean;
+}): "skip" | "send" | "fallback" {
+  if (
+    (input.titleChanged && !input.sendsTitle) ||
+    (input.contentChanged && !input.sendsContent)
+  )
+    return "fallback";
+  if (input.sendsTitle || input.sendsContent) return "send";
+  return "skip";
+}
+
+export async function retainThenAdoptDisplacedWinner(input: {
+  ownerVersion: number;
+  currentVersion: () => number;
+  ownerGeneration: number;
+  currentGeneration: () => number;
+  retain: () => Promise<void>;
+  adopt: () => void;
+}) {
+  await input.retain();
+  if (
+    input.currentVersion() !== input.ownerVersion ||
+    input.currentGeneration() !== input.ownerGeneration
+  )
+    return false;
+  input.adopt();
+  return true;
 }
 
 function useElementMinWidth(
@@ -1472,6 +1589,7 @@ function PageEditorSessionBody({
   onDelete,
   focusTitle,
   onTitleFocused,
+  foreground = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -1490,17 +1608,32 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   useEffect(() => {
-    if (host !== "page") return;
+    if (host !== "page" || document.database?.systemRole) return;
     void rememberContentLandingDocument(
-      documentId,
-      currentDocumentRef.current?.title,
+      {
+        documentId,
+        ...(currentDocumentRef.current?.title?.trim()
+          ? { title: currentDocumentRef.current.title }
+          : {}),
+        ...(databaseId ? { databaseId } : {}),
+        ...(viewId ? { viewId } : {}),
+      },
+      document.spaceId ?? undefined,
     ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     });
-  }, [documentId, host, t]);
+  }, [
+    databaseId,
+    document.database?.systemRole,
+    document.spaceId,
+    documentId,
+    host,
+    viewId,
+    t,
+  ]);
   const updateDocument = useUpdateDocument();
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
@@ -1591,8 +1724,11 @@ function PageEditorSessionBody({
   const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(
     null,
   );
-  const [suggestionInitialSelection, setSuggestionInitialSelection] =
-    useState<SuggestionDraftCaret | null>(null);
+  const [suggestionInitialSelection, setSuggestionInitialSelection] = useState<
+    | { from: number; prefix: string; suffix: string }
+    | VisualEditorSelectionSnapshot
+    | null
+  >(null);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(new Map());
   const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
@@ -1736,6 +1872,11 @@ function PageEditorSessionBody({
     useState(false);
   const editorHistoryControllerRef =
     useRef<VisualEditorHistoryController | null>(null);
+  const editorSelectionControllerRef =
+    useRef<VisualEditorSelectionController | null>(null);
+  const pageActionsSelectionRef = useRef<VisualEditorSelectionSnapshot | null>(
+    null,
+  );
   const editorEscapeTargetRef = useRef<HTMLButtonElement>(null);
   const editorPersistenceControllerRef =
     useRef<VisualEditorPersistenceController | null>(null);
@@ -1825,6 +1966,8 @@ function PageEditorSessionBody({
     version: number;
     title: string;
     content: string;
+    editorSessionId: string | null;
+    editGeneration: number | null;
   } | null>(null);
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
@@ -1842,6 +1985,11 @@ function PageEditorSessionBody({
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   const contentEditVersionRef = useRef(0);
+  const editorEditGenerationRef = useRef(0);
+  const editorSessionIdRef = useRef<string | null>(null);
+  if (editorSessionIdRef.current === null) {
+    editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
+  }
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
     save: (draft, base) => reconcileSaveRef.current(draft, base),
@@ -2418,6 +2566,10 @@ function PageEditorSessionBody({
           historySessionId:
             options.historySessionId ??
             historySessionRef.current.activity(documentId),
+          editorSessionId: options.editorSessionId,
+          editorEditGeneration: options.editGeneration,
+          editorSnapshotTitle: options.editorSnapshotTitle,
+          editorSnapshotContent: options.editorSnapshotContent,
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
           ...(baseRevision !== undefined ? { baseRevision } : {}),
           ...(updates.title !== undefined
@@ -2664,8 +2816,15 @@ function PageEditorSessionBody({
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      options = {
+        ...options,
+        editorSnapshotTitle: title,
+        editorSnapshotContent: content,
+      };
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
+      const editorEditGeneration =
+        options.editGeneration ?? editorEditGenerationRef.current;
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -2705,8 +2864,34 @@ function PageEditorSessionBody({
       if (title !== lastSavedTitleRef.current.title && !titleIsStale)
         updates.title = title;
       const contentChanged = content !== contentBase.content;
-      if (contentChanged && !contentIsStale) updates.content = content;
-      if (Object.keys(updates).length === 0) {
+      if (
+        shouldSubmitDocumentContent({
+          changed: contentChanged,
+          stale: contentIsStale,
+          canRebase: !isLinkedLocalSourceDocument && !isLocalFileDocument,
+        })
+      )
+        updates.content = content;
+      const hasUpdates = Object.keys(updates).length > 0;
+      if (
+        shouldAttestUnchangedEditorSave({
+          hasUpdates,
+          contentChanged,
+          editorSessionId: options.editorSessionId,
+          editGeneration: options.editGeneration,
+          isLinkedLocalSource: isLinkedLocalSourceDocument,
+          isLocalFile: isLocalFileDocument,
+        })
+      ) {
+        const attested = await persistDocumentUpdates(
+          { title, content },
+          options,
+        );
+        return {
+          contentPersisted: !isDocumentUpdateConflict(attested),
+        };
+      }
+      if (!hasUpdates) {
         return { contentPersisted: !contentChanged };
       }
 
@@ -2729,6 +2914,9 @@ function PageEditorSessionBody({
                 version: contentEditVersionRef.current,
                 content: localContentRef.current,
               }),
+              canPreferLive: (winner) =>
+                !!winner.revision &&
+                options.contentAuthoredAfterRevision === winner.revision,
               confirm: (confirmedContent) => {
                 localContentRef.current = confirmedContent;
                 setLocalContent(confirmedContent);
@@ -2743,7 +2931,11 @@ function PageEditorSessionBody({
             persist: (nextContent, contentBase) =>
               persistDocumentUpdates(
                 { ...updates, content: nextContent },
-                { ...options, contentBase },
+                {
+                  ...options,
+                  contentBase,
+                  editorSnapshotContent: nextContent,
+                },
               ),
           });
         } finally {
@@ -2753,9 +2945,36 @@ function PageEditorSessionBody({
           reportReconcileRef.current("conflict", result.localDraft);
           return { contentPersisted: false };
         }
-        saved = result.document;
-        content = result.content;
-        updates.content = content;
+        if (result.status === "superseded") {
+          return { contentPersisted: false, outcome: "superseded" };
+        }
+        if (result.status === "displaced") {
+          const adopted = await retainThenAdoptDisplacedWinner({
+            ownerVersion: contentEditVersion,
+            currentVersion: () => contentEditVersionRef.current,
+            ownerGeneration: editorEditGeneration,
+            currentGeneration: () => editorEditGenerationRef.current,
+            retain: () =>
+              reconcileRetainRef.current({
+                localTitle: title,
+                localDraft: result.localDraft,
+              }),
+            adopt: () => {
+              localContentRef.current = result.document.content;
+              setLocalContent(result.document.content);
+            },
+          });
+          if (!adopted) {
+            return { contentPersisted: false, outcome: "superseded" };
+          }
+          saved = result.document;
+          content = result.document.content;
+          updates.content = content;
+        } else {
+          saved = result.document;
+          content = result.content;
+          updates.content = content;
+        }
       } else {
         saved = await persistDocumentUpdates(updates, options);
       }
@@ -2822,6 +3041,8 @@ function PageEditorSessionBody({
       title: string,
       content: string,
       deferredReason: "conflict" | null,
+      editorSessionId: string,
+      editGeneration: number,
     ) => {
       const current = recoveryDraftRef.current;
       const result = await updatePreviewDocumentDraftRef.current({
@@ -2836,6 +3057,8 @@ function PageEditorSessionBody({
             lastSavedContentRef.current.content,
           ),
           deferredReason,
+          editorSessionId,
+          editGeneration,
         },
       });
       if (
@@ -2847,11 +3070,14 @@ function PageEditorSessionBody({
           version: result.draft.version,
           title,
           content,
+          editorSessionId: result.draft.editorSessionId,
+          editGeneration: result.draft.editGeneration,
         };
         return;
       }
       if (
         result.status === "conflict" &&
+        result.draft?.editorSessionId === editorSessionId &&
         result.draft?.title === title &&
         result.draft.content === content
       ) {
@@ -2859,9 +3085,12 @@ function PageEditorSessionBody({
           version: result.draft.version,
           title,
           content,
+          editorSessionId: result.draft.editorSessionId,
+          editGeneration: result.draft.editGeneration,
         };
         return;
       }
+      if (result.status === "superseded" && result.draft === null) return;
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     },
     [documentId, t],
@@ -2870,8 +3099,21 @@ function PageEditorSessionBody({
     Promise.resolve(),
   );
   const queueRecoveryDraftRetention = useCallback(
-    (title: string, content: string, deferredReason: "conflict" | null) => {
-      const retain = () => retainRecoveryDraft(title, content, deferredReason);
+    (
+      title: string,
+      content: string,
+      deferredReason: "conflict" | null,
+      editorSessionId: string,
+      editGeneration: number,
+    ) => {
+      const retain = () =>
+        retainRecoveryDraft(
+          title,
+          content,
+          deferredReason,
+          editorSessionId,
+          editGeneration,
+        );
       const queued = recoveryDraftRetentionQueueRef.current.then(
         retain,
         retain,
@@ -2899,8 +3141,10 @@ function PageEditorSessionBody({
         expectedVersion: current.version,
         expectedTitle: current.title,
         expectedContent: current.content,
+        expectedEditorSessionId: current.editorSessionId ?? undefined,
+        expectedEditGeneration: current.editGeneration ?? undefined,
       });
-      if (result.status !== "deleted") {
+      if (result.status !== "deleted" && result.draft !== null) {
         throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
       }
       recoveryDraftRef.current = null;
@@ -2911,14 +3155,34 @@ function PageEditorSessionBody({
     (title: string, content: string, options: DocumentSaveOptions = {}) => {
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
+      const editorSessionId =
+        options.editorSessionId ?? editorSessionIdRef.current!;
+      const editGeneration =
+        options.editGeneration ?? editorEditGenerationRef.current;
+      const contentAuthoredAfterRevision =
+        options.contentAuthoredAfterRevision ??
+        lastSavedContentRef.current.revision;
       return enqueueDocumentSave(documentSaveQueueRef, () =>
         savePageWithRecovery({
           save: () =>
             saveDocumentImmediately(title, content, {
               ...options,
               contentEditVersion,
+              historySessionId:
+                options.historySessionId ??
+                historySessionRef.current.activity(documentId),
+              editorSessionId,
+              editGeneration,
+              contentAuthoredAfterRevision,
             }),
-          retain: (reason) => retainRecoveryDraft(title, content, reason),
+          retain: (reason) =>
+            retainRecoveryDraft(
+              title,
+              content,
+              reason,
+              editorSessionId,
+              editGeneration,
+            ),
           clear: () =>
             clearRecoveryDraft(
               lastSavedTitleRef.current.title,
@@ -2927,21 +3191,30 @@ function PageEditorSessionBody({
         }),
       );
     },
-    [clearRecoveryDraft, retainRecoveryDraft, saveDocumentImmediately],
+    [
+      clearRecoveryDraft,
+      documentId,
+      retainRecoveryDraft,
+      saveDocumentImmediately,
+    ],
   );
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
-      if (!pending.canEditWhenQueued) return;
-      void Promise.resolve(
+      if (!pending.canEditWhenQueued) return Promise.resolve();
+      return Promise.resolve(
         pending.save(pending.title, pending.content, {
           allowQueuedSave: true,
           historySessionId: pending.historySessionId,
+          editorSessionId: pending.editorSessionId,
           expectedLocalSourceRevision: pending.expectedLocalSourceRevision,
           contentEditVersion: pending.contentEditVersion,
+          editGeneration: pending.editGeneration,
+          contentAuthoredAfterRevision: pending.contentAuthoredAfterRevision,
         }),
       )
         .then((result) => {
           if (!result.contentPersisted) {
+            if (result.outcome === "superseded") return;
             reportReconcileRef.current(
               "conflict",
               contentEditVersionRef.current === pending.contentEditVersion
@@ -3071,11 +3344,14 @@ function PageEditorSessionBody({
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       const pending: PendingDocumentSave = {
         historySessionId: historySessionRef.current.activity(documentId),
+        editorSessionId: editorSessionIdRef.current!,
         title,
         content,
         save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
         contentEditVersion: contentEditVersionRef.current,
+        editGeneration: editorEditGenerationRef.current,
+        contentAuthoredAfterRevision: lastSavedContentRef.current.revision,
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -3097,8 +3373,11 @@ function PageEditorSessionBody({
       if (!pending) return;
       clearTimeout(pending.timeout);
       saveTimeoutRef.current = null;
-      pendingDocumentSaveRef.current = null;
-      flushPendingDocumentSave(pending);
+      void flushPendingDocumentSave(pending).finally(() => {
+        if (pendingDocumentSaveRef.current === pending) {
+          pendingDocumentSaveRef.current = null;
+        }
+      });
     };
   }, [documentId, flushPendingDocumentSave]);
 
@@ -3112,23 +3391,19 @@ function PageEditorSessionBody({
     flushPendingDocumentSave(pending);
   }, [canEdit, documentId, flushPendingDocumentSave]);
 
-  // Last-chance flush when the tab is being hidden or torn down. A normal
-  // debounced save is an async React-Query mutation; if the page unloads before
-  // it resolves the edit is lost. On `pagehide` / `visibilitychange → hidden` we
-  // fire a `keepalive` POST straight to the update-document action so the write
-  // survives navigation/close. Local-file documents persist to disk, not this
-  // endpoint, so they fall back to the best-effort async flush.
+  // A hidden tab is still alive, so visibility changes use the ordinary save
+  // queue and process its acknowledgement. `pagehide` is the last-chance path:
+  // it sends the same identity and payload through a keepalive request so the
+  // server can settle the edit even when the browser cannot receive the reply.
   useEffect(() => {
     if (!canEdit) return;
 
-    const flushForTeardown = () => {
-      const pending = pendingDocumentSaveRef.current;
-      if (!pending || !pending.canEditWhenQueued) return;
+    const sendKeepaliveSave = (pending: PendingDocumentSave) => {
+      if (!pending.canEditWhenQueued) return false;
 
       // Local-file docs can't be flushed via keepalive fetch; best-effort only.
       if (isLocalFileDocument || isLinkedLocalSourceDocument) {
-        flushPendingDocumentSave(pending);
-        return;
+        return false;
       }
 
       // Mirror saveDocumentImmediately's per-field stale guard + diff so we only
@@ -3143,24 +3418,25 @@ function PageEditorSessionBody({
         !!lastSavedContentRef.current.revision &&
         documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
+      const titleChanged = pending.title !== lastSavedTitleRef.current.title;
+      const contentChanged =
+        pending.content !== lastSavedContentRef.current.content;
       const updates: Record<string, string> = {};
-      if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
+      if (titleChanged && !titleIsStale) {
         updates.title = pending.title;
       }
-      if (
-        pending.content !== lastSavedContentRef.current.content &&
-        !contentIsStale
-      ) {
+      if (contentChanged && !contentIsStale) {
         updates.content = pending.content;
       }
-      if (Object.keys(updates).length === 0) return;
-
-      clearTimeout(pending.timeout);
-      saveTimeoutRef.current = null;
-      pendingDocumentSaveRef.current = null;
+      const disposition = lifecycleKeepaliveDisposition({
+        titleChanged,
+        contentChanged,
+        sendsTitle: updates.title !== undefined,
+        sendsContent: updates.content !== undefined,
+      });
+      if (disposition !== "send") return disposition === "skip";
 
       try {
-        const url = agentNativePath("/_agent-native/actions/update-document");
         // Include the same CAS guard as the normal save path: if content is
         // going out, tag it with the last content snapshot this editor
         // reconciled so a teardown flush can't clobber a concurrent write
@@ -3185,59 +3461,70 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
-        const body = JSON.stringify({
-          id: documentId,
-          historySessionId: pending.historySessionId,
-          ...updates,
-          ...(loadedContentWasEmpty !== undefined
-            ? { loadedContentWasEmpty }
-            : {}),
-          ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
-          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
-          ...(baseRevision !== undefined ? { baseRevision } : {}),
-          ...(updates.title !== undefined
-            ? { baseTitle: lastSavedTitleRef.current.title }
-            : {}),
-        });
-        const ok = fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            // Tag as a browser-originated call (ctx.caller = "frontend") so this
-            // never lights the AI-editing flag.
-            "X-Agent-Native-Frontend": "1",
+        const attempt = tryCallActionKeepalive(
+          "update-document",
+          {
+            id: documentId,
+            historySessionId: pending.historySessionId,
+            editorSessionId: pending.editorSessionId,
+            editorEditGeneration: pending.editGeneration,
+            editorSnapshotTitle: pending.title,
+            editorSnapshotContent: pending.content,
+            ...updates,
+            ...(loadedContentWasEmpty !== undefined
+              ? { loadedContentWasEmpty }
+              : {}),
+            ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
+            ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+            ...(baseRevision !== undefined ? { baseRevision } : {}),
+            ...(updates.title !== undefined
+              ? { baseTitle: lastSavedTitleRef.current.title }
+              : {}),
           },
-          body,
-          keepalive: true,
-          cache: "no-store",
-        });
-        // Adopt an optimistic watermark so a re-render doesn't re-queue the same
-        // save; the server bumps updatedAt, and the next poll reconciles it.
-        const optimisticAt = new Date().toISOString();
-        if (updates.title !== undefined) {
-          lastSavedTitleRef.current = {
-            title: pending.title,
-            updatedAt: optimisticAt,
-          };
-        }
-        if (updates.content !== undefined) {
-          lastSavedContentRef.current = {
-            ...lastSavedContentRef.current,
-            content: pending.content,
-            updatedAt: optimisticAt,
-          };
-        }
-        void Promise.resolve(ok).catch(() => {
+          {
+            headers: {
+              // Tag as a browser-originated call (ctx.caller = "frontend") so this
+              // never lights the AI-editing flag.
+              "X-Agent-Native-Frontend": "1",
+            },
+          },
+        );
+        if (!attempt.accepted) return false;
+        void attempt.completion.catch(() => {
           /* Page is going away; nothing more we can do. */
         });
+        return true;
       } catch {
-        // Fall back to the async flush if the keepalive fetch couldn't start.
-        flushPendingDocumentSave(pending);
+        // coercion-ok: false explicitly triggers the ordinary guarded fallback.
+        return false;
       }
     };
 
+    const flushForTeardown = () => {
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending || !pending.canEditWhenQueued) return;
+      clearTimeout(pending.timeout);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+      if (!sendKeepaliveSave(pending)) flushPendingDocumentSave(pending);
+    };
+
     const onVisibilityChange = () => {
-      if (window.document.visibilityState === "hidden") flushForTeardown();
+      if (window.document.visibilityState !== "hidden") return;
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+      // A keepalive copy survives an immediate browser freeze. The ordinary
+      // queued save still processes the acknowledgement while the tab remains
+      // alive; both carry the same editor identity and generation.
+      sendKeepaliveSave(pending);
+      void flushPendingDocumentSave(pending).finally(() => {
+        if (pendingDocumentSaveRef.current === pending) {
+          pendingDocumentSaveRef.current = null;
+        }
+      });
     };
     window.addEventListener("pagehide", flushForTeardown);
     window.document.addEventListener("visibilitychange", onVisibilityChange);
@@ -3403,6 +3690,7 @@ function PageEditorSessionBody({
       if (!documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting))
         return;
       localTitleRef.current = newTitle;
+      editorEditGenerationRef.current += 1;
       setLocalTitle(newTitle);
       if (updateReconcileDraft(localContentRef.current, newTitle)) {
         retainActiveRecoveryDraft({
@@ -3616,7 +3904,10 @@ function PageEditorSessionBody({
   ]);
 
   const startSuggestionDraft = useCallback(
-    (suggestion?: ResourceSuggestion) => {
+    (
+      suggestion?: ResourceSuggestion,
+      initialSelection?: VisualEditorSelectionSnapshot | null,
+    ) => {
       if (!canSuggest || isSuggesting) return false;
       try {
         suggestionMarkedSourceRanges(document.content);
@@ -3649,7 +3940,9 @@ function PageEditorSessionBody({
           startedAt: new Date().toISOString(),
         });
       setSuggestionDraft(existing?.content ?? document.content);
-      setSuggestionInitialSelection(existing?.caret ?? null);
+      setSuggestionInitialSelection(
+        existing?.caret ?? initialSelection ?? null,
+      );
       setEditingSuggestionId(existing?.session.existingSuggestion?.id ?? null);
       if (existing) setSelectedSuggestionId(null);
       setIsSuggesting(true);
@@ -3669,6 +3962,23 @@ function PageEditorSessionBody({
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
       if (next) {
+        const initialSelection = pageActionsSelectionRef.current;
+        pageActionsSelectionRef.current = null;
+        // The captured range belongs to canonical content; an existing
+        // suggestion draft can have a different document and is edited through
+        // its own activation path.
+        if (!shouldResumeSelectedSuggestionFromPageActions(initialSelection)) {
+          const started = startSuggestionDraft(undefined, initialSelection);
+          pageActionsSelectionRef.current = null;
+          if (!started && initialSelection) {
+            restoreCapturedEditorSelection(
+              editorSelectionControllerRef.current,
+              initialSelection,
+            );
+          }
+          return;
+        }
+        pageActionsSelectionRef.current = null;
         const selected = savedSuggestions.find(
           (suggestion) => suggestion.id === selectedSuggestionId,
         );
@@ -3686,6 +3996,38 @@ function PageEditorSessionBody({
       startSuggestionDraft,
     ],
   );
+
+  const capturePageActionsSelection = useCallback(
+    (includeRemembered = false) => {
+      pageActionsSelectionRef.current =
+        editorSelectionControllerRef.current?.captureSelection({
+          includeRemembered,
+        }) ?? null;
+    },
+    [],
+  );
+
+  const handleSelectionControllerChange = useCallback(
+    (controller: VisualEditorSelectionController | null) => {
+      editorSelectionControllerRef.current = controller;
+    },
+    [],
+  );
+
+  const preservePageActionsSelection = useCallback(() => {
+    const snapshot = pageActionsSelectionRef.current;
+    if (snapshot) {
+      editorSelectionControllerRef.current?.preserveSelection(snapshot);
+    }
+  }, []);
+
+  const restorePageActionsSelection = useCallback(() => {
+    const snapshot = pageActionsSelectionRef.current;
+    restoreCapturedEditorSelection(
+      editorSelectionControllerRef.current,
+      snapshot,
+    );
+  }, []);
 
   const handleSuggestionReplacementIntent = useCallback(
     (intent: {
@@ -3888,6 +4230,8 @@ function PageEditorSessionBody({
       reconcileRecoveryStateRef.current?.reason === "conflict"
         ? "conflict"
         : null,
+      editorSessionIdRef.current!,
+      editorEditGenerationRef.current,
     );
   reportReconcileRef.current = reportReconcile;
 
@@ -3895,6 +4239,7 @@ function PageEditorSessionBody({
     (newContent: string) => {
       if (!editorCanEdit) return;
       contentEditVersionRef.current += 1;
+      editorEditGenerationRef.current += 1;
       localContentRef.current = newContent;
       setLocalContent(newContent);
       if (updateReconcileDraft(newContent)) {
@@ -4006,6 +4351,8 @@ function PageEditorSessionBody({
             documentReconcileConflict?.reason === "conflict"
               ? "conflict"
               : null,
+            editorSessionIdRef.current!,
+            editorEditGenerationRef.current,
           );
           const draft = recoveryDraftRef.current;
           if (!draft || !reviewedBase.updatedAt) return false;
@@ -4756,7 +5103,7 @@ function PageEditorSessionBody({
                 { requestSource: "content-breadcrumb" },
               ),
             persistSelection: setStoredSpaceId,
-            openFiles: () => navigate(`/page/${targetId}`, { flushSync: true }),
+            openSpace: () => navigate(`/page/${targetId}`, { flushSync: true }),
           }),
         )
         .catch((error) => {
@@ -5097,6 +5444,9 @@ function PageEditorSessionBody({
             canSuggest={canSuggest}
             suggesting={isSuggesting}
             editorEscapeTargetRef={editorEscapeTargetRef}
+            onCaptureEditorSelection={capturePageActionsSelection}
+            onPreserveEditorSelection={preservePageActionsSelection}
+            onRestoreEditorSelection={restorePageActionsSelection}
             onSuggestingChange={(next) => {
               void handleSuggestionModeChange(next);
             }}
@@ -5375,6 +5725,7 @@ function PageEditorSessionBody({
                   <div className={documentEditorDatabaseRegionClassName()}>
                     <DocumentDatabase
                       document={document}
+                      foreground={foreground}
                       canEdit={canEdit}
                       viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
@@ -5608,6 +5959,9 @@ function PageEditorSessionBody({
                               handleHistoryControllerChange
                             }
                             onHistoryStateChange={handleHistoryStateChange}
+                            onSelectionControllerChange={
+                              handleSelectionControllerChange
+                            }
                             onPersistenceControllerChange={
                               handlePersistenceControllerChange
                             }

@@ -43,6 +43,8 @@ organization group, or per org).
 
 There are three role systems and they never imply one another. A share role answers "what may this person do to **one row**". An org role (`org_members.role`) answers "what may this person do to the **team**". An app role (`defineAppRoles`, see the `authentication` skill) answers "what may this person do inside **one app**". A share `admin` is not an app admin and neither is an org admin.
 
+**"Make me an admin."** First find which role system the gate reads. An app that needs admins declares an `admin` role with `defineAppRoles` and gates with `requireAny("admin")` / `requirePermission`, not a custom `isAdmin` column or an `email === "..."` check. An org owner/admin grants it with the `set-app-member-roles` action or `<TeamPage appRoles={descriptor} />`; the first org of a new deployment is bootstrapped with `AUTH_BOOTSTRAP_ADMINS`. Never grant admin from an auth hook such as `databaseHooks.user.create`: it runs before the default org exists, never runs for an existing account, and writes a role nothing gates on. A plain org member cannot self-elevate — name the org owner/admin who must grant it instead of building a bypass.
+
 ### Anonymous public URLs stay separate
 
 Form "publish" slugs, booking-link slugs, any feature that exposes a URL to unauthenticated users — these are a different axis and are NOT controlled by the sharing system. Keep them alongside it.

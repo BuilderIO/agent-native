@@ -839,6 +839,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content स्पेस",
     addChild: "चाइल्ड जोड़ें",
     addChildTo: "{{title}} में चाइल्ड जोड़ें",
     database: "संग्रह",
@@ -876,6 +877,9 @@ const landing = {
   requestedPageUnavailable:
     "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
   saveFailed: "आपकी जगह सेव नहीं की जा सकी",
+  workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
+  workspaceWelcomeUnavailableDescription:
+    "आप यह वर्कस्पेस देख सकते हैं, लेकिन इसका स्वागत पेज बनाने की अनुमति आपके पास नहीं है।",
 };
 
 const comments = {
@@ -944,6 +948,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "हाल ही में देखे गए",
+  customizeSidebar: "साइडबार अनुकूलित करें",
+  noRecentVisits: "हाल ही में कोई पेज नहीं देखा",
+  noPinnedItems: "कोई पिन किया गया आइटम नहीं",
+  showMore: "और दिखाएँ",
+  showLess: "कम दिखाएँ",
+  seeAll: "सभी देखें…",
+  seeAllFiles: "सभी फ़ाइलें देखें",
   pinned: "पिन किए गए",
   loadingPinned: "पिन किए गए आइटम लोड हो रहे हैं…",
   dragToReorder: "{{label}} को फिर से क्रमबद्ध करने के लिए खींचें",
@@ -1193,6 +1205,15 @@ const overrides = {
     labCreativeContext: "क्रिएटिव संदर्भ",
     labCreativeContextDescription:
       "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
+    labSlashAdvancedCode: "उन्नत कोड ब्लॉक",
+    labSlashAdvancedCodeDescription: "स्लैश मेनू में कोड और कोड टैब ब्लॉक जोड़ें।",
+    labSlashLayouts: "लेआउट ब्लॉक",
+    labSlashLayoutsDescription: "स्लैश मेनू में कस्टम HTML और टैब ब्लॉक जोड़ें।",
+    labSlashVisuals: "विज़ुअल ब्लॉक",
+    labSlashVisualsDescription:
+      "स्लैश मेनू में डायग्राम, Mermaid और वायरफ़्रेम ब्लॉक जोड़ें।",
+    labSlashDeveloperDocs: "डेवलपर दस्तावेज़ ब्लॉक",
+    labSlashDeveloperDocsDescription: "स्लैश मेनू में API और डेवलपर दस्तावेज़ ब्लॉक जोड़ें।",
   },
   chat: {
     publicEmptyState: "इस document के बारे में कुछ भी पूछें",

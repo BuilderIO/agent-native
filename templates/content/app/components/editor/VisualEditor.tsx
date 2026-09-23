@@ -1420,7 +1420,10 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?: { from: number; prefix: string; suffix: string } | null;
+  initialSelection?:
+    | { from: number; prefix: string; suffix: string }
+    | VisualEditorSelectionSnapshot
+    | null;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -1437,6 +1440,9 @@ interface VisualEditorProps {
     controller: VisualEditorHistoryController | null,
   ) => void;
   onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+  onSelectionControllerChange?: (
+    controller: VisualEditorSelectionController | null,
+  ) => void;
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
@@ -1455,6 +1461,62 @@ export interface VisualEditorHistoryController {
     contentUpdatedAt: string;
     contentRevision: string | null;
   }) => boolean;
+}
+
+export interface VisualEditorSelectionSnapshot {
+  anchor: number;
+  head: number;
+  docJson: string;
+}
+
+export interface VisualEditorSelectionController {
+  captureSelection: (options?: {
+    includeRemembered?: boolean;
+  }) => VisualEditorSelectionSnapshot | null;
+  preserveSelection: (snapshot: VisualEditorSelectionSnapshot) => boolean;
+  releaseSelectionPreservation: () => void;
+  restoreSelection: (snapshot: VisualEditorSelectionSnapshot) => boolean;
+}
+
+const visualEditorDocJsonCache = new WeakMap<ProseMirrorNode, string>();
+
+function visualEditorDocJson(doc: ProseMirrorNode) {
+  const cached = visualEditorDocJsonCache.get(doc);
+  if (cached) return cached;
+  const serialized = JSON.stringify(doc.toJSON());
+  visualEditorDocJsonCache.set(doc, serialized);
+  return serialized;
+}
+
+export function captureVisualEditorSelection(
+  doc: ProseMirrorNode,
+  selection: Selection,
+): VisualEditorSelectionSnapshot | null {
+  if (!(selection instanceof TextSelection)) return null;
+  return {
+    anchor: selection.anchor,
+    head: selection.head,
+    docJson: visualEditorDocJson(doc),
+  };
+}
+
+export function resolveVisualEditorSelection(
+  doc: ProseMirrorNode,
+  snapshot: VisualEditorSelectionSnapshot,
+): TextSelection | null {
+  if (snapshot.docJson !== visualEditorDocJson(doc)) return null;
+  const { anchor, head } = snapshot;
+  if (
+    ![anchor, head].every(
+      (position) =>
+        Number.isInteger(position) &&
+        position >= 0 &&
+        position <= doc.content.size &&
+        doc.resolve(position).parent.inlineContent,
+    )
+  )
+    return null;
+  return TextSelection.create(doc, anchor, head);
 }
 
 export interface VisualEditorPersistenceController {
@@ -2897,6 +2959,7 @@ export function VisualEditor({
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
+  onSelectionControllerChange,
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
@@ -2928,8 +2991,20 @@ export function VisualEditor({
   const historyStateNotificationRef = useRef<VisualEditorHistoryState | null>(
     null,
   );
+  const deliveredHistoryStateRef = useRef<VisualEditorHistoryState | null>(
+    null,
+  );
   const historyStateNotificationQueuedRef = useRef(false);
   const editorMountedRef = useRef(false);
+  const lastFocusedSelectionRef = useRef<VisualEditorSelectionSnapshot | null>(
+    null,
+  );
+  const preservedContentEditableRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    lastFocusedSelectionRef.current = null;
+  }, [documentId]);
   const notifyHistoryStateChange = useCallback(
     (state: VisualEditorHistoryState) => {
       historyStateNotificationRef.current = state;
@@ -2940,6 +3015,13 @@ export function VisualEditor({
         const next = historyStateNotificationRef.current;
         historyStateNotificationRef.current = null;
         if (!editorMountedRef.current || !next) return;
+        const delivered = deliveredHistoryStateRef.current;
+        if (
+          delivered?.canUndo === next.canUndo &&
+          delivered.canRedo === next.canRedo
+        )
+          return;
+        deliveredHistoryStateRef.current = next;
         onHistoryStateChangeRef.current?.(next);
       });
     },
@@ -3499,10 +3581,12 @@ export function VisualEditor({
         return applied;
       },
     });
-    onHistoryStateChange?.({
+    const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
-    });
+    };
+    deliveredHistoryStateRef.current = initialHistoryState;
+    onHistoryStateChange?.(initialHistoryState);
     return () => onHistoryControllerChange?.(null);
   }, [
     editor,
@@ -3511,6 +3595,109 @@ export function VisualEditor({
     onHistoryControllerChange,
     onHistoryStateChange,
   ]);
+
+  useEffect(() => {
+    if (!editor) {
+      onSelectionControllerChange?.(null);
+      return;
+    }
+    const releaseSelectionPreservation = () => {
+      const previous = preservedContentEditableRef.current;
+      if (previous === undefined) return;
+      preservedContentEditableRef.current = undefined;
+      if (previous == null) editor.view.dom.removeAttribute("contenteditable");
+      else editor.view.dom.setAttribute("contenteditable", previous);
+    };
+    const rememberFocusedSelection = () => {
+      if (editor.isDestroyed || !editor.isFocused) return;
+      lastFocusedSelectionRef.current = captureVisualEditorSelection(
+        editor.state.doc,
+        editor.state.selection,
+      );
+    };
+    editor.on("selectionUpdate", rememberFocusedSelection);
+    editor.on("focus", rememberFocusedSelection);
+    const clearRememberedSelectionOutsideEditorControls = (
+      event: FocusEvent,
+    ) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (editor.view.dom.contains(target)) return;
+      if (target.closest("[data-editor-selection-continuation]")) return;
+      lastFocusedSelectionRef.current = null;
+    };
+    document.addEventListener(
+      "focusin",
+      clearRememberedSelectionOutsideEditorControls,
+    );
+    rememberFocusedSelection();
+    onSelectionControllerChange?.({
+      captureSelection: (options) => {
+        if (editor.isDestroyed) return null;
+        const { selection, doc } = editor.state;
+        const current = captureVisualEditorSelection(doc, selection);
+        if (editor.isFocused) {
+          lastFocusedSelectionRef.current = current;
+          return current;
+        }
+        if (!options?.includeRemembered) return null;
+        const remembered = lastFocusedSelectionRef.current;
+        return remembered && resolveVisualEditorSelection(doc, remembered)
+          ? remembered
+          : null;
+      },
+      preserveSelection: (snapshot) => {
+        if (editor.isDestroyed) return false;
+        const selection = resolveVisualEditorSelection(
+          editor.state.doc,
+          snapshot,
+        );
+        if (!selection) return false;
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+        if (preservedContentEditableRef.current === undefined) {
+          preservedContentEditableRef.current =
+            editor.view.dom.getAttribute("contenteditable");
+        }
+        editor.view.dom.setAttribute("contenteditable", "false");
+        const anchor = editor.view.domAtPos(selection.anchor);
+        const head = editor.view.domAtPos(selection.head);
+        window
+          .getSelection()
+          ?.setBaseAndExtent(
+            anchor.node,
+            anchor.offset,
+            head.node,
+            head.offset,
+          );
+        lastFocusedSelectionRef.current = snapshot;
+        return true;
+      },
+      releaseSelectionPreservation,
+      restoreSelection: (snapshot) => {
+        if (editor.isDestroyed) return false;
+        releaseSelectionPreservation();
+        const selection = resolveVisualEditorSelection(
+          editor.state.doc,
+          snapshot,
+        );
+        if (!selection) return false;
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+        editor.view.focus();
+        lastFocusedSelectionRef.current = snapshot;
+        return true;
+      },
+    });
+    return () => {
+      editor.off("selectionUpdate", rememberFocusedSelection);
+      editor.off("focus", rememberFocusedSelection);
+      document.removeEventListener(
+        "focusin",
+        clearRememberedSelectionOutsideEditorControls,
+      );
+      releaseSelectionPreservation();
+      onSelectionControllerChange?.(null);
+    };
+  }, [editor, onSelectionControllerChange]);
 
   // Clear the agent's selection context when this document closes — on
   // unmount, and on document change (the editor is reused across route
@@ -3665,6 +3852,7 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    overlapPolicy: "prefer-live",
     editable,
     isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
@@ -3994,19 +4182,30 @@ export function VisualEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     if (!editable || !initialSelection) return;
-    const position = resolveAnchorPoint(
-      editor.state.doc,
-      {
-        prefix: initialSelection.prefix,
-        suffix: initialSelection.suffix,
-        startOffset: initialSelection.from,
-      },
-      "\n",
-    );
-    if (position == null) return;
+    let selection: TextSelection | null = null;
+    if ("docJson" in initialSelection) {
+      selection = resolveVisualEditorSelection(
+        editor.state.doc,
+        initialSelection,
+      );
+      if (!selection) return;
+    } else {
+      const position = resolveAnchorPoint(
+        editor.state.doc,
+        {
+          prefix: initialSelection.prefix,
+          suffix: initialSelection.suffix,
+          startOffset: initialSelection.from,
+        },
+        "\n",
+      );
+      if (position == null) return;
+      selection = TextSelection.create(editor.state.doc, position);
+    }
     const frame = requestAnimationFrame(() => {
       if (!editor.isDestroyed) {
-        editor.chain().focus().setTextSelection(position).run();
+        editor.view.dispatch(editor.state.tr.setSelection(selection!));
+        editor.view.focus();
       }
     });
     return () => cancelAnimationFrame(frame);

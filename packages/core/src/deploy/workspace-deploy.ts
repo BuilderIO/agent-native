@@ -49,7 +49,10 @@ import {
   type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import {
+  DISPATCH_WORKSPACE_ROOT_REDIRECTS,
+  isValidWorkspaceAppIdFormat,
+} from "../shared/workspace-app-id.js";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
@@ -205,7 +208,7 @@ export async function runWorkspaceDeploy(
       `Workspace has no apps. Run \`agent-native add-app\` to add one.`,
     );
   }
-  assertNoReservedWorkspaceAppIds(apps);
+  assertValidWorkspaceAppIds(apps);
   const workspaceApps = await readWorkspaceAppManifest(
     workspaceRoot,
     apps,
@@ -750,6 +753,10 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
   for (const app of apps) {
     if (app !== "dispatch") {
       routes.push({ src: `/${app}`, dest: `/${app}-server` });
+      routes.push({
+        src: vercelRouteSrc(`/${app}.data`),
+        dest: `/${app}-server`,
+      });
     }
     routes.push({ src: `/${app}/(.*)`, dest: `/${app}-server` });
   }
@@ -831,7 +838,14 @@ const RESERVED_WORKSPACE_APP_IDS = new Set([
   ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => from),
 ]);
 
-function assertNoReservedWorkspaceAppIds(apps: string[]): void {
+function assertValidWorkspaceAppIds(apps: string[]): void {
+  const invalidIds = apps.filter((app) => !isValidWorkspaceAppIdFormat(app));
+  if (invalidIds.length > 0) {
+    throw new Error(
+      `Workspace app id ${invalidIds.map((id) => `"${id}"`).join(", ")} must use lowercase letters, numbers, and hyphens.`,
+    );
+  }
+
   const conflicts = apps.filter(
     (app) => app !== "dispatch" && RESERVED_WORKSPACE_APP_IDS.has(app),
   );
@@ -1348,6 +1362,10 @@ function normalizeBasePathArgs(args) {
     return args;
   }
   const url = new URL(request.url);
+  if (url.pathname === basePath + ".data") {
+    url.pathname = basePath + "/.data";
+    return [new Request(url, request), ...args.slice(1)];
+  }
   if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
     url.pathname = \`\${basePath}//\`;
     return [new Request(url, request), ...args.slice(1)];
@@ -1467,6 +1485,10 @@ function normalizeBasePathArgs(args) {
 
   if (typeof Request === "function" && request instanceof Request) {
     const url = new URL(request.url);
+    if (url.pathname === basePath + ".data") {
+      url.pathname = basePath + "/.data";
+      return [new Request(url, request), ...args.slice(1)];
+    }
     if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
       url.pathname = \`\${basePath}//\`;
       return [new Request(url, request), ...args.slice(1)];
@@ -1476,6 +1498,10 @@ function normalizeBasePathArgs(args) {
 
   if (typeof request.url !== "string") return args;
   const url = new URL(request.url, "http://agent-native.local");
+  if (url.pathname === basePath + ".data") {
+    request.url = basePath + "/.data" + url.search;
+    return args;
+  }
   if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
     request.url = \`\${basePath}//\${url.search}\`;
   }

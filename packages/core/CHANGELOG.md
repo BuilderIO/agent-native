@@ -51,6 +51,75 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.185.0
+
+### Minor Changes
+
+- c0d9e4b: Add `fetchBuilderDesignSystemTierLimit`, `designSystemTierUpgradeUrl`, `assertBuilderDesignSystemCodeIndexingAllowed`, and the `@agent-native/core/client/design-system-tier-limit` helpers so apps can show a design-system plan/tier cap and an upgrade link before create, surface the same information from a 402 on the create/index call, and enforce the Enterprise-only code/GitHub indexing entitlement server-side (not just in the UI).
+
+### Patch Changes
+
+- 5ffb783: Cut action latency and false failures across apps: batch per-user profile and
+  feature-flag settings reads into one query; on production serverless runtimes,
+  answer the app-origin SSE route with 204 for current clients (a held stream
+  there forced a cold container per connection) and report a `poll-live`
+  capability so sync consumers keep their normal cadence over `/poll`; stop
+  `refetchInterval` polling after a 401; skip feature-flag and labs queries until
+  the session is authenticated; attribute `http.response` telemetry to the app;
+  and add cold-start, hidden-page, and timeout fields to `action.response`.
+- d5f0a95: Start apps with an app-shaped skeleton while session data loads immediately.
+- 2427195: Add Claude Opus 5.5 and GPT-6 Sol/Luna to direct API model selection.
+- e7ccf40: Workspace agents now confirm a new app is actually served at `/<app-id>` before reporting it created, name the host's run/dev command when the preview isn't running the workspace gateway, and grant "admin" through app roles instead of hardcoding an email in an auth hook.
+- e7ccf40: Fix sign-up/sign-in bouncing back to the sign-in page when an app is served behind an https proxy with no configured public URL (e.g. a Builder Code cloud dev container rendered in the Builder editor iframe): Better Auth's session cookie and its origin/CSRF allowlist are now evaluated per request instead of once at boot, so a proxied https request gets a cross-site-safe cookie and is trusted as same-origin.
+- 0289143: Defer provider setup UI and load core locale messages on demand.
+- 8f27701: Dev servers now watch files for apps checked out inside a `.claude/` (or other normally ignored) directory, such as `.claude/worktrees/*`. The default watch ignores are matched below the app root instead of against its ancestors, which previously disabled HMR entirely for those checkouts.
+- 8f27701: Map Figma's LINEAR_BURN blend mode to `multiply` instead of `plus-darker`, which Chromium does not support and silently drew as normal blending.
+- f6e9555: Fix direct Jev tool prefetch requests and add a repeatable live selection eval.
+- 3c865d5: Lazy-load the agent sidebar and changelog command-menu surfaces so app layouts can hydrate before chat UI.
+- Release all public npm packages with a patch version bump.
+- 8c954cd: Route mounted workspace root data requests through app paths on Netlify and Vercel.
+- 3d5741f: Single-key `getSetting` reads throw again on a corrupt stored value instead of reporting it as missing; batched `getSettings` reads still isolate a corrupt key.
+- 86e35d8: Share first-run onboarding completion across configured sibling app domains.
+- 70f20c0: Fix mounted React Router root data requests.
+- 6806425: Tighten the first-run setup cards: both columns now list only required, recommended, and Builder-only capabilities, and each manual row is a single-line name instead of a wrapped key description.
+- ae65b08: Preserve mounted React Router root data redirects.
+- Updated dependencies [2427195]
+- Updated dependencies [d43305d]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.7
+  - @agent-native/agentkit@0.2.7
+  - @agent-native/recap-cli@0.5.37
+
+## 0.184.0
+
+### Minor Changes
+
+- 113944d: Add a `reasoningEffort` field to job/automation frontmatter, the background automation runner, `automations/service.ts`, `list-automations`, and the `manage-jobs` tool, so a scheduled automation can request an explicit reasoning effort instead of always inheriting the model's default.
+- 71f6bbd: Add an opt-in ChatGPT subscription lab for experimental Codex engine access.
+- 113944d: Stop forcing `reasoning_effort: "none"` for GPT reasoning models (Luna/Terra/Sol) with tools on the Builder gateway. That guard was based on a Chat Completions rejection actually observed on a different engine/proxy; the Builder gateway has always routed these models through OpenAI's Responses API, which accepts reasoning effort alongside tools — confirmed via a live gateway request. The requested effort is now forwarded unconditionally.
+- 7e74d2a: Add a human review loop for inspecting agent asks and answers, recording feedback, and drafting instruction updates for review.
+
+### Patch Changes
+
+- 3f2a2fb: Allow users to enter a custom role when selecting Other during onboarding.
+- 00d6183: Keep local-development sign-in options collapsed until a user expands them.
+- f447d33: Keep externally hosted React Router and TanStack Query runtimes in prebuilt serverless SSR bundles.
+- 2055930: Keep hosted Google sign-in popups navigable across the provider redirect.
+- aaf9958: Preserve Google Analytics custom browser events when Google Tag Manager is configured.
+- 97385a2: Keep production SSR builds on one Core/React singleton graph and make serverless size checks ignore platform-selected Resvg binaries.
+- 6595223: Keep public framework route context out of application server bundles.
+- Release all public npm packages with a patch version bump.
+- e973e00: Move the auth form to the top of the page on small screens and hide the learn-more link there.
+- facaeaa: Reconnect expired Streamable HTTP MCP sessions and replay the failed request once.
+- 45c137b: Ship the external React runtime required by serverless SSR chunks.
+- 865cac6: Ship react-dom, react-router, and @tanstack/react-query alongside the external React runtime required by serverless SSR chunks, so the deployed function and the prebuilt route chunks resolve one shared instance of each instead of two.
+- 1cab0d0: Keep production SSR React Router imports external and resolve them from the consuming app so serverless route hooks share the ServerRouter context.
+- Updated dependencies
+- Updated dependencies [e973e00]
+  - @agent-native/agentkit@0.2.6
+  - @agent-native/recap-cli@0.5.36
+  - @agent-native/toolkit@0.20.6
+
 ## 0.183.0
 
 ### Minor Changes
@@ -2987,17 +3056,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - f790010: Keep the current-main merge tree formatter-clean for shared agent runtime sources.
-
-## 0.164.2
-
-### Patch Changes
-
-- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
-
-## 0.164.1
-
-### Patch Changes
-
-- 5a05b04: Connect signed-in users to Builder's managed AI gateway with least-privilege OAuth, encrypted per-user token custody, refresh, and revocation while preserving legacy Builder credentials for uncovered integrations.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

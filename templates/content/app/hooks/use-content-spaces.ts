@@ -18,6 +18,7 @@ export type ContentSpaceSummary = {
 };
 
 export type ListContentSpacesResponse = {
+  sourceMode: "database" | "local-files";
   catalogDatabaseId: string;
   catalogDocumentId: string;
   favoritesDatabaseId: string | null;

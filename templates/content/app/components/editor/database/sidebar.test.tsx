@@ -119,7 +119,7 @@ describe("DatabaseSidebarView", () => {
     ).toEqual(["canonical-parent-a", "canonical-parent-b"]);
   });
 
-  it("disables manual reorder while the active saved view has sorts", () => {
+  it("disables legacy manual reorder without a personal order while the active saved view has sorts", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <TooltipProvider>
@@ -154,7 +154,6 @@ describe("DatabaseSidebarView", () => {
             }
             overrides={null}
             isLoading={false}
-            sidebarOrder={{ mode: "custom", itemIds: ["item-first"] }}
             manualReorder={{
               onReorder: () => {},
               labels: {
@@ -177,7 +176,81 @@ describe("DatabaseSidebarView", () => {
     );
 
     expect(markup).not.toContain("Drag First");
+    expect(markup).not.toContain('aria-roledescription="sortable"');
     expect(markup).toContain('role="link"');
+  });
+
+  it("allows personal custom reordering while retaining inherited filters and overriding inherited sorts", () => {
+    const data = {
+      database: {
+        viewConfig: {
+          version: 1,
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              filters: [
+                {
+                  key: "name",
+                  label: "Name",
+                  operator: "contains",
+                  value: "Keep",
+                },
+              ],
+              sorts: [{ key: "name", label: "Name", direction: "asc" }],
+              filterMode: "and",
+            },
+          ],
+        },
+      },
+      items: [
+        item("alpha", "Keep Alpha"),
+        item("beta", "Keep Beta"),
+        item("hidden", "Excluded"),
+      ],
+      properties: [],
+    } as unknown as ContentDatabaseResponse;
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={data}
+            overrides={null}
+            isLoading={false}
+            sidebarOrder={{
+              mode: "custom",
+              itemIds: ["item-beta", "item-hidden", "item-alpha"],
+            }}
+            manualReorder={{
+              onReorder: vi.fn(),
+              labels: {
+                drag: (label) => `Drag ${label}`,
+                moveUp: "Move up",
+                moveDown: "Move down",
+                moveTo: "Move to",
+                moveToPosition: (position) => `Position ${position}`,
+              },
+            }}
+            labels={{
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+    expect(markup.match(/aria-roledescription="sortable"/g)).toHaveLength(2);
+    expect(markup).toContain('data-sidebar-reorder-item-id="item-beta"');
+    expect(markup).toContain('data-sidebar-reorder-item-id="item-alpha"');
+    expect(markup.indexOf('href="/page/beta"')).toBeLessThan(
+      markup.indexOf('href="/page/alpha"'),
+    );
+    expect(markup).not.toContain("Excluded");
+    expect(markup).not.toContain("/page/hidden");
   });
 
   it("leaves the compact order control to the workspace header", () => {

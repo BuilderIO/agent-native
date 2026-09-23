@@ -13,6 +13,7 @@ import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 type BuilderConnectTrigger = React.ReactElement<{
   onClick?: React.MouseEventHandler<HTMLElement>;
   "aria-busy"?: boolean;
+  disabled?: boolean;
 }>;
 
 export interface BuilderConnectPopoverProps {

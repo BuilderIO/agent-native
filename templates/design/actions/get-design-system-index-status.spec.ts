@@ -13,6 +13,7 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/server", () => ({
   hydrateBuilderDesignSystemReference: (...args: unknown[]) =>
     mocks.hydrate(...args),
+  isBuilderDesignSystemReadyByCount: (docCount: number) => docCount > 0,
   parseBuilderDesignSystemProxyReference: (...args: unknown[]) =>
     mocks.parse(...args),
 }));
@@ -39,7 +40,7 @@ describe("get-design-system-index-status", () => {
     });
   });
 
-  it("reports progress without mutating the local proxy", async () => {
+  it("reports readiness from the document count even when the status is stale", async () => {
     mocks.hydrate.mockResolvedValue({
       builderStatus: "in-progress",
       docCount: 12,
@@ -52,13 +53,38 @@ describe("get-design-system-index-status", () => {
       builderDesignSystemId: "ds-1",
       builderJobId: "job-1",
       status: "in-progress",
-      ready: false,
+      ready: true,
       docCount: 12,
       tokenCount: 1,
     });
     expect(mocks.hydrate).toHaveBeenCalledWith(
       expect.objectContaining({ builderJobId: "job-1" }),
       { page: 0, pageSize: 1, minimal: true },
+    );
+  });
+
+  it("stays not-ready while Builder reports no indexed documents", async () => {
+    mocks.hydrate.mockResolvedValue({
+      builderStatus: "complete",
+      docCount: 0,
+      tokenValues: {},
+    });
+
+    await expect(action.run({ id: "local-ds-1" })).resolves.toMatchObject({
+      ready: false,
+      docCount: 0,
+    });
+  });
+
+  it("surfaces an unreadable count instead of reporting not-ready", async () => {
+    mocks.hydrate.mockRejectedValue(
+      new Error(
+        "Builder design-system document count could not be read (unreachable): 503",
+      ),
+    );
+
+    await expect(action.run({ id: "local-ds-1" })).rejects.toThrow(
+      /document count could not be read/,
     );
   });
 

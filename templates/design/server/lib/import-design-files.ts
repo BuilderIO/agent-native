@@ -4,8 +4,8 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -25,7 +25,10 @@ import {
 import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
 import { designSourceMutationLockKey } from "../source-workspace.js";
-import { mutateDesignData } from "./design-data-mutation.js";
+import {
+  InvalidDesignDataError,
+  mutateDesignData,
+} from "./design-data-mutation.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
@@ -53,6 +56,14 @@ export interface SaveImportedDesignFilesInput {
   sourceType: string;
   warnings?: string[];
   preserveExactContent?: boolean;
+  /**
+   * Operation-source prefix shared by every request of one import. Its files'
+   * preferredFrame x/y are relative to one origin, taken right of every screen
+   * when the first batch lands and stored as `importOriginX` in each frame's
+   * metadata, so later batches keep the arrangement even after the user edits
+   * or adds screens mid-import. Group files need `source.operationSource`.
+   */
+  placementGroup?: string;
 }
 
 export interface SavedImportedDesignFile {
@@ -62,55 +73,76 @@ export interface SavedImportedDesignFile {
   source?: Record<string, unknown>;
 }
 
-export async function findImportedDesignFileByOperationSource(
-  designId: string,
-  operationSource: string,
-): Promise<{
+export interface ImportedOperationFile {
   file: SavedImportedDesignFile;
+  operationSource: string;
+  /** False when the row landed but its canvas placement never committed. */
   placed: boolean;
-} | null> {
-  const access = await resolveAccess("design", designId);
-  if (!access) return null;
-  const db = getDb();
-  const [file] = await db
-    .select()
+}
+
+/** Files already saved under one operation-source prefix, e.g. an import batch. */
+export async function findImportedDesignFilesByOperationSourcePrefix(
+  designId: string,
+  prefix: string,
+  designData: string | null,
+): Promise<ImportedOperationFile[]> {
+  const rows = await getDb()
+    .select({
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      contentOperationSource: schema.designFiles.contentOperationSource,
+    })
     .from(schema.designFiles)
     .where(
       and(
         eq(schema.designFiles.designId, designId),
-        eq(schema.designFiles.contentOperationSource, operationSource),
+        like(
+          schema.designFiles.contentOperationSource,
+          `${prefix.replace(/[\\%_]/g, "\\$&")}%`,
+        ),
       ),
-    )
-    .limit(1);
-  if (!file) return null;
-
-  let metadata: Record<string, unknown> | undefined;
-  try {
-    const parsed = access.resource.data
-      ? JSON.parse(access.resource.data)
-      : null;
-    const screenMetadata = isRecord(parsed) ? parsed.screenMetadata : null;
-    const candidate = isRecord(screenMetadata)
-      ? screenMetadata[file.id]
-      : undefined;
-    metadata = isRecord(candidate) ? candidate : undefined;
-  } catch {
-    metadata = undefined;
-  }
-
-  return {
-    file: {
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-      source: metadata,
-    },
-    placed: metadata?.operationSource === operationSource,
-  };
+    );
+  const data = parseDesignDataObject(designId, designData);
+  const screenMetadata = isRecord(data.screenMetadata)
+    ? data.screenMetadata
+    : {};
+  return rows.flatMap((row) => {
+    if (!row.contentOperationSource) return [];
+    const candidate = screenMetadata[row.id];
+    const metadata = isRecord(candidate) ? candidate : undefined;
+    return [
+      {
+        file: {
+          id: row.id,
+          filename: row.filename,
+          fileType: row.fileType,
+          source: metadata,
+        },
+        operationSource: row.contentOperationSource,
+        placed: metadata?.operationSource === row.contentOperationSource,
+      },
+    ];
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseDesignDataObject(
+  designId: string,
+  serialized: string | null,
+): Record<string, unknown> {
+  if (serialized === null) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new InvalidDesignDataError(designId);
+  }
+  if (!isRecord(parsed)) throw new InvalidDesignDataError(designId);
+  return parsed;
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
@@ -229,6 +261,24 @@ function nextImportedFrameX(
       : maxRight;
   }, 0);
   return screenFrames.length > 0 ? right + FRAME_GAP : 0;
+}
+
+function storedImportOriginX(
+  screenMetadata: Record<string, unknown>,
+  placementGroup: string,
+): number | undefined {
+  for (const metadata of Object.values(screenMetadata)) {
+    if (
+      isRecord(metadata) &&
+      typeof metadata.operationSource === "string" &&
+      metadata.operationSource.startsWith(placementGroup) &&
+      typeof metadata.importOriginX === "number" &&
+      Number.isFinite(metadata.importOriginX)
+    ) {
+      return metadata.importOriginX;
+    }
+  }
+  return undefined;
 }
 
 function stringFromState(value: unknown, key: string): string | undefined {
@@ -376,29 +426,26 @@ export async function saveImportedDesignFiles(
       }>
     | undefined;
 
-  // Preserve the old all-or-nothing behavior for already-invalid data as far
-  // as the shared mutation boundary permits: validate before inserting files,
-  // then re-run the real intent against the latest revision after file work.
-  await mutateDesignData({
-    designId,
-    mutate: (current) => current,
-    isApplied: () => true,
-  });
-
   try {
     await db.transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
       );
       const [design] = await tx
-        .select()
+        .select({ data: schema.designs.data })
         .from(schema.designs)
         .where(eq(schema.designs.id, designId))
         .limit(1);
       if (!design) throw new Error(`Design ${designId} was not found.`);
+      // Refuse before inserting files, so invalid data never gains orphans.
+      parseDesignDataObject(designId, design.data);
 
       const existingFiles = await tx
-        .select()
+        .select({
+          id: schema.designFiles.id,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+        })
         .from(schema.designFiles)
         .where(eq(schema.designFiles.designId, designId));
       for (const file of existingFiles) {
@@ -408,23 +455,37 @@ export async function saveImportedDesignFiles(
       }
       const usedFilenames = new Set(existingFiles.map((file) => file.filename));
 
+      const operationSources = input.files.flatMap((file) =>
+        file.operationSource ? [file.operationSource] : [],
+      );
+      const retriedFiles = operationSources.length
+        ? await tx
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+              content: schema.designFiles.content,
+              contentOperationSource: schema.designFiles.contentOperationSource,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                inArray(
+                  schema.designFiles.contentOperationSource,
+                  operationSources,
+                ),
+              ),
+            )
+        : [];
+      const retriedByOperationSource = new Map(
+        retriedFiles.map((file) => [file.contentOperationSource, file]),
+      );
+
       for (let index = 0; index < input.files.length; index += 1) {
         const file = input.files[index]!;
-        const [existing] = file.operationSource
-          ? await tx
-              .select()
-              .from(schema.designFiles)
-              .where(
-                and(
-                  eq(schema.designFiles.designId, designId),
-                  eq(
-                    schema.designFiles.contentOperationSource,
-                    file.operationSource,
-                  ),
-                ),
-              )
-              .limit(1)
-          : [];
+        const existing = file.operationSource
+          ? retriedByOperationSource.get(file.operationSource)
+          : undefined;
         const filename =
           existing?.filename ??
           uniqueFilename(
@@ -518,8 +579,19 @@ export async function saveImportedDesignFiles(
         breakpointWidths,
         overviewScreenFileIds: existingOverviewScreenFileIds,
       });
+      const groupOriginX = input.placementGroup
+        ? (storedImportOriginX(currentScreenMetadata, input.placementGroup) ??
+          nextFrameX)
+        : 0;
+      if (input.placementGroup) {
+        for (const metadata of metadataByFileId.values()) {
+          metadata.importOriginX = groupOriginX;
+        }
+      }
+      const baseZ = nextImportedFrameZ(current.canvasFrames);
       placementsForPersistence = placements.map((placement, index) => {
-        const x = placement.x ?? nextFrameX;
+        const x =
+          placement.x === undefined ? nextFrameX : groupOriginX + placement.x;
         const bounds = importedFramePaintedBounds({
           frame: { ...placement, x },
           metadata: metadataByFileId.get(placement.fileId ?? ""),
@@ -529,7 +601,7 @@ export async function saveImportedDesignFiles(
         return {
           ...placement,
           x,
-          z: nextImportedFrameZ(current.canvasFrames) + index,
+          z: baseZ + index,
         };
       });
       const previousMetadata = isRecord(current.screenMetadata)

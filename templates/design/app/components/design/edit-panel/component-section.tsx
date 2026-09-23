@@ -596,7 +596,7 @@ export function ComponentSection({
   previewFrameId,
   activeContent,
   activeFileUpdatedAt,
-  expectedFiles,
+  getExpectedFiles,
   componentDetailsReady = true,
   nodeId,
   swapPickerRequest = 0,
@@ -617,7 +617,7 @@ export function ComponentSection({
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
   /** Current hashes for every HTML file when a linked prop edit spans Screens. */
-  expectedFiles?: Array<{ fileId: string; versionHash: string }>;
+  getExpectedFiles?: () => Array<{ fileId: string; versionHash: string }>;
   /** Whether the selected component is present in the accepted source snapshot. */
   componentDetailsReady?: boolean;
   nodeId: string;
@@ -993,7 +993,7 @@ export function ComponentSection({
             ...(latestSource.revision
               ? { revision: latestSource.revision }
               : {}),
-            ...(expectedFiles ? { expectedFiles } : {}),
+            ...(getExpectedFiles ? { expectedFiles: getExpectedFiles() } : {}),
           }
         : undefined;
     const payload = {

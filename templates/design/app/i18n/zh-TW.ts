@@ -815,6 +815,7 @@ const messages = {
       figImportSelected: "匯入已選取的 {{count}} 個",
       figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
+      figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
@@ -1120,6 +1121,7 @@ const messages = {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
+      versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       booleanSubtractUnsupported:
         "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",
@@ -1246,6 +1248,7 @@ const messages = {
     startBlankCanvasHint: "使用畫框、形狀與文字自行繪製。",
     designSystem: "Design系統",
     noDesignSystem: "沒有設計系統",
+    designSystemIndexing: "正在索引…",
     newDesignSystem: "新",
     addAttachment: "新增",
     removeAttachment: "刪除{{name}}",
@@ -1415,6 +1418,8 @@ const messages = {
     visualEdit: "視覺編輯 - Design",
   },
   designSystemSetup: {
+    codeIndexingEnterpriseOnly:
+      "程式碼與版本庫索引需要 Builder Enterprise 方案",
     importedBrand: "進口品牌",
     figmaCreateSuccess: "由Figma建立的設計系統",
     figmaCreateError: "無法建立設計系統",
@@ -1551,6 +1556,12 @@ const messages = {
     selectAria: "選取{{title}}",
     currentlyDefault: "目前預設",
     moreActionsAria: "{{title}} 的更多操作",
+    tierLimitTitle: "已達到設計系統數量上限",
+    tierLimitDescription:
+      "您已達到目前 Builder 方案的設計系統數量上限。升級 Builder 方案以建立更多。",
+    tierLimitDescriptionWithCount:
+      "您在 Builder {{plan}} 方案中已使用 {{current}}/{{max}} 個設計系統。升級方案以建立更多。",
+    tierLimitUpgrade: "升級 Builder 方案",
     showcase: {
       title: "可用於正式產品的起點",
       description:

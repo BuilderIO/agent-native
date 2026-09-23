@@ -840,6 +840,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "مساحة Content",
     addChild: "إضافة عنصر فرعي",
     addChildTo: "إضافة عنصر فرعي إلى {{title}}",
     database: "المجموعة",
@@ -878,6 +879,9 @@ const landing = {
   requestedPageUnavailable:
     "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
+  workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
+  workspaceWelcomeUnavailableDescription:
+    "يمكنك عرض مساحة العمل هذه، لكن ليس لديك إذن لإنشاء صفحة الترحيب الخاصة بها.",
 };
 
 const comments = {
@@ -950,6 +954,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "الأخيرة",
+  customizeSidebar: "تخصيص الشريط الجانبي",
+  noRecentVisits: "لا توجد زيارات حديثة",
+  noPinnedItems: "لا توجد عناصر مثبتة",
+  showMore: "عرض المزيد",
+  showLess: "عرض أقل",
+  seeAll: "عرض الكل…",
+  seeAllFiles: "عرض كل الملفات",
   pinned: "مثبتة",
   loadingPinned: "جارٍ تحميل العناصر المثبتة…",
   dragToReorder: "اسحب لإعادة ترتيب {{label}}",
@@ -1200,6 +1212,18 @@ const overrides = {
     labCreativeContext: "السياق الإبداعي",
     labCreativeContextDescription:
       "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
+    labSlashAdvancedCode: "كتل التعليمات البرمجية المتقدمة",
+    labSlashAdvancedCodeDescription:
+      "أضف كتل التعليمات البرمجية وعلامات تبويبها إلى قائمة الشرطة المائلة.",
+    labSlashLayouts: "كتل التخطيط",
+    labSlashLayoutsDescription:
+      "أضف كتل HTML المخصصة وعلامات التبويب إلى قائمة الشرطة المائلة.",
+    labSlashVisuals: "الكتل المرئية",
+    labSlashVisualsDescription:
+      "أضف المخططات وMermaid والإطارات الهيكلية إلى قائمة الشرطة المائلة.",
+    labSlashDeveloperDocs: "كتل وثائق المطورين",
+    labSlashDeveloperDocsDescription:
+      "أضف كتل API ووثائق المطورين إلى قائمة الشرطة المائلة.",
   },
   chat: {
     publicEmptyState: "اسألني أي شيء عن هذا المستند",

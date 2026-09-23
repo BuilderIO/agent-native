@@ -905,6 +905,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content 空间",
     addChild: "新增子项",
     addChildTo: "新增子项至 {{title}}",
     completeStepsAboveFirst: "请先完成上面的步骤",
@@ -976,6 +977,9 @@ const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
   requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
+  workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
+  workspaceWelcomeUnavailableDescription:
+    "您可以查看此工作区，但没有创建欢迎页面的权限。",
 };
 
 const comments = {
@@ -1042,6 +1046,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "最近访问",
+  customizeSidebar: "自定义侧边栏",
+  noRecentVisits: "暂无最近访问记录",
+  noPinnedItems: "暂无已固定项目",
+  showMore: "显示更多",
+  showLess: "显示更少",
+  seeAll: "查看全部…",
+  seeAllFiles: "查看所有文件",
   pinned: "已固定",
   loadingPinned: "正在加载已固定项目…",
   dragToReorder: "拖动以重新排序 {{label}}",
@@ -1284,6 +1296,14 @@ const overrides = {
     labCreativeContext: "创意上下文",
     labCreativeContextDescription:
       "在 Content 中连接并复用受管控的参考上下文。",
+    labSlashAdvancedCode: "高级代码块",
+    labSlashAdvancedCodeDescription: "在斜杠菜单中添加代码和代码标签页块。",
+    labSlashLayouts: "布局块",
+    labSlashLayoutsDescription: "在斜杠菜单中添加自定义 HTML 和标签页块。",
+    labSlashVisuals: "可视化块",
+    labSlashVisualsDescription: "在斜杠菜单中添加图表、Mermaid 和线框图块。",
+    labSlashDeveloperDocs: "开发者文档块",
+    labSlashDeveloperDocsDescription: "在斜杠菜单中添加 API 和开发者文档块。",
   },
   chat: {
     publicEmptyState: "向我询问有关此文档的任何问题",

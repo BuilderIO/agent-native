@@ -876,6 +876,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Espace Content",
     addChild: "Ajouter un enfant",
     addChildTo: "Ajouter un enfant à {{title}}",
     database: "Collection",
@@ -917,6 +918,9 @@ const landing = {
   requestedPageUnavailable:
     "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
   saveFailed: "Votre emplacement n’a pas pu être enregistré",
+  workspaceWelcomeUnavailableTitle: "Rien n’est encore ouvert ici",
+  workspaceWelcomeUnavailableDescription:
+    "Vous pouvez consulter cet espace de travail, mais vous n’êtes pas autorisé à créer sa page d’accueil.",
 };
 
 const comments = {
@@ -986,6 +990,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "Récents",
+  customizeSidebar: "Personnaliser la barre latérale",
+  noRecentVisits: "Aucune visite récente",
+  noPinnedItems: "Aucun élément épinglé",
+  showMore: "Afficher plus",
+  showLess: "Afficher moins",
+  seeAll: "Tout afficher…",
+  seeAllFiles: "Afficher tous les fichiers",
   pinned: "Épinglés",
   loadingPinned: "Chargement des éléments épinglés…",
   dragToReorder: "Faites glisser {{label}} pour le réorganiser",
@@ -1251,6 +1263,18 @@ const overrides = {
     labCreativeContext: "Contexte créatif",
     labCreativeContextDescription:
       "Connectez et réutilisez un contexte de référence gouverné dans Content.",
+    labSlashAdvancedCode: "Blocs de code avancés",
+    labSlashAdvancedCodeDescription:
+      "Ajoutez des blocs de code et d’onglets de code au menu slash.",
+    labSlashLayouts: "Blocs de mise en page",
+    labSlashLayoutsDescription:
+      "Ajoutez des blocs HTML personnalisés et des onglets au menu slash.",
+    labSlashVisuals: "Blocs visuels",
+    labSlashVisualsDescription:
+      "Ajoutez des diagrammes, Mermaid et des maquettes au menu slash.",
+    labSlashDeveloperDocs: "Blocs de documentation technique",
+    labSlashDeveloperDocsDescription:
+      "Ajoutez des blocs d’API et de documentation technique au menu slash.",
   },
   chat: {
     publicEmptyState: "Posez-moi une question sur ce document",

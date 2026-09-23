@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
-const FEATURE_CONFIG_VERSION: u32 = 1;
+const FEATURE_CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -211,7 +211,7 @@ fn default_screen_memory_exclude_private_windows() -> bool {
 }
 
 fn default_screen_memory_max_bytes() -> u64 {
-    20 * 1024 * 1024 * 1024
+    5 * 1024 * 1024 * 1024
 }
 
 fn default_screen_memory_segment_seconds() -> u64 {
@@ -253,8 +253,13 @@ impl Default for FeatureConfig {
 }
 
 fn migrate_feature_config(mut config: FeatureConfig) -> FeatureConfig {
-    if config.config_version < FEATURE_CONFIG_VERSION {
+    if config.config_version < 1 {
         config.auto_hide_popover_enabled = true;
+    }
+    if config.config_version < 2 && config.screen_memory.max_bytes == 20 * 1024 * 1024 * 1024 {
+        config.screen_memory.max_bytes = default_screen_memory_max_bytes();
+    }
+    if config.config_version < FEATURE_CONFIG_VERSION {
         config.config_version = FEATURE_CONFIG_VERSION;
     }
     config
@@ -480,6 +485,28 @@ mod tests {
         }))
         .unwrap();
         assert!(!opt_out.auto_hide_popover_enabled);
+    }
+
+    #[test]
+    fn migrates_the_previous_screen_memory_storage_default() {
+        let mut config = FeatureConfig::default();
+        config.config_version = 1;
+        config.auto_hide_popover_enabled = false;
+        config.screen_memory.max_bytes = 20 * 1024 * 1024 * 1024;
+
+        let migrated = migrate_feature_config(config);
+
+        assert_eq!(migrated.config_version, FEATURE_CONFIG_VERSION);
+        assert_eq!(migrated.screen_memory.max_bytes, 5 * 1024 * 1024 * 1024);
+        assert!(!migrated.auto_hide_popover_enabled);
+
+        let mut custom = FeatureConfig::default();
+        custom.config_version = 1;
+        custom.screen_memory.max_bytes = 50 * 1024 * 1024 * 1024;
+        assert_eq!(
+            migrate_feature_config(custom).screen_memory.max_bytes,
+            50 * 1024 * 1024 * 1024
+        );
     }
 
     #[test]

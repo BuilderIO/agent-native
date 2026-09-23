@@ -857,6 +857,7 @@ export type SkillsCatalogMode = "agent-native" | "all";
 export interface PublicSkillCatalogEntry {
   name: string;
   description?: string;
+  installerGroup?: string;
 }
 
 interface ConnectSpinner {
@@ -949,7 +950,9 @@ interface SkillsClientPromptContext {
 }
 
 interface SkillsTargetPromptContext {
+  message?: string;
   initialTargets: string[];
+  required?: boolean;
   options: Array<{ value: string; label: string; hint: string }>;
 }
 
@@ -2539,6 +2542,7 @@ function publicSkillEntries(
     .map((entry) => ({
       name: entry.name.trim().toLowerCase(),
       description: entry.description,
+      installerGroup: entry.installerGroup?.trim().toLowerCase(),
     }))
     .filter((entry) => {
       if (!entry.name || isKnownSkill(entry.name) || seen.has(entry.name)) {
@@ -2557,12 +2561,18 @@ function publicSkillNames(options: RunSkillsOptions): Set<string> {
 function publicSkillPromptOptions(
   options: RunSkillsOptions,
 ): SkillsTargetPromptContext["options"] {
-  return publicSkillEntries(options).map((entry) => ({
-    value: entry.name,
-    label: entry.name,
-    hint:
-      entry.description ?? "Public skill from the BuilderIO skills catalog.",
-  }));
+  return publicSkillEntries(options).map((entry) => {
+    const description =
+      entry.description ?? "Public skill from the BuilderIO skills catalog.";
+    return {
+      value: entry.name,
+      label: entry.name,
+      hint:
+        entry.installerGroup === entry.name
+          ? `${description} Select to choose the full group or a subset.`
+          : description,
+    };
+  });
 }
 
 function skillPromptOptions(
@@ -2763,11 +2773,12 @@ async function promptForSkills(
   const clack = await import("@clack/prompts");
   const result = await clack.multiselect({
     message:
+      context.message ??
       "Which Agent-Native skills do you want to install?\n" +
-      "  (space toggles, enter confirms)",
+        "  (space toggles, enter confirms)",
     options: context.options,
     initialValues: context.initialTargets,
-    required: true,
+    required: context.required ?? true,
   });
   if (clack.isCancel(result)) {
     clack.cancel("Cancelled.");
@@ -2969,7 +2980,45 @@ async function resolveSkillTargets(
     options: promptOptions,
   });
   if (!selected || selected.length === 0) return null;
-  return resolveSelectedSkillTargets(selected, options);
+
+  const publicEntries = publicSkillEntries(options);
+  const selectedTargets = new Set(selected);
+  for (const group of publicEntries.filter(
+    (entry) =>
+      entry.installerGroup === entry.name && selected.includes(entry.name),
+  )) {
+    const members = publicEntries.filter(
+      (entry) =>
+        entry.installerGroup === group.name && entry.name !== group.name,
+    );
+    if (members.length === 0) continue;
+
+    const groupLabel = group.name.replace(/^./, (character) =>
+      character.toUpperCase(),
+    );
+    const groupSelection = await prompt({
+      message:
+        `Which ${groupLabel} skills do you want to install?\n` +
+        "  (all selected; deselect any you want to skip)",
+      initialTargets: members.map((entry) => entry.name),
+      required: false,
+      options: members.map((entry) => ({
+        value: entry.name,
+        label: entry.name,
+        hint:
+          entry.description ??
+          "Public skill from the BuilderIO skills catalog.",
+      })),
+    });
+    if (!groupSelection) return null;
+    const memberNames = new Set(members.map((entry) => entry.name));
+    for (const memberName of memberNames) selectedTargets.delete(memberName);
+    for (const memberName of groupSelection) {
+      if (memberNames.has(memberName)) selectedTargets.add(memberName);
+    }
+  }
+
+  return resolveSelectedSkillTargets([...selectedTargets], options);
 }
 
 export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {

@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
   aField: "a field",
@@ -1046,6 +1047,9 @@ const enUS = {
     requestedPageUnavailable:
       "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
+    workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
+    workspaceWelcomeUnavailableDescription:
+      "You can browse this space, but you do not have permission to create its welcome page.",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -1081,6 +1085,18 @@ const enUS = {
     labCreativeContext: "Creative Context",
     labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
+    labSlashAdvancedCode: "Advanced code blocks",
+    labSlashAdvancedCodeDescription:
+      "Add structured code and code-tabs blocks to the slash menu.",
+    labSlashLayouts: "Layout blocks",
+    labSlashLayoutsDescription:
+      "Add custom HTML and tabs blocks to the slash menu.",
+    labSlashVisuals: "Visual blocks",
+    labSlashVisualsDescription:
+      "Add diagram, Mermaid, and wireframe blocks to the slash menu.",
+    labSlashDeveloperDocs: "Developer documentation blocks",
+    labSlashDeveloperDocsDescription:
+      "Add API and developer-documentation blocks to the slash menu.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -1420,8 +1436,17 @@ const enUS = {
   database: databaseMessages,
   localFiles: localFilesMessages,
   sidebar: {
+    contentSpace: "Content space",
     cannotReorderPages: "Cannot reorder pages",
     pinned: "Pinned",
+    recent: "Recent",
+    customizeSidebar: "Customize sidebar",
+    noRecentVisits: "No recent visits",
+    noPinnedItems: "No pinned items",
+    showMore: "Show more",
+    showLess: "Show less",
+    seeAll: "See all…",
+    seeAllFiles: "See all files",
     loadingPinned: "Loading pinned items…",
     dragToReorder: "Drag to reorder {{label}}",
     moveUp: "Move up",
@@ -1560,6 +1585,7 @@ const enUS = {
     untitled: "Untitled",
     workspaces: "Workspaces",
   },
+  trash: trashMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -1611,6 +1637,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    trash: enUS.trash,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2125,6 +2152,7 @@ function mergeMessagesForLocale(
       },
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
+    trash: trashMessagesByLocale[locale],
   };
 }
 
