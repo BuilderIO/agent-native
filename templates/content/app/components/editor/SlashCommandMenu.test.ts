@@ -899,7 +899,10 @@ describe("inline database slash command", () => {
     expect(source).toContain('searchText: "database collection inline"');
     expect(source).toContain('searchText: "database collection full page"');
     expect(source).toContain("parentId: documentId");
-    expect(source).toContain("insertContentAt(slashRange.from, pageReference)");
+    expect(source).toContain(
+      'const insertContent = [pageReference, { type: "paragraph" }]',
+    );
+    expect(source).toContain("insertContentAt(range, insertContent)");
     expect(source).toContain("navigate(`/page/${pageId}`");
   });
 });

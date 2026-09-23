@@ -4871,7 +4871,7 @@ function PageEditorSessionBody({
     createDatabase.isPending,
   );
   const showCreateCollectionStarter = createCollectionStarterIsVisible({
-    canEdit,
+    canEdit: editorCanEdit,
     bodyHydrationPending,
     isLocalFileDocument,
     isDatabasePage,
@@ -4892,11 +4892,7 @@ function PageEditorSessionBody({
       });
       if (!saved) throw new Error(t("empty.genericError"));
       await createDatabase.mutateAsync(
-        databaseConversionRequest(
-          documentId,
-          localTitleRef.current,
-          document.description,
-        ),
+        databaseConversionRequest(documentId, localTitleRef.current),
       );
     } catch (error) {
       toast.error(t("sidebar.failedCreateDatabase"), {
@@ -4904,13 +4900,7 @@ function PageEditorSessionBody({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [
-    createDatabase,
-    document.description,
-    documentId,
-    handleContentSaveNow,
-    t,
-  ]);
+  }, [createDatabase, documentId, handleContentSaveNow, t]);
   const defaultIcon =
     defaultIconKind === "database" && !isDatabasePage ? (
       <IconDatabase className="size-12" aria-hidden="true" />
@@ -5594,7 +5584,7 @@ function PageEditorSessionBody({
                               type="button"
                               variant="ghost"
                               className="mt-2 gap-2 text-muted-foreground"
-                              disabled={databaseChoicePending}
+                              disabled={!editorCanEdit || databaseChoicePending}
                               onClick={() => void handleCreateCollection()}
                             >
                               {databaseChoicePending ? (

@@ -1163,12 +1163,9 @@ describe("document editor layout", () => {
       { encoding: "utf8" },
     );
 
-    expect(
-      databaseConversionRequest("new-page", "Typed first", "Summary"),
-    ).toEqual({
+    expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
       documentId: "new-page",
       title: "Typed first",
-      description: "Summary",
     });
     expect(source).toContain("const showCreateCollectionStarter =");
     expect(source).toContain("createCollectionStarterIsVisible({");
@@ -1178,7 +1175,13 @@ describe("document editor layout", () => {
     expect(source).toContain("localDraft: localContentRef.current");
     expect(source).toContain("isDatabaseChoicePending(");
     expect(source).toContain("document,\n    createDatabase.isPending");
-    expect(source).toContain("disabled={databaseChoicePending}");
+    expect(source).toContain("canEdit: editorCanEdit,");
+    expect(source).toContain(
+      "disabled={!editorCanEdit || databaseChoicePending}",
+    );
+    expect(source).not.toContain(
+      "localTitleRef.current,\n          document.description,",
+    );
     expect(source).toContain('{t("editor.createCollection")}');
     expect(source.indexOf("const primaryEditor =")).toBeLessThan(
       source.indexOf("{showCreateCollectionStarter ? ("),

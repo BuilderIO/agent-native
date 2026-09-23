@@ -937,15 +937,24 @@ export function SlashCommandMenu({
             label: t("editor.untitledDatabase"),
           },
         };
-        if (slashRange) {
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
           editor
             .chain()
             .focus()
-            .deleteRange(slashRange)
-            .insertContentAt(slashRange.from, pageReference)
+            .insertContentAt($from.after(), insertContent)
             .run();
-        } else {
-          editor.chain().focus().insertContent(pageReference).run();
         }
         await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
