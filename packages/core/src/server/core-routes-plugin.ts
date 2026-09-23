@@ -138,6 +138,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
@@ -4805,6 +4806,14 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-engine/api-key`,
         createAgentEngineApiKeyHandler(),
+      );
+
+      // GET /_agent-native/agent-engine/ollama-models — lists the models an
+      // Ollama server actually has installed, so the provider setup form can
+      // show real options instead of only the static suggestion list.
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/ollama-models`,
+        createAgentEngineOllamaModelsHandler(),
       );
 
       // GET /_agent-native/agent-engine/status — reports whether an engine

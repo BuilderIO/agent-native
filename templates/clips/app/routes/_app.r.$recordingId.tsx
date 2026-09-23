@@ -2347,7 +2347,7 @@ export default function RecordingPage() {
               <DropdownMenuSubTrigger>
                 {t("recordingPage.enhanceRecording")}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-56">
+              <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                 <DropdownMenuItem
                   disabled={requestTranscript.isPending}
                   onSelect={() =>
@@ -2380,7 +2380,7 @@ export default function RecordingPage() {
               <DropdownMenuSubTrigger>
                 {t("recordingPage.createFromClip")}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64">
+              <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                 {WORKFLOW_MENU_ITEMS.map((item) => {
                   const menuItem = (
                     <DropdownMenuItem

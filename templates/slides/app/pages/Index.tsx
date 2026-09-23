@@ -83,10 +83,7 @@ import {
 } from "@/lib/deck-filter";
 import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import {
-  isDesignSystemSelectable,
-  resolveSelectableDesignSystemId,
-} from "@/lib/design-system-selection";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -427,24 +424,14 @@ export default function Index() {
     defaultSystem?.id,
   );
   const workspaceDesignSystemId =
-    workspaceDesignSystem &&
-    workspaceDesignSystem.status === "available" &&
-    designSystems.some(
-      (designSystem) =>
-        designSystem.id === workspaceDesignSystem.id &&
-        isDesignSystemSelectable(designSystem),
-    )
+    workspaceDesignSystem && workspaceDesignSystem.status === "available"
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some(
-          (designSystem) =>
-            designSystem.id === reference.id &&
-            isDesignSystemSelectable(designSystem),
-        ),
+        designSystems.some((designSystem) => designSystem.id === reference.id),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(

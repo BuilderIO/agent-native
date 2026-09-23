@@ -316,6 +316,24 @@ export function isProductionLikeRuntime(): boolean {
 }
 
 /**
+ * Whether this process is a genuinely self-hosted, single-tenant deployment
+ * rather than the hosted multi-tenant workspace runtime — the same bar
+ * `canUseDeployCredentialFallbackForRequest` uses to decide whether relaxing
+ * a security boundary for "this is the operator's own machine" is safe.
+ * `NODE_ENV` alone proves nothing (it travels with a copied `.env`), so a
+ * production-shaped runtime still counts as trusted when it is backed by the
+ * local embedded database, which has no cross-tenant blast radius.
+ *
+ * Used to allow a user-supplied Ollama endpoint to target a LAN address
+ * instead of only loopback — see `provider-endpoint-validation.ts`.
+ */
+export function isTrustedSelfHostedRuntime(): boolean {
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
+}
+
+/**
  * Whether deployment-level Builder env keys may back the current request.
  *
  * This is intentionally self-contained rather than delegating to

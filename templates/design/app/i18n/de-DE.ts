@@ -165,6 +165,20 @@ const messages = {
       saveFailed: "Prüfstatus konnte nicht aktualisiert werden",
     },
   },
+  designSystems: {
+    ...messagesByLocale["de-DE"].designSystems,
+    tierLimitTitle: "Limit für Designsysteme erreicht",
+    tierLimitDescription:
+      "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
+    tierLimitDescriptionWithCount:
+      "Du nutzt {{current}} von {{max}} Designsystemen in deinem Builder-Plan {{plan}}. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
+    tierLimitUpgrade: "Builder-Plan upgraden",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["de-DE"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
+  },
 };
 
 export default messages;
