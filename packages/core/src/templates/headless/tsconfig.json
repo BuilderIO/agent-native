@@ -1,7 +1,0 @@
-{
-  "extends": "@agent-native/core/tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["node"]
-  },
-  "include": ["actions/**/*", "server/**/*", "shared/**/*"]
-}

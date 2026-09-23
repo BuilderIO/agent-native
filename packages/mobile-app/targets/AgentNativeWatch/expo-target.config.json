@@ -1,8 +1,0 @@
-{
-  "type": "watch",
-  "name": "AgentNativeWatch",
-  "displayName": "Agent-Native",
-  "bundleIdentifier": ".watch",
-  "deploymentTarget": "11.0",
-  "frameworks": ["AVFoundation", "SwiftUI", "WatchConnectivity", "WatchKit"]
-}

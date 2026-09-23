@@ -1,8 +1,0 @@
-[build]
-command = "pnpm --dir community-templates exec agent-native deploy --preset=netlify --build-only"
-publish = "community-templates/dist"
-functions = "community-templates/.netlify/functions-internal"
-
-[build.environment]
-NITRO_PRESET = "netlify"
-NPM_CONFIG_PRODUCTION = "false"
