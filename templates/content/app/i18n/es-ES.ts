@@ -1081,6 +1081,8 @@ const rawLiterals = {
     addChild: "Agregar hijo",
     addChildTo: "Agregar hijo a {{title}}",
     collapseItem: "Contraer {{title}}",
+    removeFromRecent: "Quitar de Recientes",
+    failedRemoveFromRecent: "No se pudo quitar de Recientes",
     expandItem: "Expandir {{title}}",
     completeStepsAboveFirst: "Completa primero los pasos anteriores",
     connectWorkspace: "Conectar espacio",

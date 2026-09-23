@@ -1560,6 +1560,8 @@ const overrides = {
     addChild: "新增子項目",
     addChildTo: "新增子項目至 {{title}}",
     collapseItem: "收合 {{title}}",
+    removeFromRecent: "從最近瀏覽中移除",
+    failedRemoveFromRecent: "無法從最近瀏覽中移除",
     expandItem: "展開 {{title}}",
     addSubPage: "新增子頁面",
     collapse: "折疊側邊欄",

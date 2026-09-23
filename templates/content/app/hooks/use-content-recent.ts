@@ -5,7 +5,9 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
+  contentRecentTargetKey,
   contentRecentVisitKey,
+  type ContentRecentResult,
   type ContentRecentTarget,
 } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -46,6 +48,80 @@ export function useContentRecent(spaceId?: string) {
     isLoading: org.isLoading || org.isFetching || query.isLoading,
     isError: org.isError || query.isError,
   };
+}
+
+type ContentRecentQueryData = {
+  scopeKey: string;
+  entries: ContentRecentResult[];
+};
+
+/**
+ * Reflect a pin change in cached Recent rows right away; the pin mutation's
+ * own refresh reconciles the server value.
+ */
+export function setCachedRecentPinnedState(
+  queryClient: ReturnType<typeof useQueryClient>,
+  documentId: string,
+  isFavorite: boolean,
+) {
+  queryClient.setQueriesData<ContentRecentQueryData>(
+    { queryKey: ["action", "get-content-recent"] },
+    (current) =>
+      current
+        ? {
+            ...current,
+            entries: current.entries.map((entry) =>
+              entry.target.documentId === documentId
+                ? { ...entry, isFavorite }
+                : entry,
+            ),
+          }
+        : current,
+  );
+}
+
+/** Forget a Recent destination immediately, restoring it if the save fails. */
+export function useRemoveContentRecent() {
+  const queryClient = useQueryClient();
+  const t = useT();
+  const mutation = useActionMutation("remove-content-recent", {
+    skipActionQueryInvalidation: true,
+  });
+  const mutationRef = useRef(mutation);
+  mutationRef.current = mutation;
+  return useCallback(
+    (target: ContentRecentTarget) => {
+      const queryKey = ["action", "get-content-recent"];
+      const key = contentRecentTargetKey(target);
+      const previous = queryClient.getQueriesData<ContentRecentQueryData>({
+        queryKey,
+      });
+      queryClient.setQueriesData<ContentRecentQueryData>(
+        { queryKey },
+        (current) =>
+          current
+            ? {
+                ...current,
+                entries: current.entries.filter(
+                  (entry) => contentRecentTargetKey(entry.target) !== key,
+                ),
+              }
+            : current,
+      );
+      mutationRef.current.mutate(target, {
+        onError: () => {
+          for (const [cachedKey, data] of previous) {
+            queryClient.setQueryData(cachedKey, data);
+          }
+          toast.error(t("sidebar.failedRemoveFromRecent"));
+        },
+        onSettled: () => {
+          void queryClient.invalidateQueries({ queryKey });
+        },
+      });
+    },
+    [queryClient, t],
+  );
 }
 
 export function useContentVisitRecorder() {

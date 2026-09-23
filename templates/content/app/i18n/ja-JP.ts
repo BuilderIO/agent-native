@@ -851,6 +851,8 @@ const rawLiterals = {
     addChild: "子項目を追加",
     addChildTo: "{{title}} に子項目を追加",
     collapseItem: "{{title}} を折りたたむ",
+    removeFromRecent: "最近の閲覧から削除",
+    failedRemoveFromRecent: "最近の閲覧から削除できませんでした",
     expandItem: "{{title}} を展開",
     database: "コレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",

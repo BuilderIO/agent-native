@@ -845,6 +845,8 @@ const rawLiterals = {
     addChild: "하위 항목 추가",
     addChildTo: "{{title}}에 하위 항목 추가",
     collapseItem: "{{title}} 접기",
+    removeFromRecent: "최근 방문에서 제거",
+    failedRemoveFromRecent: "최근 방문에서 제거하지 못했습니다",
     expandItem: "{{title}} 펼치기",
     database: "컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",

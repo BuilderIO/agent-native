@@ -34,7 +34,7 @@ evidence:
     "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-09-18"
+last_reviewed: "2026-09-23"
 ---
 
 # Personal sidebar
@@ -55,6 +55,7 @@ parentage remain unchanged.
 - Pinned entries are personal References; dynamic sections are access-scoped query results.
 - Personal ordering, expansion, and collapse do not reparent Pages, change Collection membership, or grant shared edit authority.
 - Intentional references may expand; the sidebar is not a general-purpose object renderer.
+- Recent rows share the sidebar row actions but carry only personal actions: pin or unpin the destination, and remove it from Recent. Shared mutations such as delete, add child, and reorder stay with the object's own surface.
 - Missing, deleted, inaccessible, stale, and unavailable entries are handled honestly and recoverably.
 
 ## Boundaries and non-goals
@@ -68,6 +69,12 @@ general Tree View, or a hidden shared workspace organizer.
 
 Given two pinned References, when a viewer changes their order, then only that person's
 navigation preference changes and neither target Page's parentage nor membership changes.
+
+### Forget a Recent destination
+
+Given a Page in a viewer's Recent, when they remove it from Recent, then only that
+viewer's Recent history changes; the Page, its pins, and every other viewer's Recent
+are unchanged.
 
 ### Open an access-scoped section
 
@@ -94,8 +101,11 @@ legacy and unassigned pins. The selected space's Files tree is the only tree ren
 section order, visibility, and expansion persist, while five-row Pinned and Recent
 display counts are deliberately transient. Contextual pin reorder patches only the
 loaded subset and preserves unrelated personal order entries. Files, Pinned, and Recent
-share a presentational navigation row; Recent retains its real icon and exact View link
-without inheriting tree expansion or mutation controls.
+share a presentational navigation row and one hover/focus row-actions layer; Recent
+retains its real icon and exact View link without inheriting tree expansion or shared
+mutation controls. Its row menu offers Pin/Unpin, using the requester's pinned state
+resolved under the same access as the row, and Remove from Recent through the shared
+`remove-content-recent` Action, which forgets only that user's visit.
 
 Each section's menu opens its complete selected-space collection: scoped personal pins,
 the retained Recent window, or the canonical Files table. Section headers use one grid

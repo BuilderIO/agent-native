@@ -4,17 +4,22 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sidebar.personal-recent-visits",
     surface: "sidebar",
-    label: "Read personal Recent entries and record foreground visits",
+    label:
+      "Read personal Recent entries, record foreground visits, and remove an entry from Recent",
     uiEntrypoints: [
       "app/components/sidebar/PersonalSidebarSections.tsx",
       "app/hooks/use-content-recent.ts",
     ],
     durableEffect:
-      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels under current access.",
+      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels and the requester's pinned state under current access. Removing an entry forgets only that visit.",
     uiImplementation:
-      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action.",
+      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action; the Recent row menu removes an entry through the shared Action and pins through update-document.",
     status: "action-backed",
-    actions: ["get-content-recent", "record-content-visit"],
+    actions: [
+      "get-content-recent",
+      "record-content-visit",
+      "remove-content-recent",
+    ],
     exception:
       "record-content-visit is hidden with agentTool: false so agent reads and edits cannot manufacture human visit history.",
     reliabilityRisk: "none",

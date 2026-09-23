@@ -7,6 +7,7 @@ import {
   contentRecentHref,
   contentRecentTargetKey,
   defaultContentSidebarSections,
+  type ContentRecentResult,
   type ContentSidebarSections,
   type ContentSidebarSectionId,
 } from "@shared/content-personal-navigation";
@@ -14,6 +15,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconClock,
+  IconClockX,
   IconDots,
   IconFiles,
   IconPin,
@@ -47,7 +49,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useContentRecent } from "@/hooks/use-content-recent";
+import {
+  setCachedRecentPinnedState,
+  useContentRecent,
+  useRemoveContentRecent,
+} from "@/hooks/use-content-recent";
 import { cn } from "@/lib/utils";
 
 import { contentSpaceActionArgs } from "./select-content-space";
@@ -60,6 +66,77 @@ import {
   SidebarNavigationRow,
   sidebarShowMoreClassName,
 } from "./SidebarNavigationRow";
+import {
+  SidebarPinMenuItem,
+  SidebarRowActions,
+  SidebarRowMenu,
+  sidebarRowTitleFadeClassName,
+} from "./SidebarRowActions";
+
+/**
+ * A Recent destination. Recent is personal history, not hierarchy, so its menu
+ * only carries personal actions: pin and forget. Shared mutations such as
+ * delete, add child, and reorder stay on Files.
+ */
+function RecentSidebarRow({
+  entry,
+  active,
+  onNavigate,
+  onToggleFavorite,
+  onRemove,
+}: {
+  entry: ContentRecentResult;
+  active: boolean;
+  onNavigate?: () => void;
+  onToggleFavorite?: (documentId: string, isFavorite: boolean) => void;
+  onRemove: (target: ContentRecentResult["target"]) => void;
+}) {
+  const t = useT();
+  const title = entry.title || t("sidebar.untitled");
+  const pinned = entry.isFavorite;
+  return (
+    <div className="group relative min-w-0">
+      <SidebarNavigationRow
+        to={contentRecentHref(entry.target)}
+        icon={entry.icon}
+        active={active}
+        onClick={onNavigate}
+        title={entry.viewName ? `${title} · ${entry.viewName}` : title}
+        className={cn(!active && "group-hover:bg-sidebar-accent/60")}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5",
+            sidebarRowTitleFadeClassName(1),
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {entry.viewName && (
+            <span className="truncate text-muted-foreground">
+              {entry.viewName}
+            </span>
+          )}
+        </span>
+      </SidebarNavigationRow>
+      <SidebarRowActions>
+        <SidebarRowMenu label={title}>
+          {onToggleFavorite && pinned !== undefined ? (
+            <SidebarPinMenuItem
+              pinned={pinned}
+              onSelect={() =>
+                onToggleFavorite(entry.target.documentId, !pinned)
+              }
+            />
+          ) : null}
+          <DropdownMenuItem onSelect={() => onRemove(entry.target)}>
+            <IconClockX className="me-2 size-4" />
+            {t("sidebar.removeFromRecent")}
+          </DropdownMenuItem>
+        </SidebarRowMenu>
+      </SidebarRowActions>
+    </div>
+  );
+}
 
 export function PersonalSidebarSections({
   renderPinned,
@@ -70,6 +147,7 @@ export function PersonalSidebarSections({
   onNavigate,
   onCreatePage,
   createPagePending = false,
+  onToggleFavorite,
   reorderLabels,
   seeAllHrefs,
 }: {
@@ -81,6 +159,7 @@ export function PersonalSidebarSections({
   onNavigate?: () => void;
   onCreatePage?: () => void;
   createPagePending?: boolean;
+  onToggleFavorite?: (documentId: string, isFavorite: boolean) => void;
   reorderLabels: SidebarReorderLabels;
   seeAllHrefs: Record<ContentSidebarSectionId, string>;
 }) {
@@ -89,6 +168,7 @@ export function PersonalSidebarSections({
   const stateArgs = contentSpaceActionArgs(spaceId);
   const state = useActionQuery("get-content-sidebar-state", stateArgs);
   const recent = useContentRecent(spaceId);
+  const removeRecent = useRemoveContentRecent();
   const update = useActionMutation("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
   });
@@ -275,30 +355,28 @@ export function PersonalSidebarSections({
                       {recent.data.entries
                         .slice(0, limits.recent)
                         .map((entry) => (
-                          <SidebarNavigationRow
+                          <RecentSidebarRow
                             key={contentRecentTargetKey(entry.target)}
-                            to={contentRecentHref(entry.target)}
-                            icon={entry.icon}
+                            entry={entry}
                             active={
                               !!activeDocumentId &&
                               entry.target.documentId === activeDocumentId
                             }
-                            onClick={onNavigate}
-                            title={
-                              entry.viewName
-                                ? `${entry.title} · ${entry.viewName}`
-                                : entry.title
+                            onNavigate={onNavigate}
+                            onToggleFavorite={
+                              onToggleFavorite
+                                ? (documentId, isFavorite) => {
+                                    setCachedRecentPinnedState(
+                                      queryClient,
+                                      documentId,
+                                      isFavorite,
+                                    );
+                                    onToggleFavorite(documentId, isFavorite);
+                                  }
+                                : undefined
                             }
-                          >
-                            <span className="min-w-0 flex-1 truncate">
-                              {entry.title || t("sidebar.untitled")}
-                            </span>
-                            {entry.viewName && (
-                              <span className="truncate text-muted-foreground">
-                                {entry.viewName}
-                              </span>
-                            )}
-                          </SidebarNavigationRow>
+                            onRemove={removeRecent}
+                          />
                         ))}
                     </nav>
                   ) : (

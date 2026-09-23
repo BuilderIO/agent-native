@@ -1451,6 +1451,8 @@ const enUS = {
     addSubPage: "Add sub-page",
     collapse: "Collapse sidebar",
     collapseItem: "Collapse {{title}}",
+    removeFromRecent: "Remove from Recent",
+    failedRemoveFromRecent: "Couldn't remove from Recent",
     resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",
     connectWorkspace: "Connect workspace",

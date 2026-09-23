@@ -902,6 +902,8 @@ const rawLiterals = {
     addChild: "新增子项",
     addChildTo: "新增子项至 {{title}}",
     collapseItem: "收起 {{title}}",
+    removeFromRecent: "从最近访问中移除",
+    failedRemoveFromRecent: "无法从最近访问中移除",
     expandItem: "展开 {{title}}",
     completeStepsAboveFirst: "请先完成上面的步骤",
     connectWorkspace: "连接工作区",

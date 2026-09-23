@@ -876,6 +876,8 @@ const rawLiterals = {
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
     collapseItem: "{{title}} einklappen",
+    removeFromRecent: "Aus „Zuletzt besucht“ entfernen",
+    failedRemoveFromRecent: "Entfernen aus „Zuletzt besucht“ fehlgeschlagen",
     expandItem: "{{title}} erweitern",
     database: "Sammlung",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",

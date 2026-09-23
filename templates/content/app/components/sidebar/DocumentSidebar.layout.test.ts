@@ -392,11 +392,15 @@ describe("document sidebar layout", () => {
 
   it("uses the full row width until right-side actions are revealed", () => {
     const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const rowActions = readSidebarSource("./SidebarRowActions.tsx");
     const reorder = readSidebarSource("./sidebar-reorder.tsx");
 
     // Revealed actions fade the title's end instead of re-truncating it.
-    expect(databaseSidebar).toContain(
+    expect(rowActions).toContain(
       "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
+    );
+    expect(databaseSidebar).toContain(
+      "sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1)",
     );
     expect(databaseSidebar).not.toContain("group-hover:pe-12");
     expect(databaseSidebar).not.toContain(
@@ -415,9 +419,8 @@ describe("document sidebar layout", () => {
     expect(databaseSidebar).toMatch(
       /key=\{navigationItem\.membershipId\}\s+className="grid min-w-0 gap-0\.5"/,
     );
-    expect(databaseSidebar).toContain(
-      "pointer-events-none absolute end-0 top-1/2",
-    );
+    expect(rowActions).toContain("pointer-events-none absolute end-0 top-1/2");
+    expect(databaseSidebar).toContain("<SidebarRowActions>");
     expect(reorder).toContain(
       'document.addEventListener("click", preventDraggedLinkNavigation, true)',
     );
@@ -549,6 +552,23 @@ describe("document sidebar layout", () => {
     expect(databaseSidebar).toContain("revealActiveSidebarRow(rowRef.current)");
     expect(databaseSidebar).not.toContain('active && "font-semibold');
     expect(sidebar).toContain("sidebarRowClassName(trashActive)");
+  });
+
+  it("gives Recent rows the shared row actions with personal-only items", () => {
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+    const recentRow = sections.slice(
+      sections.indexOf("function RecentSidebarRow"),
+      sections.indexOf("export function PersonalSidebarSections"),
+    );
+
+    expect(recentRow).toContain("<SidebarRowActions>");
+    expect(recentRow).toContain("<SidebarRowMenu label={title}>");
+    expect(recentRow).toContain("<SidebarPinMenuItem");
+    expect(recentRow).toContain('t("sidebar.removeFromRecent")');
+    // Recent is personal history: no shared mutations or hierarchy controls.
+    expect(recentRow).not.toContain("database.delete");
+    expect(recentRow).not.toContain("addChild");
+    expect(recentRow).not.toContain("useSidebarReorderItem");
   });
 
   it("keeps Trash in a fixed group and Settings in the footer only", () => {

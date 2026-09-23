@@ -16,12 +16,10 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconDatabase,
-  IconDots,
   IconFileText,
   IconFolder,
   IconFolderOpen,
   IconPlus,
-  IconPin,
   IconTrash,
 } from "@tabler/icons-react";
 import {
@@ -40,6 +38,13 @@ import {
   sidebarRowClassName,
   sidebarShowMoreClassName,
 } from "@/components/sidebar/SidebarNavigationRow";
+import {
+  SidebarPinMenuItem,
+  SidebarRowActions,
+  SidebarRowMenu,
+  sidebarRowActionButtonClassName,
+  sidebarRowTitleFadeClassName,
+} from "@/components/sidebar/SidebarRowActions";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -1138,10 +1143,8 @@ function DatabaseSidebarRow({
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
-              // Fade the title under the actions instead of re-truncating it,
-              // so the text never shifts under the pointer.
               hasRowActions &&
-                "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)] group-focus-within:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
+                sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
             )}
           >
             {title}
@@ -1149,47 +1152,31 @@ function DatabaseSidebarRow({
         </SidebarNavigationRow>
 
         {hasRowActions && (
-          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
+          <SidebarRowActions>
             {hasMenuActions && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t("sidebar.moreActionsFor", { label: title })}
+              <SidebarRowMenu label={title}>
+                {canFavorite && onToggleFavorite ? (
+                  <SidebarPinMenuItem
+                    pinned={Boolean(item.document.isFavorite)}
+                    onSelect={() => onToggleFavorite(item)}
+                  />
+                ) : null}
+                {canFavorite &&
+                onToggleFavorite &&
+                canManage &&
+                onDeleteItem ? (
+                  <DropdownMenuSeparator />
+                ) : null}
+                {canManage && onDeleteItem ? (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => onDeleteItem(item)}
                   >
-                    <IconDots size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  {canFavorite && onToggleFavorite ? (
-                    <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
-                      <IconPin
-                        className="me-2 size-4"
-                        strokeWidth={item.document.isFavorite ? 2.2 : 1.7}
-                      />
-                      {item.document.isFavorite
-                        ? t("sidebar.unpinFromSidebar")
-                        : t("sidebar.pinToSidebar")}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canFavorite &&
-                  onToggleFavorite &&
-                  canManage &&
-                  onDeleteItem ? (
-                    <DropdownMenuSeparator />
-                  ) : null}
-                  {canManage && onDeleteItem ? (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => onDeleteItem(item)}
-                    >
-                      <IconTrash className="me-2 size-4" />
-                      {t("database.delete")}
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    <IconTrash className="me-2 size-4" />
+                    {t("database.delete")}
+                  </DropdownMenuItem>
+                ) : null}
+              </SidebarRowMenu>
             )}
 
             {canCreateChild ? (
@@ -1199,7 +1186,7 @@ function DatabaseSidebarRow({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className={sidebarRowActionButtonClassName}
                         aria-label={t("sidebar.addChildTo", { title })}
                         data-sidebar-add-child
                       >
@@ -1235,7 +1222,7 @@ function DatabaseSidebarRow({
                 <IconPlus size={14} />
               </button>
             )}
-          </div>
+          </SidebarRowActions>
         )}
       </div>
     </>

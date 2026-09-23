@@ -2576,6 +2576,7 @@ export function DocumentSidebar({
               onNavigate={onNavigate}
               onCreatePage={() => void handleCreatePageInSpace(selectedSpace)}
               createPagePending={createDocument.isPending}
+              onToggleFavorite={handleToggleFavorite}
               reorderLabels={sidebarReorderLabels}
               seeAllHrefs={{
                 pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,

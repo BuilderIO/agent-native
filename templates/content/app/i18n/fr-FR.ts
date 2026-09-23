@@ -873,6 +873,8 @@ const rawLiterals = {
     addChild: "Ajouter un enfant",
     addChildTo: "Ajouter un enfant à {{title}}",
     collapseItem: "Réduire {{title}}",
+    removeFromRecent: "Retirer des Récents",
+    failedRemoveFromRecent: "Impossible de retirer des Récents",
     expandItem: "Développer {{title}}",
     database: "Collection",
     databasePermanentlyDeleted: "Collection supprimée définitivement",
