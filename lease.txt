@@ -1,7 +1,7 @@
 pr=5677
 owner_thread=01a0cab7-b24e-7c01-a850-49008be67c65
-version=102
-expires_at=2026-09-23T05:39:13Z
+version=103
+expires_at=2026-09-23T05:40:46Z
 observed_legacy_heartbeat=none
 legacy_retired=true
 pr_head=f8e36946375f647d4fcdbbe28a6963c54c2c4687
