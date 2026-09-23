@@ -378,7 +378,6 @@ templates/clips/app/i18n/es-ES|preRecord.uploadVideo|Upload video
 templates/clips/app/i18n/es-ES|recordRoute.backToLibrary|Back to library
 templates/clips/app/i18n/es-ES|recordRoute.betterInDesktop|Better in the desktop app
 templates/clips/app/i18n/es-ES|recordRoute.clipsRecorder|Clips recorder
-templates/clips/app/i18n/es-ES|recordRoute.couldNotImportLoom|Could not import that Loom.
 templates/clips/app/i18n/es-ES|recordRoute.couldNotStartRecorder|Could not start recorder
 templates/clips/app/i18n/es-ES|recordRoute.couldNotStartRecording|Could not start recording
 templates/clips/app/i18n/es-ES|recordRoute.desktopAppDescription|Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.
@@ -554,7 +553,6 @@ templates/clips/app/i18n/pt-BR|preRecord.uploadVideo|Upload video
 templates/clips/app/i18n/pt-BR|recordRoute.backToLibrary|Back to library
 templates/clips/app/i18n/pt-BR|recordRoute.betterInDesktop|Better in the desktop app
 templates/clips/app/i18n/pt-BR|recordRoute.clipsRecorder|Clips recorder
-templates/clips/app/i18n/pt-BR|recordRoute.couldNotImportLoom|Could not import that Loom.
 templates/clips/app/i18n/pt-BR|recordRoute.couldNotStartRecorder|Could not start recorder
 templates/clips/app/i18n/pt-BR|recordRoute.couldNotStartRecording|Could not start recording
 templates/clips/app/i18n/pt-BR|recordRoute.desktopAppDescription|Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.

@@ -1654,7 +1654,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "É necessário conectar o armazenamento para concluir a importação do Loom",
     loomImported: "Loom imported",
-    couldNotImportLoom: "Could not import that Loom.",
+    couldNotImportLoom: "Não foi possível importar esse Loom.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copiado",

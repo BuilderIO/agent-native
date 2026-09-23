@@ -75,7 +75,7 @@ export function ImportLoomDialog({
         storageSetupRequired?: boolean;
       };
       if (!result.recordingId) {
-        throw new Error("Loom import did not return a recording id.");
+        throw new Error(t("recordRoute.couldNotImportLoom"));
       }
 
       if (result.storageSetupRequired || result.status === "waiting_storage") {

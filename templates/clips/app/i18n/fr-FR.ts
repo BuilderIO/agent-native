@@ -1670,7 +1670,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (Localisé)",
     loomImported: "Loom imported (Localisé)",
-    couldNotImportLoom: "Could not import that Loom. (Localisé)",
+    couldNotImportLoom: "Impossible d’importer ce Loom.",
     recordingReadyToUpload: "Recording is ready to upload (Localisé)",
     recordingSaved: "Recording saved (Localisé)",
     linkCopied: "Lien copié",

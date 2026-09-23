@@ -283,7 +283,7 @@ export function useDropVideoUpload(scope: {
         }
         // Refetch so the real card is present before the placeholder leaves,
         // making the hand-off seamless (the finally block clears it).
-        void invalidateRecordings().catch((error) => {
+        await invalidateRecordings().catch((error) => {
           console.warn("[clips] dropped-upload list refresh failed", error);
         });
       } catch (err) {

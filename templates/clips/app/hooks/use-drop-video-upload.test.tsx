@@ -65,8 +65,9 @@ function Probe({
 }: {
   scope?: { spaceId?: string | null; folderId?: string | null };
 }) {
-  uploadFiles = useDropVideoUpload(scope).uploadFiles;
-  return null;
+  const state = useDropVideoUpload(scope);
+  uploadFiles = state.uploadFiles;
+  return <span>{state.uploads.length}</span>;
 }
 
 afterEach(() => {
@@ -231,5 +232,40 @@ describe("useDropVideoUpload", () => {
         preferAuthenticated: true,
       }),
     );
+  });
+
+  it("keeps the upload placeholder until the recordings refresh completes", async () => {
+    let finishRefresh!: () => void;
+    mocks.callAction.mockResolvedValue({
+      id: "recording-1",
+      uploadChunkUrl: "/api/uploads/recording-1/chunk",
+    });
+    mocks.probeVideoMetadata.mockResolvedValue({
+      durationMs: 1000,
+      width: 640,
+      height: 480,
+    });
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+    mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+    mocks.invalidateQueries.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishRefresh = resolve;
+      }),
+    );
+    mocks.uploadChunkRequest.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() =>
+      expect(mocks.invalidateQueries).toHaveBeenCalledOnce(),
+    );
+    expect(container.textContent).toBe("1");
+    await act(async () => finishRefresh());
+    await vi.waitFor(() => expect(container.textContent).toBe("0"));
   });
 });
