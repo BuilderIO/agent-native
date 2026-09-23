@@ -795,7 +795,8 @@ export function runCrossScreenElementDrop(
   });
   if (crossScreenExecutionMode === "screen-bridge-insert") {
     const boardContent = getScreenContent(sourceScreenId);
-    if (!boardContent) return;
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+    if (!boardContent && !sourceHtml) return;
     const boardProjection = buildCodeLayerProjection(boardContent, {
       source: { kind: "design-file", fileId: sourceScreenId },
     });
@@ -804,9 +805,13 @@ export function runCrossScreenElementDrop(
       sourceSelector,
       sourceNodeId,
     );
+    // A live layer dragged onto the canvas is present in the board iframe's
+    // transient DOM, but it is intentionally not persisted into the board
+    // document. Prefer the id and outerHTML captured from that iframe. The
+    // stored board projection remains the fallback for ordinary board
+    // primitives that were already in the document.
     const subjectNodeId =
-      subjectNode?.dataAttributes["data-agent-native-node-id"];
-    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+      sourceNodeId ?? subjectNode?.dataAttributes["data-agent-native-node-id"];
     const validatedSourceHtmlSnapshot =
       subjectNodeId && sourceHtml
         ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)

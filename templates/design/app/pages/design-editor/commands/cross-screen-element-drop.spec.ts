@@ -2367,8 +2367,10 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
           ]),
         },
         designSourceType: "localhost",
+        // The live-to-board leg is transient, so the stored board document
+        // does not contain the node even though sourceHtmlSnapshot does.
         getScreenContent: (screenId) =>
-          screenId === "board" ? boardMarkup : "http://localhost:3102/library",
+          screenId === "board" ? "" : "http://localhost:3102/library",
         id: undefined,
         overviewScreens: [
           {
