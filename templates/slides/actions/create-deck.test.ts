@@ -537,6 +537,7 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(events[1]?.properties).not.toHaveProperty("prompt");
     expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
       generationAttemptId: events[0]?.properties.generation_attempt_id,
+      generationMode: "action",
     });
     expect(result.slideCount).toBe(0);
   });

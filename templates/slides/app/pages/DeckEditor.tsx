@@ -662,6 +662,8 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
+  const generationLifecycleOwnedByEditor =
+    generationContext?.generationMode !== "action";
   const targetSlideCount =
     typeof generationContext?.targetSlideCount === "number" &&
     Number.isInteger(generationContext.targetSlideCount) &&
@@ -670,7 +672,13 @@ export default function DeckEditor() {
       : null;
 
   useEffect(() => {
-    if (!generationAttemptId || !id || !wasNewDeckCreation.current) return;
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
     generationRunStartedRef.current = hasStartedGenerationAttempt(
       generationAttemptId,
       id,
@@ -694,10 +702,16 @@ export default function DeckEditor() {
         SLIDES_GENERATION_STARTED_EVENT,
         handleGenerationStarted,
       );
-  }, [generationAttemptId, id]);
+  }, [generationAttemptId, generationLifecycleOwnedByEditor, id]);
 
   useEffect(() => {
-    if (!generationAttemptId || !id || !wasNewDeckCreation.current) return;
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
     if (!generationRunStartedRef.current) return;
     if (generating) {
       generationSawActiveRef.current = true;
@@ -785,6 +799,7 @@ export default function DeckEditor() {
   }, [
     generating,
     generationAttemptId,
+    generationLifecycleOwnedByEditor,
     generationRunError,
     generationStopReason,
     generationTimedOut,
@@ -795,7 +810,12 @@ export default function DeckEditor() {
   ]);
 
   useEffect(() => {
-    if (!generationAttemptId || !wasNewDeckCreation.current) return;
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !wasNewDeckCreation.current
+    )
+      return;
     const handlePageHide = () => {
       if (
         !generationRunStartedRef.current ||
@@ -819,7 +839,7 @@ export default function DeckEditor() {
     };
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [generationAttemptId, id, slideCount]);
+  }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor. Only assume edit access while the role is still

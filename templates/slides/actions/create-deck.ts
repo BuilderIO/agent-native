@@ -502,7 +502,12 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
         ...(incrementalGeneration
-          ? { generationContext: { generationAttemptId } }
+          ? {
+              generationContext: {
+                generationAttemptId,
+                generationMode: "action",
+              },
+            }
           : {}),
       };
       if (aspectRatio) data.aspectRatio = aspectRatio;
