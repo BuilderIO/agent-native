@@ -13636,16 +13636,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       kind !== "rect" &&
       kind !== "rectangle" &&
       kind !== "ellipse" &&
-      kind !== "circle"
+      kind !== "circle" &&
+      kind !== "pasted-svg"
     ) {
       return null;
     }
     // Direct children only: an arrow's marker <path> sits inside <defs>
     // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
     // this in step with code-layer's childIndexes walk.
-    return el.querySelector(
-      ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
-    );
+    var directShapes = Array.from(el.children).filter(function (child) {
+      return [
+        "path",
+        "polygon",
+        "ellipse",
+        "circle",
+        "rect",
+        "line",
+        "polyline",
+      ].includes(child.tagName.toLowerCase());
+    });
+    if (kind === "pasted-svg" && directShapes.length !== 1) return null;
+    return kind === "pasted-svg"
+      ? directShapes[0] || null
+      : el.querySelector(
+          ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
+        );
   }
 
   function collectElementInlineStyles(el: Element): Record<string, string> {
@@ -22765,6 +22780,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
+    // A live text edit owns pointer selection inside its contenteditable. The
+    // document capture listener must not cancel that native gesture before the
+    // target's own selection machinery sees it; clicks outside still commit
+    // through the shield path below.
+    if (
+      activeTextEditEl &&
+      isTextEditElConnected() &&
+      e.target &&
+      activeTextEditEl.contains(e.target)
+    ) {
+      return;
+    }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // Consume any host handoff at pointerdown; the synthetic event carries
@@ -23483,6 +23510,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
           { type: "figma-clipboard-paste", content: content },
+          "*",
+        );
+        return;
+      }
+      var svgHtml = e.clipboardData?.getData("text/html") || "";
+      var svgText = e.clipboardData?.getData("text/plain") || "";
+      var svgSource = /<svg\b/i.test(svgHtml)
+        ? svgHtml
+        : /<svg\b/i.test(svgText)
+          ? svgText
+          : "";
+      if (svgSource) {
+        stopNativeInteraction(e);
+        (window.parent as Window).postMessage(
+          { type: "figma-clipboard-paste", content: "", svg: svgSource },
           "*",
         );
         return;

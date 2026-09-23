@@ -5,6 +5,7 @@ import {
 } from "@shared/color-utils";
 import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -670,7 +671,10 @@ export function PropSelect({
       </InspectorGridCell>
       <InspectorGridCell span={18}>
         <Select value={value} onValueChange={onChange}>
-          <SelectTrigger className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger
+            aria-label={label}
+            className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -756,15 +760,34 @@ export function PanelSection({
   title,
   actions,
   children,
+  onEmptyTitleClick,
+  emptyTitleActionLabel,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
+  onEmptyTitleClick?: () => void;
+  emptyTitleActionLabel?: string;
 }) {
   const hasContent = Children.toArray(children).length > 0;
   const heading = (
-    <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
-      {title}
+    <h3
+      aria-label={title}
+      className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground"
+    >
+      {onEmptyTitleClick && !hasContent ? (
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label={emptyTitleActionLabel ?? title}
+          className="h-full w-full min-w-0 justify-start rounded-none bg-transparent p-0 text-left text-inherit shadow-none hover:bg-transparent"
+          onClick={onEmptyTitleClick}
+        >
+          {title}
+        </Button>
+      ) : (
+        title
+      )}
     </h3>
   );
 

@@ -10069,10 +10069,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (kind === "boolean-operand") {
         return el.querySelector(":scope > rect");
       }
-      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle") {
+      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle" && kind !== "pasted-svg") {
         return null;
       }
-      return el.querySelector(
+      var directShapes = Array.from(el.children).filter(function(child) {
+        return [
+          "path",
+          "polygon",
+          "ellipse",
+          "circle",
+          "rect",
+          "line",
+          "polyline"
+        ].includes(child.tagName.toLowerCase());
+      });
+      if (kind === "pasted-svg" && directShapes.length !== 1) return null;
+      return kind === "pasted-svg" ? directShapes[0] || null : el.querySelector(
         ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline"
       );
     }
@@ -16162,6 +16174,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
+      if (activeTextEditEl && isTextEditElConnected() && e.target && activeTextEditEl.contains(e.target)) {
+        return;
+      }
       stopNativeInteraction(e);
       clearGridProjectionCaches();
       hostIgnoreAutoLayoutAtPointerDown = false;
@@ -16635,6 +16650,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           stopNativeInteraction(e);
           window.parent.postMessage(
             { type: "figma-clipboard-paste", content },
+            "*"
+          );
+          return;
+        }
+        var svgHtml = e.clipboardData?.getData("text/html") || "";
+        var svgText = e.clipboardData?.getData("text/plain") || "";
+        var svgSource = /<svg\\b/i.test(svgHtml) ? svgHtml : /<svg\\b/i.test(svgText) ? svgText : "";
+        if (svgSource) {
+          stopNativeInteraction(e);
+          window.parent.postMessage(
+            { type: "figma-clipboard-paste", content: "", svg: svgSource },
             "*"
           );
           return;

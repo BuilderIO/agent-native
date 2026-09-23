@@ -756,6 +756,21 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
         );
       })
       .toEqual({ text: "E2E", lineHeight: "20%" });
+
+    await page.reload();
+    const reloadedRange = designFrame(page, screenId).locator(
+      `[data-agent-native-node-id="${nodeId}"] span`,
+    );
+    await expect(reloadedRange).toBeVisible();
+    await expect(reloadedRange).toHaveText("E2E");
+    await expect
+      .poll(() =>
+        reloadedRange.evaluate((element) => ({
+          lineHeight: (element as HTMLElement).style.lineHeight,
+          text: element.textContent,
+        })),
+      )
+      .toEqual({ lineHeight: "20%", text: "E2E" });
   } finally {
     await deleteDesign(page, designId);
   }
@@ -1007,7 +1022,7 @@ test("nested unregistered text shows Typography and omits Add fill", async ({
     "Nested text inspector parity",
     `<!doctype html><html><body style="margin:0;padding:32px;background:#111;color:#fff">
       <div data-agent-native-node-id="nested-card" data-agent-native-layer-name="Nested card" style="display:flex;width:320px;height:120px;padding:20px;background:#333">
-        <div data-agent-native-node-id="draft-text-1789241921693-bxs6h7" style="display:flex;width:180px;height:24px;font-size:16px;color:#fff">Nested text primitive</div>
+        <div data-agent-native-node-id="draft-text-1789241921693-bxs6h7" data-agent-native-layer-name="Nested text primitive" style="display:flex;width:180px;height:24px;font-size:16px;color:#fff">Nested text primitive</div>
       </div>
     </body></html>`,
   );

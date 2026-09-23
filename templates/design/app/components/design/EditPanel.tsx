@@ -124,6 +124,7 @@ import {
 } from "./edit-panel/fill-gradient-helpers";
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
+import { ImageProperties } from "./edit-panel/image-properties";
 import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
 import { SectionIconButton } from "./edit-panel/inspector-controls";
 import {
@@ -3358,6 +3359,14 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
+                  {inspectorElement.tagName.toLowerCase() === "img" ? (
+                    <ImageProperties
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                    />
+                  ) : null}
                   {selectionHasTextElement ? (
                     <TypographyProperties
                       element={

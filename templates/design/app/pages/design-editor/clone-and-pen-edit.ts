@@ -229,7 +229,11 @@ export function writeBackVectorEditedPenPath(
  * Returns the translation between an SVG PenPath's authored coordinates and
  * its current screen-content position. Vector edit handles use screen-content
  * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
- * the path data or its viewBox.
+ * the path data or its viewBox. Non-translation transforms remain unsupported:
+ * the editor currently stores edited anchors in screen-content coordinates,
+ * while writeBackVectorEditedPenPath expects authored SVG coordinates. Accepting
+ * scale/rotation/skew here without carrying the inverse matrix through commit
+ * would serialize displaced anchors and change the rendered geometry.
  */
 export function penPathScreenContentOffset(svg: SVGSVGElement): {
   x: number;

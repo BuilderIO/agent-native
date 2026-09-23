@@ -447,10 +447,80 @@ export function StrokeProperties({
   // a truthy array of `null`s as `children`, rendering an empty spacer div
   // under the header instead of staying collapsed like Fill's empty state.
   const hasStrokeContent = strokeIsMixed || borderExists || outlineExists;
+  const addStroke = () => {
+    if (strokeIsMixed) {
+      commitStylePatch(
+        {
+          borderWidth: "1px",
+          borderStyle: "solid",
+          borderColor: DEFAULT_STROKE_COLOR,
+          outlineWidth: "0px",
+          outlineStyle: "none",
+        },
+        onStyleChange,
+        onStylesChange,
+      );
+      return;
+    }
+    if (!borderVisible) {
+      const existingBorderColor = styles.borderColor || styles.color;
+      const existingParsed = parseCssColor(existingBorderColor || "");
+      const borderColor = cssColorOrFallback(
+        existingParsed
+          ? rgbaToCss(withColorOpacity(existingParsed, 100))
+          : existingBorderColor,
+        DEFAULT_STROKE_COLOR,
+      );
+      commitStylePatch(
+        {
+          borderWidth: "1px",
+          borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
+          borderColor,
+        },
+        onStyleChange,
+        onStylesChange,
+      );
+      return;
+    }
+    if (outlineVisible) {
+      const outlineWidth = `${Math.max(1, cssLengthNumber(styles.outlineWidth, 1)) + 1}px`;
+      const outlineStyle = resolveRestoredStrokeStyle(styles.outlineStyle);
+      const outlineColor = cssColorOrFallback(
+        styles.outlineColor || styles.borderColor,
+        DEFAULT_STROKE_COLOR,
+      );
+      commitStylePatch(
+        {
+          outlineWidth,
+          outlineStyle,
+          outlineColor,
+          outlineOffset: styles.outlineOffset || "0px",
+        },
+        onStyleChange,
+        onStylesChange,
+      );
+      return;
+    }
+    commitStylePatch(
+      {
+        outlineWidth: "1px",
+        outlineStyle: "solid",
+        outlineColor: cssColorOrFallback(
+          styles.borderColor,
+          DEFAULT_STROKE_COLOR,
+        ),
+        outlineOffset: "0px",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+  };
 
   return (
     <PanelSection
       title={t("editPanel.sections.stroke")}
+      onEmptyTitleClick={addStroke}
+      emptyTitleActionLabel={t("editPanel.labels.addStroke")}
       actions={
         <>
           <SectionIconButton
@@ -461,88 +531,7 @@ export function StrokeProperties({
           </SectionIconButton>
           <SectionIconButton
             label={t("editPanel.labels.addStroke")}
-            onClick={() => {
-              if (strokeIsMixed) {
-                commitStylePatch(
-                  {
-                    borderWidth: "1px",
-                    borderStyle: "solid",
-                    borderColor: DEFAULT_STROKE_COLOR,
-                    outlineWidth: "0px",
-                    outlineStyle: "none",
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              if (!borderVisible) {
-                // Restore full alpha before falling back to cssColorOrFallback
-                // — a border previously hidden via the eye toggle (zero-alpha,
-                // real RGB preserved) is not "transparent" by that helper's
-                // narrow literal check, so without this an "Add" click here
-                // could silently re-add an invisible border.
-                const existingBorderColor = styles.borderColor || styles.color;
-                const existingParsed = parseCssColor(existingBorderColor || "");
-                const borderColor = cssColorOrFallback(
-                  existingParsed
-                    ? rgbaToCss(withColorOpacity(existingParsed, 100))
-                    : existingBorderColor,
-                  DEFAULT_STROKE_COLOR,
-                );
-                commitStylePatch(
-                  {
-                    borderWidth: "1px",
-                    // Preserve a real style (dashed/dotted/etc) that survived
-                    // on a hidden-via-alpha border — only the outline branch
-                    // below used to do this; the border branch hardcoded
-                    // "solid" unconditionally, silently discarding it. See
-                    // resolveRestoredStrokeStyle's doc comment.
-                    borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
-                    borderColor,
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              if (outlineVisible) {
-                const outlineWidth = `${
-                  Math.max(1, cssLengthNumber(styles.outlineWidth, 1)) + 1
-                }px`;
-                const outlineStyle = resolveRestoredStrokeStyle(
-                  styles.outlineStyle,
-                );
-                const outlineColor = cssColorOrFallback(
-                  styles.outlineColor || styles.borderColor,
-                  DEFAULT_STROKE_COLOR,
-                );
-                commitStylePatch(
-                  {
-                    outlineWidth,
-                    outlineStyle,
-                    outlineColor,
-                    outlineOffset: styles.outlineOffset || "0px",
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              commitStylePatch(
-                {
-                  outlineWidth: "1px",
-                  outlineStyle: "solid",
-                  outlineColor: cssColorOrFallback(
-                    styles.borderColor,
-                    DEFAULT_STROKE_COLOR,
-                  ),
-                  outlineOffset: "0px",
-                },
-                onStyleChange,
-                onStylesChange,
-              );
-            }}
+            onClick={addStroke}
           >
             <IconPlus className="size-3.5" />
           </SectionIconButton>
@@ -647,23 +636,20 @@ function TextStrokeProperties({
   ].some(isMixedValue);
   const strokeExists = cssLengthNumber(width) > 0;
   const visible = textStrokeIsVisible(width, color);
+  const addStroke = () => {
+    // Kebab-case keys preserve the leading dash in the persist allow-list.
+    commitStylePatch(textStrokeAddPatch(color), onStyleChange, onStylesChange);
+  };
 
   return (
     <PanelSection
       title={t("editPanel.sections.stroke")}
+      onEmptyTitleClick={addStroke}
+      emptyTitleActionLabel={t("editPanel.labels.addStroke")}
       actions={
         <SectionIconButton
           label={t("editPanel.labels.addStroke")}
-          onClick={() => {
-            // Kebab-case keys required: camelCase webkit props get mangled by
-            // normalizeStyleProperty (camel→kebab drops the leading dash) and
-            // silently fail the persist allow-list — see textStrokeAddPatch.
-            commitStylePatch(
-              textStrokeAddPatch(color),
-              onStyleChange,
-              onStylesChange,
-            );
-          }}
+          onClick={addStroke}
         >
           <IconPlus className="size-3.5" />
         </SectionIconButton>
@@ -988,23 +974,26 @@ function VectorStrokeProperties({
     // Marker choices require a structural SVG rewrite. Keep them out of a
     // responsive scope until the marker DOM can be scoped with the value.
     breakpointOverrideContext?.activeWidthPx == null;
+  const addStroke = () => {
+    commitStylePatch(
+      {
+        stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+        strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+  };
 
   return (
     <PanelSection
       title={t("editPanel.sections.stroke")}
+      onEmptyTitleClick={addStroke}
+      emptyTitleActionLabel={t("editPanel.labels.addStroke")}
       actions={
         <SectionIconButton
           label={t("editPanel.labels.addStroke")}
-          onClick={() => {
-            commitStylePatch(
-              {
-                stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
-                strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
-              },
-              onStyleChange,
-              onStylesChange,
-            );
-          }}
+          onClick={addStroke}
         >
           <IconPlus className="size-3.5" />
         </SectionIconButton>

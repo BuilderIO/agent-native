@@ -285,6 +285,7 @@ export function parentFlexDirection(
 
 /** Drawn vector primitives — an `<svg>` wrapper around one shape child. */
 const VECTOR_PRIMITIVE_KINDS = new Set([
+  "pasted-svg",
   "path",
   "line",
   "arrow",

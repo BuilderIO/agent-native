@@ -4373,6 +4373,7 @@ function setStyleValue(
 }
 
 const VECTOR_PAINT_PRIMITIVES = new Set([
+  "pasted-svg",
   "path",
   "line",
   "arrow",
@@ -4848,6 +4849,14 @@ function vectorShapeChild(
   ) {
     return null;
   }
+  if (kind === "pasted-svg") {
+    const directShapes = element.childIndexes
+      .map((index) => elements[index])
+      .filter((child): child is ParsedElement =>
+        Boolean(child && VECTOR_SHAPE_TAGS.has(child.tag)),
+      );
+    return directShapes.length === 1 ? (directShapes[0] ?? null) : null;
+  }
   for (const childIndex of element.childIndexes) {
     const child = elements[childIndex];
     if (child && VECTOR_SHAPE_TAGS.has(child.tag)) {
@@ -5012,6 +5021,7 @@ function vectorPaintChild(
 }
 
 type StyleEditTargetRoute =
+  | { kind: "unsupported" }
   | { kind: "boolean-operand" }
   | { kind: "boolean-result" }
   | { kind: "released-svg" }
@@ -5043,6 +5053,12 @@ function resolveStyleEditTargetRoute(
     return { kind: "released-svg" };
   }
   const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  if (
+    node.dataAttributes["data-an-primitive"] === "pasted-svg" &&
+    !paintChild
+  ) {
+    return { kind: "unsupported" };
+  }
   return paintChild
     ? { kind: "vector-paint", element: paintChild }
     : { kind: "ordinary", element };
@@ -9015,7 +9031,9 @@ function applyVisualEditUnsafe(
       intent,
       initial.elements,
     );
-    if (intent.operation === "remove") {
+    if (route.kind === "unsupported") {
+      edit = "unsupported";
+    } else if (intent.operation === "remove") {
       edit = applyStyleRemoveEdit(html, element, intent, route);
     } else if (route.kind === "boolean-operand") {
       edit = applyBooleanOperandStyleEdit(

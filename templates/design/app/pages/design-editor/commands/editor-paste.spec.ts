@@ -23,13 +23,16 @@ interface Harness {
   args: EditorPasteArgs;
   imported: string[];
   pasted: number;
+  svgs: string[];
 }
 
 function harness(): Harness {
   const imported: string[] = [];
+  const svgs: string[] = [];
   const state = { pasted: 0 };
   return {
     imported,
+    svgs,
     get pasted() {
       return state.pasted;
     },
@@ -40,6 +43,10 @@ function harness(): Harness {
         state.pasted += 1;
       },
       handlePastedImageFiles: () => false,
+      handlePastedSvg: (source) => {
+        svgs.push(source);
+        return true;
+      },
       hasCanvasClipboard: false,
       importFigmaClipboardIntoDesign: async (content) => {
         imported.push(content);
@@ -131,6 +138,17 @@ describe("runEditorPaste", () => {
     runEditorPaste(h.args, event);
 
     expect(handlePastedImageFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("routes ordinary SVG clipboard markup to editable-layer insertion", () => {
+    const h = harness();
+    const source = '<svg width="17" height="9"><path d="M0 0h17"/></svg>';
+    const event = pasteEvent({ "text/plain": source });
+
+    runEditorPaste(h.args, event);
+
+    expect(h.svgs).toEqual([source]);
     expect(event.defaultPrevented).toBe(true);
   });
 

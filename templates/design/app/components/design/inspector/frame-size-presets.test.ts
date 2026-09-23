@@ -13,8 +13,8 @@ describe("frame size presets", () => {
     }
   });
 
-  it("puts Phone first so it is the default-expanded group", () => {
-    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.key).toBe("phone");
+  it("puts Desktop first so it is the default-expanded group", () => {
+    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.key).toBe("desktop");
   });
 
   it("has no duplicate category keys", () => {

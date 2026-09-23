@@ -76,7 +76,10 @@ async function vectors(page: Page) {
     return [...doc.querySelectorAll<SVGElement>("svg[data-an-primitive]")].map(
       (svg) => {
         const rect = svg.getBoundingClientRect();
-        const numbers = (svg.querySelector("path")?.getAttribute("d") ?? "")
+        const path = svg.querySelector("path");
+        const pathData = path?.getAttribute("d") ?? "";
+        const pathStyle = path ? getComputedStyle(path) : null;
+        const numbers = pathData
           .split(/[^-\d.]+/)
           .filter(Boolean)
           .map(Number);
@@ -91,6 +94,10 @@ async function vectors(page: Page) {
           drawnTop: Math.min(...ys),
           paintedLeft: Math.round(rect.left),
           paintedTop: Math.round(rect.top),
+          pathData,
+          fill: pathStyle?.fill ?? null,
+          stroke: pathStyle?.stroke ?? null,
+          strokeWidth: pathStyle?.strokeWidth ?? null,
         };
       },
     );
@@ -136,6 +143,13 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
     expect(drawn).toHaveLength(1);
     const vector = drawn[0]!;
     expect(vector.parent).toBe("frame");
+    // Enter finishes the current open path; only an explicit click on its
+    // first anchor closes it. Open paths must remain visible as strokes and
+    // must not acquire the filled-shape default.
+    expect(vector.pathData).not.toMatch(/Z\s*$/i);
+    expect(vector.fill).toBe("none");
+    expect(vector.stroke).not.toBe("none");
+    expect(vector.strokeWidth).not.toBeNull();
     // Painted where the path was drawn, not offset by the frame's origin.
     expect(Math.abs(vector.paintedLeft - vector.drawnLeft)).toBeLessThan(6);
     expect(Math.abs(vector.paintedTop - vector.drawnTop)).toBeLessThan(6);

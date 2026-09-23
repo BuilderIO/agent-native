@@ -1,6 +1,11 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-import { enterDirectMode, expandAllLayers, gotoEditor } from "./helpers";
+import {
+  cdpScreenshot,
+  enterDirectMode,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -115,6 +120,64 @@ test("Add fill creates a Solid row and keeps existing fill layers aligned", asyn
     await expect(
       page.getByRole("button", { name: "Solid", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    await postAction(request, baseURL, "delete-design", { id: designId });
+  }
+});
+
+test("clicking an empty Stroke heading adds the first stroke", async ({
+  page,
+  request,
+  baseURL,
+}, testInfo) => {
+  if (!baseURL) throw new Error("Playwright baseURL is not configured");
+  const created = await postAction(request, baseURL, "create-design", {
+    title: `Stroke heading ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    await postAction(request, baseURL, "create-file", {
+      designId,
+      filename: "index.html",
+      content: `<!doctype html><html><body style="margin:0"><main style="position:relative;width:800px;height:600px"><div data-agent-native-node-id="stroke-target" data-agent-native-layer-name="Stroke target" style="position:absolute;left:40px;top:40px;width:200px;height:120px;background:#fff"></div></main></body></html>`,
+      fileType: "html",
+    });
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Stroke target", exact: true })
+      .first()
+      .click();
+
+    const stroke = page
+      .locator("section")
+      .filter({
+        has: page.locator("h3").filter({ hasText: "Stroke" }),
+      })
+      .first();
+    const headingAction = stroke.locator("h3 button");
+    await expect(headingAction).toHaveAccessibleName("Add stroke");
+    await headingAction.click();
+
+    const target = page
+      .locator("iframe[data-design-preview-iframe]")
+      .last()
+      .contentFrame()
+      .locator('[data-agent-native-node-id="stroke-target"]');
+    await expect
+      .poll(() => target.evaluate((node) => getComputedStyle(node).borderWidth))
+      .toBe("1px");
+    await expect(stroke.locator("h3 button")).toHaveCount(0);
+    await cdpScreenshot(
+      page,
+      testInfo.outputPath("stroke-added-from-heading.png"),
+    );
   } finally {
     await postAction(request, baseURL, "delete-design", { id: designId });
   }

@@ -166,11 +166,17 @@ describe("nested Pen path commits", () => {
 
     expect(penPathScreenContentOffset(svg)).toEqual({ x: 18, y: -157 });
 
-    Object.defineProperty(svg, "getScreenCTM", {
-      configurable: true,
-      value: () => ({ a: 1.25, b: 0, c: 0, d: 1, e: 0, f: 0 }),
-    });
-    expect(penPathScreenContentOffset(svg)).toBeNull();
+    for (const matrix of [
+      { a: 1.25, b: 0, c: 0, d: 1, e: 0, f: 0 }, // scale
+      { a: 0, b: 1, c: -1, d: 0, e: 0, f: 0 }, // rotation
+      { a: 1, b: 0.25, c: 0.5, d: 1, e: 0, f: 0 }, // skew
+    ]) {
+      Object.defineProperty(svg, "getScreenCTM", {
+        configurable: true,
+        value: () => matrix,
+      });
+      expect(penPathScreenContentOffset(svg)).toBeNull();
+    }
   });
 });
 

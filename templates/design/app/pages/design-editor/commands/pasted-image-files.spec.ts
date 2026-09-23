@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { RefObject } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesignFile } from "../types";
 import {
@@ -48,11 +48,19 @@ function args(
 const file = new File(["image"], "photo.png", { type: "image/png" });
 
 describe("runPastedImageFiles", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+  beforeEach(() => {
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 160, height: 90, close: vi.fn() })),
+    );
   });
 
-  it("inserts a local preview before replacing it with the uploaded URL", async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("inserts at the copied image's intrinsic size before replacing its URL", async () => {
     const createObjectURL = vi
       .spyOn(URL, "createObjectURL")
       .mockReturnValue("blob:preview");
@@ -89,17 +97,48 @@ describe("runPastedImageFiles", () => {
     ).toBe(true);
     expect(createObjectURL).toHaveBeenCalledWith(file);
     expect(updates).toHaveLength(0);
+    await vi.waitFor(() => expect(previews).toHaveLength(1));
     expect(previews).toHaveLength(1);
     expect(previews[0]).toContain('src="blob:preview"');
+    expect(previews[0]).toContain("width: 160px");
+    expect(previews[0]).toContain("height: 90px");
     expect(upload).toHaveBeenCalledWith(file);
 
     resolveUpload("https://cdn.example/photo.png");
     await vi.waitFor(() => expect(updates).toHaveLength(1));
 
     expect(updates[0]?.content).toContain("https://cdn.example/photo.png");
+    expect(updates[0]?.content).toContain("width: 160px");
+    expect(updates[0]?.content).toContain("height: 90px");
     expect(updates[0]?.content).not.toContain("blob:preview");
     expect(updates[0]?.persist).toBeUndefined();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview");
+  });
+
+  it("preserves a small 17 by 9 image's native dimensions", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:small-icon");
+    const previews: string[] = [];
+    const replacePreviewContent = vi.fn((content: string) => {
+      previews.push(content);
+    });
+    const applyLocalContentUpdate = vi.fn();
+    const upload = vi.fn(async () => "https://cdn.example/small-icon.png");
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 17, height: 9, close: vi.fn() })),
+    );
+
+    runPastedImageFiles(
+      args(applyLocalContentUpdate, replacePreviewContent, upload),
+      [file],
+      { fileId: "screen-1", point: { x: 20, y: 30 } },
+    );
+
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+    expect(previews[0]).toContain("width: 17px");
+    expect(previews[0]).toContain("height: 9px");
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain("width: 17px");
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain("height: 9px");
   });
 
   it("removes the local preview when the upload returns no URL", async () => {
@@ -150,6 +189,7 @@ describe("runPastedImageFiles", () => {
       { fileId: "screen-1", point: { x: 0, y: 0 } },
     );
 
+    await vi.waitFor(() => expect(upload).toHaveBeenCalled());
     resolveUpload("https://cdn.example/live.png");
     await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
 
@@ -190,6 +230,7 @@ describe("runPastedImageFiles", () => {
       expect(replacePreviewContent).toHaveBeenCalledOnce(),
     );
     previewContent = "<main></main>";
+    await vi.waitFor(() => expect(upload).toHaveBeenCalled());
     resolveUpload("https://cdn.example/deleted.png");
     await new Promise((resolve) => setTimeout(resolve, 0));
 

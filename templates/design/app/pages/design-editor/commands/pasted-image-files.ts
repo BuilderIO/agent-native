@@ -18,6 +18,58 @@ export interface PastedImageFilesTarget {
   point: { x: number; y: number };
 }
 
+type PastedImageDimensions = { width: number; height: number };
+
+function validDimensions(
+  width: number,
+  height: number,
+): PastedImageDimensions | null {
+  return Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0
+    ? { width, height }
+    : null;
+}
+
+async function readPastedImageDimensions(
+  file: File,
+  previewUrl: string | null,
+): Promise<PastedImageDimensions> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const dimensions = validDimensions(bitmap.width, bitmap.height);
+      bitmap.close();
+      if (dimensions) return dimensions;
+    } catch {
+      // Fall back to the browser image decoder below.
+    }
+  }
+
+  if (previewUrl && typeof Image !== "undefined") {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const dimensions = validDimensions(
+          image.naturalWidth,
+          image.naturalHeight,
+        );
+        if (dimensions) resolve(dimensions);
+        else reject(new Error("Pasted image has invalid dimensions"));
+      };
+      image.onerror = () => reject(new Error("Pasted image could not decode"));
+      image.src = previewUrl;
+    });
+  }
+
+  throw new Error("Could not decode pasted image dimensions");
+}
+
+function pastedImageStyle({ width, height }: PastedImageDimensions): string {
+  return `position:absolute;width:${width}px;height:${height}px;`;
+}
+
 export function replacePastedImageSource(
   content: string,
   nodeId: string,
@@ -146,7 +198,16 @@ export function runPastedImageFiles(
           typeof URL.createObjectURL === "function"
             ? URL.createObjectURL(file)
             : null;
-        const html = `<img src="${escapeHtmlAttributeValue(previewUrl ?? "")}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
+        let dimensions: PastedImageDimensions;
+        try {
+          dimensions = await readPastedImageDimensions(file, previewUrl);
+        } catch {
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
+          toast.error(t("common.genericError"));
+          continue;
+        }
+        const imageStyle = pastedImageStyle(dimensions);
+        const html = `<img src="${escapeHtmlAttributeValue(previewUrl ?? "")}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="${imageStyle}" />`;
         const previewContent = cloneHtmlLayerAtPosition(baseContent, html, {
           x: resolvedPoint.x + cascadeOffset,
           y: resolvedPoint.y + cascadeOffset,
@@ -198,7 +259,7 @@ export function runPastedImageFiles(
               ? replacedContent
               : (cloneHtmlLayerAtPosition(
                   durableContent,
-                  `<img src="${escapeHtmlAttributeValue(durableImageUrl)}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`,
+                  `<img src="${escapeHtmlAttributeValue(durableImageUrl)}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="${imageStyle}" />`,
                   {
                     x: resolvedPoint.x + cascadeOffset,
                     y: resolvedPoint.y + cascadeOffset,

@@ -120,12 +120,45 @@ async function boardVectorPaint(page: Page) {
       return {
         shapeFill: shape.fill,
         shapeStroke: shape.stroke,
+        shapeStrokeWidth: shape.strokeWidth,
         wrapperBackground: wrapper.backgroundColor || wrapper.background,
         wrapperBorderWidth: wrapper.borderWidth,
       };
     }
     return null;
   });
+}
+
+async function persistedBoardVectorPaint(
+  request: APIRequestContext,
+  designId: string,
+  boardFileId: string,
+) {
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) throw new Error(`get-design: ${await response.text()}`);
+  const design = await response.json();
+  const html = design.files?.find(
+    (file: { id?: string }) => file.id === boardFileId,
+  )?.content;
+  if (typeof html !== "string") throw new Error("board HTML was not returned");
+  return html;
+}
+
+async function sourceVectorPaint(page: Page, html: string) {
+  return page.evaluate((source) => {
+    const document = new DOMParser().parseFromString(source, "text/html");
+    const path = document.querySelector<SVGPathElement>(
+      'svg[data-agent-native-node-id="draft-pen-board-1"] > path',
+    );
+    if (!path) return null;
+    return {
+      fill: path.style.fill || path.getAttribute("fill"),
+      stroke: path.style.stroke || path.getAttribute("stroke"),
+      strokeWidth: path.style.strokeWidth || path.getAttribute("stroke-width"),
+    };
+  }, html);
 }
 
 function layerTree(page: Page) {
@@ -180,8 +213,7 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
 
     await selectLayerRow(page, "Vector");
 
-    // The user's gesture: the section starts empty for a shape whose paint
-    // lives on its SVG child, so "+" is what they press.
+    // The row label and plus affordance both add a paint, like Figma's section.
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(fillSection).toBeVisible();
     await fillSection.locator('button[aria-label="Add fill"]').click();
@@ -192,7 +224,17 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
       .toBe("");
 
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.locator('button[aria-label="Add stroke"]').click();
+    const strokeAddButtons = strokeSection.getByRole("button", {
+      name: "Add stroke",
+    });
+    await expect(strokeAddButtons).toHaveCount(2);
+    const headingAddStroke = strokeAddButtons.first();
+    const headingBounds = await headingAddStroke.boundingBox();
+    if (!headingBounds) throw new Error("Stroke heading has no bounds");
+    await page.mouse.click(
+      headingBounds.x + headingBounds.width - 4,
+      headingBounds.y + headingBounds.height / 2,
+    );
     await expect
       .poll(async () => (await boardVectorPaint(page))?.wrapperBorderWidth, {
         timeout: 15_000,
@@ -202,6 +244,128 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
     const paint = (await boardVectorPaint(page))!;
     expect(paint.shapeFill).toBe("rgb(218, 218, 218)");
     expect(paint.shapeStroke).toBe("rgb(0, 0, 0)");
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
+  page,
+  request,
+}) => {
+  const { designId, boardFileId } = await createDesign(request);
+  try {
+    await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect
+      .poll(async () => page.locator("[data-screen-shell]").count(), {
+        timeout: 40_000,
+      })
+      .toBeGreaterThan(1);
+    await page.waitForTimeout(3500);
+    await selectLayerRow(page, "Vector");
+
+    const before = await boardVectorPaint(page);
+    expect(before?.shapeFill).toBe("rgb(218, 218, 218)");
+    expect(before?.shapeStroke).toBe("none");
+
+    await page.keyboard.press("Shift+x");
+    await expect
+      .poll(async () => {
+        const paint = await boardVectorPaint(page);
+        return paint && [paint.shapeFill, paint.shapeStroke];
+      })
+      .toEqual(["none", "rgb(218, 218, 218)"]);
+    await expect
+      .poll(async () => {
+        const paint = await boardVectorPaint(page);
+        return Number.parseFloat(paint?.shapeStrokeWidth ?? "0");
+      })
+      .toBeGreaterThan(0);
+
+    const savedPaint = async () =>
+      sourceVectorPaint(
+        page,
+        await persistedBoardVectorPaint(request, designId, boardFileId),
+      );
+    await expect
+      .poll(async () => {
+        const source = await savedPaint();
+        return source && [source.fill, source.stroke];
+      })
+      .toEqual([
+        "none",
+        expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
+      ]);
+    const sourceAfterSwap = await savedPaint();
+    expect(sourceAfterSwap?.fill).toBe("none");
+    expect(sourceAfterSwap?.stroke).toMatch(
+      /218\s+218\s+218|218,\s*218,\s*218/i,
+    );
+
+    await page.getByRole("button", { name: "More", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Edit$/ }).hover();
+    await expect(page.getByRole("menuitem", { name: /Undo/ })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+z" : "Control+z",
+    );
+    await expect
+      .poll(async () => {
+        const source = await savedPaint();
+        return source && [source.fill, source.stroke];
+      })
+      .toEqual([
+        expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
+        "none",
+      ]);
+    await expect
+      .poll(async () => {
+        const paint = await boardVectorPaint(page);
+        return paint && [paint.shapeFill, paint.shapeStroke];
+      })
+      .toEqual(["rgb(218, 218, 218)", "none"]);
+    const savedAfterUndo = await persistedBoardVectorPaint(
+      request,
+      designId,
+      boardFileId,
+    );
+    const sourceAfterUndo = await sourceVectorPaint(page, savedAfterUndo);
+    expect(sourceAfterUndo?.fill).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
+    expect(sourceAfterUndo?.stroke).toBe("none");
+
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
+    );
+    await expect
+      .poll(async () => {
+        const paint = await boardVectorPaint(page);
+        return paint && [paint.shapeFill, paint.shapeStroke];
+      })
+      .toEqual(["none", "rgb(218, 218, 218)"]);
+    await expect
+      .poll(async () => {
+        const source = await savedPaint();
+        return source && [source.fill, source.stroke];
+      })
+      .toEqual([
+        "none",
+        expect.stringMatching(/218\s+218\s+218|218,\s*218,\s*218/i),
+      ]);
+    const savedAfterRedo = await persistedBoardVectorPaint(
+      request,
+      designId,
+      boardFileId,
+    );
+    const sourceAfterRedo = await sourceVectorPaint(page, savedAfterRedo);
+    expect(sourceAfterRedo?.fill).toBe("none");
+    expect(sourceAfterRedo?.stroke).toMatch(
+      /218\s+218\s+218|218,\s*218,\s*218/i,
+    );
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

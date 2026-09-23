@@ -911,6 +911,18 @@ describe("isVectorShapeElement", () => {
     },
   );
 
+  it("accepts the scoped pasted SVG marker", () => {
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "pasted-svg" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not broaden unmarked inline SVG classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+
   it("rejects a board-migrated polygon, which is a div painted with background", () => {
     // board-file.ts serializes polygon/star as plain divs carrying the same
     // data-an-primitive, so keying on the kind alone would send fill/stroke
