@@ -196,7 +196,17 @@ async function selectableNodeByText(
     const candidate = candidates.nth(index);
     const { candidateText, priority } = await candidate.evaluate((node) => ({
       candidateText: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
-      priority: node.hasAttribute("data-an-text") ? 1 : 0,
+      // Ancestors repeat the same text as their text-bearing descendants.
+      // Prefer a layer root when one is stamped, then an explicit text root,
+      // then a leaf, so the physical click lands inside the selectable area
+      // instead of a generated text span that may sit under canvas chrome.
+      priority: node.hasAttribute("data-agent-native-layer-name")
+        ? 0
+        : node.hasAttribute("data-an-text")
+          ? 1
+          : node.children.length === 0
+            ? 2
+            : 3,
     }));
     if (candidateText !== normalizedText) continue;
     const box = await candidate.boundingBox().catch(() => null);
@@ -442,27 +452,38 @@ export async function enterInteractView(
         .locator("[data-frame-full-view]")
     : page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
+  const screenShell = fullView.locator("xpath=ancestor::*[@data-screen-shell]");
+  await expect(screenShell).toHaveAttribute(
+    "data-screen-interact-mode",
+    "false",
+  );
   // The screen card can extend beneath the fixed inspector at narrow canvas
   // widths; invoke the button without relying on the panel's overlapping
   // physical hit area.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
-  // The overview screen shells are the boundary that actually unmounts; the
-  // toolbar's own Interact button stays mounted and merely becomes pressed.
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  await expect(screenShell).toHaveAttribute(
+    "data-screen-interact-mode",
+    "true",
+  );
+  // Interact is a responsive view of the same editor. Rails and the screen
+  // shell stay mounted; assert the view's own device preview below instead.
   await expect
     .poll(
       async () =>
         (
-          await page
+          await screenShell
             .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
             .last()
             .boundingBox()
         )?.width ?? 0,
       { timeout: 10_000 },
     )
-    .toBeGreaterThan(600);
+    // The responsive preview is intentionally narrower than the overview
+    // canvas once the inspector rails are mounted; assert it is usable rather
+    // than baking in a desktop-only width.
+    .toBeGreaterThan(400);
 }
 
 /** Start capturing bridge postMessages on the parent window. */

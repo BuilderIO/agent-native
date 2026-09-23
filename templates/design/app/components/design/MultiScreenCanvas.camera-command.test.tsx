@@ -286,6 +286,36 @@ describe("MultiScreenCanvas camera command delivery", () => {
     expect(world?.style.transform).toContain("scale(3.2)");
   });
 
+  it("keeps frame chrome at screen scale when toolbar zoom follows a camera command", async () => {
+    const command = {
+      fitBounds: {
+        left: 0,
+        top: 0,
+        right: 2000,
+        bottom: 40000,
+        width: 2000,
+        height: 40000,
+        centerX: 1000,
+        centerY: 20000,
+      },
+      nonce: 1,
+    };
+    await renderCanvas(command);
+    measurable = true;
+    await waitForAnimationFrame();
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    )!;
+
+    for (const zoom of [3.71, 25, 50, 100, 3.35]) {
+      await renderCanvas(command, { zoom });
+      expect(world.style.transform).toContain(`scale(${zoom / 100})`);
+      expect(
+        Number(world.style.getPropertyValue("--an-chrome-scale")),
+      ).toBeCloseTo(100 / zoom, 10);
+    }
+  });
+
   it("keeps the overview surface clipped without taking ownership of preview scrolling", async () => {
     await renderCanvas({
       fitBounds: {

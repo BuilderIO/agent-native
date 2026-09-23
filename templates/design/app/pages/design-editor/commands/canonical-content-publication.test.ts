@@ -130,8 +130,9 @@ it("publishes canonical bytes for a nonactive screen", () => {
       overviewPresenceFileId: null,
       overviewYdoc: null,
       queryClient: { setQueryData: () => {} } as unknown as QueryClient,
-      queueFileContentSave: (_fileId, content, options) =>
-        (queued = { content, options }),
+      queueFileContentSave: (_fileId, content, options) => {
+        queued = { content, options };
+      },
       recordContentHistoryEntry: () => {},
       suppressContentHistoryRef: { current: false },
       t: () => "Save failed",

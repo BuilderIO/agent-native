@@ -1168,6 +1168,14 @@ Agent resources are files users intentionally add, edit, or manage. Agents may c
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
 
+/** Bare or organization-scoped workspace owner; mirrors `isWorkspaceResourceOwner`. */
+function isWorkspaceResourceOwner(owner: string): boolean {
+  return (
+    owner === WORKSPACE_RESOURCE_OWNER ||
+    owner.startsWith(`${WORKSPACE_RESOURCE_OWNER}:`)
+  );
+}
+
 export interface ResourcesPanelProps {
   /** Hide the virtual MCP folder when Files is hosted by the Agent page. */
   showMcpServers?: boolean;
@@ -1415,7 +1423,7 @@ export function ResourcesPanel({
   const uploadResource = useUploadResource();
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
-    ((resourceQuery.data.owner === WORKSPACE_RESOURCE_OWNER &&
+    ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
       !isLocalWorkspaceResource(resourceQuery.data)) ||
       (resourceQuery.data.owner === SHARED_RESOURCE_OWNER && !canEditOrg));
 

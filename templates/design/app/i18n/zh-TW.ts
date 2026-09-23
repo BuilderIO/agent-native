@@ -504,6 +504,21 @@ const messages = {
     },
   },
   designEditor: {
+    vectorEndpoints: {
+      startPoint: "起點",
+      endPoint: "終點",
+      swap: "交換起點與終點",
+      options: {
+        none: "無",
+        round: "圓頭",
+        square: "方形",
+        line: "線箭頭",
+        triangle: "三角箭頭",
+        reversedTriangle: "反向三角形",
+        circle: "圓形箭頭",
+        diamond: "菱形箭頭",
+      },
+    },
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     ...responsiveInteractOverrides["zh-TW"].designEditor,
     deepSelectGuidance: {
@@ -511,6 +526,18 @@ const messages = {
       dismiss: "關閉圖層選取提示",
     },
     askAgent: "詢問代理",
+    designNotFoundDescription: "此設計不存在，或已被刪除。",
+    requestAccessTitle: "請求存取此設計",
+    requestAccessDescription: "此設計是私人的。向擁有者請求存取權限。",
+    requestAccess: "請求存取權限",
+    accessRequested: "已請求存取權限",
+    accessRequestSentDescription:
+      "已記錄你的請求。存取權限核准後即可開啟此設計。",
+    signInToRequestAccessTitle: "登入以請求存取權限",
+    signInToRequestAccessDescription: "登入或建立帳戶，向擁有者請求存取權限。",
+    signInOrSignUp: "登入或註冊",
+    accessCheckFailed: "無法檢查此設計的存取權限。",
+    retryAccessCheck: "重試",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增審閱評論",
     nodeRewrite: {
@@ -788,6 +815,7 @@ const messages = {
       figImportSelected: "匯入已選取的 {{count}} 個",
       figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
+      figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
@@ -845,7 +873,7 @@ const messages = {
     clickToRename: "點選重新命名",
     collaborators: "協作者",
     share: "分享",
-    signUpToSave: "註冊以儲存",
+    signUpToSave: "註冊",
     signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
     signUpToShare: "註冊以分享",
     shareEditorLink: "編輯器連結",
@@ -971,6 +999,7 @@ const messages = {
       rollback: "回復",
       keep: "保留",
       selectorMissing: "選取的元素已不在此畫面中。",
+      noRenderedBox: "選取的圖層沒有可見框，因此未套用樣式變更。",
       clientRenderedShell:
         "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
       snapshotNotLoaded:
@@ -1092,6 +1121,7 @@ const messages = {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
+      versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       booleanSubtractUnsupported:
         "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",
@@ -1297,9 +1327,9 @@ const messages = {
   },
   visualEdit: {
     eyebrow: "視覺編輯",
-    title: "登入前先檢查本機應用畫面",
+    title: "從 /visual-edit 開始",
     description:
-      "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+      "在你的 coding agent 中安裝此 skill，然後使用 /visual-edit 檢視並編輯正在執行的本機應用程式。",
     saveCta: "儲存",
     openDesign: "開啟 Design",
     templatesCta: "瀏覽範本",
@@ -1387,6 +1417,8 @@ const messages = {
     visualEdit: "視覺編輯 - Design",
   },
   designSystemSetup: {
+    codeIndexingEnterpriseOnly:
+      "程式碼與版本庫索引需要 Builder Enterprise 方案",
     importedBrand: "進口品牌",
     figmaCreateSuccess: "由Figma建立的設計系統",
     figmaCreateError: "無法建立設計系統",
@@ -1523,6 +1555,12 @@ const messages = {
     selectAria: "選取{{title}}",
     currentlyDefault: "目前預設",
     moreActionsAria: "{{title}} 的更多操作",
+    tierLimitTitle: "已達到設計系統數量上限",
+    tierLimitDescription:
+      "您已達到目前 Builder 方案的設計系統數量上限。升級 Builder 方案以建立更多。",
+    tierLimitDescriptionWithCount:
+      "您在 Builder {{plan}} 方案中已使用 {{current}}/{{max}} 個設計系統。升級方案以建立更多。",
+    tierLimitUpgrade: "升級 Builder 方案",
     showcase: {
       title: "可用於正式產品的起點",
       description:

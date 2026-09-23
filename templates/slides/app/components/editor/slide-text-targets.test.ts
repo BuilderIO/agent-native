@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  findSlideShapeOwner,
   findSmartBlock,
   getSlideCanvasTraversalElements,
   isRichTextBlock,
@@ -16,6 +17,46 @@ import {
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
+  it("grabs the nearest painted box around text, like a Google Slides shape", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <h2 id="title">Bare title</h2>
+        <div style="display:flex;flex-direction:column">
+          <div id="row" style="display:grid;border-top:1px solid #2a3038">
+            <div id="label">LABEL</div><div>Body</div>
+          </div>
+        </div>
+        <div id="card" style="background:#14181d;padding:16px">
+          <img id="logo" src="logo.png"><p id="note">Note</p>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const byId = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+
+    expect(findSlideShapeOwner(byId("title"), root)).toBeNull();
+    expect(findSlideShapeOwner(byId("label"), root)).toBe(byId("row"));
+    expect(findSlideShapeOwner(byId("note"), root)).toBe(byId("card"));
+    expect(findSlideShapeOwner(byId("logo"), root)).toBeNull();
+    root.remove();
+  });
+
+  it("does not treat a full-slide backdrop as a shape", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div id="backdrop" style="background:#111"><p id="text">Text</p></div>`;
+    document.body.append(root);
+    const backdrop = root.querySelector<HTMLElement>("#backdrop")!;
+    const slideRect = DOMRect.fromRect({ width: 960, height: 540 });
+    root.getBoundingClientRect = () => slideRect;
+    backdrop.getBoundingClientRect = () => slideRect;
+
+    expect(
+      findSlideShapeOwner(root.querySelector<HTMLElement>("#text"), root),
+    ).toBeNull();
+    root.remove();
+  });
+
   it("traverses flow-layout roots and groups without selecting renderer shells or members", () => {
     const root = document.createElement("div");
     root.innerHTML = `
@@ -296,6 +337,18 @@ describe("slide text targets", () => {
     expect(isRichTextBlock(block)).toBe(true);
     expect(resolveRichTextEditingBlock(list)).toBe(block);
     expect(findSmartBlock(item, root)).toBe(block);
+  });
+
+  it("keeps styled semantic bullet wrappers as one canvas block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text" style="display:flex;align-items:baseline;gap:20px"><ul style="--slide-legacy-list:1;list-style:none;padding-left:0"><li style="display:flex;align-items:baseline;gap:20px;--slide-legacy-marker-content:\"●\""><p>First</p></li></ul></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = block.querySelector("p") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(paragraph, root)).toBe(block);
   });
 
   it("keeps dividers inside one canvas text block", () => {

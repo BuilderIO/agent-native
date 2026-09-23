@@ -4,6 +4,20 @@ const messages = {
   ...messagesByLocale["es-ES"],
   designEditor: {
     ...messagesByLocale["es-ES"].designEditor,
+    designNotFoundDescription: "Este diseño no existe o se ha eliminado.",
+    requestAccessTitle: "Solicitar acceso a este diseño",
+    requestAccessDescription:
+      "Este diseño es privado. Solicita acceso al propietario.",
+    requestAccess: "Solicitar acceso",
+    accessRequested: "Acceso solicitado",
+    accessRequestSentDescription:
+      "Tu solicitud se ha registrado. Podrás abrir este diseño cuando se apruebe el acceso.",
+    signInToRequestAccessTitle: "Inicia sesión para solicitar acceso",
+    signInToRequestAccessDescription:
+      "Inicia sesión o crea una cuenta para solicitar acceso al propietario.",
+    signInOrSignUp: "Iniciar sesión o registrarse",
+    accessCheckFailed: "No se pudo comprobar el acceso a este diseño.",
+    retryAccessCheck: "Reintentar",
     import: {
       ...messagesByLocale["es-ES"].designEditor.import,
       figUploadDescriptionShort:
@@ -147,6 +161,20 @@ const messages = {
       change: "Cambiar el estado de revisión",
       saveFailed: "No se pudo actualizar el estado de revisión",
     },
+  },
+  designSystems: {
+    ...messagesByLocale["es-ES"].designSystems,
+    tierLimitTitle: "Se alcanzó el límite de sistemas de diseño",
+    tierLimitDescription:
+      "Has alcanzado el límite de sistemas de diseño de tu plan de Builder. Mejora tu plan de Builder para crear otro.",
+    tierLimitDescriptionWithCount:
+      "Estás usando {{current}} de {{max}} sistemas de diseño en tu plan {{plan}} de Builder. Mejora tu plan para crear otro.",
+    tierLimitUpgrade: "Mejorar plan de Builder",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["es-ES"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "La indexación de código y repositorios requiere el plan Builder Enterprise",
   },
 };
 

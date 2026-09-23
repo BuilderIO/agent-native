@@ -9,7 +9,6 @@ import {
 } from "h3";
 
 import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
-import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
@@ -27,6 +26,7 @@ import {
  * user's email; throws 401 when the request has no session.
  */
 async function getSessionId(event: H3Event): Promise<string> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session?.email) {
     throw createError({

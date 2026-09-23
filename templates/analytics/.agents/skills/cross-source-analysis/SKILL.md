@@ -39,8 +39,10 @@ Orient before fanning out:
 1. Read the injected `<data-dictionary>` and check data-source status to see
    which sources are configured and what each one actually holds.
 2. Map each fact in the question to the one source that owns it. Write a tiny
-   plan: "identities + emails from HubSpot, usage from BigQuery, errors from
-   Sentry." One source per fact; do not pull the same fact from two places.
+   plan: "identities + emails from HubSpot, usage from BigQuery, first-party
+   captured errors from Analytics Monitoring -> Errors, external errors from
+   Sentry when needed." One source per fact; do not pull the same fact from two
+   places.
 3. Decide the join keys up front (see the safe-join rule). If no source carries
    a shared, stable key, say so — a fuzzy join is a caveat, not a silent
    assumption.

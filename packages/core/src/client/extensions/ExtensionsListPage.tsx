@@ -12,7 +12,7 @@ import { Link } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { AgentToggleButton } from "../AgentPanel.js";
+import { AgentToggleButton } from "../AgentSidebar.js";
 import { agentNativePath } from "../api-path.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
 import {

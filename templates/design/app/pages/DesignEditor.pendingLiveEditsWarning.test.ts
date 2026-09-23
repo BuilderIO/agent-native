@@ -55,4 +55,21 @@ describe("DesignEditor pending live edits", () => {
     expect(applyHandler).toContain("clearPendingLiveEditState()");
     expect(discardHandler).toContain("clearPendingLiveEditState()");
   });
+
+  it("keeps Escape in the preview menu from reaching editor hotkeys", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const menu = source.slice(
+      source.indexOf("data-design-pending-visual-style-toolbar"),
+      source.indexOf(
+        "{viewMode ===",
+        source.indexOf("data-design-pending-visual-style-toolbar"),
+      ),
+    );
+    expect(menu).toContain("onEscapeKeyDown={(event) =>");
+    expect(menu).toContain("event.stopPropagation()");
+    expect(menu).toContain("onClick={handleAbortPendingVisualStyles}");
+  });
 });

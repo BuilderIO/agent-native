@@ -147,7 +147,7 @@ block2 = "0.6"
 # full-screen MP4 recording via SCRecordingOutput (macOS 15+). v2.0.0 is the
 # current latest at the time of writing (verified via `cargo info
 # screencapturekit`).
-screencapturekit = { version = "2.0.0", features = ["macos_15_0"] }
+screencapturekit = { version = "2.0.0", features = ["async", "macos_15_0"] }
 # AudioBufferList type so we can hand SCK's CMSampleBuffer audio bytes to
 # AVAudioPCMBuffer for the speech recognizer.
 objc2-core-audio-types = "0.3"

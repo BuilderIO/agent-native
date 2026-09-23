@@ -44,7 +44,6 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { getSession } from "../server/auth.js";
 import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
@@ -175,6 +174,11 @@ function requireAuthEmail(session: { email?: string } | null): string {
     throw createError({ statusCode: 401, message: "Authentication required" });
   }
   return email;
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("../server/auth.js");
+  return getSession(event);
 }
 
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
@@ -320,7 +324,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** POST /_agent-native/org/federation-removal/retry — finish self-cleanup after a failed revoke */
 export const retryPendingFederatedRemovalHandler = defineEventHandler(
   async (event: H3Event) => {
-    const session = await getSession(event);
+    const session = await getSessionForEvent(event);
     const email = requireAuthEmail(session).trim().toLowerCase();
     const body = await readBody(event);
     const orgId = typeof body?.orgId === "string" ? body.orgId.trim() : "";
@@ -471,7 +475,7 @@ export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
 
 /** POST /_agent-native/org — create a new organization */
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
+  const session = await getSessionForEvent(event);
   const email = requireAuthEmail(session);
   const emailVerified = session?.emailVerified === true;
   const access = getAppConfig().access;
@@ -568,38 +572,58 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     : 0;
 
   const e = await exec();
-  const args: unknown[] = [ctx.orgId];
-  const countArgs: unknown[] = [ctx.orgId];
-  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members
-             WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
-  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members
-                 WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
+  const baseSql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members
+                   WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
+  let pageRows: any[];
+  let profiles: Awaited<ReturnType<typeof getUserProfiles>>;
+  let totalCount: number;
+  let hasMore = false;
+
   if (search) {
-    sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
-    args.push(`%${escapeLike(search)}%`);
-    countSql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
-    countArgs.push(`%${escapeLike(search)}%`);
-  }
-  sql += ` ORDER BY LOWER(email) ASC`;
-  if (limit !== null) {
-    sql += ` LIMIT ? OFFSET ?`;
-    args.push(limit + 1, offset);
+    const searchPattern = `%${escapeLike(search)}%`;
+    const pageLimit = limit ?? 25;
+    const { rows } = await e.execute({
+      sql: `SELECT m.email, m.role, m.joined_at AS "joinedAt",
+                   COUNT(*) OVER() AS "totalCount"
+            FROM org_members m
+            LEFT JOIN "user" u ON LOWER(u.email) = LOWER(m.email)
+            WHERE m.org_id = ? AND m.federation_removal_pending_at IS NULL
+              AND (LOWER(m.email) LIKE ? ESCAPE '!'
+                   OR LOWER(COALESCE(u.name, '')) LIKE ? ESCAPE '!')
+            ORDER BY LOWER(m.email) ASC
+            LIMIT ? OFFSET ?`,
+      args: [ctx.orgId, searchPattern, searchPattern, pageLimit + 1, offset],
+    });
+    pageRows = rows.slice(0, pageLimit);
+    totalCount = Number((rows[0] as any)?.totalCount ?? 0);
+    hasMore = rows.length > pageLimit;
+    profiles = await getUserProfiles(pageRows.map((r: any) => String(r.email)));
+  } else {
+    const args: unknown[] = [ctx.orgId];
+    let sql = `${baseSql} ORDER BY LOWER(email) ASC`;
+    if (limit !== null) {
+      sql += ` LIMIT ? OFFSET ?`;
+      args.push(limit + 1, offset);
+    }
+
+    const totalCountResult =
+      limit === null
+        ? undefined
+        : await e.execute({
+            sql: `SELECT COUNT(*) AS "totalCount" FROM org_members
+                  WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
+            args: [ctx.orgId],
+          });
+    const { rows } = await e.execute({ sql, args });
+    pageRows = limit !== null ? rows.slice(0, limit) : rows;
+    hasMore = limit !== null && rows.length > limit;
+    totalCount =
+      totalCountResult === undefined
+        ? pageRows.length
+        : Number((totalCountResult.rows[0] as any)?.totalCount);
+    profiles = await getUserProfiles(pageRows.map((r: any) => String(r.email)));
   }
 
-  const totalCountResult =
-    limit === null
-      ? undefined
-      : await e.execute({ sql: countSql, args: countArgs });
-  const { rows } = await e.execute({
-    sql,
-    args,
-  });
-  const pageRows = limit !== null ? rows.slice(0, limit) : rows;
-  const hasMore = limit !== null && rows.length > limit;
-  const totalCount =
-    totalCountResult === undefined
-      ? pageRows.length
-      : Number((totalCountResult.rows[0] as any)?.totalCount);
   if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
     throw new Error("Organization member count was not returned");
   }
@@ -608,7 +632,6 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     role: String(r.role) as OrgRole,
     joinedAt: Number(r.joinedAt ?? r.joined_at),
   }));
-  const profiles = await getUserProfiles(members.map((member) => member.email));
   const membersWithProfiles = members.map((member) => {
     const profile = profiles.get(member.email.toLowerCase());
     const name = profile?.name;
@@ -870,7 +893,7 @@ export const listInvitationsHandler = defineEventHandler(
 /** POST /_agent-native/org/invitations/:id/accept — accept an invitation */
 export const acceptInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
-    const session = await getSession(event);
+    const session = await getSessionForEvent(event);
     const email = requireAuthEmail(session);
 
     const invitationId = extractInvitationId(event);
@@ -1426,7 +1449,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
 
 /** PUT /_agent-native/org/switch — switch the user's active organization */
 export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
+  const session = await getSessionForEvent(event);
   const email = requireAuthEmail(session);
 
   const body = await readBody(event);
@@ -1468,7 +1491,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** POST /_agent-native/org/join-by-domain — join an org whose allowed_domain matches your email */
 export const joinByDomainHandler = defineEventHandler(
   async (event: H3Event) => {
-    const session = await getSession(event);
+    const session = await getSessionForEvent(event);
     const email = requireAuthEmail(session);
 
     const body = await readBody(event);

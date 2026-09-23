@@ -14,6 +14,7 @@
  * key with stricter requirements; the guard below preserves their definition.
  */
 
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
@@ -111,7 +112,9 @@ export function registerFrameworkSecrets(): void {
         kind: "oauth",
         required: false,
         oauthProvider: provider.oauthProvider,
-        oauthConnectUrl: `/_agent-native/connections/oauth/${provider.id}/start`,
+        oauthConnectUrl: publicFrameworkPath(
+          `/_agent-native/connections/oauth/${provider.id}/start`,
+        ),
       });
     }
   }

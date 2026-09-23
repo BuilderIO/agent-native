@@ -45,6 +45,7 @@ import {
   frameworkSessionHintCookieName,
   resolveAuthCookieNamespace,
 } from "./cookie-namespace.js";
+import { getFrameworkRoutePrefix } from "./framework-route-prefix.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
@@ -135,7 +136,13 @@ function requestForAnonymousSsr(request: Request): Request {
 
 function prefixMountedPath(path: string, basePath: string): string {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
-  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  const pathname = path.split(/[?#]/, 1)[0] ?? path;
+  if (
+    pathname === basePath ||
+    pathname === `${basePath}.data` ||
+    pathname.startsWith(`${basePath}/`)
+  )
+    return path;
   return `${basePath}${path}`;
 }
 
@@ -438,6 +445,7 @@ async function rewriteMountedResponse(
               resolveAuthCookieNamespace().frameworkCookieName,
             ),
             resolveAppHomePath(getAppConfig().app),
+            getFrameworkRoutePrefix(),
           )
         : null,
     ]

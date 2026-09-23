@@ -213,5 +213,9 @@ describe("EditorSidebar AI-active slide", () => {
     const [, context] = addSlideAgentSubmit.mock.calls[0];
     expect(context).toContain("id: slide-2");
     expect(context).toContain("do not call `add-slide`");
+    expect(context).toContain(
+      'call `get-deck` with id="deck-1" and compact=true',
+    );
+    expect(context).toContain("designSystem.agentContext and deckStyle");
   });
 });

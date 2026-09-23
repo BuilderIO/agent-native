@@ -23,6 +23,116 @@
 
 @source "./**/*.{ts,tsx}";
 
+/* Native recovery shares the recorder's fixed-width row geometry. These
+   scoped rules must sit above utilities, not in the legacy stylesheet. */
+.recording-recovery-entry {
+  padding: 0 14px 7px;
+}
+
+.recording-recovery-summary {
+  width: 100%;
+  height: auto;
+  min-height: 30px;
+  padding: 5px 10px;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.recording-recovery-summary > .row-icon > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.recording-recovery-summary > .row-icon {
+  height: 20px;
+  border-radius: var(--radius-sm);
+}
+
+.recording-recovery-page {
+  min-width: 0;
+  padding: 7px 14px 10px;
+}
+
+.recording-recovery-header {
+  padding-inline: 2px;
+  margin-bottom: 4px;
+}
+
+.recording-recovery-item {
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 8px 10px;
+  border-width: 0;
+}
+
+.recording-recovery-item [data-slot="item-media"] {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  align-self: center;
+  translate: none;
+}
+
+:is(.recording-recovery-summary, .recording-recovery-item)
+  [data-recovery-tone="warning"] {
+  color: var(--status-warn);
+}
+
+.recording-recovery-item [data-recovery-tone="warning"] {
+  background: color-mix(in srgb, var(--status-warn) 12%, transparent);
+}
+
+:is(.recording-recovery-summary, .recording-recovery-item)
+  [data-recovery-tone="error"] {
+  color: hsl(var(--ui-destructive));
+}
+
+.recording-recovery-item [data-recovery-tone="error"] {
+  background: hsl(var(--ui-destructive) / 0.12);
+}
+
+:is(.recording-recovery-summary, .recording-recovery-item)
+  [data-recovery-tone="neutral"] {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.recording-recovery-item [data-recovery-tone="neutral"] {
+  background: hsl(var(--ui-muted));
+}
+
+.recording-recovery-item [data-slot="item-content"] {
+  min-width: 0;
+  gap: 2px;
+}
+
+.recording-recovery-item [data-slot="item-title"] {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.recording-recovery-item [data-slot="item-description"] {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.recording-recovery-item [data-slot="item-actions"] {
+  flex-shrink: 0;
+  gap: 0;
+}
+
+.recording-recovery-action {
+  width: 28px;
+  height: 28px;
+}
+
 .skeleton-shimmer {
   background-image: linear-gradient(
     100deg,

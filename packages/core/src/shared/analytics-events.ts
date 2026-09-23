@@ -22,6 +22,97 @@ export type AgentNativeLifecycleEventName =
 export type AgentNativeActionEventName =
   (typeof AGENT_NATIVE_ACTION_EVENTS)[keyof typeof AGENT_NATIVE_ACTION_EVENTS];
 
+/**
+ * Explicit migration aliases for event names that predate the snake_case
+ * convention. Keep the source event intact so historical dashboards continue
+ * to work while new dashboards can move to the canonical name.
+ */
+export const LEGACY_TRACKING_EVENT_NAME_ALIASES = {
+  "auth.login_clicked": "auth_login_clicked",
+  "auth.signup_clicked": "auth_signup_clicked",
+  "auth.signup_completed": "auth_signup_completed",
+  "auth.signup_viewed": "auth_signup_viewed",
+  "build your app": "build_your_app",
+  "builder branch waitlist joined": "builder_branch_waitlist_joined",
+  "builder connect clicked": "builder_connect_clicked",
+  "builder connect failed": "builder_connect_failed",
+  "builder connect popup blocked": "builder_connect_popup_blocked",
+  "builder connect started": "builder_connect_started",
+  "builder connect succeeded": "builder_connect_succeeded",
+  "builder disconnect failed": "builder_disconnect_failed",
+  "builder disconnect succeeded": "builder_disconnect_succeeded",
+  "checkout.completed": "checkout_completed",
+  "choose get started path": "choose_get_started_path",
+  "click add to agent": "click_add_to_agent",
+  "click build online": "click_build_online",
+  "click community app": "click_community_app",
+  "click community app action": "click_community_app_action",
+  "click community app demo": "click_community_app_demo",
+  "click community app source": "click_community_app_source",
+  "click customize it": "click_customize_it",
+  "click customize locally": "click_customize_locally",
+  "click customize online": "click_customize_online",
+  "click get started": "click_get_started",
+  "click template": "click_template",
+  "click view docs": "click_view_docs",
+  "copy cli command": "copy_cli_command",
+  "copy code block": "copy_code_block",
+  "copy install command": "copy_install_command",
+  "create form": "create_form",
+  "desktop download": "desktop_download",
+  "desktop open": "desktop_open",
+  "environment switched": "environment_switched",
+  "generate deck": "generate_deck",
+  "open assets": "open_assets",
+  "open hosted demo": "open_hosted_demo",
+  "session replay upload rejected": "session_replay_upload_rejected",
+  "session status": "session_status",
+  "skill read docs": "skill_read_docs",
+  "skills_cli cancelled": "skills_cli_cancelled",
+  "skills_cli clients selected": "skills_cli_clients_selected",
+  "skills_cli completed": "skills_cli_completed",
+  "skills_cli connect completed": "skills_cli_connect_completed",
+  "skills_cli connect failed": "skills_cli_connect_failed",
+  "skills_cli connect started": "skills_cli_connect_started",
+  "skills_cli failed": "skills_cli_failed",
+  "skills_cli github action added": "skills_cli_github_action_added",
+  "skills_cli install completed": "skills_cli_install_completed",
+  "skills_cli instructions updated": "skills_cli_instructions_updated",
+  "skills_cli mcp registered": "skills_cli_mcp_registered",
+  "skills_cli plan mode selected": "skills_cli_plan_mode_selected",
+  "skills_cli scope selected": "skills_cli_scope_selected",
+  "skills_cli skills listed": "skills_cli_skills_listed",
+  "skills_cli skills prompted": "skills_cli_skills_prompted",
+  "skills_cli skills selected": "skills_cli_skills_selected",
+  "skills_cli started": "skills_cli_started",
+  "start from scratch": "start_from_scratch",
+  "submit community app": "submit_community_app",
+  "try live demo": "try_live_demo",
+  "view clip preview": "view_clip_preview",
+  "view plan video preview": "view_plan_video_preview",
+} as const;
+
+export function canonicalTrackingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): {
+  name: string;
+  properties: Record<string, unknown>;
+} | null {
+  const canonicalName = (
+    LEGACY_TRACKING_EVENT_NAME_ALIASES as Record<string, string>
+  )[name];
+  if (!canonicalName) return null;
+  return {
+    name: canonicalName,
+    properties: {
+      ...properties,
+      canonical_event_name: canonicalName,
+      legacy_event_name: name,
+    },
+  };
+}
+
 function stringValue(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();

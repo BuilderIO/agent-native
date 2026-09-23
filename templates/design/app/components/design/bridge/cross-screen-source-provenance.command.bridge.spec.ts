@@ -99,12 +99,17 @@ async function captureDragStart(page: Page, locator: string): Promise<any> {
 
 function runCommandFromStart(start: any, sourceContent = sourceHtml) {
   const writes = new Map<string, string>();
+  const currentContentByScreenId = new Map([
+    ["source", sourceContent],
+    ["target", destinationHtml],
+  ]);
   const historyEntries: unknown[] = [];
   runCrossScreenElementDrop(
     {
       applyFileContentUpdate: (fileId, content) => {
         const prepared = prepareCanonicalSourceContent(content, { fileId });
         writes.set(fileId, prepared.content);
+        currentContentByScreenId.set(fileId, prepared.content);
         return {
           status: "accepted",
           content: prepared.content,
@@ -117,7 +122,7 @@ function runCommandFromStart(start: any, sourceContent = sourceHtml) {
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
       getScreenContent: (screenId) =>
-        screenId === "source" ? sourceContent : destinationHtml,
+        currentContentByScreenId.get(screenId) ?? "",
       id: undefined,
       overviewScreens: [
         {

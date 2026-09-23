@@ -114,7 +114,7 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
 };
 
 const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
-  browser: "Current tab",
+  browser: "Browser tab",
   window: "Window",
   monitor: "Full screen",
 };
@@ -698,7 +698,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   cameraButton.hidden = !showCamera;
   if (showCamera) {
     const defaultCameraLabel = defaultDeviceLabel(
-      "System default",
+      "Default camera",
       inputDevices.defaultCameraName,
     );
     cameraLabel.textContent = deviceLabel(
@@ -723,7 +723,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   micButton.hidden = !settings.includeMicrophone;
   if (settings.includeMicrophone) {
     const defaultMicrophoneLabel = defaultDeviceLabel(
-      "System default",
+      "Default microphone",
       inputDevices.defaultMicrophoneName,
     );
     micLabel.textContent = deviceLabel(
@@ -884,9 +884,9 @@ async function init(): Promise<void> {
   const feedbackHint = byId<HTMLDivElement>("feedback-hint");
   const feedbackSubmit = byId<HTMLButtonElement>("feedback-submit");
   const feedbackSuccess = byId<HTMLDivElement>("feedback-success");
+  const openDictate = byId<HTMLButtonElement>("open-dictate");
   const openLibrary = byId<HTMLButtonElement>("open-library");
   const openSettings = byId<HTMLButtonElement>("open-settings");
-  const openRecent = byId<HTMLButtonElement>("open-recent");
   const signIn = byId<HTMLButtonElement>("sign-in");
   const storageHelpOpen = byId<HTMLButtonElement>("storage-help-open");
   let activeRecording: NativeRecording | null = null;
@@ -1225,13 +1225,13 @@ async function init(): Promise<void> {
     window.close();
   });
 
-  openSettings.addEventListener("click", () => {
-    void chrome.runtime.openOptionsPage();
+  openDictate.addEventListener("click", async () => {
+    await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/dictate`);
+    window.close();
   });
 
-  openRecent.addEventListener("click", async () => {
-    await createTab(settings.clipsBaseUrl);
-    window.close();
+  openSettings.addEventListener("click", () => {
+    void chrome.runtime.openOptionsPage();
   });
 
   authStatus = await readAuthStatus(settings);

@@ -310,7 +310,13 @@ export function runApplyDesignEditorCommand(
     setActiveTool("move");
     setDrawMode(false);
     setPinMode(false);
-    setMode("interact");
+    const requestedMode =
+      command.mode === "edit" ||
+      command.mode === "annotate" ||
+      command.mode === "interact"
+        ? command.mode
+        : "interact";
+    setMode(requestedMode);
     if (commandZoom === null) {
       setScreenZoom(FOCUSED_SCREEN_ZOOM);
     }

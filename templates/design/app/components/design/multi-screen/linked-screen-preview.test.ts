@@ -19,6 +19,7 @@ import {
   linkedScreenPreviewFrameIds,
   registerLinkedScreenPreviewHandlers,
   replaceLinkedScreenPreviewContent,
+  sendLinkedScreenPreviewInteractionStateStyle,
   sendLinkedScreenPreviewStyleChange,
 } from "./linked-screen-preview";
 
@@ -123,6 +124,37 @@ describe("BUG-UNDO-LINKED-BREAKPOINT — fan-out replace/style", () => {
     ).toBe(true);
     expect(paddingByFrame["screen-a"]).toBe("24px");
     expect(paddingByFrame["screen-a::bp-390"]).toBe("24px");
+  });
+
+  it("routes interaction-state previews to the linked screen only", () => {
+    const statesByFrame: Record<string, string[]> = {
+      "screen-a": [],
+      "screen-a::bp-390": [],
+      "screen-b": [],
+    };
+    for (const frameId of Object.keys(statesByFrame)) {
+      registerLinkedScreenPreviewHandlers(frameId, {
+        replaceContent: () => false,
+        sendStyleChange: () => false,
+        sendInteractionStatePreviewStyle: ({ state, routePath }) => {
+          if (routePath !== "/library") return false;
+          statesByFrame[frameId]!.push(state);
+          return true;
+        },
+      });
+    }
+
+    expect(
+      sendLinkedScreenPreviewInteractionStateStyle("screen-a", {
+        selector: "#card",
+        state: "hover",
+        styles: { color: "red" },
+        routePath: "/library",
+      }),
+    ).toBe(true);
+    expect(statesByFrame["screen-a"]).toEqual(["hover"]);
+    expect(statesByFrame["screen-a::bp-390"]).toEqual(["hover"]);
+    expect(statesByFrame["screen-b"]).toEqual([]);
   });
 
   it("unregisters handlers on dispose so a remount cannot double-apply", () => {

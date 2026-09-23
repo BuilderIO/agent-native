@@ -1,5 +1,21 @@
 # @agent-native/toolkit
 
+## 0.20.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- e973e00: Move the auth form to the top of the page on small screens and hide the learn-more link there.
+
+## 0.20.5
+
+### Patch Changes
+
+- 58b0779: Expand the shared font picker with curated Google Fonts.
+- 3ecc476: Preserve Alt/Option modifier metadata through design scrub gestures for mirrored padding edits.
+- Release all public npm packages with a patch version bump.
+- 15ec2fb: Keep chat lifecycle state and queue rows clear of stale UI overlap, and reserve space for the share dialog close control.
+
 ## 0.20.4
 
 ### Patch Changes

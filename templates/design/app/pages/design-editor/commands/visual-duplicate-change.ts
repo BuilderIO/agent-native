@@ -52,6 +52,7 @@ export interface VisualDuplicateChangeArgs {
     },
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   getFreshActiveContent: () => string;
   remapMotionTracksForClone?: (
     nodeIdMap: Map<string, string>,
@@ -91,6 +92,7 @@ export function runVisualDuplicateChange(
     componentLinks,
     applyLocalContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     getFreshActiveContent,
     remapMotionTracksForClone,
     selectionBefore,
@@ -119,7 +121,7 @@ export function runVisualDuplicateChange(
       t("designEditor.componentInstances.linkedStructureUnsupported"),
     );
   };
-  if (!canEditDesign) return false;
+  if (!canEditDesign && !canEditLiveScreen) return false;
   if (!activeFile) return false;
   const baseContent = getFreshActiveContent();
   const source = { kind: "design-file" as const, fileId: activeFile.id };

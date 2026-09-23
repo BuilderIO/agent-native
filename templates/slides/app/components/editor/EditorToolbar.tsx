@@ -273,7 +273,6 @@ export default function EditorToolbar({
   };
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
-  const secondaryShareLink = shareLinks[shareLinkOrder.secondary];
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -981,6 +980,7 @@ export default function EditorToolbar({
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
+          panelTitle={t("share.title")}
           roleCopy={{
             commenter: {
               label: t("editorToolbar.commenterRoleLabel"),
@@ -990,9 +990,6 @@ export default function EditorToolbar({
           shareUrl={primaryShareLink.url}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
-          secondaryShareUrl={secondaryShareLink.url}
-          secondaryShareUrlLabel={secondaryShareLink.label}
-          secondaryShareUrlDescription={secondaryShareLink.description}
           shareTabs={
             creativeContextEnabled
               ? {

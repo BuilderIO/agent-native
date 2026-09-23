@@ -871,6 +871,7 @@ describe("integration webhook handler engine resolution", () => {
       const complete = vi.fn(async () => {
         throw new Error("chat.stopStream transport failed");
       });
+      const fail = vi.fn(async () => undefined);
       const adapter = {
         ...createAdapter(sendResponse),
         startRunProgress: async () => ({
@@ -878,6 +879,7 @@ describe("integration webhook handler engine resolution", () => {
           responseTargetRef: "stream-qa",
           onEvent: vi.fn(async () => undefined),
           complete,
+          fail,
         }),
       };
       runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
@@ -900,6 +902,9 @@ describe("integration webhook handler engine resolution", () => {
       expect(complete).toHaveBeenCalledWith(
         expect.objectContaining({ text: "completed once" }),
         { idempotencyKey: "integration-response:task-qa" },
+      );
+      expect(fail).toHaveBeenCalledWith(
+        "I couldn't update the live response, but I posted the final result in this thread.",
       );
       expect(sendResponse).toHaveBeenCalledOnce();
       expect(sendResponse).toHaveBeenCalledWith(

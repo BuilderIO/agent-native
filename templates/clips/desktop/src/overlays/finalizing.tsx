@@ -233,9 +233,11 @@ export function Finalizing() {
   };
   const openClip = () => {
     if (!progress.viewUrl) return;
-    void openExternal(progress.viewUrl).catch((err) => {
-      console.error("[clips-finalizing] open clip failed:", err);
-    });
+    void openExternal(progress.viewUrl)
+      .then(() => invoke("hide_finalizing"))
+      .catch((err) => {
+        console.error("[clips-finalizing] open clip failed:", err);
+      });
   };
 
   return (

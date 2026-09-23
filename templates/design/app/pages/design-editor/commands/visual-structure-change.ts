@@ -5,7 +5,10 @@ import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { dndHostLog } from "@/components/design/dnd-debug";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  GridGroupStructureMove,
+} from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -52,6 +55,7 @@ export interface VisualStructureChangeArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   getFreshActiveContent: () => string;
   recordPendingLiveStructureEdit: (
     screenId: string,
@@ -64,10 +68,28 @@ export interface VisualStructureChangeArgs {
       anchorSourceId?: string;
       anchorElementInfo?: ElementInfo;
       requestId?: string;
+      transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      gridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+      gridDisplacements?: Array<{
+        sourceId?: string;
+        selector?: string;
+        placement: {
+          column: number;
+          columnEnd: number;
+          row: number;
+          rowEnd: number;
+        };
+      }>;
       insertedHtml?: string;
       replaced?: true;
       replacementSelector?: string;
@@ -88,6 +110,7 @@ export function runVisualStructureChange(
     activeFile,
     applyLocalContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     getFreshActiveContent,
     recordPendingLiveStructureEdit,
     setSelectedElement,
@@ -104,10 +127,28 @@ export function runVisualStructureChange(
     anchorSourceId?: string;
     anchorElementInfo?: ElementInfo;
     requestId?: string;
+    transactionId?: string;
+    routePath?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
     anchorRect?: { x: number; y: number; width: number; height: number };
+    gridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+    gridDisplacements?: Array<{
+      sourceId?: string;
+      selector?: string;
+      placement: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
+    }>;
     /** Markup this change introduced; the subject does not exist in the
      * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
@@ -125,7 +166,7 @@ export function runVisualStructureChange(
     dropMode: details?.dropMode,
     source: activeCanvasSourceType,
   });
-  if (!canEditDesign) return false;
+  if (!canEditDesign && !canEditLiveScreen) return false;
   if (!activeFile) return false;
   if (isRunningAppSourceType(activeCanvasSourceType)) {
     recordPendingLiveStructureEdit(
@@ -150,10 +191,24 @@ export function runVisualStructureChange(
         sourceId: details?.sourceId ?? elementInfo.sourceId,
       }
     : null;
-  const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-    : resolveBridgeNode(selector, details?.sourceId);
-  const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  const targetNode = details?.sourceId
+    ? resolveCodeLayerNodeFromBridge(projection, undefined, details.sourceId)
+    : targetInfo
+      ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+      : resolveBridgeNode(selector, details?.sourceId);
+  const anchorNode = details?.anchorSourceId
+    ? resolveCodeLayerNodeFromBridge(
+        projection,
+        undefined,
+        details.anchorSourceId,
+      )
+    : resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  if (
+    (details?.sourceId && !targetNode) ||
+    (details?.anchorSourceId && !anchorNode)
+  ) {
+    return false;
+  }
   const moveIntent = {
     kind: "moveNode" as const,
     target: targetNode
@@ -256,7 +311,7 @@ export function runVisualStructureChange(
     (rawAbsoluteContainerOffset.x !== absoluteContainerOffset.x ||
       rawAbsoluteContainerOffset.y !== absoluteContainerOffset.y),
   );
-  const nextContent =
+  let nextContent =
     movedNodeAttrId && details?.dropMode === "absolute-container"
       ? absoluteContainerOffset
         ? setAbsolutePositioningForNodeInHtml(
@@ -278,6 +333,69 @@ export function runVisualStructureChange(
               movedNodeAttrId,
             )
           : patch.content;
+  if (movedNodeAttrId && details?.gridPlacement) {
+    const gridTarget = { nodeId: movedNodeAttrId };
+    const columnPatch = applyVisualEdit(
+      nextContent,
+      {
+        kind: "style",
+        target: gridTarget,
+        property: "grid-column",
+        value: `${details.gridPlacement.column} / ${details.gridPlacement.columnEnd}`,
+      },
+      { source },
+    );
+    if (columnPatch.result.status === "applied") {
+      nextContent = columnPatch.content;
+      const rowPatch = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target: gridTarget,
+          property: "grid-row",
+          value: `${details.gridPlacement.row} / ${details.gridPlacement.rowEnd}`,
+        },
+        { source },
+      );
+      if (rowPatch.result.status === "applied") nextContent = rowPatch.content;
+    }
+  }
+  if (details?.gridDisplacements) {
+    for (const displaced of details.gridDisplacements) {
+      const target = displaced.sourceId
+        ? {
+            nodeId: displaced.sourceId,
+            ...(displaced.selector ? { selector: displaced.selector } : {}),
+          }
+        : displaced.selector
+          ? { selector: displaced.selector }
+          : null;
+      if (!target) continue;
+      const displacementPatch = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target,
+          property: "grid-column",
+          value: `${displaced.placement.column} / ${displaced.placement.columnEnd}`,
+        },
+        { source },
+      );
+      if (displacementPatch.result.status !== "applied") continue;
+      nextContent = displacementPatch.content;
+      const rowPatch = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target,
+          property: "grid-row",
+          value: `${displaced.placement.row} / ${displaced.placement.rowEnd}`,
+        },
+        { source },
+      );
+      if (rowPatch.result.status === "applied") nextContent = rowPatch.content;
+    }
+  }
   const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const movedNodeCandidate =
     (movedNodeAttrId
@@ -303,23 +421,20 @@ export function runVisualStructureChange(
     applyLinkedComponentEdit(
       linkedComponentTarget.fileId,
       linkedComponentTarget.nodeId,
-      nextContent === patch.content
-        ? { kind: "structure", intents: [linkedMoveIntent!] }
-        : {
-            kind: "structure",
-            before: baseContent,
-            after: nextContent,
-            ...(movedNodeAttrId ? { selectionNodeIds: [movedNodeAttrId] } : {}),
-          },
+      {
+        kind: "structure",
+        before: baseContent,
+        after: nextContent,
+        ...(movedNodeAttrId ? { selectionNodeIds: [movedNodeAttrId] } : {}),
+      },
     );
     return true;
   }
-  const publication = applyLocalContentUpdate(
-    nextContent,
-    absoluteOffsetWasPoisoned
+  const publication = applyLocalContentUpdate(nextContent, {
+    ...(absoluteOffsetWasPoisoned
       ? { forcePreviewFullDocument: true }
-      : { skipPreview: true },
-  );
+      : { skipPreview: true }),
+  });
   if (publication.status !== "accepted") return false;
   const acceptedProjection = projectAcceptedSource(publication, source);
   const movedNode = mapAcceptedSelectionNode(
@@ -340,4 +455,88 @@ export function runVisualStructureChange(
     });
   }
   return true;
+}
+
+export function planVisualGridGroupStructureChange(
+  activeFile: DesignFile,
+  content: string,
+  moves: GridGroupStructureMove[],
+  t: VisualStructureChangeArgs["t"],
+  linked = false,
+): string | null {
+  let nextContent = content;
+  for (const move of moves) {
+    const applied = runVisualStructureChange(
+      {
+        activeCanvasSourceType: "inline",
+        activeFile,
+        applyLocalContentUpdate: (next) => {
+          nextContent = next;
+          return { status: "accepted", content: next, nodeIdMap: new Map() };
+        },
+        applyLinkedComponentEdit: linked
+          ? (_fileId, _nodeId, edit) => {
+              if (edit.kind === "structure" && "after" in edit)
+                nextContent = edit.after;
+            }
+          : undefined,
+        canEditDesign: true,
+        getFreshActiveContent: () => nextContent,
+        recordPendingLiveStructureEdit: () => {
+          throw new Error("Inline grid group cannot queue a live-source edit");
+        },
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t,
+      },
+      move.selector,
+      move.persistenceAnchorSelector ?? move.anchorSelector,
+      move.persistencePlacement ?? move.placement ?? "inside",
+      undefined,
+      {
+        ...move,
+        anchorSourceId: move.persistenceAnchorSourceId ?? move.anchorSourceId,
+        dropMode: "flow-insert",
+      },
+    );
+    if (applied !== true) return null;
+  }
+  return nextContent;
+}
+
+export function resolveGridGroupLinkedComponentTarget(
+  content: string,
+  fileId: string,
+  moves: GridGroupStructureMove[],
+):
+  | { status: "none" }
+  | { status: "mixed" }
+  | { status: "linked"; fileId: string; nodeId: string } {
+  const source = { kind: "design-file" as const, fileId };
+  const targets = moves.map((move) =>
+    resolveLinkedComponentStructureTarget({
+      content,
+      source,
+      intents: [
+        {
+          kind: "moveNode",
+          target: { nodeId: move.sourceId },
+          anchor: {
+            nodeId: move.persistenceAnchorSourceId ?? move.anchorSourceId,
+          },
+          placement: move.persistencePlacement ?? move.placement ?? "inside",
+        },
+      ],
+    }),
+  );
+  const linked = targets.find((target) => target !== null);
+  if (!linked) return { status: "none" };
+  if (
+    targets.some(
+      (target) =>
+        target?.fileId !== linked.fileId || target?.nodeId !== linked.nodeId,
+    )
+  )
+    return { status: "mixed" };
+  return { status: "linked", ...linked };
 }

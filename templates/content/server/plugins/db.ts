@@ -1129,6 +1129,101 @@ export const runContentMigrations = runMigrations(
         ON comment_ai_requests (document_id, thread_id, requester_email)
         WHERE status IN ('queued', 'running')`,
     },
+    {
+      version: 95,
+      name: "content-trash-attribution-and-query-indexes",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_origin TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_parent_id TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_order_idx ON documents (trashed_at, id);
+        CREATE INDEX IF NOT EXISTS documents_trash_group_idx ON documents (trash_root_id, parent_id)`,
+    },
+    {
+      version: 96,
+      name: "content-trash-purge-ledger",
+      sql: `CREATE TABLE IF NOT EXISTS content_trash_purge_plans (
+        id TEXT PRIMARY KEY, actor_email TEXT NOT NULL, org_id TEXT, mode TEXT NOT NULL,
+        space_id TEXT, filters_json TEXT NOT NULL DEFAULT '{}', state TEXT NOT NULL DEFAULT 'ready',
+        scope_token_hash TEXT NOT NULL, eligible_count INTEGER NOT NULL DEFAULT 0,
+        blocked_count INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_trash_purge_plans_actor_idx ON content_trash_purge_plans (actor_email);
+      CREATE TABLE IF NOT EXISTS content_trash_purge_plan_items (
+        id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, unit_id TEXT NOT NULL,
+        root_document_id TEXT NOT NULL, document_id TEXT NOT NULL, owner_email TEXT NOT NULL,
+        title TEXT NOT NULL, expected_trashed_at TEXT NOT NULL, eligibility TEXT NOT NULL,
+        blocker TEXT, outcome TEXT NOT NULL DEFAULT 'pending', outcome_detail TEXT,
+        completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_trash_purge_plan_items_plan_document_unique ON content_trash_purge_plan_items (plan_id, document_id);
+      CREATE INDEX IF NOT EXISTS content_trash_purge_plan_items_plan_unit_idx ON content_trash_purge_plan_items (plan_id, unit_id);
+      CREATE TABLE IF NOT EXISTS content_trash_purge_operations (
+        id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, actor_email TEXT NOT NULL, org_id TEXT,
+        idempotency_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        eligible_count INTEGER NOT NULL DEFAULT 0, deleted_count INTEGER NOT NULL DEFAULT 0,
+        blocked_count INTEGER NOT NULL DEFAULT 0, conflicted_count INTEGER NOT NULL DEFAULT 0,
+        lease_token TEXT, lease_expires_at TEXT, last_error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_trash_purge_operations_actor_key_unique ON content_trash_purge_operations (actor_email, idempotency_key);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_trash_purge_operations_plan_unique ON content_trash_purge_operations (plan_id);
+      CREATE INDEX IF NOT EXISTS content_trash_purge_operations_plan_idx ON content_trash_purge_operations (plan_id)`,
+    },
+    {
+      version: 97,
+      name: "content-trash-purge-frozen-dependencies",
+      sql: `ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS expected_parent_id TEXT;
+        ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS space_id TEXT;
+        ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS ancestor_unit_ids_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS survivor_effect TEXT`,
+    },
+    {
+      version: 98,
+      name: "content-trash-purge-scope-fingerprint",
+      sql: `ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS expected_scope_fingerprint TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 99,
+      name: "content-document-actor-attribution",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_deleted_at_idx ON documents (trashed_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_created_by_idx ON documents (lower(created_by), trashed_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_updated_by_idx ON documents (lower(updated_by), trashed_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_name_idx ON documents (lower(title), id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_created_at_idx ON documents (created_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_updated_at_idx ON documents (updated_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS content_databases_trash_deleted_at_idx ON content_databases (deleted_at, document_id, id) WHERE deleted_at IS NOT NULL`,
+    },
+    {
+      version: 100,
+      name: "content-files-navigation-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS documents_parent_title_id_idx ON documents (parent_id, title, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_created_id_idx ON documents (parent_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_updated_id_idx ON documents (parent_id, updated_at, id);
+        CREATE INDEX IF NOT EXISTS content_database_items_database_position_id_idx ON content_database_items (database_id, position, id)`,
+    },
+    {
+      version: 101,
+      name: "content-preview-draft-edit-settlements",
+      sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS editor_session_id TEXT;
+        ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS edit_generation INTEGER;
+        CREATE TABLE IF NOT EXISTS document_preview_draft_settlements (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          editor_session_id TEXT NOT NULL,
+          settled_generation INTEGER NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_preview_draft_settlements_scope_unique
+          ON document_preview_draft_settlements (owner_email, org_id, document_id, editor_session_id);
+        CREATE INDEX IF NOT EXISTS document_preview_draft_settlements_document_idx
+          ON document_preview_draft_settlements (owner_email, org_id, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -131,10 +131,18 @@ async function cleanupFixtures(page: Page, fixtures: Fixture[]) {
       }
     }
 
+    const plan = await runAction(page, "plan-content-trash-purge", {
+      mode: "selection",
+      documentIds: [fixture.documentId],
+    });
     const permanentlyDeleted = await page.request.post(
       "/_agent-native/actions/permanently-delete-document",
       {
-        data: { id: fixture.documentId },
+        data: {
+          id: fixture.documentId,
+          planId: plan.planId,
+          scopeToken: plan.scopeToken,
+        },
         headers: ACTION_HEADERS,
       },
     );

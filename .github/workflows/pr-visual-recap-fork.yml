@@ -355,7 +355,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile --ignore-scripts
-          pnpm --filter @agent-native/recap-cli build
+          pnpm --filter '@agent-native/core...' build
 
       - name: Install published recap CLI
         if: steps.cli.outputs.local != 'true'

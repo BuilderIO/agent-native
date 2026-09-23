@@ -15,11 +15,61 @@ export interface PortableStyleSnapshot {
   nodes: PortableStyleSnapshotNode[];
 }
 
-export interface RuntimeStructureMoveRequest {
-  requestId: number;
+export interface RuntimeStructureMove {
   subject: { selector: string; sourceId?: string | null };
   anchor: { selector: string; sourceId?: string | null };
   placement: "before" | "after" | "inside";
+  transactionId?: string;
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
+}
+
+export interface RuntimeStructureMoveRequest extends RuntimeStructureMove {
+  requestId: number;
+  moves?: RuntimeStructureMove[];
+}
+
+export interface GridGroupStructureMove {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  sourceId: string;
+  anchorSelector: string;
+  anchorSourceId: string;
+  placement?: "before" | "after" | "inside";
+  persistenceAnchorSelector?: string;
+  persistenceAnchorSourceId?: string;
+  persistencePlacement?: "before" | "after" | "inside";
+  gridPlacement: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements: Array<{
+    sourceId: string;
+    selector: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
 }
 
 /**
@@ -29,6 +79,13 @@ export interface RuntimeStructureMoveRequest {
  */
 export interface RuntimeStructureInsertRequest {
   requestId: number;
+  transactionId?: string;
+  /** Owning screen for host-side routing of the live insert. */
+  screenId?: string;
+  /** Source screen identity used to distinguish a same-screen reorder from a cross-screen insert. */
+  sourceScreenId?: string;
+  /** Remint only ids already used by the destination live document. */
+  remintCollidingNodeIds?: boolean;
   html: string;
   /** Additional clipboard roots inserted by the same paste gesture. */
   additionalHtml?: string[];
@@ -41,6 +98,33 @@ export interface RuntimeStructureInsertRequest {
     pendingNodeId?: string | null;
   };
   placement: "before" | "after" | "inside";
+}
+
+export interface RuntimeStructureDeleteRequest {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  selectorCandidates?: string[];
+  /** Cross-screen moves delete the source only after the destination insert ack. */
+  waitForInsertTransaction?: boolean;
+  rollbackScreenId?: string;
+  rollbackSelector?: string;
+  rollbackSourceId?: string;
+}
+
+export interface RuntimeStructureRollbackRequest {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  sourceId?: string;
+}
+
+export interface RuntimeLayerRenameRequest {
+  requestId: number;
+  selector: string;
+  sourceId?: string | null;
+  routePath?: string;
+  name: string;
 }
 
 export interface RuntimeVerificationRequest {

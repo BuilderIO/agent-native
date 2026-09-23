@@ -1153,6 +1153,98 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("rejects a capability request for a different design", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mockResolveEmbedSessionFromRequest
+      .mockResolvedValueOnce({
+        email: "ticket-owner@example.com",
+        token: "signed-capability",
+        targetPath: "/visual-edit/design_1",
+        scope: "capability:visual-edit:design:design_1",
+      })
+      .mockResolvedValueOnce({
+        email: "ticket-owner@example.com",
+        token: "signed-capability",
+        targetPath: "/visual-edit/design%2F1",
+        scope: "capability:visual-edit:design:design%2F1",
+      });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "list-files": {
+          http: { method: "GET" },
+          requiresAuth: true,
+          capabilityScopes: ["visual-edit"],
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/list-files?designId=design_2",
+        },
+      }),
+    ).resolves.toEqual({ error: "Unauthorized" });
+    expect(run).not.toHaveBeenCalled();
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/list-files?designId=design%2F1",
+        },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("registers only capability-scoped action routes with the auth guard", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const nitroApp = { use: vi.fn() };
+    mockRegisterAuthPublicPaths.mockClear();
+
+    mountActionRoutes(nitroApp, {
+      "read-capability": {
+        http: { method: "GET" },
+        capabilityScopes: ["visual-edit"],
+        run: vi.fn(),
+      } as any,
+      "private-action": {
+        http: { method: "GET" },
+        run: vi.fn(),
+      } as any,
+    });
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/actions/read-capability"],
+      nitroApp,
+    );
+    expect(mockRegisterAuthPublicPaths).not.toHaveBeenCalledWith(
+      ["/_agent-native/actions/private-action"],
+      nitroApp,
+    );
+  });
+
   it("allows HEAD for GET actions", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

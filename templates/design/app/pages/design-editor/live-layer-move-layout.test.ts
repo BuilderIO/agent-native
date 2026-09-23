@@ -56,6 +56,19 @@ function read(content: string, sourceText: string) {
 afterEach(() => document.body.replaceChildren());
 
 describe("readLiveLayerMoveLayout", () => {
+  it("matches elements across the iframe document realm", () => {
+    const content = publish(
+      `<html><head><style>.workspace { display:flex; }</style></head><body><section><button id="moving">Move</button></section><section data-agent-native-node-id="target" class="workspace"></section></body></html>`,
+    );
+    mountPreview(content);
+    expect(read(content, "Move")).toEqual({
+      status: "resolved",
+      sourcePosition: "",
+      sourceParentDisplay: "block",
+      destinationDisplay: "flex",
+    });
+  });
+
   it.each([
     [
       "duplicate authored ids",

@@ -19,6 +19,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { canonicalTrackingEvent } from "@agent-native/core/shared";
+
 // Public, write-only analytics key. Safe to embed (revocable from the Analytics
 // settings UI). Override with AGENT_NATIVE_ANALYTICS_PUBLIC_KEY for testing or
 // to point telemetry at a different first-party analytics instance.
@@ -225,24 +227,33 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
   function track(event: string, properties?: Record<string, unknown>): void {
     if (disabled) return;
     installId ??= resolveInstallId();
-    const body = JSON.stringify({
-      publicKey,
-      event,
-      anonymousId: installId,
-      sessionId: runId,
-      timestamp: new Date().toISOString(),
-      properties: { ...base, installId, ...properties },
-    });
-    const promise = fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      keepalive: true,
-    })
-      .then(() => undefined)
-      .catch(() => undefined);
-    inFlight.add(promise);
-    void promise.finally(() => inFlight.delete(promise));
+    const legacyProperties = { ...base, installId, ...properties };
+    const events: Array<{
+      name: string;
+      properties: Record<string, unknown>;
+    }> = [{ name: event, properties: legacyProperties }];
+    const canonical = canonicalTrackingEvent(event, legacyProperties);
+    if (canonical) events.push(canonical);
+    for (const emitted of events) {
+      const body = JSON.stringify({
+        publicKey,
+        event: emitted.name,
+        anonymousId: installId,
+        sessionId: runId,
+        timestamp: new Date().toISOString(),
+        properties: emitted.properties,
+      });
+      const promise = fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      })
+        .then(() => undefined)
+        .catch(() => undefined);
+      inFlight.add(promise);
+      void promise.finally(() => inFlight.delete(promise));
+    }
   }
 
   async function flush(): Promise<void> {

@@ -1,0 +1,379 @@
+---
+title: "Design: Funcionalidades"
+description: "Todas as funcionalidades essenciais do Design, organizadas da mesma forma que o aplicativo: Designs, Editar um Design, Templates e Sistemas de Design, com o que cada tela, aba e menu realmente faz."
+---
+
+# Funcionalidades
+
+Todas as funcionalidades essenciais do Design: como funcionam e como
+configurá-las. Veja [Design](/docs/template-design) para a visão geral e
+[Conversar com o Agent](/docs/template-design-agent) para a lista completa
+de prompts. As funcionalidades são agrupadas pelas telas reais do
+aplicativo: **Designs**, **Editar um Design**, **Templates** e **Sistemas
+de Design**.
+
+## Designs {#designs}
+
+A página de lista `/home`. Todo design que você pode acessar fica aqui, e é
+aqui que você inicia um novo.
+
+### Ver designs {#view-designs}
+
+Os designs aparecem como uma grade de cards: uma miniatura ao vivo, o
+título e a data da última atualização. Alternar para o filtro **Todos**
+(em vez de **Meus**) também mostra quem é o proprietário de cada um.
+
+- **Busca** filtra a grade por título enquanto você digita.
+- A grade pagina a cada 11 designs, com o card "Novo design" sempre em
+  primeiro.
+- Selecione um ou mais cards (passe o mouse para revelar uma caixa de
+  seleção) para obter uma barra de ferramentas em massa: selecionar/limpar
+  todos os visíveis, adicionar a um contexto criativo ou excluir a
+  seleção.
+- Uma conta vazia mostra quatro prompts iniciais para clicar em vez de uma
+  grade em branco (uma página SaaS, um dashboard, um app mobile, uma
+  página de preços).
+
+### Criar um design {#create-a-design}
+
+Os dois pontos de entrada para "Novo design", o botão do cabeçalho e o
+card tracejado da grade, abrem o mesmo popover. Você pode digitar um
+prompt e escolher um template inicial, um sistema de design e um contexto
+criativo, tudo antes mesmo de o editor abrir. Clique em **Pular** para
+obter um design em branco (ou uma cópia sem prompt do template escolhido)
+sem nenhuma geração por IA envolvida.
+
+Enviar o formulário leva você diretamente ao editor do novo design, com
+uma sobreposição "Abrindo design" enquanto qualquer geração termina em
+segundo plano.
+
+### Gerenciar um design {#manage-a-design}
+
+O menu "⋯" em um card de design tem quatro itens:
+
+- **Renomear**: uma pequena caixa de diálogo com um campo de texto.
+- **Duplicar**: cria uma cópia imediatamente e a abre, sem confirmação.
+- **Adicionar ao contexto**: anexa o design a um contexto criativo.
+- **Excluir**: pede confirmação antes.
+
+## Editar um Design {#edit-a-design}
+
+Tudo abaixo se aplica depois que você entra em um design.
+
+### Configurações de arquivo {#file-settings}
+
+Telas e camadas ficam em uma única árvore combinada, não em dois painéis
+separados. Cada tela do design (cada uma é seu próprio arquivo HTML) é uma
+entrada de nível superior, com as camadas dessa tela aninhadas embaixo.
+
+- **Adicionar, renomear, duplicar, excluir e reordenar** funcionam da
+  mesma forma tanto para telas quanto para camadas.
+- **Trave** uma camada para mantê-la fixa. Esse é o mesmo conceito de
+  "camada travada" que os templates e as cópias de templates preservam.
+- **Mostre ou oculte** qualquer camada sem excluí-la.
+
+### Agente {#agent-in-editor}
+
+O mesmo chat do agente que todo aplicativo Agent-Native tem também está
+presente no editor, não é uma superfície de chat específica do Design.
+Peça a ele para gerar uma tela, comparar variantes, ajustar detalhes ou
+verificar qualidade e acessibilidade, da mesma forma que você pediria
+qualquer outra mudança. Ele também executa uma verificação automática de
+qualidade e acessibilidade por conta própria antes de considerar um design
+pronto, sem nenhuma ação necessária da sua parte. Veja [Conversar com o
+Agent](/docs/template-design-agent) para prompts por tarefa.
+
+### Importar {#import}
+
+Um painel, cinco formas de trazer conteúdo externo:
+
+<Table
+  id="doc-block-design-import-table"
+  columns={["Método", "Como funciona"]}
+  rows={[
+    [
+      "URL de frame do Figma",
+      "Cole um link de compartilhamento do Figma. Conecte sua conta do Figma na primeira vez. É importado como uma tela real e editável.",
+    ],
+    [
+      "Colar do Figma",
+      "Copie um frame no Figma e cole (Cmd+V) diretamente na tela do Design. Isso é um atalho da tela, não um botão separado no painel Importar.",
+    ],
+    [
+      "Enviar .fig",
+      "Envie um arquivo .fig diretamente. Uma importação separada, no nível do design, diferente de importar um .fig em um sistema de design.",
+    ],
+    [
+      "Importar HTML",
+      "Cole HTML bruto em uma caixa de texto, ou envie um arquivo .html, para trazê-lo como uma tela.",
+    ],
+    [
+      "App local",
+      "Não é self-service a partir deste painel. Ele mostra comandos de instalação e conexão feitos para serem colados em um agente de código externo, que então abre seu aplicativo em execução no Design como suas próprias telas. Veja /visual-edit no Guia do desenvolvedor.",
+    ],
+  ]}
+/>
+
+<Callout tone="info">
+
+Toda importação do Figma retorna um relatório de fidelidade, não uma
+promessa. Ele indica quais propriedades corresponderam exatamente, quais o
+CSS só consegue aproximar (rotação, espessuras de traço por lado, algumas
+formas de gradiente) e quais subárvores precisaram recorrer a uma imagem
+plana porque a forma não pode ser representada em HTML/CSS de jeito
+nenhum.
+
+</Callout>
+
+### Barra de ferramentas {#toolbar}
+
+A barra de ferramentas inferior tem dois grupos separados: as ferramentas
+com as quais você desenha ou seleciona, e um seletor de modo que muda o
+que essas ferramentas fazem.
+
+#### Ferramentas
+
+<Table
+  id="doc-block-design-tools-table"
+  columns={["Ferramenta", "Atalho", "O que faz"]}
+  rows={[
+    [
+      "Mover / Mão / Escala",
+      "V / H / K",
+      "Selecione e mova elementos, faça pan na tela ou redimensione uma seleção.",
+    ],
+    [
+      "Frame / Tela",
+      "F para Frame",
+      "Desenhe um novo frame dentro de uma tela, ou comece uma tela totalmente nova.",
+    ],
+    [
+      "Formas",
+      "R, L, Shift+L, O para Retângulo, Linha, Seta, Elipse",
+      "Retângulo, linha, seta, elipse, polígono ou estrela. A inserção de imagem/vídeo é um placeholder desativado por enquanto.",
+    ],
+    [
+      "Caneta / Desenho",
+      "P, Shift+Y para Desenho",
+      "Caneta desenha caminhos vetoriais. Desenho é um pincel livre, e só aparece ativo no modo Anotar.",
+    ],
+    ["Texto", "T", "Adiciona uma camada de texto."],
+    [
+      "Fixar comentário",
+      "C",
+      "Solte um comentário fixado em um ponto específico, ativo apenas no modo Anotar. Veja a aba Comentários.",
+    ],
+  ]}
+/>
+
+#### Modos
+
+Um seletor separado de três posições ao lado das ferramentas:
+
+- **Editar**: o modo normal. Mover, Frame, Formas, Caneta e Texto
+  funcionam todos nesse modo.
+- **Anotar**: o modo em que Desenho e Fixar comentário precisam estar
+  ativos.
+- **Interagir**: um modo distinto para a tela, mantido separado de Editar
+  e Anotar.
+
+### Aba Design {#design-tab}
+
+O painel principal de propriedades para o que estiver selecionado. As
+seções aparecem apenas quando se aplicam à seleção atual:
+
+- **Preenchimento** e **Traço**: cor, gradiente ou preenchimento de
+  imagem, com uma paleta de cores do documento para reutilizar cores
+  existentes.
+- **Efeitos**: sombra projetada, desfoque de camada, desfoque de fundo e
+  um efeito de shader com base em código, com controles deslizantes
+  nomeados (velocidade, cor, ponto central) e um painel Código para o
+  GLSL bruto.
+- **Posição e layout**, **Tipografia**, **Aparência** (raio dos cantos,
+  modo de mesclagem, visibilidade): os grupos de propriedades padrão por
+  elemento.
+- **Layout** e **Auto layout**: organização em estilo flex para os filhos
+  de um frame.
+- **Grade de layout**: uma sobreposição de guia de layout para um frame.
+- **Componente**: quando um elemento é uma instância de componente, esta
+  seção mostra suas variantes e props. Alterar uma prop pré-visualiza
+  instantaneamente e se aplica apenas àquela instância. Não existe uma
+  definição de componente armazenada separadamente, cada instância é sua
+  própria cópia independente do markup, então "Ir para componente
+  principal" volta para a instância mais antiga como ponto de referência,
+  não como um template canônico.
+
+### Aba Comentários {#comments-tab}
+
+Uma aba real ao lado de Design, com um selo de contagem de não lidos.
+Qualquer pessoa com acesso pode fixar um comentário em um elemento
+específico em vez de deixar uma nota genérica. Um comentário pode
+continuar sendo apenas uma nota, ou ser enviado diretamente ao agente.
+Quando o agente trata um deles, ele edita exatamente a parte do design a
+que o comentário se refere, verifica se a mudança realmente foi aplicada,
+e então resolve a thread com uma nota de uma linha sobre o que mudou, ou
+responde pedindo para a pessoa decidir quando não é algo que o agente
+deva resolver por conta própria.
+
+### Aba Código e Medidas {#code-tab}
+
+Mostra, para o que estiver selecionado: posição e tamanho exatos em
+pixels, estilos computados (display, position, fonte, cor) e o HTML
+subjacente com um botão **Copiar** de um clique. Isso é um inspetor
+somente leitura, não um editor.
+
+### Pré-visualização do Design {#design-preview}
+
+O menu do botão de play no cabeçalho. **Pré-visualização do Design** abre
+o HTML real renderizado da tela atual em uma nova aba do navegador,
+exatamente como ela vai aparecer fora do editor. Fica desativado até a
+tela ter conteúdo.
+
+### Exportar {#export}
+
+Abra o pequeno botão de menu na barra lateral esquerda do editor (ele usa
+o símbolo do Agent-Native como ícone, ao lado de Voltar para designs,
+Salvar como template e Histórico de versões). **Exportar** é um submenu
+perto da parte inferior desse menu.
+
+<Table
+  id="doc-block-design-export-table"
+  columns={["Formato", "Para que serve"]}
+  rows={[
+    [
+      "Baixar HTML",
+      "Um único arquivo autocontido com links de CDN do Tailwind e do Alpine já embutidos. Abre diretamente em qualquer navegador.",
+    ],
+    ["Baixar PNG", "Uma imagem raster plana da tela atual."],
+    [
+      "Baixar SVG",
+      "Um wrapper SVG em torno do HTML ao vivo. Bom para incorporar, não editável no Figma.",
+    ],
+    [
+      "Baixar SVG do Figma",
+      "Formas vetoriais, texto e gradientes reais que o Figma pode importar como camadas editáveis. Copie e cole, ou arraste como um arquivo.",
+    ],
+    [
+      "Baixar ZIP",
+      "Todos os arquivos do design organizados por tipo (HTML/CSS/JSX/assets) mais um arquivo de metadados",
+    ],
+    [
+      "Baixar PDF (todas as telas)",
+      "Só aparece na visão geral com várias telas, com 2 ou mais telas. Um PDF renderizado no cliente cobrindo todas as telas.",
+    ],
+    [
+      "Copiar handoff de código",
+      "Copia os tokens de design, os arquivos do design e um prompt pronto para colar em um agente de código externo transformar o protótipo em código de produção.",
+    ],
+  ]}
+/>
+
+Seja qual for o destino, a exportação sempre reflete o estado atual do
+design, incluindo quaisquer ajustes aplicados, não a primeira versão
+gerada. Duplique o design antes se você quiser continuar iterando em uma
+cópia depois de entregar uma versão.
+
+### Histórico de versões {#version-history}
+
+Nesse mesmo menu da barra lateral esquerda, **Histórico de versões** abre
+um painel que lista snapshots salvos do design com um timestamp relativo
+("Agora mesmo", "5min atrás", e assim por diante). Selecionar um mostra
+uma pré-visualização das suas telas, e **Restaurar esta versão** traz o
+design de volta a esse estado exato.
+
+## Templates {#templates}
+
+Duas formas de começar mais rápido do que uma tela em branco.
+
+### Ver templates {#view-templates}
+
+A página Templates tem duas seções, **Seus templates** e **Templates
+integrados**, além de uma caixa de busca que filtra por título, descrição
+e categoria. Cada card de template mostra uma pré-visualização ao vivo,
+sua categoria (anúncio, página única, landing page, social, apresentação
+ou outro), suas dimensões e quantas camadas nele estão travadas. Seus
+próprios templates (não os integrados) recebem um menu "⋯" com
+**Compartilhar** (acesso de visualizador, editor ou administrador) e
+**Excluir**.
+
+### Usar um template {#use-a-template}
+
+Clicar em **Usar template** abre uma pequena caixa de diálogo: um prompt
+opcional, um sistema de design para aplicar (ou um link para criar um) e
+um botão **Usar como está** para pular direto para uma cópia sem prompt.
+De qualquer forma, um novo design é criado e você é levado direto para o
+editor dele.
+
+### Salvar como template {#save-as-template}
+
+Isso não fica na própria página Templates. Enquanto edita um design, abra
+o mesmo menu da barra lateral esquerda usado para Exportar e Histórico de
+versões, e escolha **Salvar como template**. Suas dimensões, arquivos e
+camadas travadas são transferidos da mesma forma que os de um template
+integrado.
+
+<Callout tone="info">
+
+Atualmente, os templates só podem ser salvos a partir de projetos de
+Design inline. Um design apoiado por `/visual-edit` ou pelo Full App
+Building não pode ser salvo como template.
+
+</Callout>
+
+### Abrir um design {#open-a-design}
+
+Não existe uma etapa separada de "abrir". Usar um template, assim como
+gerar um novo design a partir de um prompt, sempre termina abrindo
+automaticamente o editor daquele design.
+
+## Sistemas de Design {#design-systems}
+
+Um sistema de design é a identidade da marca — suas cores, fontes,
+espaçamento e logotipos — que o Design aplica a todo protótipo vinculado
+a ele.
+
+### Ver e compartilhar sistemas de design {#view-and-share}
+
+A página Sistemas de Design é uma grade: primeiro um card "Novo sistema
+de design", depois um card por sistema com uma pré-visualização de
+amostras de cor, um selo **Padrão** em qual for o seu padrão, e um selo
+de visibilidade (privado, organização ou público). Todo card tem um
+botão real de **Compartilhar** com funções de visualizador, editor ou
+administrador, o mesmo modelo de compartilhamento que os templates usam.
+Um alternador **Selecionar** no cabeçalho ativa a seleção múltipla com
+exclusão em massa.
+
+### Novo sistema de design {#new-design-system}
+
+Criar um começa com um seletor de origem:
+
+- **Figma**: envie um arquivo `.fig`.
+- **Empresa/marca**: a URL de um site.
+- **Código**: um repositório do GitHub conectado.
+- **Design.md**: um documento escrito com diretrizes de design.
+- **Arquivos de design**: envie arquivos diretamente.
+- **Importar existente**: reutilize um sistema de design ou projeto que
+  você já tem.
+- **Notas**: descreva sua marca do zero, ou comece a partir de um sistema
+  público real e mantido, como Material 3, Carbon ou Primer, em vez de
+  recriar um de memória.
+
+<Callout tone="info">
+
+Cada sistema público vem com tokens semânticos reais, uma escala
+tipográfica, espaçamento e atribuição. O Design não deixa um prompt
+transformar silenciosamente um deles em uma imitação com dados diferentes
+por baixo. Todo sistema de design também carrega um conjunto opcional de
+instruções personalizadas e um estilo de imagem descrito, para que a
+fotografia e a ilustração geradas permaneçam na mesma linguagem visual do
+restante da marca.
+
+</Callout>
+
+## Próximos passos
+
+- [**Design**](/docs/template-design) — a visão geral e os passos iniciais
+- [**Conversar com o Agent**](/docs/template-design-agent) — todos os prompts por tarefa e como o agente vê sua tela
+- [**Uso entre apps**](/docs/template-design-integrations) — conectando ao Dispatch e chamando o Design via MCP
+- [**Guia do desenvolvedor**](/docs/template-design-developers) — início rápido, actions, modelo de dados e rotas
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento que templates e sistemas de design usam

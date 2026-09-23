@@ -183,6 +183,12 @@ const messages = {
     emptyTitle: "ブランドアイデンティティを設定",
     emptyDescription:
       "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいデッキはすべてそのビジュアルアイデンティティに従います。",
+    tierLimitTitle: "デザインシステムの上限に達しました",
+    tierLimitDescription:
+      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
+    tierLimitDescriptionWithCount:
+      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
+    tierLimitUpgrade: "プランをアップグレード",
   },
   editorToolbar: {
     layoutTitle: "タイトル",
@@ -752,6 +758,8 @@ const messages = {
     websitePlaceholder: "example.com または Nike",
     add: "追加",
     githubRepository: "コードを接続: GitHub リポジトリ",
+    codeIndexingEnterpriseOnly:
+      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
     githubRef: "ブランチ、タグ、コミット（任意）",
     githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
     codeFiles: "コードファイルを接続",

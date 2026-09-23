@@ -4,6 +4,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 
 import { chromium, type Browser } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -542,6 +543,251 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("rejects a localhost connection id used as the bridge token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+
+    await expect(
+      startDesignConnectBridge(manifest, {
+        bridgeToken: "localhost_0000000000000000",
+      }),
+    ).rejects.toThrow(/connection ID, not a bridge token/);
+  });
+
+  it("rejects a preview token that does not match the bridge token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+
+    await expect(
+      startDesignConnectBridge(manifest, {
+        bridgeToken: "bridge-token",
+        previewToken: "stale-preview-token",
+      }),
+    ).rejects.toThrow(/previewToken must match/);
+  });
+
+  it("reuses the persisted bridge token after a daemon restart", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const firstBridge = await startDesignConnectBridge(manifest);
+    await new Promise<void>((resolve) =>
+      firstBridge.server.close(() => resolve()),
+    );
+
+    const secondBridge = await startDesignConnectBridge(manifest);
+    try {
+      expect(secondBridge.bridgeToken).toBe(firstBridge.bridgeToken);
+      expect(secondBridge.previewToken).toBe(firstBridge.previewToken);
+      const tokenPath = path.join(root, ".agent-native", "design-bridge-token");
+      expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
+    } finally {
+      await new Promise<void>((resolve) =>
+        secondBridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("publishes and retrieves pending visual edits without the Design tab", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const auth = { "x-design-preview-token": bridge.previewToken };
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const registered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-a",
+          designId: "design-1",
+        },
+        auth,
+      );
+      expect(registered.status).toBe(200);
+      expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
+      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
+        ok: true,
+        pending: null,
+      });
+      expect(
+        (
+          await postJson(
+            `${base}/live-edit-pending`,
+            {
+              pending: {
+                designId: "design-1",
+                pendingEditCount: 2,
+                status: "ready",
+                prompt: "Apply the two pending visual edits.",
+              },
+            },
+            { "x-design-preview-token": "wrong-preview-token" },
+          )
+        ).status,
+      ).toBe(401);
+
+      const queryTokenWrite = await postJson(
+        `${base}/live-edit-pending?previewToken=${encodeURIComponent(bridge.previewToken)}`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged query-token write",
+          },
+        },
+      );
+      expect(queryTokenWrite.status).toBe(401);
+
+      const disallowedOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged cross-origin write",
+          },
+        },
+        { ...auth, origin: "https://evil.example" },
+      );
+      expect(disallowedOriginWrite.status).toBe(403);
+
+      const opaqueOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged opaque-origin write",
+          },
+        },
+        { ...auth, origin: "null" },
+      );
+      expect(opaqueOriginWrite.status).toBe(403);
+
+      const crossSiteNoOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged no-origin write",
+          },
+        },
+        { ...auth, "sec-fetch-site": "cross-site" },
+      );
+      expect(crossSiteNoOriginWrite.status).toBe(403);
+
+      const textPlainWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged simple-request write",
+          },
+        },
+        { ...auth, "content-type": "text/plain" },
+      );
+      expect(textPlainWrite.status).toBe(415);
+
+      const published = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Apply the two pending visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(published.status).toBe(200);
+      expect(published.body.pending).toMatchObject({
+        designId: "design-1",
+        pendingEditCount: 2,
+        status: "ready",
+        prompt: "Apply the two pending visual edits.",
+      });
+
+      const pulled = await getJson(`${base}/live-edit-pending`, auth);
+      expect(pulled.status).toBe(200);
+      expect(pulled.body.pending).toMatchObject({
+        designId: "design-1",
+        prompt: "Apply the two pending visual edits.",
+      });
+
+      await expect(
+        runDesign([
+          "pending",
+          "--bridge-url",
+          base,
+          "--preview-token",
+          bridge.previewToken,
+        ]),
+      ).resolves.toBe(0);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("Apply the two pending visual edits."),
+      );
+
+      const oversized = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "x".repeat(520_000),
+          },
+        },
+        auth,
+      );
+      expect(oversized.status).toBe(413);
+
+      const cleared = await postJson(
+        `${base}/live-edit-pending`,
+        { designId: "design-1", pending: null },
+        auth,
+      );
+      expect(cleared.status).toBe(200);
+      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
+        ok: true,
+        pending: null,
+      });
+    } finally {
+      log.mockRestore();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("marks live-edit documents and keyed recovery redirects as embeddable", async () => {
     const root = tmpDir();
     const devPort = await freePort();
@@ -1119,7 +1365,73 @@ describe("design connect bridge endpoints", () => {
         `<script type="importmap" data-agent-native-opaque-preview-imports>`,
       );
       expect(html.body).toContain("data-agent-native-opaque-preview-auth");
+      expect(html.body).toContain("var W=window.WebSocket");
+      expect(html.body).toContain('a.protocol==="ws:"||a.protocol==="wss:"');
+      expect(html.body).toContain('a.searchParams.has("previewToken")');
       expect(html.body).toContain(bridge.previewToken);
+      const authScript = html.body.match(
+        /<script data-agent-native-opaque-preview-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!authScript) throw new Error("missing preview auth shim");
+      const socketUrls: string[] = [];
+      function FakeWebSocket(url: string) {
+        socketUrls.push(url);
+      }
+      FakeWebSocket.prototype = {};
+      const iframeUrls: string[] = [];
+      const nodePrototype = {
+        appendChild: (node: unknown) => node,
+      };
+      const xhrPrototype = { open: () => undefined };
+      const windowObject = {
+        fetch: () => undefined,
+        WebSocket: FakeWebSocket,
+      };
+      vm.runInNewContext(authScript, {
+        window: windowObject,
+        document: { baseURI: `${base}/live-edit` },
+        Node: { prototype: nodePrototype },
+        XMLHttpRequest: { prototype: xhrPrototype },
+        URL,
+      });
+      const sameOriginIframe = {
+        nodeType: 1,
+        tagName: "IFRAME",
+        value: `${base}/nested-preview`,
+        getAttribute(name: string) {
+          return name === "src" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "src") {
+            this.value = value;
+            iframeUrls.push(value);
+          }
+        },
+      };
+      nodePrototype.appendChild(sameOriginIframe);
+      expect(iframeUrls).toEqual([
+        `${base}/nested-preview?previewToken=${bridge.previewToken}`,
+      ]);
+      const externalIframe = {
+        ...sameOriginIframe,
+        value: "https://external.example/nested-preview",
+      };
+      nodePrototype.appendChild(externalIframe);
+      expect(iframeUrls).toHaveLength(1);
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        `ws://${new URL(base).host}/hmr`,
+      );
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        "wss://external.example/hmr",
+      );
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+      );
+      expect(socketUrls).toEqual([
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+        "wss://external.example/hmr",
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+      ]);
       expect(html.body).toContain("agent-native:editor-chrome-ready");
       const previewSessionCookie = (
         Array.isArray(html.headers["set-cookie"])

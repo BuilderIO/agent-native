@@ -131,7 +131,7 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     // Redo re-deletes under the SAME ids it was handed — no renaming, unlike
     // undo's createFileMutation recreate.
     performDeleteFiles: vi.fn((filesToDelete, options) => {
-      options?.onMutationSettled?.(filesToDelete, []);
+      options?.onMutationSettled?.(filesToDelete, [], filesToDelete);
     }),
     publishAuthoritativeClipboardMutation: vi.fn(),
     queryClient: {
@@ -207,6 +207,36 @@ describe("redo — selection history after a file-deletion redo", () => {
     expect(
       refs.selectionUndoStackRef.current[1]?.before.overviewSelectedScreenIds,
     ).toEqual(["screen-a"]);
+  });
+
+  it("builds the next undo entry from the delete action snapshot", () => {
+    const refs = sharedRefs();
+    const authoritativeSnapshot = {
+      ...refs.fileDeletionRedoStackRef.current[0]!.files[0],
+      content: "<html>edited after undo</html>",
+      updatedAt: "2024-02-01T00:00:00Z",
+      geometry: { x: 90, y: 40, width: 640, height: 480, z: 3 },
+      screenMetadata: { title: "Edited after undo" },
+      variantMemberships: [
+        {
+          setId: "set-1",
+          set: { screens: ["screen-a"] },
+          screen: "screen-a",
+          index: 0,
+          originalScreenIds: ["screen-a"],
+        },
+      ],
+    };
+    const args = commonArgs(refs);
+    args.performDeleteFiles = vi.fn((filesToDelete, options) => {
+      options?.onMutationSettled?.(filesToDelete, [], [authoritativeSnapshot]);
+    });
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+
+    expect(refs.fileDeletionUndoStackRef.current).toEqual([
+      { files: [authoritativeSnapshot] },
+    ]);
   });
 
   it("cleans up a partial create before retrying file-creation redo", async () => {

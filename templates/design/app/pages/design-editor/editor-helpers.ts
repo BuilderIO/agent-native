@@ -104,7 +104,9 @@ export function buildSignInHrefForDesignIntent(
 
 export function buildSignInHrefForComment(): string {
   if (typeof window === "undefined") return buildSignInReturnHref();
-  return buildSignInReturnHref({ returnTo: window.location.pathname });
+  return buildSignInReturnHref({
+    returnTo: `${window.location.pathname}${window.location.search}`,
+  });
 }
 
 /**

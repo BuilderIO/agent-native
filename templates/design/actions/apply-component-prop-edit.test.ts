@@ -87,8 +87,8 @@ import { sourceContentHash } from "../shared/source-workspace.js";
 import action from "./apply-component-prop-edit.js";
 
 const designId = "design-components";
-const mainContent = `<section data-agent-native-node-id="main-root" data-agent-native-component="Button" ${COMPONENT_ID_ATTR}="button"><span data-agent-native-node-id="main-label" style="color: blue">Play</span></section><div data-agent-native-node-id="plain-target" style="color: black">Plain</div>`;
-const copyContent = `<section data-agent-native-node-id="copy-root" ${COMPONENT_REF_ATTR}="button"><span data-agent-native-node-id="copy-label" ${COMPONENT_SOURCE_NODE_ID_ATTR}="main-label" style="color: blue">Play</span></section>`;
+const mainContent = `<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-prop-variant="primary" ${COMPONENT_ID_ATTR}="button"><span data-agent-native-node-id="main-label" style="color: blue">Play</span></section><div data-agent-native-node-id="plain-target" style="color: black">Plain</div>`;
+const copyContent = `<section data-agent-native-node-id="copy-root" data-agent-native-prop-variant="primary" ${COMPONENT_REF_ATTR}="button"><span data-agent-native-node-id="copy-label" ${COMPONENT_SOURCE_NODE_ID_ATTR}="main-label" style="color: blue">Play</span></section>`;
 
 const structureMainContent = `<section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="button"><div data-agent-native-node-id="main-a">A</div><div data-agent-native-node-id="main-b">B</div></section>`;
 const emptyComponentOverrides = encodeURIComponent("[]");
@@ -412,6 +412,37 @@ describe("apply-component-prop-edit linked path", () => {
     expect(copy).toContain(` ${COMPONENT_REF_ATTR}="button"`);
     expect(copy).toContain(` ${COMPONENT_SOURCE_NODE_ID_ATTR}="main-label"`);
     expect(copy).toContain(COMPONENT_OVERRIDES_ATTR);
+  });
+
+  it("persists a component prop override through the linked action path", async () => {
+    const result = await action.run({
+      designId,
+      fileId: "copy-file",
+      nodeId: "copy-root",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-variant",
+        value: "outline",
+      },
+      source: { expectedFiles: expectedFiles() },
+    });
+
+    expect(result).toMatchObject({ persisted: true, ctaRequired: false });
+    expect(mocks.writeInlineSourceFilesBatch).toHaveBeenCalledTimes(1);
+    const batch = mocks.writeInlineSourceFilesBatch.mock.calls[0][0];
+    const copy = batch.files.find(
+      ({ file }) => file.id === "copy-file",
+    )?.content;
+    expect(copy).toContain('data-agent-native-prop-variant="outline"');
+    expect(copy).toContain(COMPONENT_REF_ATTR);
+    expect(copy).toContain(COMPONENT_OVERRIDES_ATTR);
+    const overrides = decodeURIComponent(
+      copy?.match(new RegExp(`${COMPONENT_OVERRIDES_ATTR}="([^"]+)"`))?.[1] ??
+        "",
+    );
+    expect(overrides).toContain(
+      '"property":"attribute:data-agent-native-prop-variant"',
+    );
   });
 
   it("writes a multi-property inspector commit through one component action batch", async () => {

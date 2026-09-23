@@ -37,14 +37,17 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "役割を選択",
   "onboarding.customizeRole": "あなた向けにカスタマイズしましょう。",
   "onboarding.roleQuestion": "あなたの役割に最も当てはまるものは？",
-  "onboarding.roleProduct": "プロダクト",
-  "onboarding.roleDesign": "デザイン",
+  "onboarding.roleHelperText":
+    "これにより、あなたの体験をパーソナライズできます",
+  "onboarding.roleProduct": "プロダクトマネージャー",
+  "onboarding.roleDesign": "デザイナー",
   "onboarding.roleDeveloper": "開発",
   "onboarding.roleMarketing": "マーケティング",
   "onboarding.roleSales": "営業",
   "onboarding.roleOps": "オペレーション",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "その他",
+  "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",
@@ -62,9 +65,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "ワンクリックで Builder.io アカウントを自動的に作成します。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
-  "onboarding.builderConsentPrefix": "続行すると、Builder.io の",
+  "onboarding.builderConsentPrefix":
+    "Builder.io アカウントを作成すると、当社の",
   "onboarding.builderTerms": "利用規約",
-  "onboarding.builderPrivacy": "プライバシー",
+  "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
@@ -78,10 +82,9 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
   "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
-  "onboarding.capability.llm.keySummary":
-    "AIプロバイダーまたはローカルモデルに接続",
+  "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
-    "BuilderストレージまたはS3互換バケット",
+    "ファイルのアップロードと保存",
   "onboarding.fileStorage.title": "ファイルストレージを選択",
   "onboarding.fileStorage.description":
     "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
@@ -89,13 +92,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
-  "onboarding.capability.voiceInput.keySummary":
-    "ブラウザーの音声認識または音声文字変換",
+  "onboarding.capability.voiceInput.keySummary": "音声入力",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
   "onboarding.capability.embeddings.label": "埋め込み",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
@@ -134,6 +135,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
   "agentPanel.useOrganizationKey": "組織のキーを使用",
   "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "このサイトのポップアップを許可してから、もう一度お試しください。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT サブスクリプション",
+  "agentPanel.chatgptSubscriptionDescription":
+    "ChatGPT サブスクリプションによる実験的な Codex アクセス。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "接続済み",
+  "agentPanel.chatgptSubscriptionConnecting": "接続中…",
+  "agentPanel.chatgptSubscriptionReconnect": "再接続",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT を接続",
+  "agentPanel.chatgptSubscriptionUse": "チャットで使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "接続解除",
   "agentHostNudge.sidebarTitle": "{{agent}}のチャットを使う",
   "agentHostNudge.sidebarDescription":
     "すでに{{agent}}とチャットしています。このアプリを直接操作するよう依頼できます。",
@@ -155,6 +168,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "読み込み中...",
   "common.no": "いいえ",
   "common.retry": "再試行",
+  "common.chunkLoadFailed": "読み込めませんでした。もう一度お試しください。",
   "common.save": "保存",
   "agents.hostedAgent": "ホスト型エージェント",
   "agents.provider": "プロバイダー",

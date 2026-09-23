@@ -148,7 +148,7 @@ describe("record route lifecycle shell", () => {
     );
     expect(callout).toContain('variant="ghost"');
     expect(callout).toContain("pt-3");
-    expect(callout).toContain("DesktopPlatformIcon");
+    expect(callout).toContain("CaptureInstallMenu");
     expect(callout).toContain("text-sm font-medium");
     expect(source).not.toContain("xl:grid-cols-[288px_320px_288px]");
     expect(source).not.toContain("xl:absolute");
@@ -177,6 +177,21 @@ describe("record route lifecycle shell", () => {
     expect(source).not.toContain("onUpload={uploadFile}");
     expect(source).not.toContain("importLoomHref=");
     expect(source).not.toContain("autoOpenUpload=");
+  });
+
+  it("clears the saving toolbar state before showing the saved recording", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const start = source.indexOf("const finishSavedRecording");
+    const end = source.indexOf("const doStop = useCallback", start);
+    const finish = source.slice(start, end);
+
+    expect(finish.indexOf("setSavingKind(null);")).toBeGreaterThanOrEqual(0);
+    expect(finish.indexOf("setSavingKind(null);")).toBeLessThan(
+      finish.indexOf('setUiState("complete");'),
+    );
   });
 
   it("keeps the browser route free of server-only app-state imports", () => {

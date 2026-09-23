@@ -44,9 +44,9 @@ function nodeIdForText(html: string, text: string, occurrence = 0): string {
  * text tool, alt-drag duplicate across the screen boundary, arrow-key nudge,
  * shift-click multi-select, Shift+A auto layout, and Fill/Hug sizing.
  *
- * No component/variant system exists in Design (see finding tutorial2-9), so
- * every "Create component" step is replaced with its closest equivalent (a
- * plain frame) and the gap is recorded as a finding instead of blocking.
+ * Design now has native components and instance prop controls. The remaining
+ * tutorial gap is the Figma-specific multi-variant/page workflow; the
+ * component shortcut is exercised directly below.
  */
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
@@ -1061,7 +1061,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     expect(html).toMatch(/min-width:\s*200px/);
   });
 
-  test("Cmd+Opt+K (create component) has no equivalent: the shortcut is a no-op and no component/instance concept exists", async ({
+  test("Cmd+Opt+K creates a native component from the selected frame", async ({
     page,
     request,
   }) => {
@@ -1082,17 +1082,11 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       .toBe(true);
     await expandAllLayers(page);
     await focusCanvas(page);
-    const before = await fileContent(request, designId);
     await page.keyboard.press(`${PRIMARY}+Alt+k`);
-    await page.waitForTimeout(600);
+    await expect
+      .poll(async () => fileContent(request, designId))
+      .toMatch(/data-agent-native-component="[^"]+"/);
     const after = await fileContent(request, designId);
-    // No crash and no structural change is the expected (degraded) outcome;
-    // this documents the missing feature rather than asserting a bug.
-    expect(after).toBe(before);
-    expect(
-      page.locator(
-        '[data-design-bottom-toolbar] button[aria-label*="Component" i]',
-      ),
-    ).toHaveCount(0);
+    expect(after).toMatch(/data-agent-native-component-id="[^"]+"/);
   });
 });

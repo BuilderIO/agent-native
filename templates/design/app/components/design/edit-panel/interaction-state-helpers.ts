@@ -37,6 +37,8 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "webkitLineClamp",
   "--agent-native-truncate-original-display",
   "--agent-native-truncate-original-overflow",
+  "--an-vector-start-point",
+  "--an-vector-end-point",
   "whiteSpace",
   "backgroundImage",
   "backgroundColor",

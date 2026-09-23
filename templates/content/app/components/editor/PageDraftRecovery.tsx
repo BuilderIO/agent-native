@@ -2,7 +2,7 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -58,6 +58,7 @@ export function PageDraftRecovery({
   const [conflictDocument, setConflictDocument] = useState<Document | null>(
     null,
   );
+  const automaticRecoveryRef = useRef<string | null>(null);
   const draft = drafts.data?.draft;
 
   async function settleDraft(restore: boolean) {
@@ -65,20 +66,34 @@ export function PageDraftRecovery({
     setBusy(true);
     setFailure(null);
     try {
-      if (
-        restore &&
-        (draft.title !== document.title || draft.content !== document.content)
-      ) {
-        if (!draft.baseDocumentUpdatedAt) {
+      const identifiedDraft = Boolean(
+        draft.editorSessionId && typeof draft.editGeneration === "number",
+      );
+      const draftDiffers =
+        draft.title !== document.title || draft.content !== document.content;
+      if (restore && (identifiedDraft || draftDiffers)) {
+        if (draftDiffers && !draft.baseDocumentUpdatedAt) {
           throw new Error("The draft has no original document version.");
         }
         const saved = await update.mutateAsync({
           id: document.id,
           title: draft.title,
           content: draft.content,
-          baseUpdatedAt: draft.baseDocumentUpdatedAt,
-          loadedUpdatedAt: draft.baseDocumentUpdatedAt,
+          ...(draft.baseDocumentUpdatedAt
+            ? {
+                baseUpdatedAt: draft.baseDocumentUpdatedAt,
+                loadedUpdatedAt: draft.baseDocumentUpdatedAt,
+              }
+            : {}),
           loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
+          ...(identifiedDraft
+            ? {
+                editorSessionId: draft.editorSessionId!,
+                editorEditGeneration: draft.editGeneration!,
+                editorSnapshotTitle: draft.title,
+                editorSnapshotContent: draft.content,
+              }
+            : {}),
         });
         if (isDocumentUpdateConflict(saved)) {
           setFailure("conflict");
@@ -88,6 +103,11 @@ export function PageDraftRecovery({
         if (saved.content !== draft.content || saved.title !== draft.title) {
           throw new Error("Draft restoration was not confirmed.");
         }
+        if (identifiedDraft) {
+          await queryClient.refetchQueries(documentQueryFilter(document.id));
+          await drafts.refetch();
+          return;
+        }
       }
       const result = await updateDraft.mutateAsync({
         operation: "delete",
@@ -95,6 +115,12 @@ export function PageDraftRecovery({
         expectedVersion: draft.version,
         expectedTitle: draft.title,
         expectedContent: draft.content,
+        ...(draft.editorSessionId
+          ? { expectedEditorSessionId: draft.editorSessionId }
+          : {}),
+        ...(typeof draft.editGeneration === "number"
+          ? { expectedEditGeneration: draft.editGeneration }
+          : {}),
       });
       if (result.status !== "deleted")
         throw new Error("The saved draft changed during recovery.");
@@ -152,6 +178,28 @@ export function PageDraftRecovery({
     }
   }
 
+  const hasEditIdentity = Boolean(
+    draft?.editorSessionId && draft.editGeneration !== null,
+  );
+  useEffect(() => {
+    if (
+      !draft ||
+      !hasEditIdentity ||
+      busy ||
+      failure ||
+      documentBodyHydrationIsPending(document)
+    )
+      return;
+    const attempt = `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}:${document.updatedAt}`;
+    if (automaticRecoveryRef.current === attempt) return;
+    automaticRecoveryRef.current = attempt;
+    if (draft.baseDocumentUpdatedAt === document.updatedAt) {
+      void settleDraft(true);
+      return;
+    }
+    void resolveConflict("use_saved");
+  }, [busy, document, draft, failure, hasEditIdentity]);
+
   if (releasedDocumentId === document.id) return children;
   if (drafts.isError)
     return (
@@ -162,6 +210,8 @@ export function PageDraftRecovery({
     );
   if (!drafts.data) return <DocumentEditorSkeleton title={document.title} />;
   if (!draft) return children;
+  if (hasEditIdentity && !failure)
+    return <DocumentEditorSkeleton title={document.title} />;
   const savedVersion = conflictDocument ?? document;
   return (
     <RecoveryComparison

@@ -298,6 +298,15 @@ export function getAgentNativeWebMcpStatus(
  * bridge or browser evaluator still controls who can discover and invoke it.
  */
 export function initializeAgentNativeWebMcp(): boolean {
+  // The WebMCP polyfill calls Object.hasOwn even in browsers that lack it.
+  if (typeof Object.hasOwn !== "function") {
+    Object.defineProperty(Object, "hasOwn", {
+      configurable: true,
+      writable: true,
+      value: (object: object, key: PropertyKey) =>
+        Object.prototype.hasOwnProperty.call(object, key),
+    });
+  }
   if (isAgentNativeWebMcpSupported()) return true;
   if (typeof window === "undefined") return false;
   initializeWebMCPPolyfill();

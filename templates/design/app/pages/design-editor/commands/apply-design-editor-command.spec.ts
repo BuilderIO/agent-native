@@ -203,3 +203,22 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     expect(args.setZoomForView).not.toHaveBeenCalled();
   });
 });
+
+describe("runApplyDesignEditorCommand: focused URL mode", () => {
+  it("preserves an explicit edit mode for single-screen navigation", () => {
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+    });
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "single",
+      screen: "file-1",
+      mode: "edit",
+    });
+    expect(applied).toBe(true);
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setViewMode).toHaveBeenCalledWith("single");
+  });
+});

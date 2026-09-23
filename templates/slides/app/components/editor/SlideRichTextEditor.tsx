@@ -126,15 +126,27 @@ export function contentForSlideTextContainer(
   html: string,
   listTagName?: "OL" | "UL",
 ): string {
-  if (
-    !html ||
-    !isSlideTextContainerTag(tagName) ||
-    typeof DOMParser === "undefined"
-  ) {
+  if (!html || typeof DOMParser === "undefined") {
     return html;
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
+  const normalizedTagName = tagName.toUpperCase();
+  if (
+    normalizedTagName === "DIV" &&
+    doc.body.children.length === 1 &&
+    first?.tagName === "DIV" &&
+    first.firstElementChild &&
+    isBulletMarker(first.firstElementChild)
+  ) {
+    const source = first as HTMLElement;
+    const paragraph = doc.createElement("p");
+    syncSlideEditorBlockFormatting(source, paragraph);
+    copyLegacyRowLayoutStyles(source, paragraph);
+    paragraph.innerHTML = source.innerHTML;
+    return paragraph.outerHTML;
+  }
+  if (!isSlideTextContainerTag(tagName)) return html;
   if (
     doc.body.children.length !== 1 ||
     first?.tagName.toUpperCase() !== tagName.toUpperCase()
@@ -153,8 +165,12 @@ export function contentForSlideTextContainer(
     return paragraph.outerHTML;
   }
   if (tagName.toUpperCase() === "P") {
+    const source = first as HTMLElement;
     const paragraph = doc.createElement("p");
-    syncSlideEditorBlockFormatting(first as HTMLElement, paragraph);
+    syncSlideEditorBlockFormatting(source, paragraph);
+    if (source.firstElementChild && isBulletMarker(source.firstElementChild)) {
+      copyLegacyRowLayoutStyles(source, paragraph);
+    }
     paragraph.innerHTML = first.innerHTML;
     return paragraph.outerHTML;
   }
@@ -183,7 +199,10 @@ export function restoreSlideTextContainerContent(
 ): HTMLElement {
   html = restoreLegacyBulletRows(legacySourceHtml, html);
   if (!isSlideTextContainerTag(element.tagName)) {
-    element.innerHTML = html;
+    element.innerHTML =
+      element.tagName === "DIV" && legacySourceHtml
+        ? restoreLegacyBulletRowContent(legacySourceHtml, html, element)
+        : html;
     return element;
   }
   if (!html || typeof DOMParser === "undefined") {
@@ -535,16 +554,32 @@ const LEGACY_MARKER_STYLE_PROPERTIES = [
   ["top", "--slide-legacy-marker-top"],
 ] as const;
 
-function listItemContent(item: HTMLElement): string {
-  const firstChild = item.firstElementChild;
-  return item.children.length === 1 && firstChild?.tagName === "P"
+function listItemContent(
+  item: HTMLElement,
+  excludeChild?: HTMLElement,
+): string {
+  if (!excludeChild) {
+    const firstChild = item.firstElementChild;
+    return item.children.length === 1 && firstChild?.tagName === "P"
+      ? firstChild.innerHTML
+      : item.innerHTML;
+  }
+  // A Tab-indented sub-bullet nests its child <ul>/<ol> inside the same <li>
+  // as the item's own text; strip it before reading content so the nested
+  // row's markup isn't duplicated into its parent's text span.
+  const clone = item.cloneNode(true) as HTMLElement;
+  const excludeIndex = Array.from(item.children).indexOf(excludeChild);
+  if (excludeIndex >= 0) clone.children[excludeIndex]?.remove();
+  const firstChild = clone.firstElementChild;
+  return clone.children.length === 1 && firstChild?.tagName === "P"
     ? firstChild.innerHTML
-    : item.innerHTML;
+    : clone.innerHTML;
 }
 
 function restoreLegacyBulletRow(
   template: HTMLElement,
   item: HTMLElement,
+  excludeChild?: HTMLElement,
 ): HTMLElement {
   const row = template.cloneNode(true) as HTMLElement;
   const marker = row.firstElementChild;
@@ -553,7 +588,7 @@ function restoreLegacyBulletRow(
   while (marker.nextSibling) marker.nextSibling.remove();
 
   const textTemplate = template.children[1];
-  const content = listItemContent(item);
+  const content = listItemContent(item, excludeChild);
   if (textTemplate) {
     const text = textTemplate.cloneNode(false) as HTMLElement;
     text.innerHTML = content;
@@ -573,6 +608,32 @@ function restoreLegacyBulletRow(
   copyRowTextStyles(item, row);
   copyLegacyRowLayoutStyles(item, row);
   return row;
+}
+
+function applyRestoredLegacyBulletRow(
+  target: HTMLElement,
+  restored: HTMLElement,
+): void {
+  for (const attribute of Array.from(restored.attributes)) {
+    if (attribute.name !== "style") {
+      target.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  for (const property of [
+    ...LEGACY_ROW_TEXT_STYLE_PROPERTIES,
+    ...LEGACY_ROW_LAYOUT_STYLE_PROPERTIES,
+  ]) {
+    target.style.removeProperty(property);
+    const value = restored.style.getPropertyValue(property);
+    if (value) {
+      target.style.setProperty(
+        property,
+        value,
+        restored.style.getPropertyPriority(property),
+      );
+    }
+  }
+  target.innerHTML = restored.innerHTML;
 }
 
 function restoreLegacyBulletRowsInContainer(
@@ -596,21 +657,14 @@ function restoreLegacyBulletRowsInContainer(
 
       const currentChild = current.children[currentIndex];
       if (currentChild?.tagName === "UL") {
-        const items = Array.from(currentChild.children).filter(
-          (child): child is HTMLElement => child.tagName === "LI",
+        const rows: HTMLElement[] = [];
+        collectLegacyBulletRows(
+          templates,
+          currentChild as HTMLElement,
+          0,
+          rows,
         );
-        const hasNestedList = items.some((item) =>
-          Array.from(item.children).some(
-            (child) => child.tagName === "UL" || child.tagName === "OL",
-          ),
-        );
-        if (!hasNestedList && items.length > 0) {
-          const rows = items.map((item, index) =>
-            restoreLegacyBulletRow(
-              templates[Math.min(index, templates.length - 1)],
-              item,
-            ),
-          );
+        if (rows.length > 0) {
           currentChild.replaceWith(...rows);
           currentIndex += rows.length;
           continue;
@@ -648,6 +702,147 @@ function restoreLegacyBulletRows(
   const currentDocument = new DOMParser().parseFromString(html, "text/html");
   restoreLegacyBulletRowsInContainer(sourceDocument.body, currentDocument.body);
   return currentDocument.body.innerHTML;
+}
+
+/**
+ * Turn a Tab-indented sub-item's <ul>/<ol> into a flat sibling row offset by
+ * padding-left, matching how AI-generated decks already draw sub-bullets
+ * (see `restoreLegacyBulletRow`'s row shape) instead of leaving it a nested
+ * DOM level the `isBulletRow`/`isBulletMarker` heuristics elsewhere don't
+ * expect. Order is depth-first so each item's own sub-items land right after
+ * it, matching outline order.
+ */
+function collectLegacyBulletRows(
+  templates: HTMLElement[],
+  list: HTMLElement,
+  depth: number,
+  rows: HTMLElement[],
+): void {
+  for (const child of Array.from(list.children)) {
+    if (child.tagName !== "LI") continue;
+    const item = child as HTMLElement;
+    const nestedList = Array.from(item.children).find(
+      (c): c is HTMLElement => c.tagName === "UL" || c.tagName === "OL",
+    );
+    const template = templates[Math.min(rows.length, templates.length - 1)]!;
+    const row = restoreLegacyBulletRow(template, item, nestedList);
+    if (depth > 0) {
+      const basePadding = Number.parseFloat(template.style.paddingLeft) || 0;
+      row.style.paddingLeft = `${basePadding + depth * 24}px`;
+    }
+    rows.push(row);
+    // A sub-list switched to numbered keeps its <ol> instead of glyph rows.
+    if (nestedList?.tagName === "OL") {
+      stripLegacyListStyles(nestedList);
+      rows.push(nestedList);
+    } else if (nestedList) {
+      collectLegacyBulletRows(templates, nestedList, depth + 1, rows);
+    }
+  }
+}
+
+/**
+ * A single legacy bullet row edited into more than one item stops being a
+ * row and becomes the list holding them: flip its own flex-row layout
+ * (marker beside text) to a flex-column stack so the new rows lay out one
+ * per line instead of crammed onto one.
+ */
+function applyLegacyBulletListLayout(target: HTMLElement): void {
+  target.style.setProperty("display", "flex");
+  target.style.setProperty("flex-direction", "column");
+  target.style.removeProperty("align-items");
+  target.style.removeProperty("justify-content");
+  if (!target.style.getPropertyValue("gap")) {
+    target.style.setProperty("gap", "0.6em");
+  }
+}
+
+function restoreLegacyBulletRowContent(
+  sourceHtml: string | undefined,
+  html: string,
+  target?: HTMLElement,
+): string {
+  if (!sourceHtml || typeof DOMParser === "undefined") return html;
+  const sourceDocument = new DOMParser().parseFromString(
+    `<div>${sourceHtml}</div>`,
+    "text/html",
+  );
+  const sourceWrapper = sourceDocument.body.firstElementChild;
+  if (sourceWrapper?.tagName !== "DIV" || !isLegacyBulletRow(sourceWrapper)) {
+    return html;
+  }
+  const currentDocument = new DOMParser().parseFromString(html, "text/html");
+  if (currentDocument.body.childNodes.length !== 1) return html;
+  const currentRoot = currentDocument.body
+    .firstElementChild as HTMLElement | null;
+  if (!currentRoot) return html;
+  if (currentRoot.tagName === "UL" || currentRoot.tagName === "OL") {
+    const currentItems = Array.from(currentRoot.children).filter(
+      (child) => child.tagName === "LI",
+    );
+    const hasNestedList = currentItems.some((item) =>
+      Array.from(item.children).some(
+        (child) => child.tagName === "UL" || child.tagName === "OL",
+      ),
+    );
+    // A raw <ul style="--slide-legacy-list..."> only draws its marker via
+    // ::before scoped to `.slide-shared-rich-editor` (see global.css) — the
+    // live editor's own wrapper class. Persisted as slide content outside
+    // that wrapper, the marker silently stops rendering. Expand every item
+    // (and any Tab-nested sub-item) back into real marker rows instead of
+    // leaking that editor-only markup into saved content.
+    // A numbered list is the user's explicit choice; it persists as a real
+    // <ol> rather than as copies of the source row's bullet glyph.
+    if (currentRoot.tagName === "OL") {
+      stripLegacyListStyles(currentRoot);
+      return currentRoot.outerHTML;
+    }
+    if (currentItems.length > 1 || hasNestedList) {
+      const rows: HTMLElement[] = [];
+      collectLegacyBulletRows(
+        [sourceWrapper as HTMLElement],
+        currentRoot,
+        0,
+        rows,
+      );
+      if (target) applyLegacyBulletListLayout(target);
+      return rows.map((row) => row.outerHTML).join("");
+    }
+  }
+  const currentItem =
+    currentRoot.tagName === "UL" || currentRoot.tagName === "OL"
+      ? (currentRoot.firstElementChild as HTMLElement | null)
+      : currentRoot;
+  if (!currentItem) return html;
+  const restored = restoreLegacyBulletRow(
+    sourceWrapper as HTMLElement,
+    currentItem,
+  );
+  if (target) applyRestoredLegacyBulletRow(target, restored);
+  return restored.innerHTML;
+}
+
+/**
+ * The editor draws legacy glyph markers with `list-style: none` and
+ * `--slide-legacy-*` variables; left on a real list they hide its numbers.
+ */
+function stripLegacyListStyles(list: HTMLElement): void {
+  if (list.style.getPropertyValue("--slide-legacy-list")) {
+    list.style.removeProperty("list-style");
+    list.style.removeProperty("padding-left");
+  }
+  for (const element of [
+    list,
+    ...Array.from(list.querySelectorAll<HTMLElement>("[style]")),
+  ]) {
+    const legacy: string[] = [];
+    for (let index = 0; index < element.style.length; index += 1) {
+      const property = element.style.item(index);
+      if (property.startsWith("--slide-legacy-")) legacy.push(property);
+    }
+    for (const property of legacy) element.style.removeProperty(property);
+    if (!element.style.length) element.removeAttribute("style");
+  }
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {

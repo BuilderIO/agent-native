@@ -20,6 +20,18 @@ import {
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
+// Sonner's `id` only dedupes a toast while the earlier one is still mounted —
+// once it auto-dismisses, the same id shows again on the next call. Track
+// warned designs ourselves so a design that stays over the checkpoint size
+// threshold gets exactly one "version history unavailable" toast per design,
+// not one on every autosave.
+const warnedVersionHistoryDesigns = new Set<string>();
+
+/** Test-only: this module-level set otherwise leaks a warned designId across specs. */
+export function __clearVersionHistoryWarningsForTests(): void {
+  warnedVersionHistoryDesigns.clear();
+}
+
 export interface SaveFileContentArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   canEditDesignRef: RefObject<boolean>;
@@ -52,6 +64,12 @@ export interface SaveFileContentArgs {
 type FileContentSaveKeepaliveAttempt =
   | { accepted: true; completion: Promise<unknown> }
   | { accepted: false; completion: null };
+
+export type FileContentSaveCompletion =
+  | "persisted"
+  | "conflict"
+  | "retryable"
+  | "failed";
 
 export interface SaveFileContentKeepaliveArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
@@ -141,8 +159,8 @@ export function runSaveFileContent(
     warnChangesWillRetry,
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
-) {
-  if (!canEditDesignRef.current) return;
+): Promise<FileContentSaveCompletion> {
+  if (!canEditDesignRef.current) return Promise.resolve("failed");
   markPendingLocalFileContent(
     pending.id,
     pending.content,
@@ -165,7 +183,7 @@ export function runSaveFileContent(
         latestFileSaveForUnloadRef.current[pending.id] !== pending
       ) {
         if (queuedOutboxEntry) await acknowledgeOutboxEntry(queuedOutboxEntry);
-        return;
+        return "failed";
       }
       try {
         const expectedVersionHash = pending.expectedVersionHash;
@@ -187,13 +205,15 @@ export function runSaveFileContent(
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
           if (outboxEntry) await acknowledgeOutboxEntry(outboxEntry);
-          return;
+          return "failed";
         }
         const resultInfo = result as
           | {
               skippedStaleMirror?: boolean;
               skippedStaleOperation?: boolean;
               versionHash?: string;
+              checkpoint?: { skipped: true; reason: string };
+              updatedAt?: unknown;
             }
           | undefined;
         const persistedContentMatches = updateFileResultPersistedContent(
@@ -229,26 +249,52 @@ export function runSaveFileContent(
           await acknowledgeOutboxEntry(outboxEntry);
         }
         if (persistedContentMatches && designId) {
-          queryClient.setQueryData(
-            ["action", "get-design", { id: designId }],
-            (old: any) => {
-              if (
-                !old ||
-                typeof old !== "object" ||
-                !Array.isArray(old.files)
-              ) {
-                return old;
-              }
-              return {
-                ...old,
-                files: old.files.map((file: { id?: unknown }) =>
-                  file.id === pending.id
-                    ? { ...file, content: pending.content }
-                    : file,
-                ),
-              };
-            },
-          );
+          const designQueryKey = ["action", "get-design", { id: designId }];
+          const persistedUpdatedAt =
+            typeof resultInfo?.updatedAt === "string"
+              ? resultInfo.updatedAt
+              : undefined;
+          queryClient.setQueryData(designQueryKey, (old: any) => {
+            if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+              return old;
+            }
+            return {
+              ...old,
+              files: old.files.map((file: { id?: unknown }) =>
+                file.id === pending.id
+                  ? {
+                      ...file,
+                      content: pending.content,
+                      ...(persistedUpdatedAt !== undefined
+                        ? { updatedAt: persistedUpdatedAt }
+                        : {}),
+                    }
+                  : file,
+              ),
+            };
+          });
+          if (
+            resultInfo?.checkpoint?.skipped &&
+            !warnedVersionHistoryDesigns.has(designId)
+          ) {
+            warnedVersionHistoryDesigns.add(designId);
+            toast.warning(t("designEditor.toasts.versionHistoryUnavailable"), {
+              id: `design-version-history-unavailable:${designId}`,
+            });
+          }
+          // The pending overlay retires only once the row's updatedAt moves
+          // (shouldRetirePendingLocalFileContent), and a read already in
+          // flight may carry pre-write bytes; invalidating cancels it. Only a
+          // server-confirmed updatedAt with no read in flight can skip
+          // refetching every file's content.
+          if (
+            persistedUpdatedAt === undefined ||
+            queryClient.isFetching({ queryKey: designQueryKey }) > 0
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          }
         } else if (!persistedContentMatches) {
           // A stale/no-op save result is a source conflict, not a lost
           // connection. Drop the rejected overlay before refetch — leaving
@@ -291,6 +337,7 @@ export function runSaveFileContent(
               }
             : { ...prev, status };
         });
+        return persistedContentMatches ? "persisted" : "conflict";
       } catch (error) {
         if (
           pending.identityMigrationSourceContent !== undefined &&
@@ -298,7 +345,7 @@ export function runSaveFileContent(
         ) {
           if (queuedOutboxEntry)
             await acknowledgeOutboxEntry(queuedOutboxEntry);
-          return;
+          return "failed";
         }
         // The queued source hash stays paired with its content until the
         // editor adopts a fresh source and creates a new save request.
@@ -338,12 +385,19 @@ export function runSaveFileContent(
               }
             : prev,
         );
+        return failureKind === "offline"
+          ? "retryable"
+          : failureKind === "conflict"
+            ? "conflict"
+            : "failed";
       }
     });
-  fileSaveChainsRef.current[pending.id] = current;
+  const chain = current.then(() => {});
+  fileSaveChainsRef.current[pending.id] = chain;
   void current.finally(() => {
-    if (fileSaveChainsRef.current[pending.id] === current) {
+    if (fileSaveChainsRef.current[pending.id] === chain) {
       delete fileSaveChainsRef.current[pending.id];
     }
   });
+  return current;
 }

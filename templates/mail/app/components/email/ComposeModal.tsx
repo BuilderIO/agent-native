@@ -843,7 +843,7 @@ export function ComposeModal({
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
           : isExpanded
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
-            : "bottom-0 h-[100dvh] sm:top-14 sm:bottom-auto sm:h-[300px] sm:w-[490px] sm:rounded-xl",
+            : "bottom-0 h-[100dvh] sm:h-[300px] sm:w-[490px] sm:rounded-xl",
       )}
       data-mail-compose
       style={composeStyle}

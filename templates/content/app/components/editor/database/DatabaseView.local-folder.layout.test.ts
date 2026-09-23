@@ -17,7 +17,7 @@ describe("Files database local-folder source entry", () => {
       'isFilesDatabase={document.database?.systemRole === "files"}',
     );
     expect(databaseView).toContain(
-      "{ systemRole: document.database?.systemRole }",
+      "systemRole: document.database?.systemRole,",
     );
     expect(databaseView).toContain('label={t("sidebar.localFolder")}');
     expect(databaseView).toContain(

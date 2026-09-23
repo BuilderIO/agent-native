@@ -149,8 +149,10 @@ describe("s3FileUploadProvider", () => {
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
-          Authorization: expect.stringContaining("AWS4-HMAC-SHA256"),
-          Range: "bytes=0-31",
+          Authorization: expect.stringContaining(
+            "SignedHeaders=host;range;x-amz-content-sha256;x-amz-date",
+          ),
+          range: "bytes=0-31",
         }),
       }),
     );

@@ -37,14 +37,17 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",
   "onboarding.roleQuestion": "현재 역할을 가장 잘 설명하는 것은 무엇인가요?",
-  "onboarding.roleProduct": "제품",
-  "onboarding.roleDesign": "디자인",
+  "onboarding.roleHelperText":
+    "이를 통해 사용자 경험을 맞춤화하는 데 도움이 됩니다",
+  "onboarding.roleProduct": "프로덕트 매니저",
+  "onboarding.roleDesign": "디자이너",
   "onboarding.roleDeveloper": "개발",
   "onboarding.roleMarketing": "마케팅",
   "onboarding.roleSales": "영업",
   "onboarding.roleOps": "운영",
   "onboarding.roleIndividual": "개인",
   "onboarding.roleOther": "기타",
+  "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderActivateCredits": "Builder.io 무료 크레딧 활성화",
@@ -59,9 +62,9 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
-  "onboarding.builderConsentPrefix": "계속하면 Builder.io의",
+  "onboarding.builderConsentPrefix": "Builder.io 계정을 만들면 당사의",
   "onboarding.builderTerms": "서비스 약관",
-  "onboarding.builderPrivacy": "개인정보처리방침",
+  "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
@@ -75,9 +78,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI 크레딧을 사용할 수 있습니다. 클라우드 코드 편집에는 Background Agent 설정의 Builder 프로젝트가 필요합니다.",
   "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
-  "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
+  "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
   "onboarding.fileStorage.title": "파일 저장소 선택",
   "onboarding.fileStorage.description":
     "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
@@ -85,13 +87,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
-  "onboarding.capability.voiceInput.keySummary":
-    "브라우저 음성 인식 또는 음성 텍스트 변환",
+  "onboarding.capability.voiceInput.keySummary": "음성 입력",
   "onboarding.capability.voiceInput.why":
     "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
   "onboarding.capability.embeddings.label": "임베딩",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini, Cohere 또는 Voyage 키",
+  "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -130,6 +130,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
   "agentPanel.useOrganizationKey": "조직 키 사용",
   "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 구독",
+  "agentPanel.chatgptSubscriptionDescription":
+    "ChatGPT 구독을 통한 실험적 Codex 액세스입니다.",
+  "agentPanel.chatgptSubscriptionInUse": "사용 중",
+  "agentPanel.chatgptSubscriptionConnected": "연결됨",
+  "agentPanel.chatgptSubscriptionConnecting": "연결 중…",
+  "agentPanel.chatgptSubscriptionReconnect": "다시 연결",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT 연결",
+  "agentPanel.chatgptSubscriptionUse": "채팅에서 사용",
+  "agentPanel.chatgptSubscriptionDisconnect": "연결 해제",
   "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
   "agentHostNudge.sidebarDescription":
     "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
@@ -151,6 +163,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "불러오는 중...",
   "common.no": "아니요",
   "common.retry": "다시 시도",
+  "common.chunkLoadFailed": "불러오지 못했습니다. 다시 시도해 주세요.",
   "common.save": "저장",
   "agents.hostedAgent": "호스팅된 에이전트",
   "agents.provider": "제공업체",

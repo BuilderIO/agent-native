@@ -24,16 +24,22 @@ describe("cross-screen drag identity provenance", () => {
     document.body.append(container);
     rectSpy = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({
-        x: 0,
-        y: 0,
-        top: 0,
-        right: 2000,
-        bottom: 1400,
-        left: 0,
-        width: 2000,
-        height: 1400,
-        toJSON: () => ({}),
+      .mockImplementation(function (this: HTMLElement) {
+        const screenId = this.getAttribute("data-screen-iframe-id");
+        const rect =
+          screenId === "source"
+            ? { x: 500, y: 300, width: 400, height: 300 }
+            : screenId === "target"
+              ? { x: 1100, y: 300, width: 400, height: 300 }
+              : { x: 0, y: 0, width: 2000, height: 1400 };
+        return {
+          ...rect,
+          top: rect.y,
+          right: rect.x + rect.width,
+          bottom: rect.y + rect.height,
+          left: rect.x,
+          toJSON: () => ({}),
+        };
       });
     root = createRoot(container);
   });

@@ -5,6 +5,7 @@ import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -59,6 +60,7 @@ import {
   applyScopedVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   resolveVisualStyleCommitContent,
+  runtimeStyleTarget,
 } from "@/pages/design-editor/pending-edits";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
@@ -75,6 +77,7 @@ export interface CommitVisualStylesArgs {
   activeProjectionContent: string;
   canEditDesign: boolean;
   canApplyContentEdit: (fileId: string) => boolean;
+  onNoRenderedBox?: () => void;
   applyLinkedComponentEdit?: (
     fileId: string,
     nodeId: string,
@@ -89,6 +92,7 @@ export interface CommitVisualStylesArgs {
       originalStyles?: Record<string, string>;
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   isSynced: boolean;
@@ -125,6 +129,7 @@ export interface CommitVisualStylesArgs {
       interactionState?: InteractionState;
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   replacePreviewContent: (
@@ -195,6 +200,7 @@ export function runCommitVisualStyles(
     lastLocalContentRef,
     latestActiveContentRef,
     liveScreenSnapshotsById,
+    onNoRenderedBox,
     queueFileContentSave,
     recordContentHistoryEntry,
     recordLocalContentHistoryChangeFallback,
@@ -228,6 +234,7 @@ export function runCommitVisualStyles(
     /** The write is a side effect of a gesture on another element, so it must
      *  not move the selection onto the element it touched. */
     preserveSelection?: boolean;
+    routePath?: string;
   } = {},
 ) {
   trace("persist", "commit-styles", {
@@ -258,6 +265,48 @@ export function runCommitVisualStyles(
     ([, value]) => value !== undefined,
   );
   if (entries.length === 0) return;
+  const liveTargetInfo = isRunningAppSourceType(activeCanvasSourceType)
+    ? (options.elementInfo ?? selectedElement ?? undefined)
+    : undefined;
+  if (
+    liveTargetInfo &&
+    (liveTargetInfo.boundingRect.width <= 0 ||
+      liveTargetInfo.boundingRect.height <= 0)
+  ) {
+    // A live gesture may have already painted the wrapper before its measured
+    // box proved non-rendered. Roll that preview back through the same bridge
+    // identity used by undo, then reject the invisible edit below.
+    if (options.runtimeApplied && options.originalStyles) {
+      const runtimePatch = {
+        screenId: activeFile.id,
+        selector,
+        sourceId: liveTargetInfo.sourceId,
+        runtimeSelector: liveTargetInfo.runtimeSelector,
+        runtimeSourceId: liveTargetInfo.runtimeSourceId,
+        ...(options.routePath ? { routePath: options.routePath } : {}),
+        styles: options.originalStyles,
+      };
+      const sendStyleChangeForScreen = (window as any)
+        .__designCanvasSendStyleForScreen;
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChangeForScreen === "function") {
+        replayPendingVisualStyleRuntimePatch(
+          runtimePatch,
+          sendStyleChangeForScreen,
+        );
+      } else if (typeof sendStyleChange === "function") {
+        const target = runtimeStyleTarget(runtimePatch);
+        Object.entries(runtimePatch.styles).forEach(([property, value]) => {
+          sendStyleChange(target.selector, property, value, {
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId,
+          });
+        });
+      }
+    }
+    onNoRenderedBox?.();
+    return;
+  }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
   // §gesture-persistence — a localhost screen's source of truth is the
   // running app's own files, which this client cannot write. Everything
@@ -269,7 +318,7 @@ export function runCommitVisualStyles(
   // (handleVisualStyleChange delegates here with runtimeApplied set
   // because its gesture already moved the live DOM).
   if (isRunningAppSourceType(activeCanvasSourceType)) {
-    const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
+    const targetInfo = liveTargetInfo;
     // Breakpoint-scoped writes are excluded for the same reason as the
     // base path below (Item 5, edit-flash): the agent persists them as a
     // width-scoped class or an `@media` rule, which an inline style would
@@ -284,6 +333,7 @@ export function runCommitVisualStyles(
           screenId: activeFile.id,
           selector,
           sourceId: targetInfo?.runtimeSourceId ?? targetInfo?.sourceId ?? null,
+          routePath: options.routePath,
           styles: Object.fromEntries(entries),
         },
         (window as any).__designCanvasSendStyleForScreen,
@@ -293,13 +343,16 @@ export function runCommitVisualStyles(
       originalStyles: options.originalStyles,
       pendingUndoGestureId: options.pendingUndoGestureId,
       preserveSelection: options.preserveSelection,
+      routePath: options.routePath,
     });
     return;
   }
   // Read through the editor's source boundary so pending linked projections
   // and synchronous local writes compose before this full-document commit.
-  const activeLiveSnapshot = activeFile
-    ? liveScreenSnapshotsById[activeFile.id]
+  const activeLiveSnapshot = isRunningAppSourceType(activeCanvasSourceType)
+    ? activeFile
+      ? liveScreenSnapshotsById[activeFile.id]
+      : undefined
     : undefined;
   const baseContent = getScreenContent(activeFile.id);
   // A localhost screen's stored content IS its route URL, so with no
@@ -352,7 +405,11 @@ export function runCommitVisualStyles(
   // This property rebuilds SVG defs/use markup, so preview it through the
   // committed document replacement below instead of layering a runtime copy.
   const runtimeStyleApplied =
-    !entries.some(([property]) => property === "--an-vector-stroke-position") &&
+    !entries.some(
+      ([property]) =>
+        property === "--an-vector-stroke-position" ||
+        isVectorEndpointProperty(property),
+    ) &&
     !options.runtimeApplied &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";

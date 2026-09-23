@@ -11,11 +11,13 @@
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
+import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
 } from "../../server/builder-oauth.js";
+import { hasChatGPTSubscriptionCredential } from "../../server/chatgpt-subscription-oauth.js";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
@@ -35,6 +37,10 @@ import {
 } from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
+import {
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  CHATGPT_SUBSCRIPTION_LAB_KEY,
+} from "../chatgpt-subscription-contract.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
@@ -945,6 +951,24 @@ async function resolveUsableProviderSecret(
   return authFailure ? null : value;
 }
 
+function identityUserEmail(
+  identity?: BuilderCredentialLookupIdentity,
+): string | undefined {
+  const explicit = identity?.userEmail?.trim();
+  if (explicit) return explicit;
+  return getRequestUserEmail()?.trim() || undefined;
+}
+
+async function chatGPTSubscriptionUsableForRequest(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  const email = identityUserEmail(identity);
+  if (!email) return false;
+  const labs = await getUserLabs(email);
+  if (labs[CHATGPT_SUBSCRIPTION_LAB_KEY] !== true) return false;
+  return hasChatGPTSubscriptionCredential(email);
+}
+
 /**
  * Return true only when the supplied key can be positively identified as a
  * usable credential for a different registered provider.
@@ -991,6 +1015,18 @@ async function engineCreateConfigForEntry(
   credentialIdentity?: BuilderCredentialLookupIdentity,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    const email = identityUserEmail(credentialIdentity);
+    if (
+      !email ||
+      !(await chatGPTSubscriptionUsableForRequest(credentialIdentity))
+    ) {
+      throw new Error(
+        "Enable the ChatGPT subscription lab and connect a ChatGPT subscription before using this engine.",
+      );
+    }
+    safeExtra.userEmail = email;
+  }
   let matchingApiKey = apiKey;
   if (
     matchingApiKey === undefined &&
@@ -1143,6 +1179,9 @@ export async function isStoredEngineUsableForRequest(
   entry: AgentEngineEntry,
   options: { credentialIdentity?: BuilderCredentialLookupIdentity } = {},
 ): Promise<boolean> {
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
+  }
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
@@ -1172,6 +1211,9 @@ export async function isResolvedEngineUsableForRequest(
   // Custom engines may have their own credential contract outside the core
   // registry metadata, so do not block them speculatively.
   if (!entry) return true;
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
+  }
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 

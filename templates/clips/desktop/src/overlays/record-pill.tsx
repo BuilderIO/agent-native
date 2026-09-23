@@ -38,6 +38,7 @@ import type {
   RecordingPlayheadSize,
 } from "../../../shared/recording-playhead-position";
 import { LiveWaveform } from "../components/live-waveform";
+import { completionActionCopy } from "../i18n/completion-en-US";
 import {
   completionCardState,
   isCompletionForSession,
@@ -47,6 +48,11 @@ import type {
   NativeUploadFinished,
   PillDoneStage as DoneStage,
 } from "../lib/pill-completion";
+import {
+  createCompletionCardActions,
+  dismissCompletionCardWindow,
+  type CompletionCardAction,
+} from "../lib/pill-completion-actions";
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
 
@@ -174,6 +180,13 @@ export function RecordingPill() {
   const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
   const [doneDurationMs, setDoneDurationMs] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [completionActionError, setCompletionActionError] = useState<
+    string | null
+  >(null);
+  const [completionActionBusy, setCompletionActionBusy] = useState(false);
+  const completionActionsRef = useRef<ReturnType<
+    typeof createCompletionCardActions
+  > | null>(null);
   const [savedLocally, setSavedLocally] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     "restart" | "cancel" | null
@@ -554,6 +567,7 @@ export function RecordingPill() {
   /** Return the outer overlay to its idle state when a session ends. */
   function resetToRest() {
     revealedRef.current = false;
+    modeRef.current = "recording";
     setMode("recording");
     clearPauseTransition();
     setPaused(false);
@@ -598,22 +612,6 @@ export function RecordingPill() {
     setAnnouncement(transition === "pause" ? "Paused" : "Recording");
   }
 
-  // Copying is always the user's click — an automatic copy would clear their
-  // clipboard without them knowing.
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  async function copyLink(url: string) {
-    try {
-      if (hasTauri) await writeText(url);
-      else await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setAnnouncement("Link copied");
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(false), 1_600);
-    } catch (err) {
-      console.error("[record-pill] clipboard write failed:", err);
-    }
-  }
-
   function stop() {
     // Guarded through the ref: the tray-stop listener holds a first-render
     // closure of this function, where the `enabled` state is still false.
@@ -633,6 +631,9 @@ export function RecordingPill() {
     setViewUrl(sessionRef.current.viewUrl ?? null);
     setSavedLocally(false);
     setCopied(false);
+    completionActionsRef.current = null;
+    setCompletionActionError(null);
+    setCompletionActionBusy(false);
     // Hold the window open BEFORE the stop event so the recorder's teardown
     // can't close us out from under the card.
     void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
@@ -703,27 +704,64 @@ export function RecordingPill() {
     );
   }
 
-  function dismissCard() {
-    void safeInvoke("set_toolbar_finishing", { hold: false }).then(() => {
-      if (hasTauri)
-        getCurrentWindow()
-          .close()
-          .catch(() => {});
-      else resetToRest();
+  async function runCompletionAction(
+    action: CompletionCardAction,
+    url?: string,
+  ) {
+    if (completionActionBusy) return;
+    completionActionsRef.current ??= createCompletionCardActions({
+      copy: (value) =>
+        hasTauri ? writeText(value) : navigator.clipboard.writeText(value),
+      open: async (value) => {
+        if (hasTauri) await openExternal(value);
+        else if (!window.open(value, "_blank"))
+          throw new Error("Browser blocked opening clip");
+      },
+      dismiss: async () => {
+        if (hasTauri) {
+          await dismissCompletionCardWindow({
+            releaseHold: () => invoke("set_toolbar_finishing", { hold: false }),
+            restoreHold: () => invoke("set_toolbar_finishing", { hold: true }),
+            close: () => getCurrentWindow().close(),
+            onReleaseFailure: (error) =>
+              console.warn(
+                "[record-pill] release finishing hold failed:",
+                error,
+              ),
+          });
+          setEnabled(false);
+        }
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+        resetToRest();
+      },
     });
-  }
-
-  async function openRecording(url: string) {
-    try {
-      if (hasTauri) {
-        await openExternal(url);
-      } else if (!window.open(url, "_blank")) {
-        return;
-      }
-      dismissCard();
-    } catch (err) {
-      console.warn("[record-pill] opening recording failed:", err);
+    setCompletionActionError(null);
+    setCompletionActionBusy(true);
+    const result = await completionActionsRef.current(action, url);
+    if (result.status === "busy") return;
+    if (
+      action === "copy" &&
+      (result.status === "dismissed" ||
+        (result.status === "failed" && result.stage === "dismiss"))
+    ) {
+      setCopied(true);
+      setAnnouncement("Link copied");
     }
+    if (result.status === "failed") {
+      const message =
+        result.stage === "copy"
+          ? completionActionCopy.copyFailed
+          : result.stage === "open"
+            ? completionActionCopy.openFailed
+            : action === "copy"
+              ? completionActionCopy.dismissAfterCopy
+              : action === "open"
+                ? completionActionCopy.dismissAfterOpen
+                : completionActionCopy.dismissFailed;
+      setCompletionActionError(message);
+      setAnnouncement(message);
+    }
+    setCompletionActionBusy(false);
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
@@ -1348,7 +1386,8 @@ export function RecordingPill() {
             </div>
             <button
               type="button"
-              onClick={dismissCard}
+              onClick={() => void runCompletionAction("dismiss")}
+              disabled={completionActionBusy}
               aria-label="Dismiss"
               className="ml-auto flex size-6 flex-none items-center justify-center rounded text-[var(--pill-card-ink-3)] hover:text-[var(--pill-card-ink)]"
             >
@@ -1362,12 +1401,19 @@ export function RecordingPill() {
                 className="flex-none text-[var(--pill-card-ink-2)]"
                 aria-hidden
               />
-              <span className="record-pill-mono min-w-0 flex-1 truncate text-[var(--pill-card-ink-2)]">
-                {viewUrl.replace(/^https?:\/\//, "")}
-              </span>
               <button
                 type="button"
-                onClick={() => void copyLink(viewUrl)}
+                aria-label="Copy link"
+                disabled={completionActionBusy}
+                onClick={() => void runCompletionAction("copy", viewUrl)}
+                className="record-pill-mono min-w-0 flex-1 truncate text-start text-[var(--pill-card-ink-2)]"
+              >
+                {viewUrl.replace(/^https?:\/\//, "")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runCompletionAction("copy", viewUrl)}
+                disabled={completionActionBusy}
                 aria-label="Copy link"
                 className={`flex size-5 flex-none items-center justify-center rounded ${copied ? "text-[var(--pill-card-badge)]" : "text-[var(--pill-card-ink-2)] hover:text-[var(--pill-card-ink)]"}`}
               >
@@ -1384,14 +1430,16 @@ export function RecordingPill() {
               <>
                 <button
                   type="button"
-                  onClick={() => void openRecording(viewUrl)}
+                  onClick={() => void runCompletionAction("open", viewUrl)}
+                  disabled={completionActionBusy}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >
                   Open
                 </button>
                 <button
                   type="button"
-                  onClick={() => void copyLink(viewUrl)}
+                  onClick={() => void runCompletionAction("copy", viewUrl)}
+                  disabled={completionActionBusy}
                   className="h-[34px] flex-1 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
                 >
                   {copied ? "Copied" : "Copy"}
@@ -1399,6 +1447,14 @@ export function RecordingPill() {
               </>
             ) : null}
           </div>
+          {completionActionError ? (
+            <p
+              role="alert"
+              className="mt-2 text-xs text-[var(--pill-card-ink)]"
+            >
+              {completionActionError}
+            </p>
+          ) : null}
         </div>
       ) : (
         <RecordingPlayhead

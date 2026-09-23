@@ -1,3 +1,5 @@
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
 /**
  * Server-side inbox tab partitioning — the pure predicate `list-inbox-threads`
  * (and view-screen's inbox summary) build tabs, counts, and rows from, so a
@@ -88,10 +90,13 @@ export function inboxTabsForItem(
 ): string[] {
   if (tabs.length === 1 && tabs[0].kind === "inbox") return [tabs[0].id];
 
+  const isAiImportant = mailLabelsInclude(item.labelIds, AI_IMPORTANT_LABEL);
+
   const matched = tabs
     .filter((tab) => tab.kind === "label" || tab.kind === "filter")
     .filter((tab) => emailMessageMatchesSearch(item, tab.query!))
     .map((tab) => tab.id);
+  if (isAiImportant) matched.unshift(IMPORTANT_TAB_ID);
   if (matched.length > 0) return matched;
 
   return [item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID];

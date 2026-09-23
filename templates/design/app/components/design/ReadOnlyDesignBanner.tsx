@@ -23,6 +23,7 @@ export function ReadOnlyDesignBanner({
   onCommentPin?: () => void;
 }) {
   const t = useT();
+
   const commentLabel = pinMode
     ? t("designEditor.stopPinningComments")
     : t("designEditor.pinComment");

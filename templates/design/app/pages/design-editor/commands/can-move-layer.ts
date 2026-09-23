@@ -17,6 +17,7 @@ export interface CanMoveLayerArgs {
   >;
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
+  liveScreenIds?: ReadonlySet<string>;
   lockedLayerIds: Set<string>;
   visualScreenFileIds: Set<string>;
 }
@@ -26,6 +27,7 @@ export function runCanMoveLayer(
     codeLayerOwnerByNodeId,
     effectiveCodeLayerState,
     files,
+    liveScreenIds,
     lockedLayerIds,
     visualScreenFileIds,
   }: CanMoveLayerArgs,
@@ -72,10 +74,17 @@ export function runCanMoveLayer(
     }
     const draggedId = intent.draggedIds[0]!;
     const draggedOwner = runtimeDraggedOwners[0];
+    const liveRuntimeCrossScreenMove = Boolean(
+      draggedOwner?.runtimeOnly &&
+      liveScreenIds?.has(draggedOwner.fileId) &&
+      liveScreenIds.has(targetOwner.fileId) &&
+      draggedOwner.fileId !== targetOwner.fileId,
+    );
     return Boolean(
       draggedOwner?.runtimeOnly &&
       draggedId !== intent.targetId &&
-      draggedOwner.fileId === targetOwner.fileId &&
+      (draggedOwner.fileId === targetOwner.fileId ||
+        liveRuntimeCrossScreenMove) &&
       !effectiveCodeLayerState.lockedIds.has(draggedId) &&
       !collectCodeLayerAncestors(targetOwner.tree, intent.targetId).includes(
         draggedId,

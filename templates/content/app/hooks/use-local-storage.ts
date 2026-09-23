@@ -24,6 +24,7 @@ function readStorage<T>(key: string, defaultValue: T): T {
 export function useLocalStorage<T>(
   key: string,
   defaultValue: T,
+  options: { syncAcrossTabs?: boolean } = {},
 ): [T, (val: T | ((prev: T) => T)) => void] {
   const prevKeyRef = useRef(key);
   const [value, setValue] = useState<T>(() => readStorage(key, defaultValue));
@@ -41,7 +42,7 @@ export function useLocalStorage<T>(
 
   useEffect(() => {
     function handleStorage(event: StorageEvent) {
-      if (event.key === key) {
+      if (options.syncAcrossTabs !== false && event.key === key) {
         const next = readStorage(key, defaultValue);
         valueRef.current = next;
         setValue(next);
@@ -70,7 +71,7 @@ export function useLocalStorage<T>(
         handleLocalStorageChange,
       );
     };
-  }, [key, defaultValue]);
+  }, [key, defaultValue, options.syncAcrossTabs]);
 
   const set = useCallback(
     (val: T | ((prev: T) => T)) => {

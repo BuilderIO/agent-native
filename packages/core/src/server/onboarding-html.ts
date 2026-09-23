@@ -59,6 +59,7 @@ import {
 import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingPresentation,
   resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
@@ -195,7 +196,7 @@ const EN_AUTH_COPY = {
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
-  openSource: "100% free and open source",
+  openSource: "FREE & OPEN SOURCE",
   newToApp: "New to {appName}?",
   learnMore: "Learn more",
   useOwnGoogleClient: "Use your own Google OAuth client:",
@@ -1122,6 +1123,8 @@ export interface OnboardingHtmlOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    authHeadline?: string;
+    authDescription?: string;
     screenshotPath?: string;
     screenshotWidth?: number;
     screenshotHeight?: number;
@@ -1231,10 +1234,23 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestPath: opts.requestPath,
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingSlug = resolveBuiltInMarketingSlug(marketing, {
-    requestHost: opts.requestHost,
-    requestPath: opts.requestPath,
-  });
+  const marketingWasResolvedFromCatalog = !opts.marketing;
+  const isFirstPartyMarketing =
+    marketing?.learnMoreUrl?.startsWith("https://agent-native.com/apps/") ??
+    false;
+  const marketingSlug = marketingWasResolvedFromCatalog
+    ? resolveBuiltInMarketingSlug(marketing, {
+        requestHost: opts.requestHost,
+        requestPath: opts.requestPath,
+      })
+    : undefined;
+  const marketingPresentation =
+    marketingWasResolvedFromCatalog || isFirstPartyMarketing
+      ? resolveBuiltInAuthMarketingPresentation(marketing, {
+          requestHost: opts.requestHost,
+          requestPath: opts.requestPath,
+        })
+      : undefined;
   const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
   if (marketingSlug) {
     for (const [locale, copyBySlug] of Object.entries(
@@ -1305,7 +1321,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     --b-hero-shader-opacity: 0.15;
     padding: 0;
     position: relative;
-    overflow-x: hidden;
+    overflow-x: clip;
     color-scheme: dark;
   }
   [data-agent-native-starfield] {
@@ -1342,7 +1358,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     white-space: nowrap;
   }
   .auth-marketing-learn-more:hover { color: hsl(var(--foreground, 0 0% 90%)); }
-  .auth-marketing-learn-more-link { color: hsl(var(--primary, 195 100% 50%)); }
+  .auth-marketing-learn-more-link { color: inherit; }
   .auth-marketing-screenshot-wrap {
     display: flex;
     align-items: center;
@@ -1505,9 +1521,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     body.has-marketing .locale-trigger {
       color: CanvasText;
     }
-    .auth-marketing-home .auth-marketing-learn-more-link {
-      color: LinkText;
-    }
+    .auth-marketing-home .auth-marketing-learn-more-link { color: inherit; }
     /* The marketing panel's base colors are picked for the near-black body.
        Without these the app name renders white-on-white and the whole panel
        reads as empty rather than as low contrast. */
@@ -1657,6 +1671,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           tagline: copy.tagline ?? marketing?.tagline ?? "",
           description: copy.description ?? marketing?.description,
           features: copy.features ?? marketing?.features,
+          authHeadline: copy.authHeadline ?? copy.tagline,
+          authDescription:
+            copy.authDescription ??
+            copy.description ??
+            marketingPresentation?.description ??
+            marketing?.description,
         },
       ]),
     );
@@ -1684,6 +1704,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
             tagline: marketing.tagline,
             description: marketing.description,
             features: marketing.features,
+            authHeadline:
+              marketing.authHeadline ?? marketingPresentation?.headline,
+            authDescription:
+              marketing.authDescription ?? marketingPresentation?.description,
             screenshotSrc: marketing.screenshotPath
               ? withAppBasePath(marketing.screenshotPath, appBasePath)
               : undefined,
@@ -2318,7 +2342,7 @@ ${marketingStyles}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
-  .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
+  .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
   .auth-marketing-shell { padding: 0; }
   .auth-marketing-home .auth-marketing-shell-with-top-right {
     position: relative;
@@ -2331,8 +2355,8 @@ ${marketingStyles}
     align-items: center;
     position: absolute;
     padding: 0;
-    bottom: max(1rem, env(safe-area-inset-bottom));
-    inset-inline-end: max(1rem, env(safe-area-inset-right));
+    top: max(1rem, env(safe-area-inset-top));
+    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));
     z-index: 2;
   }
   .auth-marketing-learn-more { font-size: 0.8rem; }
@@ -2342,70 +2366,327 @@ ${marketingStyles}
     align-items: stretch;
   }
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
-  .auth-marketing-home .marketing-panel { min-width: 0; }
-  .auth-marketing-home.has-product-screenshot .marketing-panel {
-    flex: 1 1 0;
+  .auth-marketing-home .marketing-panel {
+    order: 1;
+    flex: 1 1 50%;
     max-width: none;
+    min-width: 0;
+    min-height: 100vh;
     padding: 0;
-    justify-content: center;
-    align-items: flex-start;
   }
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
-    position: fixed;
+  .auth-marketing-visual {
+    position: relative;
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    flex-direction: column;
+    justify-content: stretch;
+    overflow: hidden;
+    padding: 3rem 3.5rem;
+  }
+  .auth-marketing-visual > [data-agent-native-starfield] {
+    position: absolute;
     inset: 0;
-    z-index: 0;
     width: 100%;
     height: 100%;
-    max-width: none;
-    max-height: none;
-    margin: 0;
-    border-radius: 0;
+    transform: none;
   }
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    max-height: none;
-    filter: none;
-  }
-  .auth-marketing-home.has-product-screenshot .form-panel {
-    position: fixed;
-    inset: 0;
+  .auth-marketing-visual .marketing-content {
+    position: relative;
     z-index: 1;
     display: flex;
-    align-items: center;
-    justify-content: flex-start;
+    flex: 1;
+    flex-direction: column;
+    justify-content: space-between;
     width: 100%;
-    min-width: 0;
+    min-height: calc(100vh - 6rem);
+  }
+  .auth-marketing-visual .marketing-copy { margin-top: auto; }
+  .auth-marketing-home .form-panel {
+    order: 2;
+    flex: 1 1 50%;
+    width: auto;
     max-width: none;
-    padding: 1rem clamp(1rem, 4vw, 4rem);
-    overflow-y: auto;
+    min-width: 0;
+    min-height: 100vh;
+    padding: 2rem clamp(2rem, 6vw, 6rem);
+    background: color-mix(in srgb, CanvasText 4%, Canvas);
+    border-inline-start: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
   }
-  .auth-marketing-home.has-product-screenshot .form-panel > .card {
-    margin-block: auto;
-  }
-  .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
+  .auth-marketing-home .form-panel > .card { margin-block: auto; }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      top: auto;
-      bottom: max(1rem, env(safe-area-inset-bottom));
-      inset-inline-start: 50%;
-      inset-inline-end: auto;
-      transform: translateX(-50%);
+      top: max(1rem, env(safe-area-inset-top));
+      inset-inline-start: auto;
+      inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));
+      transform: none;
+    }
+    .auth-marketing-home .auth-marketing-visual {
+      min-height: min(62vh, 560px);
+      padding: 4.25rem 1.5rem 2rem;
+    }
+    .auth-marketing-home .auth-marketing-visual .marketing-content {
+      min-height: min(54vh, 470px);
+    }
+    .auth-marketing-home .form-panel {
+      flex: none;
+      width: 100%;
+      min-height: auto;
+      padding: 2rem 1rem 5rem;
+      border-inline-start: 0;
+      border-top: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
     }
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
-    .auth-marketing-home.has-product-screenshot .form-panel {
-      min-width: 0;
-      align-items: center;
-      padding: 1rem;
+  }
+  /* guard:allow-raw-color - these are the exact standalone auth palette tokens from Figma */
+  body.has-marketing {
+    --auth-marketing-left-bg: #090909; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-right-bg: #141414; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-foreground: #faf9f5; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-muted: #9a9997; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-subtle: #858583; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-border: #2e2e2e; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-badge-bg: #1b1b1b; /* guard:allow-raw-color - exact Figma auth palette */
+  }
+  body.has-marketing,
+  .auth-marketing-home {
+    font-family: "Geist", system-ui, sans-serif;
+    font-synthesis: none;
+  }
+  .auth-marketing-home {
+    background: var(--auth-marketing-right-bg);
+    color: var(--auth-marketing-foreground);
+  }
+  .auth-marketing-home .auth-marketing-top-right {
+    top: 4.5rem;
+    inset-inline-end: 5rem;
+  }
+  .auth-marketing-home .auth-marketing-learn-more {
+    color: var(--auth-marketing-muted);
+    font-family: "Geist Mono", ui-monospace, monospace;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.25;
+  }
+  .auth-marketing-home .auth-marketing-learn-more:hover,
+  .auth-marketing-home .auth-marketing-learn-more-link {
+    color: inherit;
+  }
+  .auth-marketing-home .auth-marketing-layout {
+    border: 0;
+  }
+  .auth-marketing-home .marketing-panel {
+    background: var(--auth-marketing-left-bg);
+  }
+  .auth-marketing-home .auth-marketing-visual {
+    min-height: 100vh;
+    padding: 4.5rem 5rem 4rem;
+    background: var(--auth-marketing-left-bg);
+  }
+  .auth-marketing-home .auth-marketing-screenshot-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .auth-marketing-home .auth-marketing-screenshot {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: none;
+  }
+  .auth-marketing-home [data-agent-native-starfield] {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: translateY(-5vh);
+  }
+  .auth-marketing-home .auth-marketing-visual .marketing-content {
+    min-height: calc(100vh - 8.5rem);
+  }
+  .auth-marketing-home .app-name {
+    gap: 0.7rem;
+    margin: 0;
+    color: var(--auth-marketing-foreground);
+    font: 600 1.8rem/1 "Geist", system-ui, sans-serif;
+    letter-spacing: -0.04em;
+  }
+  .auth-marketing-home .app-name img.brand-mark {
+    width: auto;
+    height: 1.55rem;
+    filter: grayscale(1) brightness(0) invert(1);
+  }
+  .auth-marketing-home .app-status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.6rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: var(--auth-marketing-foreground);
+    color: var(--auth-marketing-right-bg);
+    font: 600 0.8rem/1 "Geist Mono", ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .auth-marketing-home .marketing-copy {
+    max-width: 50rem;
+  }
+  .auth-marketing-home .auth-marketing-headline {
+    max-width: 52rem;
+    margin: 0;
+    color: var(--auth-marketing-foreground);
+    font: 400 2.875rem/1.2 "Geist", system-ui, sans-serif;
+    letter-spacing: -0.04em;
+    white-space: pre-line;
+  }
+  .auth-marketing-home .auth-marketing-description {
+    margin: 1.5rem 0 0;
+    color: var(--auth-marketing-muted);
+    font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
+  }
+  .auth-marketing-home .marketing-actions {
+    margin-top: 3rem;
+  }
+  .auth-marketing-home .oss-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.125rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--auth-marketing-border);
+    border-radius: 0.375rem;
+    background: var(--auth-marketing-badge-bg);
+    color: var(--auth-marketing-foreground);
+    font: 600 0.875rem/1 "Geist Mono", ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    text-transform: uppercase;
+  }
+  .auth-marketing-home .oss-badge:hover {
+    border-color: var(--auth-marketing-muted);
+  }
+  .auth-marketing-home .form-panel {
+    padding: 0 5rem;
+    background: var(--auth-marketing-right-bg);
+    border-inline-start: 1px solid var(--auth-marketing-border);
+    position: relative;
+    z-index: 1;
+  }
+  .auth-marketing-home .form-panel > .card {
+    width: min(27.5rem, 100%);
+    max-width: 27.5rem;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .auth-marketing-home .card h1 {
+    margin-bottom: 0.75rem;
+    color: var(--auth-marketing-foreground);
+    font: 400 2.5rem/1.2 "Geist", system-ui, sans-serif;
+    letter-spacing: -0.035em;
+    text-align: center;
+  }
+  .auth-marketing-home .card .subtitle {
+    margin-bottom: 3rem;
+    color: var(--auth-marketing-muted);
+    font: 400 1.125rem/1.35 "Geist", system-ui, sans-serif;
+    text-align: center;
+  }
+  .auth-marketing-home .card .divider {
+    color: var(--auth-marketing-muted);
+    font: 400 1rem/1.35 "Geist", system-ui, sans-serif;
+  }
+  .auth-marketing-home .card .auth-mode-switch {
+    margin-top: 0.75rem;
+    font: 400 0.9375rem/1.35 "Geist", system-ui, sans-serif;
+    text-align: start;
+  }
+  .auth-marketing-home .card .auth-mode-link,
+  .auth-marketing-home .card .auth-mode-link:hover {
+    color: var(--auth-marketing-muted);
+    font: inherit;
+    text-decoration: none;
+  }
+  .auth-marketing-home .card .legal-note {
+    margin: 3.5rem 0 0;
+    color: var(--auth-marketing-subtle);
+    font: 400 0.8125rem/1.35 "Geist", system-ui, sans-serif;
+    text-align: center;
+  }
+  .auth-marketing-home .card .legal-note a,
+  .auth-marketing-home .card .legal-note a:hover {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.125rem;
+  }
+  body.has-marketing .locale-picker {
+    top: auto;
+    bottom: max(1.25rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1.25rem, env(safe-area-inset-right));
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      --auth-marketing-left-bg: Canvas;
+      --auth-marketing-right-bg: Canvas;
+      --auth-marketing-foreground: CanvasText;
+      --auth-marketing-muted: GrayText;
+      --auth-marketing-subtle: GrayText;
+      --auth-marketing-border: color-mix(in srgb, CanvasText 18%, transparent);
+      --auth-marketing-badge-bg: color-mix(in srgb, CanvasText 7%, Canvas);
     }
+    .auth-marketing-home .auth-marketing-visual,
+    .auth-marketing-home .marketing-panel,
+    .auth-marketing-home .form-panel {
+      background: Canvas;
+    }
+    .auth-marketing-home .app-name img.brand-mark {
+      filter: grayscale(1) brightness(0);
+    }
+  }
+  @media (max-width: 900px) {
+    .auth-marketing-home .auth-marketing-shell-with-top-right {
+      flex-direction: column;
+    }
+    .auth-marketing-home .auth-marketing-top-right {
+      display: none;
+    }
+    .auth-marketing-home .auth-marketing-layout {
+      flex-direction: column;
+    }
+    .auth-marketing-home .auth-marketing-visual {
+      min-height: min(62vh, 560px);
+      padding: 4.5rem 1.5rem 2rem;
+    }
+    .auth-marketing-home .auth-marketing-visual .marketing-content {
+      min-height: min(54vh, 470px);
+    }
+    .auth-marketing-home .auth-marketing-headline {
+      font-size: 2.25rem;
+    }
+    .auth-marketing-home .form-panel {
+      order: 1;
+      padding: 3rem 1rem 5rem;
+      border-inline-start: 0;
+      border-top: 1px solid var(--auth-marketing-border);
+    }
+    .auth-marketing-home .marketing-panel { order: 2; }
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);
@@ -2433,6 +2714,26 @@ ${marketingStyles}
           content:
             "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
         }),
+        hasMarketing
+          ? [
+              createElement("link", {
+                key: "geist-preconnect",
+                rel: "preconnect",
+                href: "https://fonts.googleapis.com",
+              }),
+              createElement("link", {
+                key: "geist-preconnect-static",
+                rel: "preconnect",
+                href: "https://fonts.gstatic.com",
+                crossOrigin: "anonymous",
+              }),
+              createElement("link", {
+                key: "geist-stylesheet",
+                rel: "stylesheet",
+                href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap",
+              }),
+            ]
+          : null,
         createElement("title", null, title),
         createElement("link", {
           rel: "icon",

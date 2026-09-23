@@ -4,6 +4,20 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",
+    requestAccessTitle: "이 디자인에 대한 액세스 요청",
+    requestAccessDescription:
+      "이 디자인은 비공개입니다. 소유자에게 액세스를 요청하세요.",
+    requestAccess: "액세스 요청",
+    accessRequested: "액세스 요청됨",
+    accessRequestSentDescription:
+      "요청이 기록되었습니다. 액세스가 승인되면 이 디자인을 열 수 있습니다.",
+    signInToRequestAccessTitle: "로그인하여 액세스 요청",
+    signInToRequestAccessDescription:
+      "로그인하거나 계정을 만들어 소유자에게 액세스를 요청하세요.",
+    signInOrSignUp: "로그인 또는 가입",
+    accessCheckFailed: "이 디자인에 대한 액세스를 확인할 수 없습니다.",
+    retryAccessCheck: "다시 시도",
     import: {
       ...messagesByLocale["ko-KR"].designEditor.import,
       figUploadDescriptionShort:
@@ -145,6 +159,20 @@ const messages = {
       change: "검토 상태 변경",
       saveFailed: "검토 상태를 업데이트할 수 없습니다",
     },
+  },
+  designSystems: {
+    ...messagesByLocale["ko-KR"].designSystems,
+    tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
+    tierLimitDescription:
+      "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
+    tierLimitDescriptionWithCount:
+      "Builder {{plan}} 플랜에서 디자인 시스템을 {{current}}/{{max}}개 사용 중입니다. 업그레이드하여 새로 만드세요.",
+    tierLimitUpgrade: "Builder 플랜 업그레이드",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["ko-KR"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
 };
 

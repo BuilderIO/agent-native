@@ -566,7 +566,7 @@ export function buildGuardrailsText(
   }
   if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
     lines.push(
-      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false and a short reason so the skip or start is recorded.",
+      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
     );
   }
   if (config.source === "slack") {

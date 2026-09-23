@@ -4,6 +4,19 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    designNotFoundDescription: "هذا التصميم غير موجود أو تم حذفه.",
+    requestAccessTitle: "طلب الوصول إلى هذا التصميم",
+    requestAccessDescription: "هذا التصميم خاص. اطلب الوصول من المالك.",
+    requestAccess: "طلب الوصول",
+    accessRequested: "تم طلب الوصول",
+    accessRequestSentDescription:
+      "تم تسجيل طلبك. يمكنك فتح هذا التصميم بعد الموافقة على الوصول.",
+    signInToRequestAccessTitle: "سجّل الدخول لطلب الوصول",
+    signInToRequestAccessDescription:
+      "سجّل الدخول أو أنشئ حسابًا لطلب الوصول من المالك.",
+    signInOrSignUp: "تسجيل الدخول أو إنشاء حساب",
+    accessCheckFailed: "تعذر التحقق من الوصول إلى هذا التصميم.",
+    retryAccessCheck: "إعادة المحاولة",
     import: {
       ...messagesByLocale["ar-SA"].designEditor.import,
       figUploadDescriptionShort:
@@ -145,6 +158,20 @@ const messages = {
       change: "تغيير حالة المراجعة",
       saveFailed: "تعذر تحديث حالة المراجعة",
     },
+  },
+  designSystems: {
+    ...messagesByLocale["ar-SA"].designSystems,
+    tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
+    tierLimitDescription:
+      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطة Builder الخاصة بك. قم بترقية خطة Builder لإنشاء نظام آخر.",
+    tierLimitDescriptionWithCount:
+      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة Builder {{plan}}. قم بالترقية لإنشاء نظام آخر.",
+    tierLimitUpgrade: "ترقية خطة Builder",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["ar-SA"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
   },
 };
 

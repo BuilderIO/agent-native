@@ -1655,6 +1655,13 @@ async function processIncomingMessage(
                     : {}),
                 });
               } catch {
+                try {
+                  await progress.fail?.(
+                    "I couldn't update the live response, but I posted the final result in this thread.",
+                  );
+                } catch {
+                  // The stable-target fallback below remains authoritative.
+                }
                 deliveryReceipt = await adapter.sendResponse(
                   outgoing,
                   incoming,

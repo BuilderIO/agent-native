@@ -13,13 +13,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
-import {
-  prefetchSecrets,
-  resolveSecretDetailed,
-  type ResolvedSecretDetail,
-} from "../server/credential-provider.js";
+import type { ResolvedSecretDetail } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
@@ -43,6 +37,7 @@ async function canMutateWorkspaceScope(
 ): Promise<boolean> {
   // Solo / dev fallback scope — single user, no privilege gradient.
   if (scopeId.startsWith("solo:")) return true;
+  const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
   // No active org — single-tenant flow, allow.
   if (!ctx?.orgId) return true;
@@ -59,6 +54,7 @@ async function canMutateOrgScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
+  const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
   if (!ctx?.orgId || ctx.orgId !== scopeId) return false;
   return ctx.role === "owner" || ctx.role === "admin";
@@ -110,6 +106,10 @@ async function asRequestUser<T>(
   fn: () => Promise<T>,
   anonymous: T,
 ): Promise<T> {
+  const [{ getSession }, { getOrgContext }] = await Promise.all([
+    import("../server/auth.js"),
+    import("../org/context.js"),
+  ]);
   const session = await getSession(event);
   if (!session?.email) return anonymous;
   const ctx = await getOrgContext(event);
@@ -168,6 +168,7 @@ async function hasOAuthSecretForEvent(
   secret: RegisteredSecret,
 ): Promise<boolean> {
   if (!secret.oauthProvider) return false;
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return false;
   const accounts = await listOAuthAccountsByOwner(
@@ -182,6 +183,10 @@ async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
 ): Promise<{ scopeId: string | null; reason?: string }> {
+  const [{ getSession }, { getOrgContext }] = await Promise.all([
+    import("../server/auth.js"),
+    import("../org/context.js"),
+  ]);
   if (scope === "user") {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -209,6 +214,8 @@ async function resolveScopeId(
 /** GET /_agent-native/secrets — list registered secrets with status. */
 export function createListSecretsHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { prefetchSecrets, resolveSecretDetailed } =
+      await import("../server/credential-provider.js");
     if (getMethod(event) !== "GET") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -492,6 +499,8 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
  */
 export function createTestSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { resolveSecretDetailed } =
+      await import("../server/credential-provider.js");
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };

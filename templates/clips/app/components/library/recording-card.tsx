@@ -124,6 +124,11 @@ export function RecordingCard({
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
+  // A thumbnail URL that is present but does not load — the row still carries
+  // one while a redaction burn is pending, and that request is held back — put
+  // the card back on the placeholder it uses when there is no thumbnail at
+  // all, rather than leaving a broken image box in the grid.
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -221,6 +226,10 @@ export function RecordingCard({
     return recording.thumbnailUrl;
   }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
 
+  useEffect(() => {
+    setThumbnailFailed(false);
+  }, [displayThumbnail]);
+
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
     if (words.length > 1) {
@@ -299,12 +308,13 @@ export function RecordingCard({
 
           {/* Thumbnail */}
           <div className="relative z-10 aspect-video overflow-hidden bg-muted pointer-events-none">
-            {displayThumbnail ? (
+            {displayThumbnail && !thumbnailFailed ? (
               // eslint-disable-next-line jsx-a11y/alt-text
               <img
                 src={displayThumbnail}
                 className="h-full w-full object-cover"
                 draggable={false}
+                onError={() => setThumbnailFailed(true)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">

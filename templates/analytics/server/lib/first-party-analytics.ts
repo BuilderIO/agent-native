@@ -64,6 +64,8 @@ export interface AnalyticsQueryOptions {
 
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
+// Leave seven days for retries inside BigQuery's 3,650-day streaming limit.
+const MAX_ANALYTICS_TIMESTAMP_AGE_MS = (3_650 - 7) * 24 * 60 * 60 * 1_000;
 const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_events",
   "analytics_event_daily_rollups",
@@ -440,9 +442,12 @@ export function normalizeAnalyticsTimestamp(
     return Number.isNaN(date.getTime()) ? nowIso() : date.toISOString();
   })();
   const fallbackTime = new Date(fallback).getTime();
+  const earliestAllowedTime = fallbackTime - MAX_ANALYTICS_TIMESTAMP_AGE_MS;
   const normalize = (date: Date) => {
     if (Number.isNaN(date.getTime())) return fallback;
-    return date.getTime() > fallbackTime ? fallback : date.toISOString();
+    return date.getTime() > fallbackTime || date.getTime() < earliestAllowedTime
+      ? fallback
+      : date.toISOString();
   };
 
   if (value instanceof Date) return normalize(value);
@@ -529,7 +534,9 @@ export function isMarketingWebsiteSessionEvent({
   app: string | null;
   template: string | null;
 }): boolean {
-  if (eventName !== "session status") return false;
+  if (eventName !== "session status" && eventName !== "session_status") {
+    return false;
+  }
   const normalizedHostname = hostname?.trim().toLowerCase().replace(/\.$/, "");
   if (
     normalizedHostname === "agent-native.com" ||

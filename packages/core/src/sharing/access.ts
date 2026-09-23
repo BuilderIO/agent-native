@@ -136,17 +136,25 @@ async function isOrgMember(
   ctx: AccessContext,
 ): Promise<boolean> {
   const db = reg.getDb() as any;
-  const rows = await db
-    .select({ id: orgMembers.id })
-    .from(orgMembers)
-    .where(
-      and(
-        eq(orgMembers.orgId, memberOrgId),
-        emailColumnMatches(orgMembers.email, email),
-        isNull(orgMembers.federationRemovalPendingAt),
-      ),
-    )
-    .limit(1);
+  let rows: Array<{ id: string }>;
+  try {
+    rows = await db
+      .select({ id: orgMembers.id })
+      .from(orgMembers)
+      .where(
+        and(
+          eq(orgMembers.orgId, memberOrgId),
+          emailColumnMatches(orgMembers.email, email),
+          isNull(orgMembers.federationRemovalPendingAt),
+        ),
+      )
+      .limit(1);
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) throw error;
+    // Embedded deployments may omit the org module. Missing membership is
+    // fail-closed for org visibility, while explicit user shares still resolve.
+    return false;
+  }
   if (rows.length === 0) return false;
 
   let organization: {

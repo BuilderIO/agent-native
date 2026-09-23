@@ -183,6 +183,12 @@ const messages = {
     emptyTitle: "Set up your brand identity",
     emptyDescription:
       "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+    tierLimitTitle: "Design system limit reached",
+    tierLimitDescription:
+      "You've reached the design system limit for your Builder plan. Upgrade your Builder plan to create another.",
+    tierLimitDescriptionWithCount:
+      "You're using {{current}} of {{max}} design systems on your Builder {{plan}} plan. Upgrade to create another.",
+    tierLimitUpgrade: "Upgrade Builder plan",
   },
   editorToolbar: {
     layoutTitle: "Title",
@@ -729,6 +735,8 @@ const messages = {
     websitePlaceholder: "example.com or Nike",
     add: "Add",
     githubRepository: "Connect Code: GitHub repository",
+    codeIndexingEnterpriseOnly:
+      "Code and repository indexing requires the Builder Enterprise plan",
     githubRef: "Branch, tag, or commit (optional)",
     githubPaths: "Files or folders, comma-separated (optional)",
     codeFiles: "Connect Code Files",

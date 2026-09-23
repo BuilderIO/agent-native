@@ -187,6 +187,12 @@ const messages = {
     emptyTitle: "Configurer votre identité de marque",
     emptyDescription:
       "Créez un système de design avec les couleurs, la typographie et les logos de votre marque. Chaque nouvelle présentation suivra votre identité visuelle.",
+    tierLimitTitle: "Limite de systèmes de design atteinte",
+    tierLimitDescription:
+      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
+    tierLimitDescriptionWithCount:
+      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
+    tierLimitUpgrade: "Changer de forfait Builder",
   },
   editorToolbar: {
     layoutTitle: "Titre",
@@ -773,6 +779,8 @@ const messages = {
     websitePlaceholder: "example.com ou Nike",
     add: "Ajouter",
     githubRepository: "Connecter le code : dépôt GitHub",
+    codeIndexingEnterpriseOnly:
+      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
     githubRef: "Branche, tag ou commit (facultatif)",
     githubPaths: "Fichiers ou dossiers, séparés par des virgules (facultatif)",
     codeFiles: "Connecter des fichiers de code",
