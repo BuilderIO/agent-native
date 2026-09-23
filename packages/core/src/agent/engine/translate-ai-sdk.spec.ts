@@ -136,6 +136,8 @@ describe("engineToolsToAISDK", () => {
       expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
         /"doc".*"app"/,
       );
+      // Zod closes every branch, so the flattened root stays closed.
+      expect(inputSchema.additionalProperties).toBe(false);
     });
 
     it("leaves a plain object action schema as it was", () => {
