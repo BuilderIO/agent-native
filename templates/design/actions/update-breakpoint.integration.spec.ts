@@ -40,10 +40,6 @@ vi.mock("@agent-native/core/collab", () => ({
 
 vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: vi.fn(),
-  checkpointSkippedResultField: (result: unknown) =>
-    result && typeof result === "object" && "skipped" in result
-      ? { checkpoint: result }
-      : {},
 }));
 
 vi.mock("../server/db/index.js", async () => {

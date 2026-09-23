@@ -447,7 +447,7 @@ async fn tick_once(
         .await
         .map_err(|e| format!("fetch meetings: {e}"))?;
     let status = resp.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED {
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         // Tell the renderer to re-push a fresh cookie or surface a re-login
         // prompt, then back off this exact pair (see `UnauthorizedRetry`) —
         // a repush changes `credentials` and is retried next tick regardless.
@@ -458,7 +458,10 @@ async fn tick_once(
             MEETINGS_UNAUTHORIZED_RETRY_BASE,
             now,
         ));
-        return Err("list-meetings http 401 — meetings:auth-needed emitted".to_string());
+        return Err(format!(
+            "list-meetings http {} — meetings:auth-needed emitted",
+            status.as_u16()
+        ));
     }
     if !status.is_success() {
         return Err(format!("list-meetings http {}", status));

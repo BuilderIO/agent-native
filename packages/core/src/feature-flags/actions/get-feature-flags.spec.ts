@@ -21,6 +21,7 @@ vi.mock("../../action.js", () => ({
 
 const globalSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
+const failingGlobalKeys = new Set<string>();
 const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
 const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
   const result = new Map<string, Record<string, unknown> | null>();
@@ -35,9 +36,20 @@ const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
   }
   return result;
 });
+// getFeatureFlagRules' per-flag fallback path reads through getSetting (and,
+// for an org-scoped read, getOrgSetting -> getSetting on the org-prefixed
+// key), so it needs its own per-key failure knob independent of the batched
+// getSettings mock above.
+const getSettingMock = vi.fn(async (key: string) => {
+  if (failingGlobalKeys.has(key)) throw new Error(`corrupt setting: ${key}`);
+  const match = ORG_KEY_RE.exec(key);
+  return match
+    ? (orgSettings.get(`${match[1]}:${match[2]}`) ?? null)
+    : (globalSettings.get(key) ?? null);
+});
 
 vi.mock("../../settings/store.js", () => ({
-  getSetting: vi.fn(async () => null),
+  getSetting: (...args: any[]) => getSettingMock(...args),
   getSettings: (...args: any[]) => getSettingsMock(...args),
   mutateSetting: vi.fn(),
   putSetting: vi.fn(),
@@ -61,7 +73,9 @@ beforeEach(() => {
   registry._resetFeatureFlagRegistryForTests();
   globalSettings.clear();
   orgSettings.clear();
+  failingGlobalKeys.clear();
   getSettingsMock.mockClear();
+  getSettingMock.mockClear();
   captureErrorMock.mockClear();
 });
 
@@ -96,14 +110,19 @@ describe("get-feature-flags action", () => {
     expect(getSettingsMock).toHaveBeenCalledTimes(1);
   });
 
-  it("evaluates every flag to false, not throw, when the batched read fails", async () => {
+  it("falls back to per-flag reads, isolating one corrupt flag, when the batched read fails", async () => {
     registry.registerFeatureFlags([{ key: "flag-a" }, { key: "flag-b" }]);
+    globalSettings.set("feature-flag:flag-b", { mode: "on" });
+    // "flag-a" is the one corrupt/unreadable value; the batch call itself
+    // still fails wholesale (e.g. the underlying query errored), so the
+    // per-flag fallback is what has to isolate flag-a from flag-b.
+    failingGlobalKeys.add("feature-flag:flag-a");
     const dbError = new Error("db down");
     getSettingsMock.mockRejectedValueOnce(dbError);
 
     await expect(
       action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
-    ).resolves.toEqual({ "flag-a": false, "flag-b": false });
+    ).resolves.toEqual({ "flag-a": false, "flag-b": true });
     // The fail-closed fallback must stay loud: a DB outage silently turning
     // off every flag with no signal is the trap this test pins shut.
     expect(captureErrorMock).toHaveBeenCalledWith(

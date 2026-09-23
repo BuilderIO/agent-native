@@ -128,6 +128,34 @@ describe("user profile store", () => {
     warn.mockRestore();
   });
 
+  it("still resolves emails with no auth user through the per-email fallback when the settings batch fails", async () => {
+    // adapter.listUsers succeeds but only knows about alice — the roster
+    // batch itself never fails, so "missing@example.com" is a genuine
+    // stored-only email. If the settings batch that would have answered it
+    // fails too, it must still fall back per-email instead of dropping out
+    // of the result the way a batch-only degrade used to assume was safe.
+    getUserSettingsMock.mockRejectedValue(new Error("settings down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const profiles = await getUserProfiles([
+      "alice@example.com",
+      "missing@example.com",
+    ]);
+
+    expect(profiles.get("alice@example.com")).toEqual({
+      email: "alice@example.com",
+      name: "alice",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      onboardingRole: null,
+    });
+    expect(profiles.get("missing@example.com")).toEqual({
+      email: "missing@example.com",
+      name: "Saved Name",
+      onboardingRole: null,
+    });
+    warn.mockRestore();
+  });
+
   it("falls back to per-email lookups and warns once when listUsers fails", async () => {
     adapter.listUsers.mockRejectedValue(new Error("adapter down"));
     adapter.findUserByEmail.mockResolvedValue(null);

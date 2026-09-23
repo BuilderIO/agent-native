@@ -867,10 +867,16 @@ function checkpointSkipReason(
  * of filling history with one copy per tool call.
  *
  * `editorCheckpointMode` only affects the editor-surface branch:
- * - "auxiliary" (default): version history, not the save itself. Throttled
- *   (both against a recent existing checkpoint and against a recent capture
- *   failure) and fails open into a `{ skipped, reason }` sentinel instead of
- *   blocking the caller's real write — see `snapshotDesignBeforeAgentEdit`.
+ * - "auxiliary" (default): version history, not the save itself. Throttle 1
+ *   (reusing a recent existing checkpoint) applies to every frontend caller
+ *   regardless of `allowCheckpointFailureSkip`, since it only ever reuses a
+ *   successful checkpoint. A capture failure throws by default — only a
+ *   caller that passes `allowCheckpointFailureSkip: true` also gets
+ *   Throttle 2 (reusing a recent capture FAILURE) and a `{ skipped, reason }`
+ *   sentinel instead of the throw. That flag exists for the few callers that
+ *   spread the sentinel into their result and surface it to the user (see
+ *   `checkpointSkippedResultField`) — every other caller must see the real
+ *   failure — see `snapshotDesignBeforeAgentEdit`.
  * - "required": this checkpoint IS the caller's only recovery point (delete-
  *   file's pre-delete capture). Never throttled, and a failure propagates —
  *   see `snapshotDesignBeforeAgentEditInVersionLock`.
@@ -880,6 +886,7 @@ async function snapshotDesignBeforeAgentEditInLock(
   context: ActionRunContext,
   database?: DesignDatabase,
   editorCheckpointMode: "auxiliary" | "required" = "auxiliary",
+  allowCheckpointFailureSkip = false,
 ): Promise<DesignVersionCheckpointResult> {
   const chatContext = actionChatContext(context);
   const editorContext = editorActionContext(context);
@@ -955,12 +962,17 @@ async function snapshotDesignBeforeAgentEditInLock(
       // configured for this owner) will fail again for the same reason on
       // the very next autosave a few seconds later. Reuse that verdict
       // instead of repeating the full capture attempt just to fail again.
-      const recentSkip = editorCheckpointRecentSkips.get(designId);
-      if (
-        recentSkip &&
-        Date.now() - recentSkip.at < EDITOR_CHECKPOINT_THROTTLE_MS
-      ) {
-        return { skipped: true, reason: recentSkip.reason };
+      // Only an opt-in caller may receive that reused verdict — a non-opt-in
+      // caller ignores the sentinel, so it must always attempt its own
+      // capture and let a real failure throw.
+      if (allowCheckpointFailureSkip) {
+        const recentSkip = editorCheckpointRecentSkips.get(designId);
+        if (
+          recentSkip &&
+          Date.now() - recentSkip.at < EDITOR_CHECKPOINT_THROTTLE_MS
+        ) {
+          return { skipped: true, reason: recentSkip.reason };
+        }
       }
     }
     try {
@@ -978,17 +990,20 @@ async function snapshotDesignBeforeAgentEditInLock(
       editorCheckpointRecentSkips.delete(designId);
       return captured;
     } catch (error) {
-      // An editor-surface checkpoint is an auxiliary side effect (version
-      // history), not the save itself — unlike an agent 'tool' edit's
-      // checkpoint below, which IS that turn's rollback point and must stay
-      // blocking. Report loudly (never silently) and let the caller's real
-      // write proceed instead of losing a save to e.g. a design owner with
-      // no private-blob provider configured.
+      // Report loudly (never silently) regardless of outcome below.
       const reason = checkpointSkipReason(error);
       captureError(error, {
         tags: { source: "design-versions", checkpoint: "editor" },
         extra: { designId, actionName: context.actionName },
       });
+      // An editor-surface checkpoint is an auxiliary side effect (version
+      // history), not the save itself — unlike an agent 'tool' edit's
+      // checkpoint below, which IS that turn's rollback point and must stay
+      // blocking. But only a caller that opted in (spreads
+      // checkpointSkippedResultField into its result and surfaces it to the
+      // user) may let its real write proceed on a sentinel instead of a
+      // throw; every other caller must see the failure like it always has.
+      if (!allowCheckpointFailureSkip) throw error;
       if (context.caller === "frontend") {
         editorCheckpointRecentSkips.set(designId, { at: Date.now(), reason });
       }
@@ -1054,6 +1069,17 @@ async function snapshotDesignBeforeAgentEditInLock(
 export async function snapshotDesignBeforeAgentEdit(
   designId: string,
   context?: ActionRunContext,
+  options?: {
+    /**
+     * Opt in to a failed editor-surface checkpoint returning a
+     * `{ skipped, reason }` sentinel instead of throwing. Only pass this when
+     * the caller spreads `checkpointSkippedResultField(checkpoint)` into its
+     * result and the frontend surfaces the skip to the user — every other
+     * caller must see the failure, since it silently discards the result
+     * otherwise.
+     */
+    allowCheckpointFailureSkip?: boolean;
+  },
 ): Promise<DesignVersionCheckpointResult> {
   if (!context) return null;
   return withDesignVersionLock(designId, () =>
@@ -1062,6 +1088,7 @@ export async function snapshotDesignBeforeAgentEdit(
       context,
       undefined,
       "auxiliary",
+      options?.allowCheckpointFailureSkip ?? false,
     ),
   );
 }

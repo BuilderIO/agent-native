@@ -13,10 +13,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
-import {
-  checkpointSkippedResultField,
-  snapshotDesignBeforeAgentEdit,
-} from "../server/lib/design-versions.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import type { BreakpointSet } from "../shared/design-state.js";
 import {
   breakpointUpperBoundPx,
@@ -108,8 +105,7 @@ export default defineAction({
   capabilityScopes: ["visual-edit"],
   run: async ({ designId, breakpointId, widthPx, label }, context) => {
     await assertAccess("design", designId, "editor");
-    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context);
-    const checkpointField = checkpointSkippedResultField(checkpoint);
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     let persisted;
     try {
@@ -297,7 +293,6 @@ export default defineAction({
       breakpoint: updatedBreakpoint,
       breakpointSet: updatedSet,
       ...(collabReconcilePending.length > 0 ? { collabReconcilePending } : {}),
-      ...checkpointField,
     };
   },
 });

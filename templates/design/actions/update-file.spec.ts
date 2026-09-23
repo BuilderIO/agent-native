@@ -724,6 +724,14 @@ describe("update-file: editor-surface checkpoint skip surfaces in the result", (
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
       buildDoc(" checkpoint-skip-"),
     );
+    // update-file is one of the few callers that surfaces a skipped
+    // checkpoint to the user, so it must opt in — see
+    // snapshotDesignBeforeAgentEdit's fail-open contract in design-versions.ts.
+    expect(snapshotDesignBeforeAgentEditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { allowCheckpointFailureSkip: true },
+    );
   });
 
   it("omits checkpoint entirely when the version was captured normally", async () => {

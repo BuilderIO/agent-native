@@ -30,13 +30,14 @@ export function isUnauthorizedError(error: unknown): boolean {
     !!error &&
     typeof error === "object" &&
     "status" in error &&
-    (error as { status?: unknown }).status === 401
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
   );
 }
 
 /** Exported so a spec can pin the poll/stop decision directly, instead of only
  * through `isUnauthorizedError`. A signed-out/expired tab (e.g. an embedded
- * surface with no session) otherwise reissues the identical 401 forever. A
+ * surface with no session) otherwise reissues the identical 401/403 forever. A
  * remount, a mutation invalidation, or an explicit refetch still retries. */
 export function inboxThreadsRefetchInterval(query: {
   state: { error: unknown; data?: { syncing?: boolean } };

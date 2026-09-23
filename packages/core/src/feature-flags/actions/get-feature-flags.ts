@@ -6,6 +6,7 @@ import { listFeatureFlags } from "../registry.js";
 import {
   defaultFeatureFlagRules,
   evaluateFeatureFlagRules,
+  getFeatureFlagRules,
   getFeatureFlagRulesForKeys,
   type FeatureFlagRules,
 } from "../store.js";
@@ -19,19 +20,29 @@ export default defineAction({
     const scope = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };
     const definitions = listFeatureFlags();
     // One batched rules read for the whole registry instead of up to 2
-    // settings queries per flag; a read failure here fails every flag the
-    // same way a per-flag store failure already did (see evaluateFeatureFlag).
-    // coercion-ok: flags must never become an availability dependency, so a
-    // failed rules read still falls back to every flag off — but the read
-    // failure is captured so the fallback isn't a silent outage.
+    // settings queries per flag. If the batch itself fails, fall back to the
+    // pre-batching per-flag reads instead of collapsing every flag to off —
+    // a failure reading one flag's rules must not black out the rest.
     const rules = await getFeatureFlagRulesForKeys(
       definitions.map(({ key }) => key),
       scope,
-    ).catch((error) => {
+    ).catch(async (error) => {
       captureError(error, {
         tags: { source: "feature-flags", op: "get-feature-flags" },
       });
-      return new Map<string, FeatureFlagRules>();
+      const fallback = new Map<string, FeatureFlagRules>();
+      await Promise.all(
+        definitions.map(async ({ key }) => {
+          try {
+            fallback.set(key, await getFeatureFlagRules(key, scope));
+          } catch {
+            // coercion-ok: this flag's own read also failed; it defaults to
+            // off below via defaultFeatureFlagRules, the same false-on-error
+            // outcome evaluateFeatureFlag gives any other caller.
+          }
+        }),
+      );
+      return fallback;
     });
     const values = Object.fromEntries(
       definitions.map(({ key }) => {

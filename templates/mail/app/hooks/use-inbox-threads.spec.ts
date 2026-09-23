@@ -24,12 +24,13 @@ import {
 } from "./use-inbox-threads";
 
 describe("isUnauthorizedError", () => {
-  it("is true for a 401 action error", () => {
+  it("is true for a 401 or 403 action error", () => {
     expect(isUnauthorizedError({ status: 401 })).toBe(true);
+    expect(isUnauthorizedError({ status: 403 })).toBe(true);
   });
 
   it("is false for other statuses, and for no error", () => {
-    expect(isUnauthorizedError({ status: 403 })).toBe(false);
+    expect(isUnauthorizedError({ status: 404 })).toBe(false);
     expect(isUnauthorizedError({ status: 500 })).toBe(false);
     expect(isUnauthorizedError(null)).toBe(false);
     expect(isUnauthorizedError(new Error("network down"))).toBe(false);
@@ -37,9 +38,12 @@ describe("isUnauthorizedError", () => {
 });
 
 describe("inboxThreadsRefetchInterval", () => {
-  it("stops the poll once the last error is a 401", () => {
+  it("stops the poll once the last error is a 401 or 403", () => {
     expect(
       inboxThreadsRefetchInterval({ state: { error: { status: 401 } } }),
+    ).toBe(false);
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 403 } } }),
     ).toBe(false);
   });
 

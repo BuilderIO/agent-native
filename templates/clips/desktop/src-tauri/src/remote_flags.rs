@@ -93,7 +93,7 @@ impl std::fmt::Display for RefreshError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RefreshError::NoCredentials => write!(f, "no session credentials"),
-            RefreshError::Unauthorized => write!(f, "fetch feature flags: HTTP 401"),
+            RefreshError::Unauthorized => write!(f, "fetch feature flags: HTTP 401/403"),
             RefreshError::Other(msg) => write!(f, "{msg}"),
         }
     }
@@ -122,7 +122,9 @@ pub(crate) async fn refresh(
         .send()
         .await
         .map_err(|e| RefreshError::Other(format!("fetch feature flags: {e}")))?;
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+        || resp.status() == reqwest::StatusCode::FORBIDDEN
+    {
         return Err(RefreshError::Unauthorized);
     }
     if !resp.status().is_success() {

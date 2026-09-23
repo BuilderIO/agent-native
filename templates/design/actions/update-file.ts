@@ -260,6 +260,7 @@ export default defineAction({
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
+      { allowCheckpointFailureSkip: true },
     );
     const checkpointField = checkpointSkippedResultField(checkpoint);
 

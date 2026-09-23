@@ -57,7 +57,9 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
-    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
+      allowCheckpointFailureSkip: true,
+    });
     const checkpointField = checkpointSkippedResultField(checkpoint);
 
     const id = nanoid();

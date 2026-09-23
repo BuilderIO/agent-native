@@ -632,7 +632,7 @@ describe("createDesignVersionSnapshot", () => {
     expect(deletePrivateBlob).toHaveBeenCalledWith(blob);
   });
 
-  it("reports a skipped checkpoint instead of throwing when an editor-surface checkpoint's blob upload fails", async () => {
+  it("reports a skipped checkpoint instead of throwing for an opt-in caller when an editor-surface checkpoint's blob upload fails", async () => {
     putPrivateBlob.mockResolvedValue(null);
     captureMocks.liveSnapshot = {
       ...captureMocks.liveSnapshot,
@@ -644,10 +644,11 @@ describe("createDesignVersionSnapshot", () => {
       ],
     };
 
-    const result = await snapshotDesignBeforeAgentEdit("design-1", {
-      caller: "frontend",
-      actionName: "update-file",
-    });
+    const result = await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      { caller: "frontend", actionName: "update-file" },
+      { allowCheckpointFailureSkip: true },
+    );
 
     // A fixed code, never the raw Error message — see
     // DesignVersionCheckpointSkipReason's doc comment.
@@ -664,6 +665,32 @@ describe("createDesignVersionSnapshot", () => {
     );
     // The auxiliary checkpoint failed loudly above — it must not have landed
     // a partial/successful version row.
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("throws instead of failing open for a non-opt-in frontend caller when an editor-surface checkpoint's blob upload fails", async () => {
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    // No options: this mirrors every caller other than update-file,
+    // create-file, and import-design-source — they discard the checkpoint
+    // result, so a failure must throw instead of silently succeeding.
+    await expect(
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "add-breakpoint",
+      }),
+    ).rejects.toThrow("Private blob storage is required");
+
+    expect(captureError).toHaveBeenCalledTimes(1);
     expect(captureMocks.revisions).toHaveLength(0);
   });
 
@@ -768,14 +795,16 @@ describe("createDesignVersionSnapshot", () => {
       ],
     };
 
-    const first = await snapshotDesignBeforeAgentEdit("design-1", {
-      caller: "frontend",
-      actionName: "update-file",
-    });
-    const second = await snapshotDesignBeforeAgentEdit("design-1", {
-      caller: "frontend",
-      actionName: "update-file",
-    });
+    const first = await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      { caller: "frontend", actionName: "update-file" },
+      { allowCheckpointFailureSkip: true },
+    );
+    const second = await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      { caller: "frontend", actionName: "update-file" },
+      { allowCheckpointFailureSkip: true },
+    );
 
     expect(first).toEqual({
       skipped: true,

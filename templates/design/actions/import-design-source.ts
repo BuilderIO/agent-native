@@ -102,6 +102,7 @@ export default defineAction({
       const figFrameCheckpoint = await snapshotDesignBeforeAgentEdit(
         resolvedDesignId,
         context,
+        { allowCheckpointFailureSkip: true },
       );
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
@@ -142,6 +143,7 @@ export default defineAction({
       const htmlCheckpoint = await snapshotDesignBeforeAgentEdit(
         resolvedDesignId,
         context,
+        { allowCheckpointFailureSkip: true },
       );
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
@@ -165,6 +167,7 @@ export default defineAction({
     const figmaPasteCheckpoint = await snapshotDesignBeforeAgentEdit(
       resolvedDesignId,
       context,
+      { allowCheckpointFailureSkip: true },
     );
     const figmaPasteResult = await saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
