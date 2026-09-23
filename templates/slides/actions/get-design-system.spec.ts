@@ -111,6 +111,8 @@ describe("get-design-system", () => {
     expect(mockAccessFilter).toHaveBeenCalledWith(
       { id: "id", ownerEmail: "ownerEmail", data: "data" },
       {},
+      undefined,
+      "editor",
     );
   });
 

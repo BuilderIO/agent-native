@@ -71,7 +71,12 @@ async function persistBuilderDocCount(
         eq(schema.designSystems.id, row.id),
         eq(schema.designSystems.ownerEmail, row.ownerEmail),
         eq(schema.designSystems.data, row.data),
-        accessFilter(schema.designSystems, schema.designSystemShares),
+        accessFilter(
+          schema.designSystems,
+          schema.designSystemShares,
+          undefined,
+          "editor",
+        ),
       ),
     );
 }

@@ -68,6 +68,11 @@ const METADATA_HEADERS = [
   "Feedback-ID",
 ];
 
+type SyncStepResult = {
+  status: InboxSyncAccountStatus;
+  changed: boolean;
+};
+
 function boundedErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   // Never let a token leak into last_error via an echoed Authorization header.
@@ -308,7 +313,7 @@ async function runFullSyncStep(
   deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
-): Promise<InboxSyncAccountStatus> {
+): Promise<SyncStepResult> {
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
   if (fullSyncHistoryId == null) {
@@ -368,7 +373,10 @@ async function runFullSyncStep(
         lastError: null,
         lastSyncedAt: Date.now(),
       });
-      return { accountEmail, state: "ready", lastSyncedAt: Date.now() };
+      return {
+        status: { accountEmail, state: "ready", lastSyncedAt: Date.now() },
+        changed: true,
+      };
     }
   }
 
@@ -378,7 +386,10 @@ async function runFullSyncStep(
     lastError: null,
     lastSyncedAt: Date.now(),
   });
-  return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
+  return {
+    status: { accountEmail, state: "initial", lastSyncedAt: Date.now() },
+    changed: true,
+  };
 }
 
 async function runIncrementalSyncStep(
@@ -389,7 +400,7 @@ async function runIncrementalSyncStep(
   deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
-): Promise<InboxSyncAccountStatus> {
+): Promise<SyncStepResult> {
   // Gmail's response `historyId` is the mailbox's *current* id, identical on
   // every page, so it is only a safe watermark once every page has been
   // consumed. When the budget runs out mid-way we persist the last processed
@@ -399,6 +410,7 @@ async function runIncrementalSyncStep(
   let lastRecordId: string | null = null;
   let caughtUp = false;
   let currentHistoryId: string | null = null;
+  let changed = false;
   do {
     let history: any;
     try {
@@ -437,8 +449,10 @@ async function runIncrementalSyncStep(
       throw err;
     }
 
+    const records = history.history ?? [];
+    if (records.length > 0) changed = true;
     const threadIds = new Set<string>();
-    for (const record of history.history ?? []) {
+    for (const record of records) {
       if (record?.id != null) lastRecordId = String(record.id);
       for (const bucket of [
         record.messagesAdded,
@@ -484,7 +498,10 @@ async function runIncrementalSyncStep(
       lastError: null,
       lastSyncedAt: Date.now(),
     });
-    return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
+    return {
+      status: { accountEmail, state: "initial", lastSyncedAt: Date.now() },
+      changed,
+    };
   }
 
   await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -492,7 +509,10 @@ async function runIncrementalSyncStep(
     lastError: null,
     lastSyncedAt: Date.now(),
   });
-  return { accountEmail, state: "ready", lastSyncedAt: Date.now() };
+  return {
+    status: { accountEmail, state: "ready", lastSyncedAt: Date.now() },
+    changed,
+  };
 }
 
 async function failAccount(
@@ -594,7 +614,7 @@ export async function syncInboxAccount(
       row = { ...row, labels, labelsUpdatedAt };
     }
 
-    const accountStatus =
+    const syncResult =
       row.historyId == null
         ? await runFullSyncStep(
             ownerEmail,
@@ -615,12 +635,13 @@ export async function syncInboxAccount(
             opts?.connectedAccountEmails,
           );
 
+    const accountStatus = syncResult.status;
     const dbStatus: SyncAccountRow["status"] =
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"
         ? accountStatus.state
         : "idle";
     await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
-    invalidateHistoryCacheForAccount(accountEmail);
+    if (syncResult.changed) invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
     return accountStatus;
   } catch (err) {

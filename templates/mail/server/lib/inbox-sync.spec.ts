@@ -292,6 +292,9 @@ describe("syncInboxAccount — incremental sync", () => {
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(result.state).toBe("ready");
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      ACCOUNT,
+    );
     const upserted = mocks.upsertInboxThreadRows.mock.calls[0][0];
     expect(upserted).toHaveLength(1);
     expect(upserted[0].inInbox).toBe(false);
@@ -301,6 +304,20 @@ describe("syncInboxAccount — incremental sync", () => {
       expect.objectContaining({ historyId: "1005" }),
       { claimId: "claim-1" },
     );
+  });
+
+  it("does not invalidate the history cache after an empty incremental sync", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    expect(mocks.invalidateHistoryCacheForAccount).not.toHaveBeenCalled();
+    expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(OWNER);
   });
 
   it("stamps upserts at the start of each Gmail read", async () => {
