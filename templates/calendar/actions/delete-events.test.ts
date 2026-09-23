@@ -938,6 +938,10 @@ describe("delete-events", () => {
     ]);
     expect(result.deleted).toBe(2);
     expect(result.failed).toBe(0);
+    expect(result.events.map((event) => event.id)).toEqual([
+      "google-a",
+      "google-b",
+    ]);
   });
 
   it("leaves an event that started before the range even if it ends inside it", async () => {

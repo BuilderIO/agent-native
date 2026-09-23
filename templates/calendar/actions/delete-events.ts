@@ -15,6 +15,7 @@ import {
   BULK_EVENT_CONCURRENCY,
   MAX_MATCHED_EVENTS,
   cliBoolean,
+  googleEventResultId,
   isBookedOnAccount,
   mapWithConcurrency,
   normalizeWritableGoogleEventId,
@@ -236,7 +237,7 @@ export default defineAction({
       const booked = await findBookedGoogleEvents(requested.map(([id]) => id));
       for (const [googleEventId, displayId] of requested) {
         const display: BulkEventResult = {
-          id: displayId,
+          id: googleEventResultId(displayId, googleEventId, accountEmail),
           accountEmail,
           outcome: "matched",
         };
