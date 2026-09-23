@@ -250,7 +250,7 @@ export function CommentRow({
             headerClassName,
           )}
         >
-          <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+          <span className="max-w-3/5 shrink-0 truncate text-sm font-semibold text-foreground">
             {name}
           </span>
           {badge}

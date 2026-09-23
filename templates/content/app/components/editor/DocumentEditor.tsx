@@ -5399,6 +5399,10 @@ function PageEditorSessionBody({
         data-page-editor-owner={pageEditorOwner}
         onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
+          // React bubbles portal clicks (the @ menu, emoji picker, model menu)
+          // through this tree even though they render outside it. Those are
+          // interactions with an open comment, not clicks on the page.
+          if (target && !event.currentTarget.contains(target)) return;
           const commentHighlight = target?.closest("[data-comment-thread]");
           const threadId = commentHighlight?.getAttribute(
             "data-comment-thread",

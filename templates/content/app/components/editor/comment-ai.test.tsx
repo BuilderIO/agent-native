@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { agentLogoEngine } from "./agent-identity";
 import {
   acknowledgeCommentAiContinuation,
   boundedContinuationContext,
@@ -127,6 +128,13 @@ describe("comment AI controls", () => {
     act(() => root.unmount());
     container.remove();
     vi.clearAllMocks();
+  });
+
+  it("uses the model's maker for logos when a gateway routes the model", () => {
+    expect(agentLogoEngine("claude-sonnet-5", "builder")).toBe("anthropic");
+    expect(agentLogoEngine("gpt-5-6-luna", "builder")).toBe("ai-sdk:openai");
+    expect(agentLogoEngine("gemini-3-pro", "builder")).toBe("ai-sdk:google");
+    expect(agentLogoEngine("auto", "builder")).toBe("builder");
   });
 
   it("shows the provider family and a readable model for inline AI turns", () => {

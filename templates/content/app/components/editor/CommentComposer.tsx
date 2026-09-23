@@ -35,7 +35,7 @@ import {
 import type { MentionMember } from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
-import { modelDisplayName } from "./agent-identity";
+import { agentLogoEngine, modelDisplayName } from "./agent-identity";
 import {
   CommentAiModelList,
   CommentAiSendControl,
@@ -104,7 +104,7 @@ const MEMBER_AVATAR_PROBE_LIMIT = 40;
 
 function providerMedia(selection: CommentAiSelection) {
   const identity = resolveAgentProviderLogo(
-    selection.engine,
+    agentLogoEngine(selection.model, selection.engine),
     selection.provider,
   );
   return identity.logoUrl

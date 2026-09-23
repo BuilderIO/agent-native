@@ -2596,6 +2596,15 @@ audio.media-block__content {
   [data-mention-ref-type="content-comment-ai-recipient"]:hover {
   background: hsl(var(--accent));
 }
+[data-comment-composer] [data-mention-reference] > [aria-hidden="true"] {
+  width: 18px;
+  height: 18px;
+  background: hsl(var(--background));
+}
+[data-comment-composer] [data-mention-reference] > [aria-hidden="true"] img {
+  width: 12px;
+  height: 12px;
+}
 
 /* ===== Slash Command Menu ===== */
 .slash-command-menu {

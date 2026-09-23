@@ -76,6 +76,7 @@ import {
 } from "./CommentComposer";
 import { CommentEntry } from "./CommentEntry";
 import {
+  CommentAgentBadge,
   CommentAvatar,
   CommentIconButton,
   CommentRow,
@@ -2243,6 +2244,28 @@ function SuggestionThreadView({
             </>
           ) : null
         }
+        renderCommentBadge={(commentId) =>
+          commentId === thread.comments[0]?.id &&
+          suggestion.actorKind === "agent" ? (
+            <CommentAgentBadge
+              ariaLabel={`${t("comments.aiAttribution", {
+                name: suggestion.authorEmail ?? "",
+              })}. ${t("comments.aiSourceAgent")}`}
+              details={
+                <span className="grid gap-0.5">
+                  <span>
+                    {t("comments.aiAttribution", {
+                      name: suggestion.authorEmail ?? "",
+                    })}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {t("comments.aiSourceAgent")}
+                  </span>
+                </span>
+              }
+            />
+          ) : null
+        }
         renderCommentFooter={(commentId) =>
           comments.data?.discussion ? (
             <ReviewReactionList
@@ -2260,19 +2283,21 @@ function SuggestionThreadView({
               expanded={expanded}
               t={t}
             />
-            {anchorUnavailable ? (
-              <span className="text-xs text-muted-foreground">
-                {t("comments.unanchored")}
+            {anchorUnavailable || sourceUrl ? (
+              <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {anchorUnavailable ? (
+                  <span>{t("comments.unanchored")}</span>
+                ) : null}
+                {sourceUrl ? (
+                  <Link
+                    className="hover:text-foreground hover:underline"
+                    to={sourceUrl}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {t("comments.sourceComment")}
+                  </Link>
+                ) : null}
               </span>
-            ) : null}
-            {sourceUrl ? (
-              <Link
-                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline"
-                to={sourceUrl}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {t("comments.sourceComment")}
-              </Link>
             ) : null}
           </>
         }
@@ -2372,6 +2397,7 @@ function ThreadView({
   headerStatus,
   renderCommentActions,
   renderCommentFooter,
+  renderCommentBadge,
   t,
 }: {
   renderEntry?: (id: string, slots: ThreadEntrySlots) => ReactNode;
@@ -2425,6 +2451,7 @@ function ThreadView({
   headerStatus?: ReactNode;
   renderCommentActions?: (commentId: string) => ReactNode;
   renderCommentFooter?: (commentId: string) => ReactNode;
+  renderCommentBadge?: (commentId: string) => ReactNode;
   t: ReturnType<typeof useT>;
 }) {
   const replyInputRef = useRef<TiptapComposerHandle>(null);
@@ -2684,6 +2711,7 @@ function ThreadView({
                   />
                 }
                 name={c.author_name ?? c.author_email.split("@")[0]}
+                badge={renderCommentBadge?.(c.id)}
                 timestamp={
                   index === 0 && timeLabel
                     ? { label: timeLabel, title: timeLabel }

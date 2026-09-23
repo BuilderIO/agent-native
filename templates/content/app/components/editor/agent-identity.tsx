@@ -99,6 +99,17 @@ export function commentAiModelLabel(model: string | null | undefined): string {
     : agentDisplayName(normalized);
 }
 
+/**
+ * The engine whose logo represents a model. A gateway such as Builder routes
+ * many makers' models, so the model's own maker wins when it is recognizable.
+ */
+export function agentLogoEngine(
+  model: string | null | undefined,
+  engine: string | null | undefined,
+): string {
+  return resolveAgentModelIdentity(model)?.engine ?? engine ?? "";
+}
+
 /** Provider logo for an AI participant, sized to sit in an avatar slot. */
 export function AgentAvatar({
   model,
@@ -110,7 +121,7 @@ export function AgentAvatar({
   className?: string;
 }) {
   const identity = resolveAgentModelIdentity(model);
-  const resolvedEngine = engine ?? identity?.engine ?? "";
+  const resolvedEngine = agentLogoEngine(model, engine);
   const logo = resolveAgentProviderLogo(resolvedEngine, identity?.shortName);
   const label = identity?.shortName ?? logo.label ?? "AI";
   const frame = cn(
