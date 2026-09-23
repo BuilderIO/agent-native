@@ -62,6 +62,36 @@ vi.mock("./useObservability.js", () => ({
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { ObservabilityDashboard } from "./ObservabilityDashboard.js";
 
+function reviewDialog(ask?: string) {
+  const dialogs = Array.from(
+    document.body.querySelectorAll<HTMLElement>('[role="dialog"]'),
+  ).filter((dialog) => dialog.querySelector("h2"));
+  return dialogs.find((dialog) => !ask || dialog.textContent?.includes(ask));
+}
+
+function closeReviewButton(dialog: HTMLElement) {
+  return Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent?.trim() === "Close",
+  );
+}
+
+function popoverTextarea(placeholder: string) {
+  return Array.from(
+    document.body.querySelectorAll<HTMLTextAreaElement>(
+      `textarea[placeholder="${placeholder}"]`,
+    ),
+  ).at(-1);
+}
+
+function popoverButton(input: HTMLTextAreaElement, text: string) {
+  const content =
+    input.closest<HTMLElement>('[role="dialog"]') ??
+    input.closest<HTMLElement>("[data-radix-popper-content-wrapper]");
+  return Array.from(
+    content?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+  ).find((button) => button.textContent?.includes(text));
+}
+
 describe("ObservabilityDashboard human review", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -161,7 +191,11 @@ describe("ObservabilityDashboard human review", () => {
 
     await act(async () => reviewRow?.click());
 
-    const dialog = document.body.querySelector('[role="dialog"]');
+    const dialog = await vi.waitFor(() => {
+      const current = reviewDialog("Design a compact analytics view");
+      expect(current).toBeTruthy();
+      return current!;
+    });
     expect(dialog?.textContent).toContain("Design a compact analytics view");
     expect(dialog?.textContent).toContain("Sessions grew 18% this week.");
     expect(dialog?.textContent).toContain("Keep the chart inline.");
@@ -205,14 +239,20 @@ describe("ObservabilityDashboard human review", () => {
         ?.click(),
     );
 
-    let dialog = document.body.querySelector('[role="dialog"]');
+    let dialog = await vi.waitFor(() => {
+      const current = reviewDialog("Design a compact analytics view");
+      expect(current).toBeTruthy();
+      return current!;
+    });
     await act(async () =>
       dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
     );
-    const feedbackInput = document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="What should change or stay the same?"]',
-    );
-    expect(feedbackInput).not.toBeNull();
+    const feedbackInput = await vi.waitFor(() => {
+      const input = popoverTextarea("What should change or stay the same?");
+      expect(input).toBeTruthy();
+      return input!;
+    });
+    expect(feedbackInput).toBeTruthy();
     await act(async () => {
       if (!feedbackInput) return;
       const setter = Object.getOwnPropertyDescriptor(
@@ -223,35 +263,53 @@ describe("ObservabilityDashboard human review", () => {
       feedbackInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    await act(async () =>
-      dialog?.querySelector('[aria-label="Close"]')?.click(),
-    );
+    await act(async () => dialog && closeReviewButton(dialog)?.click());
+    await vi.waitFor(() => expect(reviewDialog()).toBeUndefined());
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
         ?.click(),
     );
 
-    dialog = document.body.querySelector('[role="dialog"]');
+    dialog = await vi.waitFor(() => {
+      const current = reviewDialog("Make a slide from the campaign results");
+      expect(current).toBeTruthy();
+      return current!;
+    });
     expect(dialog?.querySelector("iframe")).not.toBeNull();
     await act(async () =>
       dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
     );
-    const secondFeedbackInput =
-      document.body.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder="What should change or stay the same?"]',
-      );
+    const secondFeedbackInput = await vi.waitFor(() => {
+      const input = popoverTextarea("What should change or stay the same?");
+      expect(input).toBeTruthy();
+      return input!;
+    });
     expect(secondFeedbackInput?.value).toBe("");
+    await act(async () => dialog && closeReviewButton(dialog)?.click());
+    await vi.waitFor(() => expect(reviewDialog()).toBeUndefined());
     await act(async () =>
-      dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
+        ?.click(),
     );
-    await act(async () =>
-      dialog?.querySelector('[aria-label="Draft instruction"]')?.click(),
+    dialog = await vi.waitFor(() => {
+      const current = reviewDialog("Make a slide from the campaign results");
+      expect(current).toBeTruthy();
+      return current!;
+    });
+    const draftButton = dialog?.querySelector<HTMLButtonElement>(
+      '[aria-label="Draft instruction"]',
     );
-    const instructionInput = document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Write the instruction change for a human to review."]',
-    );
-    expect(instructionInput).not.toBeNull();
+    await act(async () => draftButton?.click());
+    const instructionInput = await vi.waitFor(() => {
+      const input = popoverTextarea(
+        "Write the instruction change for a human to review.",
+      );
+      expect(input).toBeTruthy();
+      return input!;
+    });
+    expect(instructionInput).toBeTruthy();
     await act(async () => {
       if (!instructionInput) return;
       const setter = Object.getOwnPropertyDescriptor(
@@ -261,9 +319,7 @@ describe("ObservabilityDashboard human review", () => {
       setter?.call(instructionInput, "Keep the slide title concise");
       instructionInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const saveButton = Array.from(
-      document.body.querySelectorAll("button"),
-    ).find((button) => button.textContent?.includes("Save draft update"));
+    const saveButton = popoverButton(instructionInput, "Save draft update");
     await act(async () => saveButton?.click());
     expect(mockSaveInstructionUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -300,17 +356,22 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () => reviewTab?.click());
 
     const openRun = async (runId: string) => {
-      const closeButton = document.body.querySelector<HTMLButtonElement>(
-        '[role="dialog"] [aria-label="Close"]',
-      );
+      const dialog = reviewDialog();
+      const closeButton = dialog && closeReviewButton(dialog);
       if (closeButton) {
         await act(async () => closeButton.click());
+        await vi.waitFor(() => expect(reviewDialog()).toBeUndefined());
       }
       await act(async () => {
         container
           .querySelector<HTMLButtonElement>(`[data-review-run-id="${runId}"]`)
           ?.click();
       });
+      const ask =
+        runId === "run-1"
+          ? "Design a compact analytics view"
+          : "Make a slide from the campaign results";
+      await vi.waitFor(() => expect(reviewDialog(ask)).toBeTruthy());
     };
     const setText = async (input: HTMLTextAreaElement, value: string) => {
       await act(async () => {
@@ -329,62 +390,52 @@ describe("ObservabilityDashboard human review", () => {
         ?.click(),
     );
     await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
+      reviewDialog("Design a compact analytics view")
+        ?.querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
         ?.click(),
     );
-    let input = document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="What should change or stay the same?"]',
-    );
-    expect(input).not.toBeNull();
+    let input = popoverTextarea("What should change or stay the same?");
+    expect(input).toBeTruthy();
     await setText(input!, "Feedback for A");
-    await act(async () => {
-      Array.from(document.body.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Save feedback"))
-        ?.click();
-    });
+    await act(async () => popoverButton(input!, "Save feedback")?.click());
 
     await openRun("run-2");
     await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
+      reviewDialog("Make a slide from the campaign results")
+        ?.querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
         ?.click(),
     );
     input = document.body.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="What should change or stay the same?"]',
     );
-    expect(input).not.toBeNull();
+    expect(input).toBeTruthy();
     await setText(input!, "Feedback for B");
     await act(async () => finishFeedbackA?.());
     expect(input?.value).toBe("Feedback for B");
 
     await openRun("run-1");
     await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
+      reviewDialog("Design a compact analytics view")
+        ?.querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
         ?.click(),
     );
-    input = document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Write the instruction change for a human to review."]',
+    input = popoverTextarea(
+      "Write the instruction change for a human to review.",
     );
-    expect(input).not.toBeNull();
+    expect(input).toBeTruthy();
     await setText(input!, "Instruction for A");
-    await act(async () => {
-      Array.from(document.body.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Save draft update"))
-        ?.click();
-    });
+    await act(async () => popoverButton(input!, "Save draft update")?.click());
 
     await openRun("run-2");
     await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
+      reviewDialog("Make a slide from the campaign results")
+        ?.querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
         ?.click(),
     );
-    input = document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Write the instruction change for a human to review."]',
+    input = popoverTextarea(
+      "Write the instruction change for a human to review.",
     );
-    expect(input).not.toBeNull();
+    expect(input).toBeTruthy();
     await setText(input!, "Instruction for B");
     await act(async () => finishInstructionA?.());
     expect(input?.value).toBe("Instruction for B");

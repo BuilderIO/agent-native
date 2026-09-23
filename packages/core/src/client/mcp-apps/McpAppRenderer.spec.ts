@@ -238,10 +238,12 @@ describe("McpAppRenderer security helpers", () => {
   });
 
   it("places the read-only policy before any replayed markup", () => {
+    const parseFromString = vi.spyOn(DOMParser.prototype, "parseFromString");
     const srcDoc = createReadOnlyMcpAppSrcDoc(
       "<script>window.early = true</script><p>Replay</p>",
     );
 
+    expect(parseFromString).not.toHaveBeenCalled();
     expect(srcDoc.indexOf("Content-Security-Policy")).toBeLessThan(
       srcDoc.indexOf("<body"),
     );

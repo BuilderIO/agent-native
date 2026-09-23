@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { parseHTML } from "linkedom/worker";
 import {
   useCallback,
   useEffect,
@@ -632,8 +633,12 @@ export function createReadOnlyMcpAppSrcDoc(html: string): string {
 }
 
 function sanitizeReadOnlyMcpAppHtml(html: string): string {
-  if (typeof DOMParser === "undefined") return "";
-  const document = new DOMParser().parseFromString(html, "text/html");
+  // Unlike browser DOMParser, linkedom never starts resource loads while parsing.
+  const isDocument = /<!doctype\s+html|<html(?:\s|>)/i.test(html);
+  const source = isDocument
+    ? html
+    : `<!doctype html><html><head></head><body>${html}</body></html>`;
+  const document = parseHTML(source).document;
   const inlineStyles = Array.from(document.head.querySelectorAll("style"))
     .map((style) => style.outerHTML)
     .join("");
