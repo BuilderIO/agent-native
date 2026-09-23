@@ -76,14 +76,25 @@ export default defineAction({
       });
     }
 
-    const next = {
-      kind: args.kind,
-      status: args.status,
-      message: args.message || null,
-      requestedAt: args.requestedAt,
-      updatedAt: new Date().toISOString(),
-    };
-    if (!(await compareAndSetAppState(statusKey, current, next))) {
+    let expected = current;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const next = {
+        kind: args.kind,
+        status: args.status,
+        message: args.message || null,
+        requestedAt: args.requestedAt,
+        updatedAt: new Date().toISOString(),
+      };
+      if (await compareAndSetAppState(statusKey, expected, next)) {
+        return {
+          recordingId: args.recordingId,
+          kind: args.kind,
+          requestedAt: args.requestedAt,
+          status: args.status,
+          cancelled: args.status === "cancelled",
+        };
+      }
+
       const latest = await readAppState(statusKey);
       if (
         latest &&
@@ -105,17 +116,22 @@ export default defineAction({
           statusCode: 409,
         });
       }
-      fail(`The ${args.kind} request changed before the update was saved.`, {
-        errorCode: "request_conflict",
-        statusCode: 409,
-      });
+      if (
+        args.status !== "working" &&
+        attempt < 2 &&
+        latest &&
+        latest.kind === args.kind &&
+        latest.requestedAt === args.requestedAt &&
+        ["queued", "working"].includes(String(latest.status))
+      ) {
+        expected = latest;
+        continue;
+      }
+      break;
     }
-    return {
-      recordingId: args.recordingId,
-      kind: args.kind,
-      requestedAt: args.requestedAt,
-      status: args.status,
-      cancelled: args.status === "cancelled",
-    };
+    fail(`The ${args.kind} request changed before the update was saved.`, {
+      errorCode: "request_conflict",
+      statusCode: 409,
+    });
   },
 });

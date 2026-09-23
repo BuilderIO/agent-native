@@ -196,6 +196,68 @@ describe("update-ai-request-status", () => {
     );
   });
 
+  it.each(["cancelled", "failed"] as const)(
+    "retries a terminal %s after a same-request progress update",
+    async (status) => {
+      const working = {
+        kind: "regenerate-chapters",
+        status: "working",
+        requestedAt: "2026-09-04T12:00:00.000Z",
+        updatedAt: "2026-09-04T12:00:01.000Z",
+      };
+      const newerWorking = {
+        ...working,
+        updatedAt: "2026-09-04T12:00:02.000Z",
+      };
+      mockReadAppState
+        .mockResolvedValueOnce(working)
+        .mockResolvedValueOnce(newerWorking);
+      mockCompareAndSetAppState
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      const args = action.schema.parse({
+        recordingId: "rec_123",
+        kind: "regenerate-chapters",
+        requestedAt: "2026-09-04T12:00:00.000Z",
+        status,
+      });
+
+      await expect(action.run(args)).resolves.toMatchObject({
+        status,
+        cancelled: status === "cancelled",
+      });
+      expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(2);
+      expect(mockCompareAndSetAppState).toHaveBeenLastCalledWith(
+        "clips-ai-request-status-rec_123",
+        newerWorking,
+        expect.objectContaining({ status }),
+      );
+    },
+  );
+
+  it("bounds retries when the request keeps changing", async () => {
+    const working = {
+      kind: "regenerate-chapters",
+      status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    };
+    mockReadAppState
+      .mockResolvedValueOnce(working)
+      .mockResolvedValueOnce({ ...working, updatedAt: "1" })
+      .mockResolvedValueOnce({ ...working, updatedAt: "2" })
+      .mockResolvedValueOnce({ ...working, updatedAt: "3" });
+    mockCompareAndSetAppState.mockResolvedValue(false);
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "regenerate-chapters",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      status: "cancelled",
+    });
+
+    await expect(action.run(args)).rejects.toThrow("changed before the update");
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(3);
+  });
+
   it("does not regress a terminal request back to working", async () => {
     mockReadAppState.mockResolvedValue({
       kind: "remove-filler-words",

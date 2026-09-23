@@ -16,6 +16,42 @@ describe("createSsrfSafeDispatcher", () => {
     });
   });
 
+  it("reuses one dispatcher for required requests without private-origin exceptions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await ssrfSafeFetch(
+        "https://93.184.216.34/first",
+        {},
+        {
+          requireDispatcher: true,
+        },
+      );
+      await ssrfSafeFetch(
+        "https://93.184.216.34/second",
+        {},
+        {
+          requireDispatcher: true,
+        },
+      );
+
+      const first = (
+        fetchMock.mock.calls[0]?.[1] as RequestInit & {
+          dispatcher?: unknown;
+        }
+      )?.dispatcher;
+      const second = (
+        fetchMock.mock.calls[1]?.[1] as RequestInit & {
+          dispatcher?: unknown;
+        }
+      )?.dispatcher;
+      expect(first).toBeDefined();
+      expect(second).toBe(first);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("blocks a public hostname that resolves privately at connect time", async () => {
     let requestCount = 0;
     const server = createServer((_request, response) => {

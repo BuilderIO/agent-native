@@ -325,9 +325,11 @@ export async function createSsrfSafeDispatcher(
   destinationUrl?: string,
   options: { required?: boolean } = {},
 ): Promise<unknown> {
-  if (allowedPrivateOrigins.length === 0 && !options.required) {
+  if (allowedPrivateOrigins.length === 0) {
     sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
-    return sharedSsrfDispatcher;
+    const dispatcher = await sharedSsrfDispatcher;
+    if (dispatcher || !options.required) return dispatcher;
+    return createSsrfSafeDispatcherUncached([], undefined, options);
   }
   return createSsrfSafeDispatcherUncached(
     allowedPrivateOrigins,
