@@ -560,6 +560,12 @@ describe("workspace deploy", () => {
       new Request("https://example.test/starter"),
     );
     expect(await starterResponse.text()).toBe("https://example.test/starter//");
+    const starterDataResponse = await starterModule.default(
+      new Request("https://example.test/starter.data?_routes=root"),
+    );
+    expect(await starterDataResponse.text()).toBe(
+      "https://example.test/starter/.data?_routes=root",
+    );
 
     const redirects = fs.readFileSync(
       path.join(tmpDir, "dist", "_redirects"),
@@ -856,6 +862,12 @@ describe("workspace deploy", () => {
     await expect(starterModule.default.fetch(req, {})).resolves.toBe(
       "/starter//",
     );
+    await expect(
+      starterModule.default.fetch(
+        new Request("https://example.test/starter.data?_routes=root"),
+        {},
+      ),
+    ).resolves.toBe("/starter/.data");
 
     const config = JSON.parse(
       fs.readFileSync(
@@ -943,6 +955,10 @@ describe("workspace deploy", () => {
     });
     expect(config.routes).toContainEqual({
       src: "/starter",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/starter\\.data",
       dest: "/starter-server",
     });
     expect(config.routes).toContainEqual({
@@ -1273,6 +1289,20 @@ describe("workspace deploy", () => {
         execFile: execFile as typeof execFileSync,
       }),
     ).rejects.toThrow(/reserved workspace routes/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects dotted app ids that collide with root data routes", async () => {
+    makeWorkspaceApp(tmpDir, "starter");
+    makeWorkspaceApp(tmpDir, "starter.data");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/must use lowercase letters, numbers, and hyphens/);
     expect(execFile).not.toHaveBeenCalled();
   });
 

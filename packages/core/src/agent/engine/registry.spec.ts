@@ -3207,9 +3207,17 @@ describe("AgentEngine registry", () => {
       expect(create).not.toHaveBeenCalled();
     });
 
-    it("guards Ollama's implicit loopback endpoint outside local deployment", async () => {
-      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+    it("guards Ollama's implicit loopback endpoint outside trusted self-hosted runtimes", async () => {
       vi.stubEnv("OLLAMA_BASE_URL", "");
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          isTrustedSelfHostedRuntime: () => false,
+        }),
+      );
       const { registerAgentEngine, resolveEngine } =
         await import("./registry.js");
       const create = vi.fn().mockReturnValue({

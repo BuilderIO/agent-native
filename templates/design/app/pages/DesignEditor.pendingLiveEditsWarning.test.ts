@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import enUSMessages from "../i18n/en-US";
+
 describe("DesignEditor pending live edits", () => {
   it("keeps the Apply split button minimal", () => {
     const source = readFileSync(
@@ -27,11 +29,9 @@ describe("DesignEditor pending live edits", () => {
     expect(toolbar).toContain('className="h-9 w-8');
     expect(toolbar).not.toContain("h-11");
 
-    const messages = readFileSync(
-      new URL("../i18n-data.ts", import.meta.url),
-      "utf8",
-    );
-    expect(messages).toContain('applyDesignUpdates: "Apply design update"');
+    expect(
+      enUSMessages.designEditor.pendingVisualStyles.applyDesignUpdates,
+    ).toBe("Apply design update");
   });
 
   it("clears the pending state after Apply and explicit discard", () => {

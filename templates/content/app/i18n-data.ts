@@ -1085,6 +1085,18 @@ const enUS = {
     labCreativeContext: "Creative Context",
     labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
+    labSlashAdvancedCode: "Advanced code blocks",
+    labSlashAdvancedCodeDescription:
+      "Add structured code and code-tabs blocks to the slash menu.",
+    labSlashLayouts: "Layout blocks",
+    labSlashLayoutsDescription:
+      "Add custom HTML and tabs blocks to the slash menu.",
+    labSlashVisuals: "Visual blocks",
+    labSlashVisualsDescription:
+      "Add diagram, Mermaid, and wireframe blocks to the slash menu.",
+    labSlashDeveloperDocs: "Developer documentation blocks",
+    labSlashDeveloperDocsDescription:
+      "Add API and developer-documentation blocks to the slash menu.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",

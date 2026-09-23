@@ -51,6 +51,63 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.186.0
+
+### Minor Changes
+
+- 6ce7517: Let users choose an installer group, then install all or a selected subset.
+
+### Patch Changes
+
+- 69ecbfb: Derive Builder design-system readiness from the indexed document count instead of the drifting `builderStatus` field. `hydrateBuilderDesignSystemReference` now reads `docCount` from `/design-systems/v1/:id?includeDocumentCount=true`, and a count that cannot be read fails loudly instead of being reported as zero. Adds `fetchBuilderDesignSystemDocumentCount` and `isBuilderDesignSystemReadyByCount`.
+- e383d8d: Fix user-controlled Labs toggles by exposing the mutation through the shared action HTTP surface and sharing registrations across development module instances.
+- 67cf8bb: Expose lazy-chunk recovery helpers and the AgentSidebar entrypoint for deferred app surfaces.
+- Release all public npm packages with a patch version bump.
+- be380fa: Allow Ollama endpoints on the local network (not just localhost), fetch real installed models instead of a static suggestion list everywhere Ollama models are shown, and silently strip a copy-pasted `/v1` suffix from Ollama addresses.
+- Updated dependencies
+  - @agent-native/agentkit@0.2.8
+  - @agent-native/recap-cli@0.5.38
+  - @agent-native/toolkit@0.20.8
+
+## 0.185.0
+
+### Minor Changes
+
+- c0d9e4b: Add `fetchBuilderDesignSystemTierLimit`, `designSystemTierUpgradeUrl`, `assertBuilderDesignSystemCodeIndexingAllowed`, and the `@agent-native/core/client/design-system-tier-limit` helpers so apps can show a design-system plan/tier cap and an upgrade link before create, surface the same information from a 402 on the create/index call, and enforce the Enterprise-only code/GitHub indexing entitlement server-side (not just in the UI).
+
+### Patch Changes
+
+- 5ffb783: Cut action latency and false failures across apps: batch per-user profile and
+  feature-flag settings reads into one query; on production serverless runtimes,
+  answer the app-origin SSE route with 204 for current clients (a held stream
+  there forced a cold container per connection) and report a `poll-live`
+  capability so sync consumers keep their normal cadence over `/poll`; stop
+  `refetchInterval` polling after a 401; skip feature-flag and labs queries until
+  the session is authenticated; attribute `http.response` telemetry to the app;
+  and add cold-start, hidden-page, and timeout fields to `action.response`.
+- d5f0a95: Start apps with an app-shaped skeleton while session data loads immediately.
+- 2427195: Add Claude Opus 5.5 and GPT-6 Sol/Luna to direct API model selection.
+- e7ccf40: Workspace agents now confirm a new app is actually served at `/<app-id>` before reporting it created, name the host's run/dev command when the preview isn't running the workspace gateway, and grant "admin" through app roles instead of hardcoding an email in an auth hook.
+- e7ccf40: Fix sign-up/sign-in bouncing back to the sign-in page when an app is served behind an https proxy with no configured public URL (e.g. a Builder Code cloud dev container rendered in the Builder editor iframe): Better Auth's session cookie and its origin/CSRF allowlist are now evaluated per request instead of once at boot, so a proxied https request gets a cross-site-safe cookie and is trusted as same-origin.
+- 0289143: Defer provider setup UI and load core locale messages on demand.
+- 8f27701: Dev servers now watch files for apps checked out inside a `.claude/` (or other normally ignored) directory, such as `.claude/worktrees/*`. The default watch ignores are matched below the app root instead of against its ancestors, which previously disabled HMR entirely for those checkouts.
+- 8f27701: Map Figma's LINEAR_BURN blend mode to `multiply` instead of `plus-darker`, which Chromium does not support and silently drew as normal blending.
+- f6e9555: Fix direct Jev tool prefetch requests and add a repeatable live selection eval.
+- 3c865d5: Lazy-load the agent sidebar and changelog command-menu surfaces so app layouts can hydrate before chat UI.
+- Release all public npm packages with a patch version bump.
+- 8c954cd: Route mounted workspace root data requests through app paths on Netlify and Vercel.
+- 3d5741f: Single-key `getSetting` reads throw again on a corrupt stored value instead of reporting it as missing; batched `getSettings` reads still isolate a corrupt key.
+- 86e35d8: Share first-run onboarding completion across configured sibling app domains.
+- 70f20c0: Fix mounted React Router root data requests.
+- 6806425: Tighten the first-run setup cards: both columns now list only required, recommended, and Builder-only capabilities, and each manual row is a single-line name instead of a wrapped key description.
+- ae65b08: Preserve mounted React Router root data redirects.
+- Updated dependencies [2427195]
+- Updated dependencies [d43305d]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.7
+  - @agent-native/agentkit@0.2.7
+  - @agent-native/recap-cli@0.5.37
+
 ## 0.184.0
 
 ### Minor Changes
@@ -3011,17 +3068,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
-
-## 0.164.3
-
-### Patch Changes
-
-- f790010: Keep the current-main merge tree formatter-clean for shared agent runtime sources.
-
-## 0.164.2
-
-### Patch Changes
-
-- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

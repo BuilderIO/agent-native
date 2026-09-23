@@ -183,6 +183,12 @@ const messages = {
     emptyTitle: "Configure sua identidade de marca",
     emptyDescription:
       "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada novo deck seguirá sua identidade visual.",
+    tierLimitTitle: "Limite de sistemas de design atingido",
+    tierLimitDescription:
+      "Você atingiu o limite de sistemas de design do seu plano Builder. Faça upgrade do seu plano Builder para criar outro.",
+    tierLimitDescriptionWithCount:
+      "Você está usando {{current}} de {{max}} sistemas de design no seu plano Builder {{plan}}. Faça upgrade para criar outro.",
+    tierLimitUpgrade: "Fazer upgrade do plano Builder",
   },
   editorToolbar: {
     layoutTitle: "Título",
@@ -764,6 +770,8 @@ const messages = {
     websitePlaceholder: "example.com ou Nike",
     add: "Adicionar",
     githubRepository: "Conectar código: repositório GitHub",
+    codeIndexingEnterpriseOnly:
+      "A indexação de código e repositórios requer o plano Builder Enterprise",
     githubRef: "Branch, tag ou commit (opcional)",
     githubPaths: "Arquivos ou pastas, separados por vírgulas (opcional)",
     codeFiles: "Conectar arquivos de código",
@@ -835,10 +843,6 @@ const messages = {
     continue: "Continuar",
     continueToGenerate: "Continuar para gerar",
     designSystem: "Sistema de design",
-    designSystemIndexing: "Indexando…",
-    designSystemUnavailable: "Indisponível",
-    designSystemIndexingNotice:
-      "Este sistema de design ainda está sendo indexado. Escolha outro ou aguarde a indexação terminar antes de continuar.",
     referenceDeck: "Deck de referência",
     referenceDeckPlaceholder: "Seguir o estilo de um deck existente",
     referenceDeckNone: "Não usar nenhum",

@@ -1,9 +1,9 @@
-import {
-  AgentSidebar,
-  isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
-  type AssistantChatHistoryVersion,
+import type {
+  AssistantChatHistoryConfig,
+  AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
+import { AgentSidebar } from "@agent-native/core/client/AgentSidebar";
+import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";

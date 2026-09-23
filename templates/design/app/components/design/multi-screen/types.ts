@@ -172,6 +172,13 @@ export interface DuplicateRequest {
 export interface ScreenContentRenderOptions {
   onBootStart?: () => void;
   onBootReady?: () => void;
+  /**
+   * Invalidates the cached React element without changing the renderer
+   * callback. Runtime requests use this while the overview keeps the same
+   * live iframe mounted: the element must receive the new one-shot request,
+   * but its iframe document must not be remounted.
+   */
+  cacheKey?: string | number | null;
 }
 
 export interface MultiScreenCanvasProps {
@@ -326,8 +333,18 @@ export interface MultiScreenCanvasProps {
     geometry: FrameGeometry,
     options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  /**
+   * Changes to a transient per-screen runtime request must invalidate the
+   * cached React element so a mounted DesignCanvas receives the request. This
+   * is intentionally separate from the renderer identity: changing it updates
+   * props in place and preserves the iframe document and running-app state.
+   */
+  screenContentRenderKey?: string | number | null;
   /** Cached inert HTML used while a live screen is waiting for a boot slot. */
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
+  /** The design's resolved tweak CSS custom properties. Editors receive them
+   *  from their own DesignCanvas; static previews are posted them here. */
+  tweakValues?: Record<string, string>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview
@@ -789,6 +806,7 @@ export interface ScreenContentCacheEntry {
   renderScreenContent: NonNullable<
     MultiScreenCanvasProps["renderScreenContent"]
   >;
+  renderKey: string | number | null | undefined;
   contentNode: ReactNode;
 }
 

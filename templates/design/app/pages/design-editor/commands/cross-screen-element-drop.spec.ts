@@ -2334,6 +2334,95 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     });
   });
 
+  it("inserts a runtime-projected board node back into a live destination", () => {
+    const boardMarkup =
+      '<button data-agent-native-node-id="canvas-runtime">From canvas</button>';
+    const boardProjection = buildCodeLayerProjection(boardMarkup);
+    const boardNode = boardProjection.nodes[0]!;
+    const boardTree = buildCodeLayerTree(boardProjection);
+    let insertRequest: unknown = null;
+    const semanticHandoff = vi.fn();
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate: () => {
+          throw new Error("board-to-live drops must not write stored content");
+        },
+        boardFileId: "board",
+        canEditDesign: false,
+        canEditLiveBoard: true,
+        canEditLiveScreen: () => true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: {
+          current: new Map([
+            [
+              boardNode.id,
+              {
+                fileId: "board",
+                node: boardNode,
+                tree: boardTree,
+                runtimeOnly: true,
+              },
+            ],
+          ]),
+        },
+        designSourceType: "localhost",
+        // The live-to-board leg is transient, so the stored board document
+        // does not contain the node even though sourceHtmlSnapshot does.
+        getScreenContent: (screenId) =>
+          screenId === "board" ? "" : "http://localhost:3102/library",
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "live",
+            filename: "library.html",
+            content: "http://localhost:3102/library",
+            sourceType: "localhost",
+            updatedAt: "2026-09-22T00:00:00.000Z",
+            heightPinned: false,
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: vi.fn(),
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        runtimeStructurePendingTransactionRef: { current: null },
+        sendRuntimeLayerMoveSemanticHandoff: semanticHandoff,
+        setActiveFileId: vi.fn(),
+        setCreatedOverviewLayerSelection: vi.fn(),
+        setOverviewSelectedScreenIds: vi.fn(),
+        setRuntimeStructureInsertRequest: (value) => {
+          insertRequest = typeof value === "function" ? value(null) : value;
+        },
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState: vi.fn(),
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: '[data-agent-native-node-id="canvas-runtime"]',
+        sourceNodeId: "canvas-runtime",
+        sourceScreenId: "board",
+        targetScreenId: "live",
+        targetAnchorSelector: "body",
+        targetAnchorPlacement: "inside",
+        targetDropMode: "flow-insert",
+        sourceHtmlSnapshot: boardMarkup,
+      },
+    );
+
+    expect(semanticHandoff).not.toHaveBeenCalled();
+    expect(insertRequest).toMatchObject({
+      screenId: "live",
+      sourceScreenId: "board",
+      remintCollidingNodeIds: true,
+      anchor: { selector: "body" },
+    });
+    expect((insertRequest as { html: string }).html).toContain(
+      'data-agent-native-node-id="canvas-runtime"',
+    );
+  });
+
   it("routes a runtime-only id absent from source HTML through the runtime handoff", () => {
     const sourceContent =
       '<html><body><div id="subject">Subject</div></body></html>';

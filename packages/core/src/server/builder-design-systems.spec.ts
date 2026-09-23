@@ -33,10 +33,12 @@ function useLegacyBuilderAuthorizationMock() {
 useLegacyBuilderAuthorizationMock();
 
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
   fetchBuilderDesignSystemDocs,
+  fetchBuilderDesignSystemTierLimit,
   hydrateBuilderDesignSystemReference,
   indexBuilderDesignSystem,
   localBuilderDesignSystemId,
@@ -66,6 +68,41 @@ describe("Builder design-system helpers", () => {
     resolveBuilderLegacyRequestAuthorizationMock.mockReset();
     useLegacyBuilderAuthorizationMock();
   });
+
+  function useBuilderTestCredentials() {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+  }
+
+  /**
+   * Hydration now reads the detail endpoint for `docCount` before paging
+   * docs, so a stub has to answer both routes. Responses are single-use, so
+   * every entry is a factory.
+   */
+  function stubBuilderDesignSystemFetch({
+    count,
+    docs,
+  }: {
+    count: () => Response;
+    docs: Array<() => Response>;
+  }) {
+    let docsCall = 0;
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (!url.pathname.endsWith("/docs")) return count();
+      const index = Math.min(docsCall, docs.length - 1);
+      docsCall += 1;
+      return docs[index]();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function countResponse(docCount: unknown, status = 200) {
+    return () => new Response(JSON.stringify({ docCount }), { status });
+  }
 
   it("uses OAuth for design-system reads without legacy API key fields", async () => {
     process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
@@ -401,24 +438,21 @@ describe("Builder design-system helpers", () => {
     });
   });
 
-  it("requires an explicit Builder completion signal when hydrating docs", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
+  it("derives hydrated readiness from the Builder document count, not its status", async () => {
+    useBuilderTestCredentials();
+    const fetchMock = stubBuilderDesignSystemFetch({
+      count: countResponse(1),
+      docs: [
+        () =>
           new Response(
             JSON.stringify({
               docs: [{ tokenValues: { "--brand-primary": "#123456" } }],
-              status: "complete",
+              status: "in-progress",
             }),
             { status: 200 },
           ),
-      ),
-    );
+      ],
+    });
 
     await expect(
       hydrateBuilderDesignSystemReference({
@@ -432,37 +466,32 @@ describe("Builder design-system helpers", () => {
       tokenValues: { "--brand-primary": "#123456" },
       completionConfirmed: true,
     });
+    const countUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(countUrl.pathname).toBe("/design-systems/v1/ds-1");
+    expect(countUrl.searchParams.get("includeDocumentCount")).toBe("true");
   });
 
   it("hydrates every Builder docs page and preserves terminal failure status", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    let requestCount = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        requestCount += 1;
-        if (requestCount === 1) {
-          return new Response(
+    useBuilderTestCredentials();
+    const fetchMock = stubBuilderDesignSystemFetch({
+      count: countResponse(41),
+      docs: [
+        () =>
+          new Response(
             JSON.stringify(
               Array.from({ length: 40 }, (_, index) => ({
                 id: `doc-${index}`,
               })),
             ),
             { status: 200 },
-          );
-        }
-        return new Response(
-          JSON.stringify({
-            docs: [{ id: "doc-40" }],
-            status: "complete",
-          }),
-          { status: 200 },
-        );
-      }),
-    );
+          ),
+        () =>
+          new Response(
+            JSON.stringify({ docs: [{ id: "doc-40" }], status: "complete" }),
+            { status: 200 },
+          ),
+      ],
+    });
 
     await expect(
       hydrateBuilderDesignSystemReference({
@@ -475,17 +504,17 @@ describe("Builder design-system helpers", () => {
       docCount: 41,
       completionConfirmed: true,
     });
-    expect(requestCount).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
+    stubBuilderDesignSystemFetch({
+      count: countResponse(0),
+      docs: [
+        () =>
           new Response(JSON.stringify({ docs: [], status: "failed" }), {
             status: 200,
           }),
-      ),
-    );
+      ],
+    });
     await expect(
       hydrateBuilderDesignSystemReference({
         source: "builder",
@@ -495,26 +524,23 @@ describe("Builder design-system helpers", () => {
       }),
     ).resolves.toMatchObject({
       builderStatus: "failed",
+      docCount: 0,
       completionConfirmed: false,
     });
   });
 
-  it("bounds minimal hydration to the first page", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            docs: [{ id: "doc-1" }],
-            status: "in-progress",
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  it("bounds minimal hydration to the first docs page", async () => {
+    useBuilderTestCredentials();
+    const fetchMock = stubBuilderDesignSystemFetch({
+      count: countResponse(1),
+      docs: [
+        () =>
+          new Response(
+            JSON.stringify({ docs: [{ id: "doc-1" }], status: "in-progress" }),
+            { status: 200 },
+          ),
+      ],
+    });
 
     await expect(
       hydrateBuilderDesignSystemReference(
@@ -529,30 +555,28 @@ describe("Builder design-system helpers", () => {
     ).resolves.toMatchObject({
       builderStatus: "in-progress",
       docCount: 1,
-      completionConfirmed: false,
+      completionConfirmed: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves failed status over completion flags and normalizes cancellation variants", async () => {
-    process.env.BUILDER_PRIVATE_KEY = "builder-private";
-    process.env.BUILDER_PUBLIC_KEY = "builder-public";
-    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
-      "https://builder.example.test/design-systems/v1";
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          docs: [],
-          status: "error",
-          complete: true,
-          completed: true,
-        }),
-        { status: 200 },
-      ),
-    );
+  it("reports Builder's own status while the count decides readiness", async () => {
+    useBuilderTestCredentials();
+    stubBuilderDesignSystemFetch({
+      count: countResponse(0),
+      docs: [
+        () =>
+          new Response(
+            JSON.stringify({
+              docs: [],
+              status: "error",
+              complete: true,
+              completed: true,
+            }),
+            { status: 200 },
+          ),
+      ],
+    });
     await expect(
       hydrateBuilderDesignSystemReference({
         source: "builder",
@@ -565,11 +589,15 @@ describe("Builder design-system helpers", () => {
       completionConfirmed: false,
     });
 
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ docs: [], status: "canceled" }), {
-        status: 200,
-      }),
-    );
+    stubBuilderDesignSystemFetch({
+      count: countResponse(0),
+      docs: [
+        () =>
+          new Response(JSON.stringify({ docs: [], status: "canceled" }), {
+            status: 200,
+          }),
+      ],
+    });
     await expect(
       hydrateBuilderDesignSystemReference({
         source: "builder",
@@ -903,6 +931,72 @@ describe("Builder design-system helpers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("surfaces a 402 design-system tier limit as a structured, actionable failure", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Design system limit reached for this plan",
+            plan: "Pro",
+            current: 3,
+            max: 3,
+            upgradeUrl: "https://builder.io/account/subscription?plan=pro",
+          },
+        }),
+        { status: 402 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "design_system_tier_limit_exceeded",
+      statusCode: 402,
+      details: {
+        plan: "pro",
+        current: 3,
+        max: 3,
+        upgradeUrl: "https://builder.io/account/subscription?plan=pro",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a default upgrade link when the 402 body carries no upgradeUrl", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ plan: "free", current: 1, max: 1 }), {
+        status: 402,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const rejection = await indexBuilderDesignSystem({
+      sources: [{ kind: "file", uploadToken: "upload-token" }],
+    }).catch((error) => error);
+
+    expect(rejection).toMatchObject({
+      errorCode: "design_system_tier_limit_exceeded",
+      statusCode: 402,
+      details: { plan: "free", current: 1, max: 1 },
+    });
+    expect(
+      typeof rejection.details.upgradeUrl === "string" &&
+        rejection.details.upgradeUrl.includes("builder.io"),
+    ).toBe(true);
+  });
+
   it("keeps an unscoped public repository as a native Builder source", async () => {
     delete process.env.GITHUB_TOKEN;
     process.env.BUILDER_PRIVATE_KEY = "builder-private";
@@ -955,5 +1049,190 @@ describe("Builder design-system helpers", () => {
     expect(localBuilderDesignSystemId("ds:/Brand Kit 2026")).toBe(
       "builder-ds-Brand-Kit-2026",
     );
+  });
+
+  describe("fetchBuilderDesignSystemTierLimit", () => {
+    it("reads plan, current count, and max from the tier-limit endpoint", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        expect(String(input)).toBe(
+          "https://builder.example.test/design-systems/v1/tier-limit?apiKey=builder-public",
+        );
+        return new Response(
+          JSON.stringify({ plan: "Team", current: 3, max: 3 }),
+          { status: 200 },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(fetchBuilderDesignSystemTierLimit()).resolves.toEqual({
+        status: "ok",
+        plan: "team",
+        current: 3,
+        max: 3,
+        atMax: true,
+        codeIndexingAllowed: false,
+        upgradeUrl: expect.stringContaining("builder.io"),
+      });
+    });
+
+    it("treats a null max as unlimited and allows code indexing on Enterprise", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ plan: "enterprise", current: 42, max: null }),
+            { status: 200 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const limit = await fetchBuilderDesignSystemTierLimit();
+      expect(limit.plan).toBe("enterprise");
+      expect(limit.max).toBeNull();
+      expect(limit.atMax).toBe(false);
+      expect(limit.codeIndexingAllowed).toBe(true);
+    });
+
+    it("fails closed on code indexing for an unknown or newly named non-Enterprise plan", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ plan: "startup", current: 1, max: 3 }),
+            { status: 200 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const limit = await fetchBuilderDesignSystemTierLimit();
+      expect(limit.plan).toBe("startup");
+      expect(limit.codeIndexingAllowed).toBe(false);
+    });
+
+    it("fails closed on code indexing when the tier-limit response omits a plan entirely", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ current: 1, max: 3 }), {
+          status: 200,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const limit = await fetchBuilderDesignSystemTierLimit();
+      expect(limit.plan).toBeNull();
+      expect(limit.codeIndexingAllowed).toBe(false);
+    });
+
+    it("fails open on the count cap but closed on code indexing when the tier-limit endpoint is unreachable", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+
+      const expectUnavailable = () =>
+        expect(fetchBuilderDesignSystemTierLimit()).resolves.toEqual({
+          status: "unavailable",
+          plan: null,
+          current: null,
+          max: null,
+          atMax: false,
+          codeIndexingAllowed: false,
+          upgradeUrl: null,
+        });
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new Error("network down")),
+      );
+      await expectUnavailable();
+
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(new Response("Internal error", { status: 500 })),
+      );
+      await expectUnavailable();
+    });
+  });
+
+  describe("assertBuilderDesignSystemCodeIndexingAllowed", () => {
+    it("resolves silently when the plan allows code indexing", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({ plan: "enterprise", current: 1, max: null }),
+              { status: 200 },
+            ),
+          ),
+      );
+
+      await expect(
+        assertBuilderDesignSystemCodeIndexingAllowed(),
+      ).resolves.toBeUndefined();
+    });
+
+    it("throws a structured 403 when the plan does not allow code indexing", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ plan: "pro", current: 1, max: 3 }), {
+            status: 200,
+          }),
+        ),
+      );
+
+      await expect(
+        assertBuilderDesignSystemCodeIndexingAllowed(),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "design_system_code_indexing_forbidden",
+        statusCode: 403,
+      });
+    });
+
+    it("throws when the tier-limit endpoint is unreachable (fails closed)", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "builder-private";
+      process.env.BUILDER_PUBLIC_KEY = "builder-public";
+      process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+        "https://builder.example.test/design-systems/v1";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new Error("network down")),
+      );
+
+      await expect(
+        assertBuilderDesignSystemCodeIndexingAllowed(),
+      ).rejects.toMatchObject({
+        errorCode: "design_system_code_indexing_forbidden",
+        statusCode: 403,
+      });
+    });
   });
 });

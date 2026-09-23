@@ -1,4 +1,67 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "Klicken Sie zuerst diesen Abschnitt an und ziehen Sie dann die rote Linie nach rechts.",
+    helpOtherSideTerm: "Stattdessen Material vom Abschnitt rechts entfernen",
+    helpRemove: "Klicken Sie ihn an und drücken Sie Entf.",
+    helpRemoveTerm: "Einen ganzen Abschnitt entfernen",
+    helpRestore:
+      "Klicken Sie ihn an und drücken Sie erneut Entf, oder nutzen Sie seinen Pfeil.",
+    helpRestoreTerm: "Einen entfernten Abschnitt zurückholen",
+    helpShorten:
+      "Ziehen Sie die rote Linie nach links. Alles, woran Sie vorbeiziehen, wird am Ende des Abschnitts links davon entfernt.",
+    helpShortenTerm: "Einen Abschnitt kürzen",
+    helpSplit: "Drücken Sie S. Der Schnitt erfolgt an der Abspielposition.",
+    helpSplitTerm: "Den Clip an der aktuellen Stelle teilen",
+    helpTitle: "Die Zeitleiste verwenden",
+    putBack: "Diesen Abschnitt zurückholen",
+    removedSection: "Entfernter Abschnitt, {{duration}}",
+    section: "Abschnitt {{start}} bis {{end}}",
+    sectionEndsAt: "Ende des Abschnitts bei {{at}} – zum Verschieben ziehen",
+    sectionStartsAt:
+      "Beginn des Abschnitts bei {{at}} – zum Verschieben ziehen",
+  },
+  redaction: {
+    box: "Schwärzungsfeld",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "Schwärzung endet bei {{at}}",
+    goTo: "Zu dieser Schwärzung springen",
+    helpDraw: "Ziehen Sie über das Bild.",
+    helpDrawTerm: "Etwas abdecken",
+    helpFollow:
+      "Spulen Sie vor und ziehen Sie das Feld dorthin, wo sich das Objekt nun befindet. Das Feld bewegt sich zwischen den von Ihnen gesetzten Punkten. Zeichnen Sie es etwas größer als das, was es abdeckt.",
+    helpFollowTerm: "Etwas verfolgen, das sich bewegt",
+    helpLead:
+      "Nichts ist verborgen, bis Sie auf Einbrennen drücken. Bis dahin liegt das Feld nur darüber, und das Video darunter zeigt weiterhin alles.",
+    helpMove: "Ziehen Sie das Feld oder eine seiner Ecken.",
+    helpMoveTerm: "Ein Feld verschieben oder in der Größe ändern",
+    helpRemove:
+      "Klicken Sie es an und drücken Sie Entf. Cmd+Z stellt es wieder her.",
+    helpRemoveTerm: "Ein Feld entfernen",
+    helpStylesTerm: "Unschärfe oder Deckend",
+    helpTiming:
+      "Ziehen Sie eines der Enden des Balkens in der Spur unter der Zeitleiste.",
+    helpTimingTerm: "Ändern, wann ein Feld erscheint",
+    helpTitle: "Schwärzung verwenden",
+    helpWaypoint:
+      "Jede ist ein von Ihnen gesetzter Punkt. Ziehen Sie eine, um ihren Zeitpunkt zu ändern, oder drücken Sie zweimal darauf, um sie zu entfernen.",
+    helpWaypointTerm: "Die Rauten auf diesem Balken",
+    helpWhenInDoubt: "Beide Varianten verbergen den Bereich vollständig.",
+    notYetBurned:
+      "{{count}} Schwärzung(en) sind eingezeichnet, aber nicht angewendet – das Video zeigt weiterhin alles darunter, bis Sie sie einbrennen.",
+    range: "Schwärzung von {{start}} bis {{end}}",
+    remove: "Schwärzung {{number}} löschen",
+    resize: "Größe dieser Schwärzung ändern",
+    resizeTopLeft: "Größe dieser Schwärzung von oben links ändern",
+    startsAt: "Schwärzung beginnt bei {{at}}",
+    styleBlur: "Unschärfe",
+    styleBlurHint:
+      "Unschärfe: ein über den Bereich erzeugter Farbschleier. Nichts von dem, was darunter lag, fließt in ihn ein, es gibt also nichts darin wiederherzustellen.",
+    styleSolid: "Deckend",
+    styleSolidHint:
+      "Deckend: füllt den Bereich mit einer Farbe. Genauso sicher wie Unschärfe – keine von beiden wird aus dem Abgedeckten erzeugt – wählen Sie also, was im Clip besser aussieht.",
+    waypoint: "Wegpunkt bei {{at}}",
+  },
   common: {
     cancel: "Abbrechen",
     create: "Erstellen",
@@ -66,7 +129,7 @@ const messages = {
     folders: "Ordner",
     recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
-    noSpaces: "Noch keine Bereiche",
+    noSpaces: "Bringt eure Clips an einem Ort zusammen",
     noSpacesAdminCta:
       "Bitte einen Organisationsadmin, den ersten Bereich anzulegen.",
     desktopCta: "Desktop-App laden",
@@ -82,39 +145,38 @@ const messages = {
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
-    breadcrumbBack: "Zurück zu {{label}}",
   },
   empty: {
     library: {
-      title: "Deine Bibliothek ist leer",
-      body: "Nimm deine erste Bildschirmaufnahme auf; sie erscheint hier und ist bereit zum Teilen.",
-      cta: "Ersten Clip aufnehmen",
+      title: "Deine Clips starten hier",
+      body: "Nimm deinen Bildschirm, deine Kamera oder beides auf. Dein Clip ist hier bereit zum Prüfen und Teilen.",
+      cta: "Clip aufnehmen",
     },
     shared: {
-      title: "Noch keine Clips mit dir geteilt",
-      body: "Clips, die Teammitglieder mit dir teilen, erscheinen hier.",
+      title: "Entdecke mit dir geteilte Aufnahmen",
+      body: "Sieh dir Clips aus deinem Team an und beteilige dich mit Kommentaren am Gespräch.",
     },
     folder: {
-      title: "Dieser Ordner ist leer",
-      body: "Ziehe Aufnahmen hinein oder starte eine Aufnahme, um in diesem Ordner etwas Neues zu beginnen.",
-      cta: "Hier aufnehmen",
+      title: "Halte diese Arbeit zusammen",
+      body: "Verschiebe zugehörige Aufnahmen in diesen Ordner oder nimm einen neuen Clip für dieses Projekt auf.",
+      cta: "Clip aufnehmen",
     },
     space: {
-      title: "Noch keine Aufnahmen in diesem Bereich",
-      body: "Teile eine Aufnahme mit dem Bereich oder nimm etwas Neues auf; dein Team sieht es dann hier.",
-      cta: "Für diesen Bereich aufnehmen",
+      title: "Gib diesem Bereich seinen ersten Clip",
+      body: "Nimm einen Clip auf oder verschiebe ihn hierher, damit dein Team ihn an einem Ort findet.",
+      cta: "Clip aufnehmen",
     },
     archive: {
-      title: "Nichts archiviert",
-      body: "Archivierte Aufnahmen werden aus der Bibliothek ausgeblendet, aber sicher aufbewahrt. Du kannst sie später jederzeit wiederherstellen.",
+      title: "Keine archivierten Aufnahmen",
+      body: "Archivierte Clips bleiben hier, bis du sie zurückholen möchtest.",
     },
     trash: {
       title: "Der Papierkorb ist leer",
-      body: "Gelöschte Aufnahmen erscheinen hier 30 Tage lang, bevor sie endgültig entfernt werden.",
+      body: "Gelöschte Clips bleiben 30 Tage hier, bevor sie endgültig entfernt werden.",
     },
     search: {
-      title: "Keine Treffer",
-      body: "Versuche einen anderen Suchbegriff oder prüfe deine Filter.",
+      title: "Nichts passt zu dieser Suche",
+      body: "Versuche einen anderen Begriff oder lösche die Filter, um den gesuchten Clip zu finden.",
     },
   },
   trashRoute: {
@@ -383,6 +445,9 @@ const messages = {
     ownerInsights: "Eigentümer-Einblicke",
     ownerInsightsDescription:
       "Aufrufe, Abschlussrate und Zuschauerdetails sind für Bearbeiter dieses Clips sichtbar.",
+    beingEdited: "Wird bearbeitet",
+    beingEditedMessage:
+      "Der Eigentümer nimmt Änderungen an diesem Clip vor. Der Link funktioniert wieder, sobald er fertig ist.",
   },
   meetingDetail: {
     untitledMeeting: "Treffen ohne Titel",
@@ -570,6 +635,9 @@ const messages = {
     customizeEmbed: "Einbettung anpassen",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
+    redactionsPendingBody:
+      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter. Öffnen Sie den Editor, brennen Sie sie ein, und das Teilen steht wieder zur Verfügung.",
+    redactionsPendingTitle: "Schließen Sie die Schwärzungen zuerst ab",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
@@ -1263,6 +1331,16 @@ const messages = {
     loadingRecording: "Aufzeichnung wird geladen…",
     recordingNotFound: "Aufzeichnung nicht gefunden",
     noVideoYet: "Noch kein Video verfügbar.",
+    burnFailed: "Die Schwärzungen konnten nicht eingebrannt werden",
+    burnProgressUnreadable:
+      "Der Fortschritt der Schwärzung lässt sich nicht ermitteln. Sie wird höchstwahrscheinlich noch gerendert – aktualisieren Sie die Seite in einem Moment.",
+    burnedRedactionsDone:
+      "Geschwärzt. Diese Bereiche sind nun aus der Datei entfernt und das Original wurde gelöscht.",
+    burningRedactions: "Die Schwärzungen werden in das Video gerendert …",
+    burningRedactionsPercent:
+      "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
+    editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    nothingToRedo: "Nichts zum Wiederherstellen",
   },
   transcriptEditor: {
     transcript: "Transkript",
@@ -1274,7 +1352,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "Neuer Bereich",
     description:
-      "Bereiche sind gemeinsame Orte, an denen deine Organisation Aufnahmen organisieren kann.",
+      "Ordne Aufnahmen nach Projekt oder Team, damit alle die wichtige Arbeit finden.",
     name: "Name",
     color: "Farbe",
     useColor: "Farbe {{color}} verwenden",
@@ -1468,6 +1546,27 @@ const messages = {
     exportedMp4: "Exported MP4 (Lokalisiert)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (Lokalisiert)",
+    backToEditing: "Zurück zur Bearbeitung",
+    burnIn: "{{count}} einbrennen",
+    burnInConfirm: "Einbrennen und Original löschen",
+    burnInHint:
+      "Die Schwärzungen dauerhaft in das Video rendern und das Original löschen",
+    burnInTitle: "{{count}} Schwärzung(en) in dieses Video einbrennen?",
+    burnInWarning:
+      "Die abgedeckten Bereiche werden in einer neuen Kopie des Videos zerstört, und die Originaldatei wird gelöscht. Das lässt sich nicht rückgängig machen.",
+    burning: "Wird eingebrannt …",
+    burningPercent: "Wird eingebrannt … {{percent}} %",
+    deleteKey: "Entf",
+    exportUnredactedTitle: "Brennen Sie die Schwärzungen zuerst ein",
+    exportUnredactedWarning:
+      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter – und diese Kopie ebenfalls. Brennen Sie sie ein, dann steht dies wieder zur Verfügung.",
+    redact: "Schwärzen",
+    redactHint:
+      "Etwas im Bild abdecken. Nichts ist verborgen, bis Sie es einbrennen.",
+    redactOn: "Schwärzen aktiv",
+    redoTooltip: "Wiederherstellen (Cmd/Strg+Umschalt+Z)",
+    scrollBack: "Die Steuerelemente links anzeigen",
+    scrollOn: "Die Steuerelemente rechts anzeigen",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (Lokalisiert)",
@@ -1574,7 +1673,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (Lokalisiert)",
     loomImported: "Loom imported (Lokalisiert)",
-    couldNotImportLoom: "Could not import that Loom. (Lokalisiert)",
+    couldNotImportLoom: "Dieser Loom konnte nicht importiert werden.",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
     linkCopied: "Link kopiert",
@@ -1642,7 +1741,7 @@ const messages = {
     howToUse: "How to use Dictate (Lokalisiert)",
     browserDictation: "Browser dictation (Lokalisiert)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (Lokalisiert)",
+      "Halte deine Gedanken beim Sprechen fest. Kopiere das Transkript oder überarbeite es mit KI.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (Lokalisiert)",
     quickNoteTitle: "Quick dictation note (Lokalisiert)",
@@ -1651,19 +1750,46 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts (Lokalisiert)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (Lokalisiert)",
     holdFn: "Hold Fn (Lokalisiert)",
+    mobileDictation: "Mobiles Diktat",
+    fnShortcut: "Fn-Kürzel",
+    customShortcut: "Benutzerdefiniertes Kürzel",
+    otherSource: "Andere Quelle",
+    voiceSource: "Stimme",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation. (Lokalisiert)",
     browserUnavailableShort:
       "Browser speech recognition is unavailable here (Lokalisiert)",
     startSpeaking: "Start speaking... (Lokalisiert)",
-    replacedOriginal: "Replaced original with cleaned text (Lokalisiert)",
+    newDictation: "Neues Diktat",
+    startDictation: "Diktat starten",
+    stop: "Stopp",
+    saving: "Speichern",
+    listening: "Aufnahme läuft",
+    lastCapture: "Letzte Aufnahme",
+    copy: "Kopieren",
+    copied: "Kopiert",
+    copyFailed: "Kopieren nicht möglich",
+    aiProcessed: "KI-verarbeitet",
+    aiCleaned: "Mit KI bereinigt",
+    original: "Original",
+    cleaned: "Bereinigt",
+    delete: "Löschen",
+    deleteDictationTitle: "Dieses Diktat löschen?",
+    deleteDictationDescription:
+      "Dadurch wird das Diktat dauerhaft aus deinem Verlauf entfernt.",
+    deleted: "Diktat gelöscht",
+    deleteFailed: "Diktat konnte nicht gelöscht werden",
+    showDetails: "Details",
+    info: "Diktatinformationen",
+    time: "Uhrzeit",
+    duration: "Dauer",
+    hideDetails: "Details ausblenden",
     noText: "No text (Lokalisiert)",
-    emptyTranscript: "Empty transcript (Lokalisiert)",
-    replaceOriginal: "Replace original with cleaned (Lokalisiert)",
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (Lokalisiert)',
-    startFirst: "Start your first dictation (Lokalisiert)",
+    cleanupComplete: "Diktat bereinigt",
+    cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    startFirst: "Verwandle deine Gedanken in Text",
+    recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (Lokalisiert)",
     emptyWebDescription:
@@ -1692,17 +1818,17 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nAgent Native → Agent-Native",
     dictionaryTermsRequired: "Gib mindestens einen Begriff ein.",
     dictionarySearch: "Wörterbuch durchsuchen",
-    dictionaryNoMatches: "Keine passenden Begriffe.",
+    dictionaryNoMatches: "Keine Begriffe passen zu dieser Suche",
     dictionaryRemoveTitle: "„{{term}}“ entfernen?",
     dictionaryRemoveDescription:
       "Künftige Diktate verwenden diese Korrektur nicht mehr.",
     dictionaryDescription:
-      "Diese Begriffe helfen der Spracherkennung, deine bevorzugten Schreibweisen zu verwenden.",
+      "Füge bevorzugte Schreibweisen hinzu, damit Clips deine Begriffe erkennt.",
     dictionaryTermPlaceholder: "Term (Lokalisiert)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (Lokalisiert)",
     dictionaryAdd: "Add (Lokalisiert)",
     dictionaryLoading: "Loading dictionary... (Lokalisiert)",
-    dictionaryEmpty: "Noch keine gelernten Begriffe.",
+    dictionaryEmpty: "Lerne Clips dein Vokabular",
     dictionaryUsesCount: "{{count}}-mal verwendet",
     dictionaryRemove: "Entfernen",
     vocabularyAddFailed: "Begriff konnte nicht hinzugefügt werden",
@@ -1814,9 +1940,9 @@ const messages = {
     pastRecordings: "Past recordings (Lokalisiert)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
-    connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
+    connectGoogleCalendar: "Mach jedes Meeting unvergesslicher",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
+      "Verbinde Google Kalender, um bevorstehende Meetings zu sehen und mit Clips Desktop Notizen festzuhalten.",
     getDesktopApp: "Get desktop app (Lokalisiert)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (Lokalisiert)",
@@ -1838,20 +1964,20 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Lokalisiert)",
     title: "Meetings (Lokalisiert)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
+      "Starte während eines Meetings Notizen in Clips Desktop. Das Transkript und die Notizen werden hier gespeichert.",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (Lokalisiert)",
     agendaTab: "Agenda (Lokalisiert)",
     pastTab: "Past (Lokalisiert)",
     now: "Now (Lokalisiert)",
-    noPastMeetings: "No past meetings yet (Lokalisiert)",
+    noPastMeetings: "Deine Meeting-Historie beginnt hier",
     loadOlder: "Load older (Lokalisiert)",
     searchFailed:
       "Couldn't search meetings. Try again in a moment. (Lokalisiert)",
     clearSearch: "Clear search (Lokalisiert)",
-    noMeetingsYet: "No meetings yet (Lokalisiert)",
+    noMeetingsYet: "Deine Agenda ist frei",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (Lokalisiert)",
+      "Bevorstehende Termine aus deinen verbundenen Kalendern erscheinen hier, sobald sie geplant sind.",
     noMeetingsMatch: 'No meetings match "{{query}}" (Lokalisiert)',
     refreshing: "Refreshing… (Lokalisiert)",
     howToTriggerTitle: "How to trigger meeting notes (Lokalisiert)",

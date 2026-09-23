@@ -159,7 +159,9 @@ import {
 } from "@/lib/recording-processing-lifecycle";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
+import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import { parseRedactions } from "@/lib/video-redactions";
 
 import { buildAgentApiUrls } from "../../shared/agent-context";
 import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
@@ -1301,6 +1303,7 @@ export default function RecordingPage() {
   const renderShareControl = () => (
     <ShareRecordingPopover
       recordingId={recording.id}
+      pendingRedactions={pendingRedactions}
       recordingTitle={recording.title}
       initialVisibility={recording.visibility}
       initialRole={role}
@@ -1315,7 +1318,25 @@ export default function RecordingPage() {
       <ClipsShareTrigger label={t("recordingPage.share")} />
     </ShareRecordingPopover>
   );
+  /**
+   * Redactions drawn but not burned into the file. Sharing is held back while
+   * there are any: the stored video still shows everything under them.
+   */
+  const pendingRedactions = parseRedactions(
+    parseEdits(recording?.editsJson).overlays,
+  ).length;
+
   const downloadRecording = useCallback(async () => {
+    // Every way out of here is the same file, and it still shows what the
+    // boxes are over until the burn has run.
+    if (pendingRedactions > 0) {
+      toast.warning(t("shareDialog.redactionsPendingTitle"), {
+        description: t("shareDialog.redactionsPendingBody", {
+          count: pendingRedactions,
+        }),
+      });
+      return;
+    }
     if (!recording?.videoUrl) return;
     setDownloading(true);
     const downloadToastId = toast.loading(t("sharePage.downloading"));
@@ -1341,7 +1362,17 @@ export default function RecordingPage() {
       setDownloading(false);
       toast.dismiss(downloadToastId);
     }
-  }, [recording?.title, recording?.videoFormat, recording?.videoUrl, t]);
+  }, [
+    // `pendingRedactions` is a dependency, not just a read: drawing a box in
+    // the editor changes editsJson and nothing else this callback depends on,
+    // so a memoized closure would still think there was nothing pending and
+    // hand over the unredacted file.
+    pendingRedactions,
+    recording?.title,
+    recording?.videoFormat,
+    recording?.videoUrl,
+    t,
+  ]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -2355,7 +2386,7 @@ export default function RecordingPage() {
               <DropdownMenuSubTrigger>
                 {t("recordingPage.enhanceRecording")}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-56">
+              <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                 <DropdownMenuItem
                   disabled={requestTranscript.isPending}
                   onSelect={() =>
@@ -2388,7 +2419,7 @@ export default function RecordingPage() {
               <DropdownMenuSubTrigger>
                 {t("recordingPage.createFromClip")}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64">
+              <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                 {WORKFLOW_MENU_ITEMS.map((item) => {
                   const menuItem = (
                     <DropdownMenuItem

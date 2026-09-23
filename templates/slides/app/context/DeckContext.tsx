@@ -10,7 +10,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
-import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
+import {
+  REALTIME_CAP_POLL_LIVE,
+  subscribeSyncEvents,
+} from "@agent-native/core/client/use-db-sync";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 import {
   createLayoutFitRevision,
@@ -282,6 +285,10 @@ interface DeckContextType {
   ) => void;
   reloadDecks: () => Promise<void>;
   reloadDecksWithStatus: () => Promise<DeckReloadStatus>;
+  /** Call once from the grid page's mount effect to pick up any deck that
+   *  changed elsewhere while a different deck was open (see
+   *  `staleDeckIdsRef` in DeckContext.tsx). */
+  catchUpStaleDeckList: () => void;
   refreshOpenDeck: (
     deckId: string,
     options?: { clearPendingWrites?: boolean },
@@ -1429,11 +1436,13 @@ export function deriveInverseOp(
  * blip into a settled "Couldn't load your content" pane over decks that were
  * about to arrive.
  */
-async function fetchDecksFromAPI(): Promise<Deck[] | null> {
+async function fetchDecksFromAPI(
+  includePreview = true,
+): Promise<Deck[] | null> {
   try {
     const result = await callActionWithRetry<DeckListActionResult>(
       "list-decks",
-      { light: "true", includePreview: "true" },
+      { light: "true", ...(includePreview ? { includePreview: "true" } : {}) },
       { method: "GET" },
     );
     if (!Array.isArray(result?.decks)) {
@@ -1445,36 +1454,6 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
       .filter((deck): deck is Deck => deck !== null);
   } catch (err) {
     console.error("Failed to fetch decks:", err);
-    return null;
-  }
-}
-
-/**
- * Fetch a minimal id-only deck listing (`light: "true"`) for cheap add/remove
- * diffing. Never downloads deck bodies — see `list-decks.ts`. Returns `null`
- * on any failure so callers can skip the diff instead of wiping local state.
- */
-async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
-  try {
-    const result = await callActionWithRetry<DeckListActionResult>(
-      "list-decks",
-      { light: "true" },
-      { method: "GET" },
-    );
-    if (!Array.isArray(result?.decks)) {
-      console.warn("Failed to fetch deck list: invalid action response");
-      return null;
-    }
-    return result.decks
-      .filter(
-        (deck): deck is { id: string } =>
-          !!deck &&
-          typeof deck === "object" &&
-          typeof (deck as { id?: unknown }).id === "string",
-      )
-      .map((deck) => ({ id: deck.id }));
-  } catch (err) {
-    console.error("Failed to fetch deck list:", err);
     return null;
   }
 }
@@ -1886,11 +1865,36 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const deckBaselineRequestIdRef = useRef(0);
   const deckListRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
-  // True only while the SSE channel is actually open. Stays false when SSE is
-  // never started (embed auth), so the poll keeps its fast intervals there.
+  // True while the live channel is healthy: the SSE stream is actually
+  // open, OR the transport has told us /poll is standing in for it (a
+  // serverless host always refuses the SSE connection outright). Either way
+  // the slow idle cadence is safe; only a channel that is neither connected
+  // nor poll-live falls back to fast polling. Stays false when SSE is never
+  // started (embed auth), so the poll keeps its fast intervals there.
   const liveChannelConnectedRef = useRef(false);
+  // Raw SSE-connected state only, independent of the poll-live capability.
+  // A poll-live notification must not itself read as a connect/disconnect
+  // transition (see onSseStateChange below) — otherwise a capability
+  // re-notify with `connected` still false would wrongly retrigger
+  // resyncDeckState/pollNow on every relay.
+  const sseStreamConnectedRef = useRef(false);
   // Lets the SSE effect wake the poll the moment the live channel drops.
   const pollNowRef = useRef<() => void>(() => {});
+  // Guards the sync-event handler's coalesced list refresh (home grid, no
+  // deck open) so a burst of separate onEvents deliveries collapses into
+  // whichever refetchDeckListIfChanged call is already in flight. The
+  // pending flag reruns the refresh once more when a batch arrives
+  // mid-flight, so a change that lands after the in-flight snapshot isn't
+  // lost.
+  const syncListRefreshInFlightRef = useRef(false);
+  const syncListRefreshPendingRef = useRef(false);
+  // Other decks' ids changed by sync events while THIS tab has a deck open
+  // (so they weren't covered by the single open-deck refetch below). Kept
+  // only so a return to the grid (`catchUpStaleDeckList`, or a `popstate`
+  // backstop) can catch up immediately instead of waiting out the next
+  // scheduled list poll; any successful list refresh already re-syncs every
+  // deck's metadata and clears this.
+  const staleDeckIdsRef = useRef<Set<string>>(new Set());
   // Bumped on every local deck create. A deck-list snapshot fetched before a
   // deck's bump cannot prove that deck is absent server-side, so any
   // reconciliation against such a snapshot must leave it alone. Keyed by id and
@@ -2389,26 +2393,41 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  // Re-fetch the deck list and diff it against local state (added/removed
-  // decks). Shared by the fallback poll and the SSE resync-on-reconnect path
-  // below so both pull from one implementation of "what changed".
+  // Re-fetch the deck list and diff/merge it against local state. Shared by
+  // the fallback poll and the SSE resync-on-reconnect / home-grid-batch
+  // paths below so all three pull from one implementation of "what changed".
   //
-  // Uses the `light` (id-only) listing — this runs every 15s and previously
-  // downloaded every deck's full slide JSON just to diff ids, even though
-  // existing decks' content was thrown away unused. Only genuinely NEW decks
-  // (rare — usually zero per poll) get a follow-up full fetch so DeckCard can
-  // still render an immediate preview for them.
+  // While a deck is open, only the id-only `light` listing is fetched — the
+  // grid isn't rendered, so previewSlide would never be shown, and merging it
+  // into the open deck (which already holds a full server body) trips its
+  // content signature, producing a spurious no-op "Agent edit" undo entry on
+  // every idle poll. The `light` + `includePreview` listing — adding
+  // previewSlide/aspectRatio — is used only when no deck is open, so a
+  // renamed deck or an edited first slide still refreshes its card while the
+  // user stays on the grid (DeckCard renders deck.title and deck.previewSlide).
   const refetchDeckListIfChanged = useCallback(async () => {
     const requestId = ++deckListRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
-    const fresh = await fetchDeckListLightFromAPI();
+    const includePreview = currentOpenDeckIdFromWindow() === null;
+    // A write that is enqueued, debounced, flushed, and drained entirely
+    // inside this GET leaves nothing in the pending maps by the time the
+    // response lands, so `hasPendingLocalWrite` below can't see it from those
+    // alone. Snapshot each known deck's write sequence up front so that race
+    // is still detectable.
+    const writeSeqAtRequest = new Map(
+      decksRef.current.map((d) => [d.id, deckLocalWriteSeq.get(d.id) ?? 0]),
+    );
+    const fresh = await fetchDecksFromAPI(includePreview);
     if (requestId !== deckListRequestIdRef.current) return;
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
+    // A snapshot that reached the server is authoritative for every deck it
+    // named — whatever staleDeckIdsRef was tracking is covered by it now.
+    staleDeckIdsRef.current.clear();
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
-    const freshIds = new Set(fresh.map((d) => d.id));
+    const freshById = new Map(fresh.map((d) => [d.id, d]));
     // Check if deck list changed (added or removed). Decks this client created
     // after the snapshot was taken are absent from the response because the
     // snapshot predates them, not because the server dropped them — treating
@@ -2419,19 +2438,53 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       .map((d) => d.id);
     const removed = currentDecks.filter(
       (d) =>
-        !freshIds.has(d.id) && !isNewerThanSnapshot(d.id, createSeqAtRequest),
+        !freshById.has(d.id) && !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
-    for (const id of freshIds) localCreateSeqByIdRef.current.delete(id);
+    for (const id of freshById.keys()) localCreateSeqByIdRef.current.delete(id);
+
+    // A deck with an uncommitted local write (mid-edit, a debounced/in-flight
+    // save, or an optimistic create still saving) must not have this stale
+    // server snapshot clobber it — the same checks `refetchOpenDeckIfChanged`
+    // uses per slide, plus the write-seq race captured above.
+    const hasPendingLocalWrite = (id: string) =>
+      pendingCreateIdsRef.current.has(id) ||
+      hasUncommittedDeckChanges(id, dirtyDeckIdsRef.current) ||
+      (activeInlineEditSlides.get(id)?.size ?? 0) > 0 ||
+      (deckLocalWriteSeq.get(id) ?? 0) !== (writeSeqAtRequest.get(id) ?? 0);
+    const previewKey = (slide: Deck["previewSlide"]) =>
+      slide ? JSON.stringify(slide) : "";
+    const metadataChanged = (local: Deck, remote: Deck) =>
+      local.title !== remote.title ||
+      local.updatedAt !== remote.updatedAt ||
+      (includePreview &&
+        previewKey(local.previewSlide) !== previewKey(remote.previewSlide));
+    const changedMetadataIds = currentDecks
+      .filter((d) => {
+        const remote = freshById.get(d.id);
+        return (
+          remote && !hasPendingLocalWrite(d.id) && metadataChanged(d, remote)
+        );
+      })
+      .map((d) => d.id);
+
     // Nothing to hydrate, so local state already matches the server and the
     // error pane can go. When there IS something to hydrate, the error has to
     // survive until `setDecks` below: clearing it here left `loading` false,
     // `loadError` false, and `decks` still empty for the length of the body
     // reads, which rendered "no decks yet" over a user who has decks.
-    if (addedIds.length === 0 && removed.length === 0) {
+    if (
+      addedIds.length === 0 &&
+      removed.length === 0 &&
+      changedMetadataIds.length === 0
+    ) {
       setLoadError(false);
       return;
     }
 
+    // A light-listing row alone isn't enough to surface a deck: get-deck is
+    // the confirmation that its body actually reads back, so an id the list
+    // names but whose row is corrupted/unreadable stays out of `decks` and
+    // keeps the error pane up instead of silently rendering an empty deck.
     const addedResults = await Promise.all(
       addedIds.map((id) => fetchDeckFromAPI(id)),
     );
@@ -2446,9 +2499,24 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const removedIds = new Set(removed.map((d) => d.id));
     setDecks((prev) => {
       const prevIds = new Set(prev.map((d) => d.id));
-      // Drop only the decks this diff actually judged removed — a deck added to
-      // `prev` after the snapshot was taken must survive.
-      let next = prev.filter((d) => !removedIds.has(d.id));
+      // Drop removed decks and merge title/updatedAt (and previewSlide, on
+      // the grid) into every surviving one the fresh snapshot has newer
+      // metadata for; re-check pending writes against `prev`, not the outer
+      // `currentDecks` snapshot, since a local edit can land between the
+      // fetch and this updater.
+      let next = prev
+        .filter((d) => !removedIds.has(d.id))
+        .map((d) => {
+          const remote = freshById.get(d.id);
+          if (!remote || hasPendingLocalWrite(d.id)) return d;
+          if (!metadataChanged(d, remote)) return d;
+          return {
+            ...d,
+            title: remote.title,
+            updatedAt: remote.updatedAt,
+            ...(includePreview ? { previewSlide: remote.previewSlide } : {}),
+          };
+        });
       // Only add decks that aren't already in prev (prevents duplicates when
       // the closure's deck snapshot is stale compared to `prev`).
       for (const a of addedDecks) {
@@ -2458,6 +2526,41 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     });
     if (hydratedEveryAddedDeck) setLoadError(false);
   }, [isNewerThanSnapshot]);
+
+  // Coalesces the sync-event handler's home-grid list refresh: a burst of
+  // separate onEvents deliveries collapses into whichever refresh is already
+  // in flight, and a batch that arrives mid-flight reruns the refresh once
+  // more instead of being dropped, since its changes may postdate the
+  // in-flight snapshot.
+  const runHomeGridListRefresh = useCallback(() => {
+    if (syncListRefreshInFlightRef.current) {
+      syncListRefreshPendingRef.current = true;
+      return;
+    }
+    syncListRefreshInFlightRef.current = true;
+    void refetchDeckListIfChanged()
+      .catch((error) => {
+        console.error("Failed to refresh deck list after sync events:", error);
+      })
+      .finally(() => {
+        syncListRefreshInFlightRef.current = false;
+        if (syncListRefreshPendingRef.current) {
+          syncListRefreshPendingRef.current = false;
+          runHomeGridListRefresh();
+        }
+      });
+  }, [refetchDeckListIfChanged]);
+
+  // For the grid page to call from a mount effect. Sync events for other
+  // decks that arrived while a different deck was open are stashed in
+  // `staleDeckIdsRef` rather than fetched individually (see the sync-event
+  // subscription below). The fallback-poll effect's `popstate` listener only
+  // catches the browser back/forward buttons; an in-app `<Link>`/`navigate()`
+  // return to the grid never fires `popstate`, but it does mount the grid's
+  // route component, so calling this there is what actually covers that path.
+  const catchUpStaleDeckList = useCallback(() => {
+    if (staleDeckIdsRef.current.size > 0) runHomeGridListRefresh();
+  }, [runHomeGridListRefresh]);
 
   // Re-fetch the currently-open deck's full slide data and reconcile it.
   //
@@ -2880,11 +2983,27 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Sync events for other decks that arrived while this tab had a deck
+    // open are stashed in `staleDeckIdsRef` rather than fetched individually
+    // (see the sync-event subscription below). The grid page calling
+    // `catchUpStaleDeckList` from its own mount effect is meant to be the
+    // main catch-up for a return to the grid, whether by `<Link>`/
+    // `navigate()` or the browser back/forward buttons — React Router
+    // remounts it on `popstate` too, just on its own next render pass. This
+    // listener reacts to the same event synchronously, so it also covers
+    // `replaceOpenDeckRouteWithDeckList`'s raw `history.replaceState` +
+    // synthetic `popstate` dispatch (org switch) without waiting on that
+    // render.
+    const handlePopState = () => {
+      if (staleDeckIdsRef.current.size > 0 && !readOpenDeckId()) pollNow();
+    };
+
     void poll();
     pollNowRef.current = pollNow;
     window.addEventListener("focus", pollNow);
     window.addEventListener("agentNative:refresh-data", refreshNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("popstate", handlePopState);
 
     return () => {
       stopped = true;
@@ -2893,6 +3012,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", pollNow);
       window.removeEventListener("agentNative:refresh-data", refreshNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("popstate", handlePopState);
     };
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged, loading]);
 
@@ -2950,6 +3070,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     const unsubscribe = subscribeSyncEvents({
       onEvents: (events) => {
+        // The core poll delivers every org deck's change event to every org
+        // member (any tab can be watching any deck, or none). Fetching a
+        // get-deck per event here used to mean a tab just presenting one deck
+        // re-fetched every deck anyone in the org touched that minute, once
+        // per event. Collect the batch instead: at most one get-deck, only
+        // for the deck this tab actually has open, and one coalesced list
+        // refresh for everything else so the home grid still notices new/
+        // removed decks without a fetch per changed id.
+        const changedDeckIds = new Map<string, string | undefined>();
         for (const data of events) {
           if (
             (data.source !== "deck" && data.source !== undefined) ||
@@ -2961,6 +3090,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             lastExternalUpdateRef.current = Date.now();
             setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
           } else if (data.type === "deck-changed") {
+            changedDeckIds.set(
+              data.deckId,
+              typeof data.agentChangeId === "string"
+                ? data.agentChangeId
+                : undefined,
+            );
+          }
+        }
+        if (changedDeckIds.size === 0) return;
+
+        const openId = currentOpenDeckIdFromWindow();
+        if (openId) {
+          if (changedDeckIds.has(openId)) {
             // Do not drop the event while a local edit/save is pending. The
             // event may be an own-write echo, but it may also be an agent
             // write that arrived during the same local edit. The reconciler
@@ -2968,27 +3110,49 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             // surfacing server-added slides immediately. It reads the deck
             // itself rather than trusting `data.slideId`, so an event that
             // names no slide still delivers the edit.
-            const agentChangeId =
-              typeof data.agentChangeId === "string"
-                ? data.agentChangeId
-                : undefined;
+            const agentChangeId = changedDeckIds.get(openId);
             const refetchPromise = refetchOpenDeckIfChanged(
-              data.deckId,
+              openId,
               agentChangeId ? { agentChangeId } : undefined,
             );
             void refetchPromise.catch((error) => {
               console.error(
-                `Failed to refresh deck ${typeof data.deckId === "string" ? data.deckId : (JSON.stringify(data.deckId) ?? "unknown")} after sync event:`,
+                `Failed to refresh deck ${openId} after sync event:`,
                 error,
               );
             });
           }
+          // Other decks in this batch aren't rendered here (a deck is open,
+          // not the home grid) — remember them instead of dropping them so
+          // the grid can catch up (see staleDeckIdsRef, `catchUpStaleDeckList`
+          // for the grid page to call on mount, and the fallback poll
+          // effect's `popstate` listener for the back/forward buttons) once
+          // the user returns to it, rather than only on whichever deck they
+          // open next.
+          for (const id of changedDeckIds.keys()) {
+            if (id !== openId) staleDeckIdsRef.current.add(id);
+          }
+        } else {
+          // No deck open (home grid): the changed ids aren't rendered
+          // individually here, so one light list diff covers the whole
+          // batch. runHomeGridListRefresh coalesces bursts of separate
+          // onEvents deliveries into whichever refresh is already running.
+          runHomeGridListRefresh();
         }
       },
-      onSseStateChange: (connected) => {
+      onSseStateChange: (connected, capabilities) => {
         if (stopped) return;
-        const wasConnected = liveChannelConnectedRef.current;
-        liveChannelConnectedRef.current = connected;
+        const wasConnected = sseStreamConnectedRef.current;
+        sseStreamConnectedRef.current = connected;
+        // A serverless host always answers the SSE handshake with a refusal,
+        // so the transport reports `connected: false` for the tab's whole
+        // life and advertises `poll-live` instead: /poll is carrying live
+        // updates, not just backstopping a down channel. Treat that the same
+        // as connected for cadence, but never let a poll-live re-notify
+        // (connected still false) itself read as a disconnect — only the
+        // raw `connected` transition above may trigger resync/pollNow.
+        liveChannelConnectedRef.current =
+          connected || capabilities?.includes(REALTIME_CAP_POLL_LIVE) === true;
         if (connected) {
           if (hasConnectedOnce) void resyncDeckState();
           hasConnectedOnce = true;
@@ -3003,9 +3167,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => {
       stopped = true;
       liveChannelConnectedRef.current = false;
+      sseStreamConnectedRef.current = false;
       unsubscribe();
     };
-  }, [refetchOpenDeckIfChanged, resyncDeckState]);
+  }, [refetchOpenDeckIfChanged, resyncDeckState, runHomeGridListRefresh]);
 
   // Flush pending (debounced) saves before the tab is hidden or unloaded so the
   // last ~500ms of edits aren't lost on close/navigation. `pagehide` is the
@@ -3967,6 +4132,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         updateDeck,
         reloadDecks,
         reloadDecksWithStatus,
+        catchUpStaleDeckList,
         refreshOpenDeck: refetchOpenDeckIfChanged,
         getDeck,
         addSlide,

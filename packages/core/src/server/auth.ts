@@ -523,6 +523,11 @@ export function cookieDomainAttrs(): { domain?: string } {
   return domain ? { domain } : {};
 }
 
+export function sharedFirstPartyCookieDomainAttrs(): { domain?: string } {
+  const domain = AUTH_COOKIE_NAMESPACE.configuredCookieDomain;
+  return domain ? { domain } : {};
+}
+
 function getCookieValues(event: H3Event, name: string): string[] {
   const values: string[] = [];
   const raw = getHeader(event, "cookie");
@@ -1007,6 +1012,60 @@ function extractSessionTokenFromAuthResponse(
   return cookie ? decodeSessionCookieValue(cookie) : undefined;
 }
 
+/**
+ * Better Auth fixes cookie attributes at construction from an env-derived URL,
+ * which is `http://localhost:3000` in a cloud dev container behind an https
+ * proxy. That Lax cookie is dropped inside a cross-site iframe (the Builder
+ * editor), bouncing a fresh signup back to sign-in. Upgrade the attributes per
+ * request, and never rename the cookie: Better Auth reads it by name.
+ */
+function upgradeBetterAuthCookieForRequest(
+  event: H3Event,
+  cookie: string,
+): string[] {
+  if (crossSiteCookieAttrs(event).sameSite !== "none") return [cookie];
+  if (/(?:^|;)\s*SameSite=None/i.test(cookie)) return [cookie];
+  const [nameValue, ...attrs] = cookie.split(";").map((part) => part.trim());
+  const kept = attrs.filter(
+    (attr) => !/^(SameSite|Secure|Partitioned)(?:=|$)/i.test(attr),
+  );
+  const upgraded = [
+    nameValue,
+    ...kept,
+    "Secure",
+    "SameSite=None",
+    "Partitioned",
+  ].join("; ");
+  // A delete must empty both jars: a session minted before this upgrade sits
+  // unpartitioned and survives a Partitioned-only delete (see
+  // `deleteCookieFromBothPartitions`).
+  return isCookieDeletion(attrs) ? [cookie, upgraded] : [upgraded];
+}
+
+function isCookieDeletion(attrs: string[]): boolean {
+  return attrs.some((attr) => {
+    const [key, value = ""] = attr.split("=").map((part) => part.trim());
+    if (/^max-age$/i.test(key)) return Number(value) <= 0;
+    if (/^expires$/i.test(key)) return Date.parse(value) <= Date.now();
+    return false;
+  });
+}
+
+function upgradeBetterAuthSetCookies(event: H3Event, headers: Headers): void {
+  const cookies = getSetCookieHeaders(headers);
+  const upgraded = cookies.flatMap((cookie) =>
+    upgradeBetterAuthCookieForRequest(event, cookie),
+  );
+  if (
+    upgraded.length === cookies.length &&
+    upgraded.every((cookie, i) => cookie === cookies[i])
+  ) {
+    return;
+  }
+  headers.delete("set-cookie");
+  for (const cookie of upgraded) headers.append("set-cookie", cookie);
+}
+
 function forwardBetterAuthSetCookies(
   event: H3Event,
   result: unknown,
@@ -1024,7 +1083,9 @@ function forwardBetterAuthSetCookies(
     ) {
       continue;
     }
-    event.res?.headers?.append("set-cookie", cookie);
+    for (const upgraded of upgradeBetterAuthCookieForRequest(event, cookie)) {
+      event.res?.headers?.append("set-cookie", upgraded);
+    }
   }
 }
 
@@ -4834,7 +4895,7 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-function isHttpsRequest(event: H3Event): boolean {
+export function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
@@ -5642,6 +5703,7 @@ async function mountBetterAuthRoutes(
           });
           const response = await auth.handler(verificationRequest);
           if (response instanceof Response) {
+            upgradeBetterAuthSetCookies(event, response.headers);
             logMagicLinkVerificationResponse(
               event,
               "desktop-landing",
@@ -6219,6 +6281,10 @@ async function mountBetterAuthRoutes(
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+      // Before the forwarding below copies these cookies anywhere else.
+      if (isResponse) {
+        upgradeBetterAuthSetCookies(event, (response as Response).headers);
+      }
 
       if (
         isSignOut &&
@@ -6318,6 +6384,7 @@ async function mountBetterAuthRoutes(
             headers: requestForAuth.headers,
           }),
         );
+        upgradeBetterAuthSetCookies(event, response.headers);
       }
 
       if (isResponse && (response as Response).status >= 400) {

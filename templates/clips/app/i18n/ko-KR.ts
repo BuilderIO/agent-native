@@ -1,4 +1,64 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "먼저 그 구간을 클릭한 다음 빨간 선을 오른쪽으로 드래그하세요.",
+    helpOtherSideTerm: "대신 오른쪽 구간에서 분량 덜어내기",
+    helpRemove: "클릭하고 Delete를 누르세요.",
+    helpRemoveTerm: "구간 전체 삭제",
+    helpRestore: "클릭하고 Delete를 다시 누르거나 화살표를 사용하세요.",
+    helpRestoreTerm: "삭제한 구간 되돌리기",
+    helpShorten:
+      "빨간 선을 왼쪽으로 드래그하세요. 지나친 만큼이 왼쪽 구간의 끝에서 잘려 나갑니다.",
+    helpShortenTerm: "구간 줄이기",
+    helpSplit: "S를 누르세요. 재생 위치에서 잘립니다.",
+    helpSplitTerm: "현재 위치에서 클립 나누기",
+    helpTitle: "타임라인 사용하기",
+    putBack: "이 구간 되돌리기",
+    removedSection: "삭제된 구간, {{duration}}",
+    section: "{{start}}부터 {{end}}까지 구간",
+    sectionEndsAt: "구간 종료 지점 {{at}} — 드래그해 이동",
+    sectionStartsAt: "구간 시작 지점 {{at}} — 드래그해 이동",
+  },
+  redaction: {
+    box: "가림 상자",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "가림 종료 지점 {{at}}",
+    goTo: "이 가림 처리로 이동",
+    helpDraw: "화면 위로 드래그하세요.",
+    helpDrawTerm: "무언가를 덮기",
+    helpFollow:
+      "앞으로 이동한 뒤, 대상이 옮겨 간 위치로 상자를 드래그하세요. 상자는 지정한 지점 사이를 따라 움직입니다. 덮을 대상보다 조금 크게 그리세요.",
+    helpFollowTerm: "움직이는 대상 따라가기",
+    helpLead:
+      "적용을 누르기 전까지는 아무것도 가려지지 않습니다. 그때까지 상자는 위에 그려져 있을 뿐이고, 아래 영상은 모든 것을 그대로 보여 줍니다.",
+    helpMove: "상자나 모서리를 드래그하세요.",
+    helpMoveTerm: "상자 옮기기 또는 크기 조절",
+    helpRemove:
+      "상자를 클릭하고 Delete를 누르세요. Cmd+Z로 되돌릴 수 있습니다.",
+    helpRemoveTerm: "상자 삭제",
+    helpStylesTerm: "흐림 또는 단색",
+    helpTiming: "타임라인 아래 레인에서 막대의 양 끝 중 하나를 드래그하세요.",
+    helpTimingTerm: "상자가 나타나는 시점 바꾸기",
+    helpTitle: "가림 처리 사용하기",
+    helpWaypoint:
+      "각각은 직접 지정한 지점입니다. 드래그하면 시점을 바꾸고, 두 번 누르면 삭제됩니다.",
+    helpWaypointTerm: "막대 위의 마름모",
+    helpWhenInDoubt: "두 방식 모두 영역을 완전히 가립니다.",
+    notYetBurned:
+      "가림 처리 {{count}}개가 그려져 있지만 적용되지 않았습니다. 적용하기 전까지 영상에는 그 아래 내용이 그대로 남아 있습니다.",
+    range: "{{start}}부터 {{end}}까지의 가림 처리",
+    remove: "가림 처리 {{number}} 삭제",
+    resize: "이 가림 처리의 크기 조절",
+    resizeTopLeft: "이 가림 처리를 왼쪽 위에서 크기 조절",
+    startsAt: "가림 시작 지점 {{at}}",
+    styleBlur: "흐림",
+    styleBlurHint:
+      "흐림: 해당 영역 위에 생성되는 색 번짐입니다. 아래에 있던 내용은 전혀 사용되지 않으므로 복원할 것이 남지 않습니다.",
+    styleSolid: "단색",
+    styleSolidHint:
+      "단색: 영역을 한 가지 색으로 채웁니다. 흐림과 똑같이 안전하며 — 둘 다 덮은 내용으로 만들지 않습니다 — 클립에 더 어울리는 쪽을 고르세요.",
+    waypoint: "{{at}}의 경유점",
+  },
   common: {
     cancel: "취소",
     create: "만들기",
@@ -66,7 +126,7 @@ const messages = {
     folders: "폴더",
     recordings: "녹화",
     newFolder: "새 폴더",
-    noSpaces: "아직 스페이스가 없습니다",
+    noSpaces: "팀의 Clips를 한곳에 모아 보세요",
     noSpacesAdminCta: "조직 관리자에게 첫 스페이스를 만들어 달라고 요청하세요.",
     desktopCta: "데스크톱 앱 받기",
     desktopTitle: "Clips 데스크톱 앱을 받으세요.",
@@ -80,39 +140,38 @@ const messages = {
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
-    breadcrumbBack: "{{label}}(으)로 돌아가기",
   },
   empty: {
     library: {
-      title: "라이브러리가 비어 있습니다",
-      body: "첫 화면 녹화를 만들면 공유할 준비가 된 상태로 여기에 표시됩니다.",
-      cta: "첫 Clip 녹화하기",
+      title: "여기서 Clips가 시작됩니다",
+      body: "화면, 카메라 또는 둘 다 녹화하세요. Clip을 여기서 검토하고 공유할 수 있습니다.",
+      cta: "Clip 녹화하기",
     },
     shared: {
-      title: "아직 공유된 클립이 없습니다",
-      body: "팀원이 나와 공유한 클립이 여기에 표시됩니다.",
+      title: "공유받은 녹화를 살펴보세요",
+      body: "팀원의 Clips를 시청하고 댓글로 대화에 참여하세요.",
     },
     folder: {
-      title: "이 폴더는 비어 있습니다",
-      body: "녹화를 끌어오거나 녹화를 눌러 이 폴더에서 새 작업을 시작하세요.",
-      cta: "여기에 녹화",
+      title: "이 작업을 한곳에 모아 보세요",
+      body: "관련 녹화를 이 폴더로 옮기거나 이 프로젝트를 위한 새 Clip을 녹화하세요.",
+      cta: "Clip 녹화하기",
     },
     space: {
-      title: "이 스페이스에는 아직 녹화가 없습니다",
-      body: "녹화를 스페이스에 공유하거나 새로 녹화하면 팀이 여기에서 볼 수 있습니다.",
-      cta: "이 스페이스용으로 녹화",
+      title: "이 스페이스에 첫 Clip을 추가하세요",
+      body: "Clip을 녹화하거나 여기로 옮겨 팀이 한곳에서 찾을 수 있게 하세요.",
+      cta: "Clip 녹화하기",
     },
     archive: {
-      title: "보관된 항목이 없습니다",
-      body: "보관된 녹화는 라이브러리에서 숨겨지지만 안전하게 보관됩니다. 나중에 언제든 복원할 수 있습니다.",
+      title: "보관한 녹화가 없습니다",
+      body: "보관한 Clips는 다시 가져올 때까지 여기에 보관됩니다.",
     },
     trash: {
       title: "휴지통이 비어 있습니다",
-      body: "삭제된 녹화는 영구 삭제되기 전 30일 동안 여기에 표시됩니다.",
+      body: "삭제한 Clips는 영구 삭제되기 전 30일 동안 여기에 보관됩니다.",
     },
     search: {
-      title: "일치하는 결과 없음",
-      body: "다른 검색어를 시도하거나 필터를 확인하세요.",
+      title: "이 검색과 일치하는 항목이 없습니다",
+      body: "다른 검색어를 시도하거나 필터를 지워 Clip을 찾아보세요.",
     },
   },
   trashRoute: {
@@ -369,6 +428,9 @@ const messages = {
     ownerInsights: "소유자 인사이트",
     ownerInsightsDescription:
       "조회수, 완료율, 시청자 세부 정보는 이 클립의 편집자에게 표시됩니다.",
+    beingEdited: "편집 중",
+    beingEditedMessage:
+      "소유자가 이 클립을 수정하고 있습니다. 작업이 끝나면 링크가 다시 작동합니다.",
   },
   meetingDetail: {
     untitledMeeting: "제목 없는 회의",
@@ -552,6 +614,9 @@ const messages = {
     customizeEmbed: "임베드 맞춤 설정",
     more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
+    redactionsPendingBody:
+      "이 녹화에 가림 처리 {{count}}개가 그려져 있지만 영상에 적용되지 않았습니다. 따라서 파일에는 그 아래 내용이 그대로 남아 있습니다. 편집기를 열어 적용하면 공유가 다시 가능해집니다.",
+    redactionsPendingTitle: "가림 처리를 먼저 끝내세요",
   },
   shareUi: {
     owner: "소유자: {{email}}",
@@ -1223,6 +1288,15 @@ const messages = {
     loadingRecording: "녹화 로드 중…",
     recordingNotFound: "녹화를 찾을 수 없음",
     noVideoYet: "아직 사용할 수 있는 비디오가 없습니다.",
+    burnFailed: "가림 처리를 적용하지 못했습니다",
+    burnProgressUnreadable:
+      "가림 처리의 진행 상황을 확인할 수 없습니다. 아직 렌더링 중일 가능성이 높습니다. 잠시 후 새로고침해 주세요.",
+    burnedRedactionsDone:
+      "가렸습니다. 해당 영역은 이제 파일에서 사라졌고 원본은 삭제되었습니다.",
+    burningRedactions: "가림 처리를 영상에 적용하는 중…",
+    burningRedactionsPercent: "가림 처리를 영상에 적용하는 중… {{percent}}%",
+    editFailed: "해당 편집을 저장하지 못했습니다",
+    nothingToRedo: "다시 실행할 작업이 없습니다",
   },
   transcriptEditor: {
     transcript: "기록",
@@ -1233,7 +1307,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "새 공간",
-    description: "스페이스는 조직의 녹화를 정리하는 공유 공간입니다.",
+    description:
+      "프로젝트나 팀별로 녹화를 정리해 누구나 중요한 작업을 찾을 수 있게 하세요.",
     name: "이름",
     color: "색상",
     useColor: "{{color}} 색상 사용",
@@ -1428,6 +1503,26 @@ const messages = {
     exportedMp4: "Exported MP4 (현지화됨)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (현지화됨)",
+    backToEditing: "편집으로 돌아가기",
+    burnIn: "{{count}}개 적용",
+    burnInConfirm: "적용하고 원본 삭제",
+    burnInHint: "가림 처리를 영상에 영구히 적용하고 원본을 삭제합니다",
+    burnInTitle: "이 영상에 가림 처리 {{count}}개를 적용할까요?",
+    burnInWarning:
+      "가려진 영역은 새 영상 사본에서 삭제되고 원본 파일은 제거됩니다. 되돌릴 수 없습니다.",
+    burning: "적용하는 중…",
+    burningPercent: "적용하는 중… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "가림 처리를 먼저 적용하세요",
+    exportUnredactedWarning:
+      "이 녹화에 가림 처리 {{count}}개가 그려져 있지만 영상에 적용되지 않았습니다. 따라서 파일에는 그 아래 내용이 그대로 남아 있고, 이 사본도 마찬가지입니다. 적용하면 다시 사용할 수 있습니다.",
+    redact: "가리기",
+    redactHint:
+      "화면의 일부를 덮습니다. 적용하기 전까지는 아무것도 가려지지 않습니다.",
+    redactOn: "가리는 중",
+    redoTooltip: "다시 실행 (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "왼쪽 컨트롤 표시",
+    scrollOn: "오른쪽 컨트롤 표시",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (현지화됨)",
@@ -1533,7 +1628,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (현지화됨)",
     loomImported: "Loom imported (현지화됨)",
-    couldNotImportLoom: "Could not import that Loom. (현지화됨)",
+    couldNotImportLoom: "이 Loom을 가져오지 못했습니다.",
     recordingReadyToUpload: "Recording is ready to upload (현지화됨)",
     recordingSaved: "Recording saved (현지화됨)",
     linkCopied: "링크가 복사되었습니다",
@@ -1601,7 +1696,7 @@ const messages = {
     howToUse: "How to use Dictate (현지화됨)",
     browserDictation: "Browser dictation (현지화됨)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (현지화됨)",
+      "말하면서 생각을 글로 남기세요. 받아쓴 내용을 복사하거나 AI로 다듬을 수 있습니다.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (현지화됨)",
     quickNoteTitle: "Quick dictation note (현지화됨)",
@@ -1610,19 +1705,45 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts (현지화됨)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (현지화됨)",
     holdFn: "Hold Fn (현지화됨)",
+    mobileDictation: "모바일 받아쓰기",
+    fnShortcut: "Fn 단축키",
+    customShortcut: "사용자 지정 단축키",
+    otherSource: "기타 소스",
+    voiceSource: "음성",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation. (현지화됨)",
     browserUnavailableShort:
       "Browser speech recognition is unavailable here (현지화됨)",
     startSpeaking: "Start speaking... (현지화됨)",
-    replacedOriginal: "Replaced original with cleaned text (현지화됨)",
+    newDictation: "새 받아쓰기",
+    startDictation: "받아쓰기 시작",
+    stop: "중지",
+    saving: "저장 중",
+    listening: "듣는 중",
+    lastCapture: "마지막 캡처",
+    copy: "복사",
+    copied: "복사됨",
+    copyFailed: "복사하지 못했습니다",
+    aiProcessed: "AI 처리됨",
+    aiCleaned: "AI 정리됨",
+    original: "원본",
+    cleaned: "정리됨",
+    delete: "삭제",
+    deleteDictationTitle: "이 받아쓰기를 삭제할까요?",
+    deleteDictationDescription: "이 받아쓰기가 기록에서 영구적으로 삭제됩니다.",
+    deleted: "받아쓰기를 삭제했습니다",
+    deleteFailed: "받아쓰기를 삭제하지 못했습니다",
+    showDetails: "세부 정보",
+    info: "받아쓰기 정보",
+    time: "시간",
+    duration: "길이",
+    hideDetails: "세부 정보 숨기기",
     noText: "No text (현지화됨)",
-    emptyTranscript: "Empty transcript (현지화됨)",
-    replaceOriginal: "Replace original with cleaned (현지화됨)",
     cleanupWithAi: "Cleanup with AI (현지화됨)",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (현지화됨)',
-    startFirst: "Start your first dictation (현지화됨)",
+    cleanupComplete: "받아쓰기를 정리했습니다",
+    cleanupFailed: "받아쓰기를 정리하지 못했습니다",
+    startFirst: "생각을 텍스트로 바꿔 보세요",
+    recordOnDesktop: "데스크톱에서 녹음",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (현지화됨)",
     emptyWebDescription:
@@ -1652,17 +1773,17 @@ const messages = {
       "Agent-Native\n에이전트 네이티브 → Agent-Native",
     dictionaryTermsRequired: "용어를 하나 이상 입력하세요.",
     dictionarySearch: "사전 검색",
-    dictionaryNoMatches: "일치하는 용어가 없습니다.",
+    dictionaryNoMatches: "이 검색과 일치하는 용어가 없습니다",
     dictionaryRemoveTitle: "“{{term}}”을(를) 삭제할까요?",
     dictionaryRemoveDescription:
       "이후 받아쓰기에서는 이 수정 사항을 사용하지 않습니다.",
     dictionaryDescription:
-      "이 용어를 바탕으로 음성 인식이 선호하는 표기를 사용합니다.",
+      "자주 쓰는 표기를 추가하면 Clips가 사용하는 단어를 더 잘 인식합니다.",
     dictionaryTermPlaceholder: "Term (현지화됨)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (현지화됨)",
     dictionaryAdd: "Add (현지화됨)",
     dictionaryLoading: "Loading dictionary... (현지화됨)",
-    dictionaryEmpty: "아직 학습한 용어가 없습니다.",
+    dictionaryEmpty: "Clips에 나만의 어휘를 알려 주세요",
     dictionaryUsesCount: "{{count}}회 사용",
     dictionaryRemove: "삭제",
     vocabularyAddFailed: "용어를 추가하지 못했습니다",
@@ -1773,9 +1894,9 @@ const messages = {
     pastRecordings: "Past recordings (현지화됨)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
-    connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
+    connectGoogleCalendar: "모든 회의를 더 기억에 남게 만드세요",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
+      "Google Calendar를 연결해 예정된 회의를 확인하고 Clips Desktop으로 노트를 기록하세요.",
     getDesktopApp: "Get desktop app (현지화됨)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (현지화됨)",
@@ -1797,19 +1918,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",
     title: "Meetings (현지화됨)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
+      "회의 중에 Clips Desktop에서 노트를 시작하세요. 받아쓴 내용과 노트가 여기에 저장됩니다.",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (현지화됨)",
     agendaTab: "Agenda (현지화됨)",
     pastTab: "Past (현지화됨)",
     now: "Now (현지화됨)",
-    noPastMeetings: "No past meetings yet (현지화됨)",
+    noPastMeetings: "회의 기록이 여기서 시작됩니다",
     loadOlder: "Load older (현지화됨)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
-    noMeetingsYet: "No meetings yet (현지화됨)",
+    noMeetingsYet: "일정이 비어 있습니다",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (현지화됨)",
+      "연결된 캘린더에 예정된 일정이 등록되면 여기에 표시됩니다.",
     noMeetingsMatch: 'No meetings match "{{query}}" (현지화됨)',
     refreshing: "Refreshing… (현지화됨)",
     howToTriggerTitle: "How to trigger meeting notes (현지화됨)",

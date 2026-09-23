@@ -137,6 +137,71 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
+  it("holds the frame back while redactions are drawn but not burned", async () => {
+    // This route reads the stored file directly, so the hold on /api/video
+    // does not cover it. Without the check, asking for the exact timestamp a
+    // box sits on returns the unredacted frame to any anonymous caller.
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "pending-redaction",
+          editsJson: JSON.stringify({
+            trims: [],
+            overlays: [
+              {
+                kind: "redact",
+                id: "r1",
+                startMs: 0,
+                endMs: 5_000,
+                keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+              },
+            ],
+          }),
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "pending-redaction", atMs: "1000" });
+    const result = (await handler(event as any)) as Record<string, unknown>;
+
+    expect(result.redactionPending).toBe(true);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 409);
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+  });
+
+  it("still serves the owner while a redaction is pending", async () => {
+    // The owner is who finishes the burn, so holding them out would make the
+    // editor unusable — and they can already see what is under the box.
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        viewerIsOwner: true,
+        recording: {
+          id: "pending-owner",
+          editsJson: JSON.stringify({
+            trims: [],
+            overlays: [
+              {
+                kind: "redact",
+                id: "r1",
+                startMs: 0,
+                endMs: 5_000,
+                keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+              },
+            ],
+          }),
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "pending-owner", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalled();
+  });
+
   it("caches anonymous public frames without shared caching", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
