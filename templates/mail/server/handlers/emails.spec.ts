@@ -103,15 +103,20 @@ describe("emails handler Gmail label listing", () => {
 });
 
 describe("emails handler force refresh", () => {
-  it("invalidates list and history caches after resolving account tokens", () => {
+  it("fences list caches before and after resolving account tokens", () => {
     const section = handlerSection(emailsHandlerSource(), "listEmails");
     const tokenResolution = section.indexOf("await getAccountTokens(email);");
-    const cacheInvalidation = section.indexOf(
-      "invalidateListCacheForOwner(email);",
+    const listInvalidations = [
+      ...section.matchAll(/invalidateListCacheForOwner\(email\);/g),
+    ].map((match) => match.index ?? -1);
+    const historyInvalidation = section.indexOf(
+      "invalidateHistoryCacheForAccount(account.email);",
     );
 
     expect(tokenResolution).toBeGreaterThanOrEqual(0);
-    expect(cacheInvalidation).toBeGreaterThan(tokenResolution);
+    expect(listInvalidations).toHaveLength(2);
+    expect(listInvalidations[0]).toBeLessThan(tokenResolution);
+    expect(listInvalidations[1]).toBeGreaterThan(historyInvalidation);
   });
 });
 

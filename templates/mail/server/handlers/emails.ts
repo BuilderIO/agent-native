@@ -535,13 +535,19 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
+      // Fence list responses before token resolution so an in-flight request
+      // cannot repopulate the old shared snapshot while force-refresh waits.
+      if (forceRefresh) invalidateListCacheForOwner(email);
+
       // Fetch label name mapping from all accounts (cached)
       const { tokens: accountTokens, errors: tokenErrors } =
         await getAccountTokens(email);
       if (forceRefresh) {
-        invalidateListCacheForOwner(email);
         for (const account of accountTokens)
           invalidateHistoryCacheForAccount(account.email);
+        // Requests that started during token resolution may have read the old
+        // history window; fence their list-cache writes after evicting it.
+        invalidateListCacheForOwner(email);
       }
       const labelMap = await getCachedLabelMap(accountTokens);
       const isPlainInboxRequest = view === "inbox" && !q && !label;
