@@ -333,8 +333,9 @@ export function suggestionDecisionPreviewContent(
   suggestion: Pick<ResourceSuggestion, "operations">,
   decision: SuggestionDecision,
   canonicalContent: string,
+  optimistic = true,
 ) {
-  if (decision === "rejected") return canonicalContent;
+  if (!optimistic || decision === "rejected") return canonicalContent;
   const after = suggestion.operations[0]?.after as {
     markdown?: unknown;
   } | null;
@@ -1754,6 +1755,7 @@ function PageEditorSessionBody({
     suggestion: ResourceSuggestion;
     decision: SuggestionDecision;
     continueSuggesting: boolean;
+    optimistic: boolean;
   } | null>(null);
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
   const decisionRefreshInFlightRef = useRef(false);
@@ -3806,7 +3808,12 @@ function PageEditorSessionBody({
     if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions;
     return savedSuggestions.map((suggestion) =>
       suggestion.id === pendingSuggestionDecision.suggestion.id
-        ? { ...suggestion, status: pendingSuggestionDecision.decision }
+        ? {
+            ...suggestion,
+            status: pendingSuggestionDecision.optimistic
+              ? pendingSuggestionDecision.decision
+              : pendingSuggestionDecision.suggestion.status,
+          }
         : suggestion,
     );
   }, [pendingSuggestionDecision, savedSuggestions]);
@@ -3816,6 +3823,7 @@ function PageEditorSessionBody({
           pendingSuggestionDecision.suggestion,
           pendingSuggestionDecision.decision,
           document.content,
+          pendingSuggestionDecision.optimistic,
         )
       : null;
   const amendmentTargetIsResolved = suggestionAmendmentTargetIsResolved(
@@ -5466,6 +5474,7 @@ function PageEditorSessionBody({
           suggestion: observedSuggestion,
           decision,
           continueSuggesting,
+          optimistic: true,
         });
         setDecisionRefreshFailed(false);
         let result: Awaited<ReturnType<typeof decideSuggestion.mutateAsync>>;
@@ -5486,6 +5495,13 @@ function PageEditorSessionBody({
               error instanceof Error ? error.message : t("empty.genericError"),
           });
           return;
+        }
+        if (result.suggestion.status !== decision) {
+          setPendingSuggestionDecision((current) =>
+            current?.suggestion.id === observedSuggestion.id
+              ? { ...current, suggestion: result.suggestion, optimistic: false }
+              : current,
+          );
         }
         setLocallyCreatedSuggestions((current) => {
           const byId = new Map(

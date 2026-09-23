@@ -205,6 +205,14 @@ describe("document editor layout", () => {
     expect(
       suggestionDecisionPreviewContent(suggestion, "rejected", "Canonical"),
     ).toBe("Canonical");
+    expect(
+      suggestionDecisionPreviewContent(
+        suggestion,
+        "accepted",
+        "Canonical",
+        false,
+      ),
+    ).toBe("Canonical");
   });
 
   it("keeps a one-operation decision flowing when persistence normalizes its key", () => {
@@ -2131,6 +2139,8 @@ describe("document editor layout", () => {
     );
     expect(decision).toContain("suggestionDecisionInFlightRef.current = true");
     expect(decision).toContain("suggestionDecisionInFlightRef.current = false");
+    expect(decision).toContain("if (result.suggestion.status !== decision)");
+    expect(decision).toContain("optimistic: false");
     expect(source).toContain("!!pendingSuggestionDecision");
     expect(decision).toContain("setPendingSuggestionDecision({");
     expect(decision).toContain("continueSuggesting,");
