@@ -55,6 +55,29 @@ describe("get-event shared calendar reads", () => {
     );
   });
 
+  it("unwraps a selected primary event bound to its source account", async () => {
+    const calendarSourceKey = createGoogleCalendarSourceKey({
+      accountEmail: "connected@example.com",
+      calendarId: "connected@example.com",
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "connected@example.com",
+      googleEventId: "shared-event",
+    });
+
+    const result = await action.run({ id, calendarSourceKey }, {});
+
+    expect(getEventMock).toHaveBeenCalledWith(
+      "shared-event",
+      {
+        ownerEmail: "owner@example.com",
+        accountEmail: "connected@example.com",
+      },
+      { calendarSourceKey },
+    );
+    expect(result).toMatchObject({ id });
+  });
+
   it("rejects the legacy raw non-primary calendarId bypass", async () => {
     await expect(
       action.run(

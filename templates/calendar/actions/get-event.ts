@@ -65,24 +65,32 @@ export default defineAction({
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    const accountEvent = parseGoogleAccountEventId(args.id);
 
     if (args.calendarSourceKey) {
       const source = parseGoogleCalendarSourceKey(args.calendarSourceKey);
       if (!source) throw new Error("Invalid Google Calendar source key");
+      if (accountEvent && accountEvent.accountEmail !== source.accountEmail) {
+        throw new Error(
+          "Google event account does not match the selected source",
+        );
+      }
       const namespacedPrefix = `google-${args.calendarSourceKey}-`;
-      const rawId = args.id.startsWith(namespacedPrefix)
-        ? args.id.slice(namespacedPrefix.length)
-        : args.id.startsWith("google-")
-          ? args.id.slice("google-".length)
-          : args.id;
-      return googleCalendar.getEvent(
+      const rawId = accountEvent
+        ? accountEvent.googleEventId
+        : args.id.startsWith(namespacedPrefix)
+          ? args.id.slice(namespacedPrefix.length)
+          : args.id.startsWith("google-")
+            ? args.id.slice("google-".length)
+            : args.id;
+      const event = await googleCalendar.getEvent(
         rawId,
         { ownerEmail: email, accountEmail: source.accountEmail },
         { calendarSourceKey: args.calendarSourceKey },
       );
+      return accountEvent ? { ...event, id: args.id } : event;
     }
 
-    const accountEvent = parseGoogleAccountEventId(args.id);
     const rawId = accountEvent
       ? accountEvent.googleEventId
       : args.id.startsWith("google-")
