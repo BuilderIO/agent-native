@@ -482,15 +482,20 @@ async function withDeliveryLeaseHeartbeat<T>(
         renewal = undefined;
       });
   }, DELIVERY_LEASE_RENEW_INTERVAL_MS);
+  let result: T;
   try {
-    const result = await work();
-    await renewal;
-    if (renewalError) throw renewalError;
-    return result;
+    result = await work();
   } finally {
     clearInterval(timer);
     await renewal;
   }
+  if (renewalError) {
+    console.error(
+      "[first-party-analytics] BigQuery delivery lease renewal failed after BigQuery completed:",
+      errorMessage(renewalError),
+    );
+  }
+  return result;
 }
 
 async function markDeliveryRowsDelivered(

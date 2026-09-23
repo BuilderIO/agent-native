@@ -152,9 +152,12 @@ describe("BigQuery delivery queue", () => {
     let competingWorkerStatus: string | null = null;
     let firstLeaseExpiresAt = 0;
     let initialRenewalComplete = false;
+    let heartbeatAttempts = 0;
     let firstHeartbeatFailed = false;
+    let finalHeartbeatFailed = false;
     const claimTimes: number[] = [];
     const renewals: string[][] = [];
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
     const eventRows = [eventRow, secondEventRow];
     const claimTransactions = [
       {
@@ -212,10 +215,16 @@ describe("BigQuery delivery queue", () => {
             if (!initialRenewalComplete) {
               initialRenewalComplete = true;
               firstLeaseExpiresAt = Date.parse(String(query.args?.[0]));
-            } else if (!firstHeartbeatFailed) {
-              firstHeartbeatFailed = true;
-              throw new Error("temporary database error");
             } else {
+              heartbeatAttempts += 1;
+              if (heartbeatAttempts === 1) {
+                firstHeartbeatFailed = true;
+                throw new Error("temporary database error");
+              }
+              if (heartbeatAttempts === 6) {
+                finalHeartbeatFailed = true;
+                throw new Error("final heartbeat error");
+              }
               firstLeaseExpiresAt = Date.parse(String(query.args?.[0]));
             }
           }
@@ -285,6 +294,11 @@ describe("BigQuery delivery queue", () => {
       expect(competingWorkerStatus).toBe("idle");
       expect(competingWorkerClaimedFirstScope).toBe(false);
       expect(firstHeartbeatFailed).toBe(true);
+      expect(finalHeartbeatFailed).toBe(true);
+      expect(logError).toHaveBeenCalledWith(
+        "[first-party-analytics] BigQuery delivery lease renewal failed after BigQuery completed:",
+        "final heartbeat error",
+      );
       expect(claimTimes).toHaveLength(2);
       expect(claimTimes[1]! - claimTimes[0]!).toBeGreaterThan(5 * 60 * 1000);
       expect(
@@ -301,6 +315,7 @@ describe("BigQuery delivery queue", () => {
       ).toBe(true);
     } finally {
       vi.useRealTimers();
+      logError.mockRestore();
     }
   });
 
