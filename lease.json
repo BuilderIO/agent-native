@@ -1,8 +1,8 @@
 {
   "pr": 5671,
   "owner_thread_id": "01a0cb88-0ce3-7c82-8fad-06cc907cc91f",
-  "version": 12,
-  "expires_at": "2026-09-23T00:47:50.000Z",
+  "version": 13,
+  "expires_at": "2026-09-23T00:50:15.000Z",
   "observed_legacy_heartbeat_version": null,
   "legacy_retired": true
 }
