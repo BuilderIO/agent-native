@@ -1,11 +1,5 @@
 import { chatModelSelectionStorageKey } from "@agent-native/core/client/agent-chat";
-import { emailToColor } from "@agent-native/core/client/collab";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/core/client/markdown";
 import {
   useReviewComments,
   useReplyReviewComment,
@@ -17,8 +11,8 @@ import type {
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconCheck,
-  IconArrowUp,
   IconArrowBackUp,
+  IconCircleCheck,
   IconFilter,
   IconX,
 } from "@tabler/icons-react";
@@ -41,11 +35,6 @@ export { suggestionTextForDisplay } from "@shared/suggestion-text";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
 import {
-  Avatar as UserAvatar,
-  AvatarFallback as UserAvatarFallback,
-  AvatarImage as UserAvatarImage,
-} from "@/components/ui/avatar";
-import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -64,7 +53,6 @@ import {
   useCreateComment,
   useResolveComment,
   type CommentThread,
-  type CommentMention,
 } from "@/hooks/use-comments";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -87,6 +75,13 @@ import {
   type MentionEntry,
 } from "./CommentComposer";
 import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
+import {
+  CommentAvatar,
+  CommentIconButton,
+  CommentRow,
+  renderCommentBody,
+  useCommentTimestamp,
+} from "./CommentRow";
 export { getAiCommentSource } from "./CommentEntry";
 import {
   CommentAiConversation,
@@ -99,21 +94,13 @@ import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 
-/**
- * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Raw HTML is never interpreted.
- */
-function commentMentionSpans(
-  mentions: CommentMention[],
-): InlineMarkdownProtectedSpan[] {
-  const labels = Array.from(
-    new Set(mentions.map((m) => m.name).filter((n): n is string => !!n)),
-  ).sort((a, b) => b.length - a.length);
-  return labels.map((label) => ({
-    source: `@${label}`,
-    label: `@${label}`,
-    className: "comment-mention",
-  }));
+/** Where a thread card is shown; each surface shares the same rows. */
+export type CommentSurface = "rail" | "popover" | "panel";
+
+/** Per-row slots a thread passes to its entry renderer. */
+interface ThreadEntrySlots {
+  headerActions?: ReactNode;
+  revealActions: "always" | "hover";
 }
 
 function renderSuggestionText(
@@ -121,32 +108,6 @@ function renderSuggestionText(
   context?: SuggestionPresentationContext,
 ) {
   return <SuggestionText content={content} context={context} />;
-}
-
-function renderCommentBody(content: string, mentions: CommentMention[]) {
-  return (
-    <InlineMarkdown
-      content={content}
-      inline
-      protectedSpans={commentMentionSpans(mentions)}
-      renderLink={(href, children, className) =>
-        href.startsWith("/page/") ? (
-          <Link to={href} className={className}>
-            {children}
-          </Link>
-        ) : (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={className}
-          >
-            {children}
-          </a>
-        )
-      }
-    />
-  );
 }
 
 /** Mentions whose label still appears in the text, serialized for storage. */
@@ -160,39 +121,6 @@ function mentionsJsonFor(
     seen.has(m.email) ? false : (seen.add(m.email), true),
   );
   return deduped.length ? JSON.stringify(deduped) : undefined;
-}
-
-function emailToInitial(email: string) {
-  return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
-}
-
-function CommentAvatar({
-  email,
-  name,
-  className = "h-6 w-6",
-}: {
-  email?: string | null;
-  name?: string | null;
-  className?: string;
-}) {
-  const avatarUrl = useAvatarUrl(email);
-  const label = name ?? email ?? "";
-  return (
-    <UserAvatar className={className} title={label}>
-      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
-      <UserAvatarFallback
-        className="text-[11px] font-medium text-primary-foreground"
-        style={{ backgroundColor: emailToColor(email ?? "user") }}
-      >
-        {emailToInitial(label)}
-      </UserAvatarFallback>
-    </UserAvatar>
-  );
-}
-
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function cssEscape(value: string) {
@@ -698,6 +626,10 @@ interface CommentsSidebarOptions {
   ) => void;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
+  /** Card treatment: margin rail, anchored popover, or the comments panel. */
+  surface?: CommentSurface;
+  /** Closes the anchored popover; shown as its header close button. */
+  onClose?: () => void;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -764,7 +696,11 @@ export function CommentsSidebar({
   onDecideSuggestion,
   visibleThreadId,
   presentation = "inline",
+  surface: surfaceProp,
+  onClose,
 }: CommentsSidebarProps) {
+  const surface: CommentSurface =
+    surfaceProp ?? (presentation === "history" ? "panel" : "rail");
   const t = useT();
   const aiModelStorageKey = commentAiModelStorageKey(
     currentUserEmail,
@@ -1400,14 +1336,18 @@ export function CommentsSidebar({
           thread.resolved ? handleReopen(thread) : handleResolve(thread)
         }
         resolved={Boolean(thread.resolved)}
-        renderEntry={(id) => (
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
+        renderEntry={(id, slots) => (
           <CommentEntry
             comment={thread.comments.find((comment) => comment.id === id)!}
             documentId={documentId}
             currentUserEmail={currentUserEmail}
             canComment={canComment}
             members={members}
-            reserveThreadActions={id === thread.comments[0]?.id}
+            headerActions={slots.headerActions}
+            revealActions={slots.revealActions}
             onOpenAiConversation={
               id === thread.comments[0]?.id &&
               aiRequest?.agentThreadId &&
@@ -1460,6 +1400,9 @@ export function CommentsSidebar({
       !anchoredSuggestionIds?.includes(suggestion.id);
     return (
       <SuggestionThreadView
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
         compact={compact}
         replyDrafts={replyDrafts}
         key={suggestion.id}
@@ -1496,6 +1439,9 @@ export function CommentsSidebar({
     marginTop = 0,
   ) => (
     <DraftSuggestionThreadView
+      surface={surface}
+      onClose={onClose}
+      currentUserEmail={currentUserEmail}
       key={suggestion.id}
       marginTop={marginTop}
       onHeightChange={handleThreadCardHeightChange}
@@ -1709,71 +1655,85 @@ export function CommentsSidebar({
       {/* Pending new comment — positioned at the selection Y offset */}
       {pendingComment && (
         <div
-          className={
+          className={cn(
+            "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
             alignToAnchors
-              ? "absolute left-2 right-4 z-10 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"
-              : "relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"
-          }
+              ? "absolute left-2 right-4 z-10"
+              : surface === "popover"
+                ? "relative"
+                : "relative mx-2 mt-3",
+          )}
           style={
             alignToAnchors
               ? { top: pendingOffset ?? pendingComment.offsetTop }
               : undefined
           }
+          data-comment-pending
         >
-          {!pendingTargetValid && (
-            <p role="alert" className="mb-2 text-xs text-muted-foreground">
-              {t("comments.selectTextToComment")}
-            </p>
-          )}
-          <CommentComposer
-            ref={pendingInputRef}
-            value={pendingText}
-            onChange={(text) =>
-              onPendingChange(pendingComment.id, () => ({ text }))
-            }
-            onMentionAdd={(mention) =>
-              onPendingChange(pendingComment.id, (draft) => ({
-                mentions: [...draft.mentions, mention],
-              }))
-            }
-            onSubmit={handlePendingSubmit}
-            onEscape={() => {
-              if (!pendingText.trim()) handlePendingCancel();
-            }}
-            onFocus={() => {
-              const selection = pendingInputRef.current?.getSelection();
-              if (selection && pendingFocus) pendingFocus.current = selection;
-            }}
-            onSelectionChange={(selection) => {
-              if (pendingFocus) pendingFocus.current = selection;
-            }}
-            onBlur={() => {
-              if (pendingFocus) pendingFocus.current = null;
-            }}
-            members={members}
-            placeholder={t("comments.add")}
-            disabled={pendingSubmitting}
-          />
-          <div className="flex justify-end gap-1 mt-1.5">
-            <button
-              onClick={handlePendingCancel}
-              disabled={pendingSubmitting}
-              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
-            >
-              {t("comments.cancel")}
-            </button>
-            <button
-              onClick={handlePendingSubmit}
-              disabled={
-                !pendingText.trim() ||
-                pendingSubmitting ||
-                !pendingTargetValid ||
-                ambiguousCreate()
-              }
-              className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-            >
-              {t("comments.submit")}
-            </button>
+          {surface === "popover" ? (
+            <div className="flex h-12 items-center gap-1 border-b border-border/70 pe-2 ps-4">
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                {t("comments.commentTitle")}
+              </span>
+              {onClose ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <CommentIconButton
+                      aria-label={t("comments.close")}
+                      onClick={handlePendingCancel}
+                    >
+                      <IconX size={18} />
+                    </CommentIconButton>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("comments.close")}</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex items-start gap-2.5 p-3.5">
+            <div className="flex h-9.5 shrink-0 items-center">
+              <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
+            </div>
+            <div className="min-w-0 flex-1">
+              {!pendingTargetValid && (
+                <p role="alert" className="mb-2 text-xs text-muted-foreground">
+                  {t("comments.selectTextToComment")}
+                </p>
+              )}
+              <CommentComposer
+                ref={pendingInputRef}
+                value={pendingText}
+                onChange={(text) =>
+                  onPendingChange(pendingComment.id, () => ({ text }))
+                }
+                onMentionAdd={(mention) =>
+                  onPendingChange(pendingComment.id, (draft) => ({
+                    mentions: [...draft.mentions, mention],
+                  }))
+                }
+                onSubmit={handlePendingSubmit}
+                onCancel={handlePendingCancel}
+                onEscape={() => {
+                  if (!pendingText.trim()) handlePendingCancel();
+                }}
+                onFocus={() => {
+                  const selection = pendingInputRef.current?.getSelection();
+                  if (selection && pendingFocus)
+                    pendingFocus.current = selection;
+                }}
+                onSelectionChange={(selection) => {
+                  if (pendingFocus) pendingFocus.current = selection;
+                }}
+                onBlur={() => {
+                  if (pendingFocus) pendingFocus.current = null;
+                }}
+                members={members}
+                placeholder={t("comments.add")}
+                submitLabel={t("comments.submit")}
+                submitDisabled={!pendingTargetValid || ambiguousCreate()}
+                disabled={pendingSubmitting}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1984,8 +1944,14 @@ function DraftSuggestionThreadView({
   onMaterialize,
   onActivateSaved,
   onDecide,
+  surface = "rail",
+  onClose,
+  currentUserEmail,
   t,
 }: {
+  surface?: CommentSurface;
+  onClose?: () => void;
+  currentUserEmail?: string;
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: DraftSuggestion;
@@ -2029,6 +1995,10 @@ function DraftSuggestionThreadView({
   return (
     <div data-suggestion-id={suggestion.id}>
       <ThreadView
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
+        popoverTitle={t("comments.suggestionTitle")}
         thread={thread}
         marginTop={marginTop}
         isActive={isActive}
@@ -2083,12 +2053,13 @@ function DraftSuggestionThreadView({
                           if (saved) onDecide(saved, decision);
                         });
                       }}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                      data-suggestion-decision={decision}
                     >
                       {decision === "accepted" ? (
-                        <IconCheck size={14} />
+                        <IconCheck size={18} />
                       ) : (
-                        <IconX size={14} />
+                        <IconX size={18} />
                       )}
                     </button>
                   </TooltipTrigger>
@@ -2128,8 +2099,14 @@ function SuggestionThreadView({
   onActivate,
   onExpansionChange,
   onDecide,
+  surface = "rail",
+  onClose,
+  currentUserEmail,
   t,
 }: {
+  surface?: CommentSurface;
+  onClose?: () => void;
+  currentUserEmail?: string;
   compact: boolean;
   replyDrafts: ReturnType<typeof useCommentReplyDrafts>;
   marginTop?: number;
@@ -2230,6 +2207,10 @@ function SuggestionThreadView({
       aria-label={t("comments.suggestionDetails")}
     >
       <ThreadView
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
+        popoverTitle={t("comments.suggestionTitle")}
         replyDrafts={replyDrafts}
         documentId={documentId}
         thread={thread}
@@ -2360,12 +2341,13 @@ function SuggestionThreadView({
                         event.stopPropagation();
                         onDecide(decision);
                       }}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                      data-suggestion-decision={decision}
                     >
                       {decision === "accepted" ? (
-                        <IconCheck size={14} />
+                        <IconCheck size={18} />
                       ) : (
-                        <IconX size={14} />
+                        <IconX size={18} />
                       )}
                     </button>
                   </TooltipTrigger>
@@ -2399,6 +2381,10 @@ function SuggestionThreadView({
 
 function ThreadView({
   renderEntry,
+  surface = "rail",
+  onClose,
+  popoverTitle,
+  currentUserEmail,
   resolved = false,
   replyDrafts,
   documentId,
@@ -2434,7 +2420,11 @@ function ThreadView({
   renderCommentFooter,
   t,
 }: {
-  renderEntry?: (id: string) => ReactNode;
+  renderEntry?: (id: string, slots: ThreadEntrySlots) => ReactNode;
+  surface?: CommentSurface;
+  onClose?: () => void;
+  popoverTitle?: string;
+  currentUserEmail?: string;
   resolved?: boolean;
   replyDrafts?: ReturnType<typeof useCommentReplyDrafts>;
   documentId?: string;
@@ -2518,6 +2508,68 @@ function ThreadView({
     return () => observer.disconnect();
   }, [onHeightChange, thread.threadId]);
 
+  const timestamp = useCommentTimestamp();
+  const isRail = surface === "rail";
+  const resolveLabel = t(resolved ? "comments.reopen" : "comments.resolve");
+  const resolveButton = canResolve ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <CommentIconButton
+          aria-label={resolveLabel}
+          disabled={isSubmitting}
+          onClick={(e) => {
+            e.stopPropagation();
+            onResolve();
+          }}
+          data-comment-resolve
+        >
+          {resolved ? (
+            <IconArrowBackUp size={18} />
+          ) : (
+            <IconCircleCheck size={19} stroke={1.75} />
+          )}
+        </CommentIconButton>
+      </TooltipTrigger>
+      <TooltipContent>{resolveLabel}</TooltipContent>
+    </Tooltip>
+  ) : null;
+  const headerActions =
+    threadActions || resolveButton ? (
+      <>
+        {threadActions}
+        {resolveButton}
+      </>
+    ) : null;
+  const popoverHeader =
+    surface === "popover" ? (
+      <div
+        className="flex h-12 items-center gap-1 border-b border-border/70 pe-2 ps-4"
+        data-comment-popover-header
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {popoverTitle ?? t("comments.commentTitle")}
+        </span>
+        {headerActions}
+        {onClose ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CommentIconButton
+                aria-label={t("comments.close")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onClose();
+                }}
+              >
+                <IconX size={18} />
+              </CommentIconButton>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.close")}</TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
+    ) : null;
+  const firstRowActions = surface === "popover" ? null : headerActions;
+
   return (
     <div
       ref={cardRef}
@@ -2534,11 +2586,17 @@ function ThreadView({
         }
       }}
       data-thread-card={thread.threadId}
+      data-comment-surface={surface}
       className={cn(
-        "group/thread mx-2 mr-4 cursor-pointer rounded-lg shadow-md ring-1 ring-border/50 transition-[background-color,transform,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
-        isActive
-          ? "-translate-x-2 bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] shadow-lg"
-          : "bg-popover hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] hover:shadow-lg focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] focus-within:shadow-lg",
+        "group/thread overflow-hidden rounded-xl bg-popover text-start ring-1 ring-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        surface === "popover" ? "shadow-comment-raised" : "shadow-comment-card",
+        canExpand && !isExpanded && "cursor-pointer",
+        isRail &&
+          "mx-2 mr-4 transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
+        isRail &&
+          (isActive
+            ? "-translate-x-2 shadow-comment-emphasis ring-foreground/15"
+            : "hover:-translate-x-2 hover:shadow-comment-emphasis focus-within:-translate-x-2 focus-within:shadow-comment-emphasis"),
       )}
       style={{ marginTop }}
       onClick={(event) => {
@@ -2556,40 +2614,8 @@ function ThreadView({
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
     >
-      <div className="relative p-3 pb-2">
-        {/* Hover actions — top right, Notion style pill */}
-        <div className="pointer-events-none absolute top-2 right-2 flex items-center rounded-md bg-accent/80 opacity-0 ring-1 ring-border/50 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
-          {threadActions}
-          {canResolve ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t(
-                    resolved ? "comments.reopen" : "comments.resolve",
-                  )}
-                  disabled={isSubmitting}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onResolve();
-                  }}
-                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent"
-                >
-                  {resolved ? (
-                    <IconArrowBackUp size={14} />
-                  ) : (
-                    <IconCheck size={14} />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t(resolved ? "comments.reopen" : "comments.resolve")}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
-
-        {/* Comments */}
+      {popoverHeader}
+      <div className="relative grid gap-3.5 px-4 pb-3.5 pt-3.5">
         {canExpand ? (
           <button
             type="button"
@@ -2606,119 +2632,104 @@ function ThreadView({
         ) : null}
         {thread.comments.map((c, index) =>
           renderEntry ? (
-            <Fragment key={c.id}>{renderEntry(c.id)}</Fragment>
+            <Fragment key={c.id}>
+              {renderEntry(c.id, {
+                headerActions: index === 0 ? firstRowActions : undefined,
+                revealActions: index === 0 ? "always" : "hover",
+              })}
+            </Fragment>
           ) : (
-            <div key={c.id} className="group/comment mb-3 last:mb-0">
-              <div
-                className={cn(
-                  "mb-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5",
-                  index === 0 && threadActions ? "pr-16" : undefined,
-                )}
-              >
+            <CommentRow
+              key={c.id}
+              avatar={
                 <CommentAvatar
                   email={c.author_email}
                   name={c.author_name ?? c.author_email}
                 />
-                <span className="text-[13px] font-semibold text-foreground">
-                  {c.author_name ?? c.author_email.split("@")[0]}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {index === 0 && timeLabel
-                    ? timeLabel
-                    : formatDate(c.created_at)}
-                </span>
-                {index === 0 && headerStatus ? (
-                  <span className="flex gap-1 text-xs text-muted-foreground">
-                    {headerStatus}
-                  </span>
-                ) : null}
-                {renderCommentActions?.(c.id)}
-              </div>
-              <div className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
-                {index === 0 && firstEntryBody !== undefined
-                  ? firstEntryBody
-                  : renderCommentBody(c.content, c.mentions)}
-                {renderCommentFooter?.(c.id)}
-              </div>
-            </div>
+              }
+              name={c.author_name ?? c.author_email.split("@")[0]}
+              timestamp={
+                index === 0 && timeLabel
+                  ? { label: timeLabel, title: timeLabel }
+                  : { ...timestamp(c.created_at), dateTime: c.created_at }
+              }
+              status={index === 0 ? headerStatus : undefined}
+              actions={
+                renderCommentActions || (index === 0 && firstRowActions) ? (
+                  <>
+                    {renderCommentActions?.(c.id)}
+                    {index === 0 ? firstRowActions : null}
+                  </>
+                ) : null
+              }
+              revealActions={index === 0 ? "always" : "hover"}
+              footer={renderCommentFooter?.(c.id)}
+            >
+              {index === 0 && firstEntryBody !== undefined
+                ? firstEntryBody
+                : renderCommentBody(c.content, c.mentions)}
+            </CommentRow>
           ),
         )}
+        {feedback}
       </div>
 
-      {feedback}
-      {/* Expanded: Notion-style reply input */}
       {isExpanded && canComment && !resolved && (
-        <>
-          <div
-            data-comment-reply-composer
-            className="flex items-center gap-2 px-3 pb-3 pt-1"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div
+          data-comment-reply-composer
+          className="flex items-start gap-2.5 px-4 pb-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex h-9.5 shrink-0 items-center">
             <CommentAvatar
-              email={thread.comments[0]?.author_email}
-              name={
-                thread.comments[0]?.author_name ??
-                thread.comments[0]?.author_email
-              }
-              className="h-6 w-6 shrink-0 opacity-40"
+              email={currentUserEmail ?? thread.comments[0]?.author_email}
+              name={currentUserEmail ?? thread.comments[0]?.author_name}
             />
-            <div className="flex-1 relative">
-              <CommentComposer
-                ref={replyInputRef}
-                value={replyText}
-                onChange={onReplyChange}
-                onMentionAdd={onReplyMentionAdd}
-                onSubmit={onSubmitReply}
-                onAiSubmit={onAiSubmit}
-                aiDraft={aiDraft}
-                onAiDraftChange={onAiDraftChange}
-                aiModelStorageKey={aiModelStorageKey}
-                onEscape={() => {
-                  onCollapse();
-                  requestAnimationFrame(() => cardRef.current?.focus());
-                }}
-                onFocus={() => {
-                  const selection = replyInputRef.current?.getSelection();
-                  if (!selection || !replyDrafts || !documentId) return;
-                  replyDrafts.focus.current = {
-                    documentId,
-                    threadId: thread.threadId,
-                    ...selection,
-                  };
-                }}
-                onSelectionChange={(selection) => {
-                  if (!replyDrafts || !documentId) return;
-                  replyDrafts.focus.current = {
-                    documentId,
-                    threadId: thread.threadId,
-                    ...selection,
-                  };
-                }}
-                onBlur={() => {
-                  if (cardRef.current?.closest("[inert]")) return;
-                  if (replyDrafts?.focus.current?.threadId === thread.threadId)
-                    replyDrafts.focus.current = null;
-                }}
-                members={members}
-                placeholder={t("comments.reply")}
-                disabled={isSubmitting}
-                rows={1}
-                className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
-              />
-              <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
-                <button
-                  type="button"
-                  aria-label={t("comments.submit")}
-                  onClick={onSubmitReply}
-                  disabled={!replyText.trim() || isSubmitting}
-                  className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
-                >
-                  <IconArrowUp size={16} />
-                </button>
-              </div>
-            </div>
           </div>
-        </>
+          <CommentComposer
+            ref={replyInputRef}
+            className="flex-1"
+            collapsible
+            value={replyText}
+            onChange={onReplyChange}
+            onMentionAdd={onReplyMentionAdd}
+            onSubmit={onSubmitReply}
+            onAiSubmit={onAiSubmit}
+            aiDraft={aiDraft}
+            onAiDraftChange={onAiDraftChange}
+            aiModelStorageKey={aiModelStorageKey}
+            onEscape={() => {
+              onCollapse();
+              requestAnimationFrame(() => cardRef.current?.focus());
+            }}
+            onFocus={() => {
+              const selection = replyInputRef.current?.getSelection();
+              if (!selection || !replyDrafts || !documentId) return;
+              replyDrafts.focus.current = {
+                documentId,
+                threadId: thread.threadId,
+                ...selection,
+              };
+            }}
+            onSelectionChange={(selection) => {
+              if (!replyDrafts || !documentId) return;
+              replyDrafts.focus.current = {
+                documentId,
+                threadId: thread.threadId,
+                ...selection,
+              };
+            }}
+            onBlur={() => {
+              if (cardRef.current?.closest("[inert]")) return;
+              if (replyDrafts?.focus.current?.threadId === thread.threadId)
+                replyDrafts.focus.current = null;
+            }}
+            members={members}
+            placeholder={t("comments.reply")}
+            submitLabel={t("comments.submit")}
+            disabled={isSubmitting}
+          />
+        </div>
       )}
     </div>
   );

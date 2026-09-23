@@ -131,7 +131,9 @@ describe("new comment real mutation observer lifetime", () => {
         );
         await act(async () =>
           [...container.querySelectorAll("button")]
-            .find((node) => node.textContent === "comments.submit")!
+            .find(
+              (node) => node.getAttribute("aria-label") === "comments.submit",
+            )!
             .click(),
         );
         expect(fetch).toHaveBeenCalledTimes(1);

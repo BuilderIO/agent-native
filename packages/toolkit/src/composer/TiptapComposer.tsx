@@ -93,6 +93,11 @@ export interface TiptapComposerHandle {
   focus(): void;
   /** Insert text through the editor's normal input path. */
   insertText(text: string): void;
+  /**
+   * Insert text at the current selection, keeping the existing draft. Typed
+   * triggers such as `@` open their menus as if the person typed them.
+   */
+  insertTextAtCursor?(text: string): void;
   setText(text: string): void;
   insertReference(ref: AgentComposerReference): void;
   replaceReference(refType: string, ref: AgentComposerReference | null): void;
@@ -821,6 +826,8 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Host-owned candidates shown before workspace mention search results. */
   mentionItems?: MentionItem[];
+  /** Row layout for the @ menu; "stacked" puts descriptions under labels. */
+  mentionPopoverDensity?: "default" | "stacked";
   /** Include shared workspace mention search results. Default: true. */
   includeDefaultMentionSearch?: boolean;
   /** Called when inline reference atoms are added, removed, or pasted. */
@@ -2477,6 +2484,7 @@ export function TiptapComposer({
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
   mentionItems: hostMentionItems = [],
+  mentionPopoverDensity = "default",
   includeDefaultMentionSearch = true,
   onReferencesChange,
   onEscape,
@@ -3211,6 +3219,13 @@ export function TiptapComposer({
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.setContent(plainTextToDoc(""), { emitUpdate: false });
       editor.commands.focus("end");
+      if (!document.execCommand("insertText", false, text)) {
+        editor.commands.insertContent(text);
+      }
+    },
+    insertTextAtCursor(text: string) {
+      if (!isComposerEditorUsable(editor)) return;
+      editor.commands.focus();
       if (!document.execCommand("insertText", false, text)) {
         editor.commands.insertContent(text);
       }
@@ -4405,6 +4420,7 @@ export function TiptapComposer({
       </div>
       <MentionPopover
         ref={popoverRef}
+        density={mentionPopoverDensity}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
         mentionItems={filteredMentionItems}

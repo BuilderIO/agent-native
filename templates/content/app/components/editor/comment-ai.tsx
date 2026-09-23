@@ -23,8 +23,15 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { loadCommentAiConversation } from "@/lib/comment-ai-client";
+import { cn } from "@/lib/utils";
 
-import { AgentAvatar, agentDisplayName } from "./agent-identity";
+import {
+  AgentAvatar,
+  agentDisplayName,
+  commentAiModelLabel,
+  modelDisplayName,
+} from "./agent-identity";
+import { CommentAgentBadge, CommentRow } from "./CommentRow";
 
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "classifying",
@@ -978,54 +985,49 @@ export function CommentAiRequestStatus({
           ? t("comments.aiReplied")
           : t("comments.aiFailed")
     : null;
-  const canRetry = failed;
+  const label = stopping
+    ? t("comments.aiStopping")
+    : (continuationLabel ?? requestStatusLabel(request, t));
+  // A finished reply already reads as the agent's own row; only show status
+  // while work is in flight, when it needs attention, or for non-reply results.
+  if (!active && !failed && request.status === "replied" && !continuation)
+    return null;
   return (
     <div
-      className="grid gap-1.5 border-t border-border px-3 py-2"
+      className="flex min-h-7 min-w-0 items-center gap-2.5"
       data-comment-ai-status={continuation?.status ?? request.status}
     >
+      <AgentAvatar model={request.model} className="size-7" />
       <div
         role={failed ? "alert" : "status"}
-        className={
-          failed
-            ? "flex min-w-0 items-center gap-1.5 text-xs text-destructive"
-            : "flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-        }
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-1.5 text-sm",
+          failed ? "text-destructive" : "text-muted-foreground",
+        )}
         title={continuation?.error ?? request.error ?? undefined}
       >
         {active ? <Spinner aria-hidden className="size-3.5 shrink-0" /> : null}
-        <span className="min-w-0 flex-1 truncate">
-          {stopping
-            ? t("comments.aiStopping")
-            : (continuationLabel ?? requestStatusLabel(request, t))}
-        </span>
-        {active ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 px-1.5"
-            disabled={stopping}
-            onClick={() => void onStop()}
-          >
-            {t("comments.aiStop")}
-          </Button>
-        ) : null}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
       </div>
-      {!active ? (
-        <div className="flex flex-wrap items-center gap-1">
-          {canRetry ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2"
-              onClick={() => void onRetry()}
-            >
-              {t("comments.retry")}
-            </Button>
-          ) : null}
-        </div>
+      {active ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={stopping}
+          onClick={() => void onStop()}
+        >
+          {t("comments.aiStop")}
+        </Button>
+      ) : failed ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void onRetry()}
+        >
+          {t("comments.retry")}
+        </Button>
       ) : null}
     </div>
   );
@@ -1064,52 +1066,48 @@ export function CommentAiConversation({
   });
   if (query.isError) {
     return (
-      <div
-        role="alert"
-        className="border-t border-border px-3 py-2 text-xs text-destructive"
-      >
+      <div role="alert" className="text-xs text-destructive">
         {t("comments.aiConversationUnavailable")}
       </div>
     );
   }
   if (!query.data?.length) return null;
+  const modelLabel = modelDisplayName(request.model);
   return (
-    <div
-      className="grid gap-2 border-t border-border px-3 py-2"
-      data-comment-ai-conversation
-    >
+    <div className="grid gap-3.5" data-comment-ai-conversation>
       {query.data
         .filter((turn) => turn.assistantText)
         .map((turn) => (
-          <div key={turn.turnId} className="grid gap-1.5">
-            {turn.assistantText ? (
-              <div className="flex items-start gap-2 text-[13px] leading-relaxed">
-                <AgentAvatar model={request.model} />
-                <div className="min-w-0 flex-1">
-                  <span className="sr-only">
-                    {agentDisplayName(request.model)}:{" "}
-                  </span>
-                  <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">
-                    {commentAiModelLabel(request.model)}
-                  </div>
-                  <InlineMarkdown content={turn.assistantText} />
-                  {turn.status === "incomplete" ? (
-                    <div className="mt-1 text-xs text-destructive">
-                      {t("comments.aiFollowUpIncomplete")}
-                    </div>
-                  ) : null}
+          <CommentRow
+            key={turn.turnId}
+            avatar={<AgentAvatar model={request.model} />}
+            name={
+              <>
+                <span className="sr-only">
+                  {agentDisplayName(request.model)}:{" "}
+                </span>
+                <span aria-hidden>{agentDisplayName(request.model)}</span>
+              </>
+            }
+            badge={
+              <CommentAgentBadge
+                ariaLabel={commentAiModelLabel(request.model)}
+                details={<span className="font-medium">{modelLabel}</span>}
+              />
+            }
+            footer={
+              turn.status === "incomplete" ? (
+                <div className="text-xs text-destructive">
+                  {t("comments.aiFollowUpIncomplete")}
                 </div>
-              </div>
-            ) : null}
-          </div>
+              ) : null
+            }
+          >
+            <InlineMarkdown content={turn.assistantText!} />
+          </CommentRow>
         ))}
     </div>
   );
 }
 
-export function commentAiModelLabel(model: string | null | undefined): string {
-  const normalized = model?.trim();
-  return normalized
-    ? `${agentDisplayName(normalized)} · ${normalized}`
-    : agentDisplayName(normalized);
-}
+export { commentAiModelLabel };

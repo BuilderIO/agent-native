@@ -1,4 +1,6 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
+import { emailToColor } from "@agent-native/core/client/collab";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
 import {
@@ -8,6 +10,7 @@ import {
   type Reference,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/composer";
+import { IconArrowUp, IconAt, IconMoodSmile } from "@tabler/icons-react";
 import {
   forwardRef,
   useCallback,
@@ -18,14 +21,30 @@ import {
   useState,
 } from "react";
 
-import type { MentionMember } from "@/hooks/use-mention-members";
-
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { MentionMember } from "@/hooks/use-mention-members";
+import { cn } from "@/lib/utils";
+
+import { modelDisplayName } from "./agent-identity";
+import {
+  CommentAiModelList,
   CommentAiSendControl,
-  modelFamilyAlias,
+  commentAiSelectionKey,
+  modelAliases,
   type CommentAiMode,
   type CommentAiSelection,
 } from "./CommentAiRecipient";
+import { EmojiPickerPanel } from "./EmojiPicker";
 
 export interface MentionEntry {
   email: string;
@@ -59,34 +78,91 @@ interface CommentComposerProps {
   onBlur?: () => void;
   onFocus?: () => void;
   onSelectionChange?: (selection: ComposerTextSelection) => void;
+  /** Shows a Cancel button beside Send, for editing or a new comment. */
+  onCancel?: () => void;
   members: MentionMember[];
   placeholder?: string;
   ariaLabel?: string;
+  /** Accessible name for the send button. Defaults to "Comment". */
+  submitLabel?: string;
+  /** Keeps Send disabled even with text, e.g. while the target is invalid. */
+  submitDisabled?: boolean;
+  /**
+   * Rest as a single-line field until focused or filled, the way the reply
+   * box sits under a thread. New comments and edits start expanded.
+   */
+  collapsible?: boolean;
   autoFocus?: boolean;
   disabled?: boolean;
-  rows?: number;
   className?: string;
 }
 
 const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
+/** Avatar lookups are per-person requests; bound them for large orgs. */
+const MEMBER_AVATAR_PROBE_LIMIT = 40;
+
+function providerMedia(selection: CommentAiSelection) {
+  const identity = resolveAgentProviderLogo(
+    selection.engine,
+    selection.provider,
+  );
+  return identity.logoUrl
+    ? ({ type: "image", src: identity.logoUrl } as const)
+    : ({ type: "text", text: selection.provider.slice(0, 1) } as const);
+}
 
 function aiReference(draft: CommentAiDraft) {
-  const providerLogo = resolveAgentProviderLogo(
-    draft.selection.engine,
-    draft.selection.provider,
-  );
   return {
-    label: `${draft.selection.provider} · ${modelFamilyAlias(draft.selection.model)}`,
+    label: modelDisplayName(draft.selection.model),
     icon: "agent",
-    media: providerLogo.logoUrl
-      ? { type: "image" as const, src: providerLogo.logoUrl }
-      : { type: "text" as const, text: draft.selection.provider.slice(0, 1) },
+    media: providerMedia(draft.selection),
     source: "content",
     refType: AI_REFERENCE_TYPE,
-    refId: `${draft.selection.engine}:${draft.selection.model}`,
+    refId: commentAiSelectionKey(draft.selection),
     metadata: { selection: draft.selection },
   };
+}
+
+function memberInitial(member: MentionMember) {
+  return (mentionLabel(member)[0] ?? "?").toUpperCase();
+}
+
+/** Reports one member's avatar URL; renders nothing. */
+function MemberAvatarProbe({
+  email,
+  onUrl,
+}: {
+  email: string;
+  onUrl: (email: string, url: string | null) => void;
+}) {
+  const url = useAvatarUrl(email);
+  useEffect(() => onUrl(email, url), [email, url, onUrl]);
+  return null;
+}
+
+function ComposerToolButton({
+  label,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          onMouseDown={(event) => event.preventDefault()}
+          className={cn(
+            "inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+            className,
+          )}
+          {...props}
+        />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export const CommentComposer = forwardRef<
@@ -106,9 +182,13 @@ export const CommentComposer = forwardRef<
     onBlur,
     onFocus,
     onSelectionChange,
+    onCancel,
     members,
     placeholder,
     ariaLabel,
+    submitLabel,
+    submitDisabled = false,
+    collapsible = false,
     autoFocus,
     disabled = false,
     className,
@@ -116,6 +196,7 @@ export const CommentComposer = forwardRef<
   forwardedRef,
 ) {
   const t = useT();
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [composerReady, setComposerReady] = useState(false);
   const bindComposer = useCallback((handle: TiptapComposerHandle | null) => {
@@ -126,8 +207,9 @@ export const CommentComposer = forwardRef<
   const aiReferenceSeen = useRef(false);
   const hydratingControlledText = useRef(false);
   const lastEditorValue = useRef(value);
+  const aiEnabled = Boolean(onAiSubmit && onAiDraftChange && aiModelStorageKey);
   const models = useChatModels({
-    enabled: Boolean(onAiSubmit && onAiDraftChange && aiModelStorageKey),
+    enabled: aiEnabled,
     storageKey: aiModelStorageKey ?? null,
     unavailableSelectionPolicy: "require-explicit",
   });
@@ -140,9 +222,34 @@ export const CommentComposer = forwardRef<
   onMentionAddRef.current = onMentionAdd;
   onModelChangeRef.current = models.onModelChange;
 
+  const [focused, setFocused] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [modelMenuRect, setModelMenuRect] = useState<DOMRect | null>(null);
+  const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>(
+    {},
+  );
+  const reportAvatarUrl = useCallback(
+    (email: string, url: string | null) =>
+      setAvatarUrls((current) =>
+        current[email] === url ? current : { ...current, [email]: url },
+      ),
+    [],
+  );
+
+  const hasText = value.trim().length > 0;
+  const expanded =
+    !collapsible ||
+    focused ||
+    emojiOpen ||
+    modelMenuRect !== null ||
+    hasText ||
+    Boolean(aiDraft);
+
   useImperativeHandle(forwardedRef, () => ({
     focus: () => composerRef.current?.focus(),
     insertText: (text) => composerRef.current?.insertText(text),
+    insertTextAtCursor: (text) =>
+      composerRef.current?.insertTextAtCursor?.(text),
     setText: (text) => composerRef.current?.setText(text),
     insertReference: (reference) =>
       composerRef.current?.insertReference(reference),
@@ -154,7 +261,7 @@ export const CommentComposer = forwardRef<
     dismissPopover: () => composerRef.current?.dismissPopover() ?? false,
   }));
 
-  const connectedModels = useMemo(
+  const connectedModels = useMemo<CommentAiSelection[]>(
     () =>
       (models.configuredModels ?? []).flatMap((group) =>
         group.models.map((model) => ({
@@ -169,35 +276,38 @@ export const CommentComposer = forwardRef<
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
       const label = mentionLabel(member);
+      const avatarUrl = avatarUrls[member.email];
       return {
         id: `member:${member.email}`,
         label,
         description: member.email,
+        section: t("comments.mentionPeople"),
         source: "content",
         refType: MEMBER_REFERENCE_TYPE,
         refId: member.email,
+        media: avatarUrl
+          ? ({ type: "image", src: avatarUrl, fit: "cover" } as const)
+          : ({
+              type: "text",
+              text: memberInitial(member),
+              backgroundColor: emailToColor(member.email),
+            } as const),
         metadata: { email: member.email, name: label },
       };
     });
-    if (!onAiSubmit || !onAiDraftChange || !aiModelStorageKey)
-      return memberItems;
+    if (!aiEnabled) return memberItems;
+    const agentsSection = t("comments.mentionAgents");
     const aiItems = connectedModels.map((selection) => ({
-      id: `ai:${selection.engine}:${selection.model}`,
-      label: `${selection.provider} · ${modelFamilyAlias(selection.model)}`,
-      aliases: [modelFamilyAlias(selection.model)],
+      id: `ai:${commentAiSelectionKey(selection)}`,
+      label: modelDisplayName(selection.model),
+      description: selection.provider,
+      aliases: modelAliases(selection.model),
       replaceExisting: true,
+      section: agentsSection,
       source: "content",
       refType: AI_REFERENCE_TYPE,
-      refId: `${selection.engine}:${selection.model}`,
-      media: (() => {
-        const identity = resolveAgentProviderLogo(
-          selection.engine,
-          selection.provider,
-        );
-        return identity.logoUrl
-          ? ({ type: "image", src: identity.logoUrl } as const)
-          : ({ type: "text", text: selection.provider.slice(0, 1) } as const);
-      })(),
+      refId: commentAiSelectionKey(selection),
+      media: providerMedia(selection),
       metadata: { selection },
     }));
     const selected = models.selectionReady
@@ -212,14 +322,13 @@ export const CommentComposer = forwardRef<
         ? [
             {
               ...aiItems.find(
-                (item) => item.refId === `${selected.engine}:${selected.model}`,
+                (item) => item.refId === commentAiSelectionKey(selected),
               )!,
               id: "ai",
               label: "AI",
-              referenceLabel: `${selected.provider} · ${modelFamilyAlias(selected.model)}`,
+              referenceLabel: modelDisplayName(selected.model),
               aliases: ["AI"],
-              replaceExisting: true,
-              description: `${selected.provider} · ${modelFamilyAlias(selected.model)}`,
+              description: modelDisplayName(selected.model),
             },
           ]
         : []),
@@ -227,15 +336,14 @@ export const CommentComposer = forwardRef<
       ...memberItems,
     ];
   }, [
-    aiModelStorageKey,
-    aiDraft,
+    aiEnabled,
+    avatarUrls,
     connectedModels,
     members,
     models.selectedEngine,
     models.selectedModel,
     models.selectionReady,
-    onAiDraftChange,
-    onAiSubmit,
+    t,
   ]);
 
   useEffect(() => {
@@ -321,17 +429,121 @@ export const CommentComposer = forwardRef<
     }
   }, []);
 
+  const changeModel = (selection: CommentAiSelection) => {
+    setModelMenuRect(null);
+    if (!aiDraft) return;
+    models.onModelChange(selection.model, selection.engine);
+    onAiDraftChange?.({ ...aiDraft, selection });
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
+  const canSend = hasText && !disabled && !submitDisabled;
   const submitAi = () => {
-    if (!aiDraft || !onAiSubmit) return;
+    if (!aiDraft || !onAiSubmit || !canSend || !models.selectionReady) return;
     onAiSubmit({
       ...aiDraft.selection,
       intent: aiDraft.mode,
       effort: models.selectedEffort,
     });
   };
+  // One send path for Enter and the button, so an AI recipient can never be
+  // bypassed by a second, human-only submit control.
+  const submit = () => {
+    if (aiDraft) submitAi();
+    else if (canSend) onSubmit();
+  };
+  const sendLabel = submitLabel ?? t("comments.submit");
+
+  const toolbar = expanded ? (
+    <div className="flex items-center gap-0.5" data-comment-composer-tools>
+      <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+        <PopoverTrigger asChild>
+          <ComposerToolButton
+            label={t("comments.addEmoji")}
+            disabled={disabled}
+          >
+            <IconMoodSmile size={18} />
+          </ComposerToolButton>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-80 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            composerRef.current?.focus();
+          }}
+        >
+          <EmojiPickerPanel
+            autoFocus={emojiOpen}
+            onSelect={(emoji) => {
+              setEmojiOpen(false);
+              requestAnimationFrame(() =>
+                composerRef.current?.insertTextAtCursor?.(emoji),
+              );
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+      <ComposerToolButton
+        label={t("comments.mentionSomeone")}
+        disabled={disabled}
+        onClick={() => composerRef.current?.insertTextAtCursor?.("@")}
+      >
+        <IconAt size={18} />
+      </ComposerToolButton>
+    </div>
+  ) : null;
+
+  const sendControl = aiDraft ? (
+    <CommentAiSendControl
+      mode={aiDraft.mode}
+      disabled={!canSend || !models.selectionReady}
+      onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
+      onSubmit={submitAi}
+      models={connectedModels}
+      selected={aiDraft.selection}
+      onModelChange={changeModel}
+    />
+  ) : (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={sendLabel}
+          data-comment-send
+          disabled={!canSend}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={submit}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:bg-muted-foreground/45"
+        >
+          <IconArrowUp size={16} stroke={2.25} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{sendLabel}</TooltipContent>
+    </Tooltip>
+  );
 
   return (
     <div
+      ref={wrapperRef}
+      data-comment-composer
+      data-state={expanded ? "expanded" : "resting"}
+      className={cn("relative min-w-0", className)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (next && wrapperRef.current?.contains(next)) return;
+        setFocused(false);
+      }}
+      onClickCapture={(event) => {
+        if (!aiDraft || connectedModels.length < 2) return;
+        const pill = (event.target as HTMLElement).closest<HTMLElement>(
+          `[data-mention-ref-type="${AI_REFERENCE_TYPE}"]`,
+        );
+        if (!pill) return;
+        event.preventDefault();
+        setModelMenuRect(pill.getBoundingClientRect());
+      }}
       onKeyDownCapture={(event) => {
         if (event.key !== "Escape" || !event.defaultPrevented) return;
         if (
@@ -354,11 +566,9 @@ export const CommentComposer = forwardRef<
           lastEditorValue.current = text;
           onChange(text);
         }}
-        onSubmit={() => {
-          if (aiDraft) submitAi();
-          else onSubmit();
-        }}
+        onSubmit={submit}
         mentionItems={mentionItems}
+        mentionPopoverDensity="stacked"
         includeDefaultMentionSearch={false}
         onReferencesChange={handleReferencesChange}
         onEscape={onEscape}
@@ -372,40 +582,72 @@ export const CommentComposer = forwardRef<
         attachmentsEnabled={false}
         plusMenuMode="hidden"
         voiceEnabled={false}
-        showModelSelector={Boolean(aiDraft)}
+        showModelSelector={false}
+        requireAgentEngine={false}
+        modelStatusChecksEnabled={false}
         showAutoModelOption={false}
-        availableModels={models.configuredModels}
-        selectedModel={aiDraft?.selection.model ?? models.selectedModel}
-        selectedEngine={aiDraft?.selection.engine ?? models.selectedEngine}
-        selectedEffort={models.selectedEffort}
-        onModelChange={(model, engine) => {
-          const selection = connectedModels.find(
-            (candidate) =>
-              candidate.model === model && candidate.engine === engine,
-          );
-          if (!selection || !aiDraft) return;
-          models.onModelChange(model, engine);
-          onAiDraftChange?.({ ...aiDraft, selection });
-        }}
-        onEffortChange={models.onEffortChange}
+        layoutVariant="compact"
+        toolbarSlot={toolbar}
         actionButton={
-          aiDraft ? (
-            <CommentAiSendControl
-              mode={aiDraft.mode}
-              disabled={disabled || !value.trim() || !models.selectionReady}
-              onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
-              onSubmit={submitAi}
-            />
-          ) : undefined
+          <div className="flex items-center gap-1">
+            {onCancel && expanded ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={disabled}
+                className="h-7 rounded-full px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+              >
+                {t("comments.cancel")}
+              </button>
+            ) : null}
+            {sendControl}
+          </div>
         }
-        className={className}
-        rootClassName="min-w-0"
+        className="comment-composer-area"
+        rootClassName="comment-composer-root min-w-0"
       />
-      {onAiSubmit && aiModelStorageKey && models.unavailableSelection ? (
-        <span role="status" className="text-xs text-muted-foreground">
+      {aiEnabled && models.unavailableSelection ? (
+        <span
+          role="status"
+          className="mt-1 block text-xs text-muted-foreground"
+        >
           {t("comments.aiUnavailable")}
         </span>
       ) : null}
+      {members.slice(0, MEMBER_AVATAR_PROBE_LIMIT).map((member) => (
+        <MemberAvatarProbe
+          key={member.email}
+          email={member.email}
+          onUrl={reportAvatarUrl}
+        />
+      ))}
+      <Popover
+        open={modelMenuRect !== null}
+        onOpenChange={(open) => {
+          if (!open) setModelMenuRect(null);
+        }}
+      >
+        <PopoverAnchor
+          virtualRef={{
+            current: {
+              getBoundingClientRect: () =>
+                modelMenuRect ?? new DOMRect(0, 0, 0, 0),
+            },
+          }}
+        />
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          className="w-64 p-1"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <CommentAiModelList
+            models={connectedModels}
+            selected={aiDraft?.selection ?? null}
+            onSelect={changeModel}
+          />
+        </PopoverContent>
+      </Popover>
     </div>
   );
 });

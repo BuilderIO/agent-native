@@ -185,9 +185,17 @@ export interface PromptComposerProps {
    * host supplies model state and callbacks, otherwise on.
    */
   modelStatusChecksEnabled?: boolean;
+  /**
+   * Whether submitting needs a configured agent engine. Hosts whose prompt is
+   * not sent to an agent, such as a human comment box, pass false so a
+   * missing API key neither gates the editor nor blocks submit.
+   */
+  requireAgentEngine?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   mentionItems?: MentionItem[];
+  /** Row layout for the @ menu; "stacked" puts descriptions under labels. */
+  mentionPopoverDensity?: "default" | "stacked";
   /** Include shared workspace mention search results. Default: true. */
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
@@ -580,8 +588,10 @@ function PromptComposerInner({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine = true,
   onTextChange,
   mentionItems,
+  mentionPopoverDensity,
   includeDefaultMentionSearch,
   onReferencesChange,
   onEscape,
@@ -660,9 +670,9 @@ function PromptComposerInner({
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
   const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
-    resolvedModelStatusChecksEnabled,
+    requireAgentEngine && resolvedModelStatusChecksEnabled,
   );
-  const missingApiKey = agentEngineConfigured.missing;
+  const missingApiKey = requireAgentEngine && agentEngineConfigured.missing;
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -677,13 +687,14 @@ function PromptComposerInner({
   }, []);
   const useInlineMissingKeySetup = layoutVariant === "compact";
   const gateComposer = shouldGateComposerForMissingEngine({
-    state: agentEngineConfigured.state,
+    state: requireAgentEngine ? agentEngineConfigured.state : "configured",
     hasSetupComponent: Boolean(
       useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
     ),
   });
   const ensureEngineReadyBeforeSubmit = useCallback(async () => {
-    if (agentEngineConfigured.state !== "unknown") return true;
+    if (!requireAgentEngine || agentEngineConfigured.state !== "unknown")
+      return true;
     const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
       timeoutMs: 5_000,
     });
@@ -692,7 +703,12 @@ function PromptComposerInner({
       return false;
     }
     return true;
-  }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
+  }, [
+    agentEngineConfigured.state,
+    bounceMissingKeySetup,
+    modelsAdapter,
+    requireAgentEngine,
+  ]);
 
   useEffect(() => {
     if (!autoFocus || gateComposer) return;
@@ -814,6 +830,7 @@ function PromptComposerInner({
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
+          mentionPopoverDensity={mentionPopoverDensity}
           includeDefaultMentionSearch={includeDefaultMentionSearch}
           onReferencesChange={onReferencesChange}
           onEscape={onEscape}

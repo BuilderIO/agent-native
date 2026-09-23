@@ -1,37 +1,20 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  McpIntegrationLogo,
-  resolveAgentProviderLogo,
-} from "@agent-native/core/client/resources";
-import {
-  IconChevronDown,
-  IconDeviceDesktop,
-  IconSend,
-  IconX,
-} from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconSparkles } from "@tabler/icons-react";
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+import { AgentAvatar, modelDisplayName } from "./agent-identity";
 
 export type CommentAiMode = "auto" | "reply" | "suggest" | "apply-resolve";
-
-export function modelFamilyAlias(model: string): string {
-  const family = model.split("/").pop()?.toLowerCase() ?? model.toLowerCase();
-  if (family.includes("luna")) return "Luna";
-  if (family.includes("sonnet")) return "Sonnet";
-  if (family.includes("opus")) return "Opus";
-  if (family.includes("haiku")) return "Haiku";
-  return family;
-}
 
 export interface CommentAiSelection {
   model: string;
@@ -39,165 +22,91 @@ export interface CommentAiSelection {
   provider: string;
 }
 
-export function CommentAiProviderIcon({
-  engine,
-  provider,
-}: {
-  engine: string;
-  provider: string;
-}) {
-  const identity = resolveAgentProviderLogo(engine, provider);
-  return (
-    <span
-      role="img"
-      aria-label={identity.label}
-      className="flex size-5 shrink-0 items-center justify-center"
-      data-provider-id={identity.integrationId ?? identity.fallback}
-    >
-      {identity.fallback === "local" ? (
-        <IconDeviceDesktop aria-hidden="true" size={13} />
-      ) : (
-        <McpIntegrationLogo
-          name={identity.label}
-          logoUrl={identity.logoUrl}
-          integrationId={identity.integrationId ?? undefined}
-          className="size-5 rounded-full border-0 bg-muted"
-          imageClassName="size-3.5"
-        />
-      )}
-    </span>
-  );
+export const commentAiSelectionKey = (selection: CommentAiSelection) =>
+  `${selection.engine}:${selection.model}`;
+
+/** Words a person might type after `@` to find a model, e.g. "Sonnet". */
+export function modelAliases(model: string): string[] {
+  const name = modelDisplayName(model);
+  const words = name.split(" ").filter((word) => /^[a-z]/i.test(word));
+  return Array.from(new Set([name, ...words.slice(1)]));
 }
 
-export function CommentAiRecipient({
-  selection,
-  selections,
-  mode,
-  disabled,
-  onModeChange,
-  onSelectionChange,
-  onRemove,
-  onSubmit,
+/**
+ * The connected models, shown from the AI pill and from the AI Send menu so
+ * the model can be changed by pointer or keyboard.
+ */
+export function CommentAiModelList({
+  models,
+  selected,
+  onSelect,
 }: {
-  selection: CommentAiSelection;
-  selections: CommentAiSelection[];
-  mode: CommentAiMode;
-  disabled: boolean;
-  onModeChange: (mode: CommentAiMode) => void;
-  onSelectionChange: (selection: CommentAiSelection) => void;
-  onRemove: () => void;
-  onSubmit: () => void;
+  models: CommentAiSelection[];
+  selected: CommentAiSelection | null;
+  onSelect: (selection: CommentAiSelection) => void;
 }) {
-  const t = useT();
-  const modes: Array<[CommentAiMode, string]> = [
-    ["auto", t("comments.aiAuto")],
-    ["reply", t("comments.aiReplyInThread")],
-    ["suggest", t("comments.aiSuggestChanges")],
-    ["apply-resolve", t("comments.aiApplyAndResolve")],
-  ];
-
+  const selectedKey = selected ? commentAiSelectionKey(selected) : null;
   return (
-    <div
-      className="flex flex-wrap items-center gap-2"
-      data-comment-ai-recipient
-    >
-      <div className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-muted/40 py-1 pr-1 pl-1.5">
-        <CommentAiProviderIcon
-          engine={selection.engine}
-          provider={selection.provider}
-        />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex min-w-0 items-center gap-1 rounded text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="truncate">
-                {selection.provider} · {modelFamilyAlias(selection.model)}
+    <div role="listbox" className="grid gap-0.5" data-comment-ai-model-list>
+      {models.map((selection) => {
+        const key = commentAiSelectionKey(selection);
+        const active = key === selectedKey;
+        return (
+          <button
+            key={key}
+            type="button"
+            role="option"
+            aria-selected={active}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(selection)}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+              active && "bg-accent/60",
+            )}
+          >
+            <AgentAvatar
+              model={selection.model}
+              engine={selection.engine}
+              className="size-6"
+            />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate font-medium leading-5">
+                {modelDisplayName(selection.model)}
               </span>
-              <IconChevronDown className="shrink-0" size={12} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuLabel>{t("comments.aiModel")}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {selections.map((option) => (
-              <DropdownMenuItem
-                key={`${option.engine}:${option.model}`}
-                className="gap-2"
-                onSelect={() => onSelectionChange(option)}
-              >
-                <CommentAiProviderIcon
-                  engine={option.engine}
-                  provider={option.provider}
-                />
-                {option.provider} · {modelFamilyAlias(option.model)}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
-          type="button"
-          aria-label={t("comments.aiRemoveRecipient")}
-          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onRemove}
-        >
-          <IconX size={13} />
-        </button>
-      </div>
-      <div className="flex shrink-0 items-center">
-        <Button
-          type="button"
-          size="sm"
-          className="rounded-r-none"
-          disabled={disabled}
-          onClick={onSubmit}
-        >
-          <IconSend size={14} />
-          {t("comments.aiSend")}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              className="rounded-l-none border-l border-primary-foreground/20 px-2"
-              disabled={disabled}
-              aria-label={t("comments.aiChooseSendMode")}
-            >
-              <IconChevronDown size={14} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>{t("comments.aiSend")}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuRadioGroup
-              value={mode}
-              onValueChange={(value) => onModeChange(value as CommentAiMode)}
-            >
-              {modes.map(([value, label]) => (
-                <DropdownMenuRadioItem key={value} value={value}>
-                  {label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              <span className="truncate text-xs leading-4 text-muted-foreground">
+                {selection.provider}
+              </span>
+            </span>
+            {active ? (
+              <IconCheck size={15} className="shrink-0 text-foreground" />
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
+/**
+ * Send control shown once an AI recipient is in the draft. The main segment
+ * sends; the chevron picks how AI should handle it and which model runs.
+ */
 export function CommentAiSendControl({
   mode,
   disabled,
   onModeChange,
   onSubmit,
+  models = [],
+  selected = null,
+  onModelChange,
 }: {
   mode: CommentAiMode;
   disabled: boolean;
   onModeChange: (mode: CommentAiMode) => void;
   onSubmit: () => void;
+  models?: CommentAiSelection[];
+  selected?: CommentAiSelection | null;
+  onModelChange?: (selection: CommentAiSelection) => void;
 }) {
   const t = useT();
   const modes: Array<[CommentAiMode, string]> = [
@@ -206,33 +115,38 @@ export function CommentAiSendControl({
     ["suggest", t("comments.aiSuggestChanges")],
     ["apply-resolve", t("comments.aiApplyAndResolve")],
   ];
+  const segment =
+    "inline-flex h-7 items-center bg-foreground text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-35";
   return (
     <div className="flex shrink-0 items-center" data-comment-ai-send-control>
-      <Button
+      <button
         type="button"
-        size="sm"
-        className="rounded-r-none"
+        className={cn(
+          segment,
+          "gap-1.5 rounded-s-full ps-2.5 pe-2 text-xs font-medium",
+        )}
         disabled={disabled}
         onClick={onSubmit}
+        data-comment-send
       >
-        <IconSend size={14} />
+        <IconSparkles size={14} aria-hidden />
         {t("comments.aiSend")}
-      </Button>
+      </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
+          <button
             type="button"
-            size="sm"
-            className="rounded-l-none border-l border-primary-foreground/20 px-2"
-            disabled={disabled}
+            className={cn(
+              segment,
+              "rounded-e-full border-s border-background/25 pe-2 ps-1.5",
+            )}
             aria-label={t("comments.aiChooseSendMode")}
           >
-            <IconChevronDown size={14} />
-          </Button>
+            <IconChevronDown size={14} aria-hidden />
+          </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="w-60">
           <DropdownMenuLabel>{t("comments.aiSend")}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
           <DropdownMenuRadioGroup
             value={mode}
             onValueChange={(value) => onModeChange(value as CommentAiMode)}
@@ -243,6 +157,30 @@ export function CommentAiSendControl({
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
+          {models.length > 1 && onModelChange ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>{t("comments.aiModel")}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={selected ? commentAiSelectionKey(selected) : ""}
+                onValueChange={(key) => {
+                  const next = models.find(
+                    (candidate) => commentAiSelectionKey(candidate) === key,
+                  );
+                  if (next) onModelChange(next);
+                }}
+              >
+                {models.map((selection) => (
+                  <DropdownMenuRadioItem
+                    key={commentAiSelectionKey(selection)}
+                    value={commentAiSelectionKey(selection)}
+                  >
+                    {modelDisplayName(selection.model)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

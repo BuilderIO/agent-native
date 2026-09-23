@@ -199,7 +199,7 @@ describe("new comment responsive draft", () => {
   };
   const submit = async () => {
     const button = [...container.querySelectorAll("button")].find(
-      (node) => node.textContent === "comments.submit",
+      (node) => node.getAttribute("aria-label") === "comments.submit",
     )!;
     await act(async () => button.click());
   };

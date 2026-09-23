@@ -5132,6 +5132,7 @@ function PageEditorSessionBody({
     visibleThreadId?: string | null,
     alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
+    surface?: "rail" | "popover" | "panel",
   ) => (
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
@@ -5229,6 +5230,8 @@ function PageEditorSessionBody({
       }}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
+      surface={surface}
+      onClose={surface === "popover" ? handleEditorEscape : undefined}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -6075,6 +6078,8 @@ function PageEditorSessionBody({
                     {renderCommentsSidebar(
                       pendingComment ? "__pending-only__" : selectedThreadId,
                       false,
+                      "inline",
+                      "popover",
                     )}
                   </div>
                 </aside>
@@ -6130,7 +6135,7 @@ function PageEditorSessionBody({
               event.preventDefault();
               const focusedReply = hasFocusedCommentReply
                 ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
-                    "[data-comment-reply-composer] textarea",
+                    "[data-comment-reply-composer] [contenteditable=true]",
                   )
                 : null;
               (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();

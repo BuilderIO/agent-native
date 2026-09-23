@@ -3,7 +3,6 @@
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -130,11 +129,20 @@ describe("comment AI controls", () => {
     vi.clearAllMocks();
   });
 
-  it("shows the provider family and exact model for inline AI turns", () => {
-    expect(commentAiModelLabel("gpt-5-6-sol")).toBe("GPT · gpt-5-6-sol");
+  it("shows the provider family and a readable model for inline AI turns", () => {
+    expect(commentAiModelLabel("gpt-5-6-sol")).toBe("GPT · GPT-5.6 Sol");
     expect(commentAiModelLabel("claude-sonnet-4-5")).toBe(
-      "Claude · claude-sonnet-4-5",
+      "Claude · Claude Sonnet 4.5",
     );
+    expect(commentAiModelLabel("claude-opus-5-5")).toBe(
+      "Claude · Claude Opus 5.5",
+    );
+    expect(commentAiModelLabel("claude-haiku-4-5-20251001")).toBe(
+      "Claude · Claude Haiku 4.5",
+    );
+    expect(commentAiModelLabel("gpt-6")).toBe("GPT · GPT-6");
+    expect(commentAiModelLabel("gemini-3-pro")).toBe("Gemini · Gemini 3 Pro");
+    expect(commentAiModelLabel("llama3.1")).toBe("AI · llama3.1");
   });
 
   it("starts every structured AI submission and links the prior exact request", async () => {

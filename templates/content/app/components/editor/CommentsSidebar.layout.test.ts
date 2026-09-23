@@ -363,11 +363,12 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       'resolved ? "comments.reopen" : "comments.resolve"',
     );
-    expect(source).toContain('aria-label={t("comments.submit")}');
+    expect(source).toContain('submitLabel={t("comments.submit")}');
     expect(source).toMatch(
-      /aria-label=\{t\(\s+resolved \? "comments.reopen" : "comments.resolve"/,
+      /t\(resolved \? "comments.reopen" : "comments.resolve"\)/,
     );
-    expect(source).toContain("group-focus-within/thread:opacity-100");
+    expect(source).toContain("aria-label={resolveLabel}");
+    expect(source).toContain("data-comment-resolve");
     expect(source).toContain("focus-visible:ring-ring");
     expect(source).not.toContain("hidden group-hover/thread:flex");
     expect(source).toContain('presentation === "history"');
@@ -382,14 +383,14 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain(
-      "transition-[background-color,transform,translate] duration-[260ms] ease-[var(--ease-drawer)]",
+      "transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)]",
     );
     expect(source).not.toContain("allowEmphasisMotion");
     expect(source).toContain(
-      "hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
+      "hover:-translate-x-2 hover:shadow-comment-emphasis",
     );
     expect(source).toContain(
-      "focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
+      "focus-within:-translate-x-2 focus-within:shadow-comment-emphasis",
     );
     expect(source).toContain("ease-[var(--ease-drawer)]");
     expect(source).toContain("data-comment-layout-thread");
@@ -399,10 +400,10 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("motion-reduce:hover:translate-x-0");
     expect(source).not.toContain("bg-accent/60");
     expect(source).toContain(
-      '? "-translate-x-2 bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] shadow-lg"',
+      '? "-translate-x-2 shadow-comment-emphasis ring-foreground/15"',
     );
     expect(source).toContain(
-      ': "bg-popover hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] hover:shadow-lg focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] focus-within:shadow-lg"',
+      ': "hover:-translate-x-2 hover:shadow-comment-emphasis focus-within:-translate-x-2 focus-within:shadow-comment-emphasis"',
     );
   });
 
@@ -576,9 +577,7 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("alignToAnchors");
-    expect(source).toContain(
-      '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
-    );
+    expect(source).toContain('"relative mx-2 mt-3"');
     expect(source).toContain(": undefined");
   });
 

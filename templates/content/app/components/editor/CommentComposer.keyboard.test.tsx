@@ -133,7 +133,7 @@ describe("CommentComposer rich recipient", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(editor().textContent).toContain("Builder · Luna");
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
     expect(handle?.getSelection()).not.toBeNull();
   });
 
@@ -151,11 +151,13 @@ describe("CommentComposer rich recipient", () => {
       '[data-agent-native-composer-popover="true"]',
     );
     const options = [...(popover?.querySelectorAll("button") ?? [])];
+    // Each row is its label then its description; people carry a decorative
+    // initial avatar until their photo loads.
     expect(options.map((option) => option.textContent)).toEqual([
-      "AIBuilder · Luna",
-      "Builder · Luna",
-      "Anthropic · Sonnet",
-      "Alicealice@example.test",
+      "AIGPT-5.6 Luna",
+      "GPT-5.6 LunaBuilder",
+      "Claude Sonnet 5Anthropic",
+      "AAlicealice@example.test",
     ]);
     expect(options[0]?.querySelector("img")).not.toBeNull();
     expect(popover?.textContent).toContain("Alice");
@@ -167,7 +169,7 @@ describe("CommentComposer rich recipient", () => {
     ).toBe(false);
 
     await typeRichEditorText(editor(), "AI ");
-    expect(editor().textContent).toContain("Builder · Luna");
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
   });
 
@@ -202,13 +204,22 @@ describe("CommentComposer rich recipient", () => {
         },
       ],
     ]);
-    expect(editor().textContent).toContain("Builder · Luna");
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
+    // The model is changed on the pill itself, not a separate toolbar picker.
     expect(
       container.querySelector('[data-agent-composer-slot="model-button"]'),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(
       container.querySelector("[data-comment-ai-send-control]"),
     ).not.toBeNull();
+    const pill = container.querySelector<HTMLElement>(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pill).not.toBeNull();
+    await act(async () => pill?.click());
+    expect(
+      document.querySelector("[data-comment-ai-model-list]")?.textContent,
+    ).toContain("Claude Sonnet 5");
     expect(
       consoleError.mock.calls.some(([message]) =>
         String(message).includes("Maximum update depth exceeded"),
@@ -253,8 +264,8 @@ describe("CommentComposer rich recipient", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
     expect(editor().textContent).toContain("Restored request");
-    expect(editor().textContent).toContain("Builder · Luna");
-    expect(editor().textContent?.match(/Builder · Luna/g)).toHaveLength(1);
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
+    expect(editor().textContent?.match(/GPT-5.6 Luna/g)).toHaveLength(1);
     expect(
       container.querySelector("[data-comment-ai-send-control]"),
     ).not.toBeNull();
@@ -284,7 +295,7 @@ describe("CommentComposer rich recipient", () => {
       ...document.querySelectorAll<HTMLButtonElement>(
         '[data-agent-native-composer-popover="true"] [data-mention-index]',
       ),
-    ].find((option) => option.textContent?.includes("Anthropic · Sonnet"));
+    ].find((option) => option.textContent?.includes("Claude Sonnet 5"));
     expect(sonnetOption).toBeDefined();
     await act(async () => {
       sonnetOption?.dispatchEvent(
@@ -294,9 +305,9 @@ describe("CommentComposer rich recipient", () => {
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
-    expect(editor().textContent).toContain("Anthropic · Sonnet");
-    expect(editor().textContent).not.toContain("Builder · Luna");
-    expect(editor().textContent?.match(/Anthropic · Sonnet/g)).toHaveLength(1);
+    expect(editor().textContent).toContain("Claude Sonnet 5");
+    expect(editor().textContent).not.toContain("GPT-5.6 Luna");
+    expect(editor().textContent?.match(/Claude Sonnet 5/g)).toHaveLength(1);
     expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "anthropic");
     expect(onAiDraftChange).toHaveBeenLastCalledWith({
       selection: {
@@ -311,7 +322,7 @@ describe("CommentComposer rich recipient", () => {
   it("supports caret selection and controlled recipient removal", async () => {
     await act(async () =>
       handle?.replaceReference("content-comment-ai-recipient", {
-        label: "Builder · Luna",
+        label: "GPT-5.6 Luna",
         source: "content",
         refType: "content-comment-ai-recipient",
         refId: "builder:gpt-5-6-luna",
@@ -319,7 +330,7 @@ describe("CommentComposer rich recipient", () => {
     );
     expect(
       [...container.querySelectorAll("span")].find((node) =>
-        node.textContent?.includes("Builder · Luna"),
+        node.textContent?.includes("GPT-5.6 Luna"),
       ),
     ).not.toBeNull();
     const selection = handle?.getSelection();
@@ -329,7 +340,7 @@ describe("CommentComposer rich recipient", () => {
     );
     expect(
       [...container.querySelectorAll("span")].find((node) =>
-        node.textContent?.includes("Builder · Luna"),
+        node.textContent?.includes("GPT-5.6 Luna"),
       ),
     ).toBeUndefined();
   });

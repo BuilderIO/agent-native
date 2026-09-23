@@ -732,11 +732,9 @@ it.each([
       });
       const composer = card.querySelector<HTMLElement>(".ProseMirror")!;
       expect(document.activeElement).toBe(composer);
-      const commentHeader = card.querySelector<HTMLElement>(
-        ".group\\/comment > div",
-      )!;
-      expect(commentHeader.className).toContain("pr-16");
-      expect(commentHeader.className).not.toContain("pe-16");
+      // Thread actions sit inline in the first row, so no header space is
+      // reserved for an overlay.
+      expect(card.querySelector("[data-comment-row-actions]")).not.toBeNull();
       let moreActions = card.querySelector<HTMLButtonElement>(
         'button[aria-label="comments.moreActions"]',
       )!;
@@ -783,10 +781,6 @@ it.each([
       expect(moreActions.className).not.toContain("md:opacity-0");
       moreActions.focus();
       expect(document.activeElement).toBe(moreActions);
-      expect(
-        container.querySelector<HTMLElement>(".group\\/comment > div")!
-          .className,
-      ).toContain("pr-16");
     } finally {
       await act(async () => root.unmount());
       container.remove();
@@ -1090,9 +1084,7 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
     const savedCard = container.querySelector(
       `[data-suggestion-id="${saved.id}"] [data-thread-card]`,
     );
-    expect(savedCard?.className).toContain(
-      "bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    expect(savedCard?.className).toContain("ring-foreground/15");
     expect(
       savedCard?.querySelector('.ProseMirror[aria-label="comments.reply"]'),
     ).toBeNull();
@@ -1243,9 +1235,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
     expect(cards.every(Boolean)).toBe(true);
     expect(new Set(cards.map((card) => card?.className)).size).toBe(1);
     expect(cards[0]?.className).toContain("hover:-translate-x-2");
-    expect(cards[0]?.className).toContain(
-      "hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    expect(cards[0]?.className).toContain("hover:shadow-comment-emphasis");
     expect(cards[0]?.className).toContain("focus-within:-translate-x-2");
     expect(cards[0]?.className).toContain("motion-reduce:hover:translate-x-0");
 
@@ -1253,9 +1243,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
     expect(
       container.querySelector(`[data-thread-card="${thread.threadId}"]`)
         ?.className,
-    ).toContain(
-      "bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    ).toContain("ring-foreground/15");
   } finally {
     await act(async () => root.unmount());
   }

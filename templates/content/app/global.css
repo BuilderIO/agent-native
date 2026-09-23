@@ -56,6 +56,14 @@
 
 @theme {
   --color-sidebar-muted: hsl(var(--sidebar-muted));
+  /* Comment cards: resting in the margin, floating as a popover, and the
+     lifted state for the hovered, focused, or selected thread. */
+  --shadow-comment-card:
+    0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -10px rgb(0 0 0 / 0.16);
+  --shadow-comment-raised:
+    0 2px 6px rgb(0 0 0 / 0.05), 0 16px 40px -12px rgb(0 0 0 / 0.22);
+  --shadow-comment-emphasis:
+    0 2px 6px rgb(0 0 0 / 0.06), 0 16px 36px -12px rgb(0 0 0 / 0.24);
 }
 
 /* ===== Dark Mode ===== */
@@ -2503,13 +2511,90 @@ audio.media-block__content {
   text-decoration: none;
 }
 
-/* @mention tokens inside comment bodies */
+/* @mention tokens inside comment bodies: the same pill as in the composer */
 .comment-mention {
-  border-radius: 3px;
-  padding: 0 2px;
-  font-weight: 500;
-  color: hsl(var(--primary));
-  background-color: hsl(var(--primary) / 0.1);
+  display: inline-block;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--muted) / 0.7);
+}
+
+/* Comment composer. Rests as a filled single-line field; expands into a
+   bordered box with a toolbar once focused or filled. */
+[data-comment-composer] .comment-composer-area {
+  padding: 0;
+}
+[data-comment-composer] .comment-composer-root {
+  border-radius: 14px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+[data-comment-composer] {
+  --comment-composer-focus: 213 90% 58%;
+}
+[data-comment-composer] .comment-composer-root:focus-within {
+  border-color: hsl(var(--comment-composer-focus));
+  box-shadow: 0 0 0 1px hsl(var(--comment-composer-focus) / 0.35);
+}
+[data-comment-composer] [data-agent-composer-slot="editor-wrap"] {
+  padding: 10px 12px 6px;
+}
+[data-comment-composer] [data-agent-composer-slot="editor"] {
+  font-size: 14px;
+  line-height: 1.55;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+[data-comment-composer] [data-agent-composer-slot="toolbar"] {
+  gap: 2px;
+  border-top: 1px solid hsl(var(--border) / 0.8);
+  padding: 6px 8px 6px 6px;
+}
+[data-comment-composer][data-state="resting"] .comment-composer-root {
+  flex-direction: row;
+  align-items: center;
+  border-color: transparent;
+  background: hsl(var(--muted));
+}
+[data-comment-composer][data-state="resting"]
+  [data-agent-composer-slot="editor-wrap"] {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 4px 9px 14px;
+}
+[data-comment-composer][data-state="resting"]
+  [data-agent-composer-slot="toolbar"] {
+  border-top: 0;
+  padding: 0 8px 0 0;
+}
+[data-comment-composer][data-state="resting"]
+  [data-agent-composer-slot="toolbar-spacer"] {
+  display: none;
+}
+[data-comment-composer] [data-mention-reference] {
+  border-radius: 999px;
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted) / 0.7);
+  padding: 1px 8px 1px 3px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  gap: 5px;
+}
+[data-comment-composer] [data-mention-ref-type="content-comment-ai-recipient"] {
+  cursor: pointer;
+}
+[data-comment-composer]
+  [data-mention-ref-type="content-comment-ai-recipient"]:hover {
+  background: hsl(var(--accent));
 }
 
 /* ===== Slash Command Menu ===== */

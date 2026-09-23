@@ -20,8 +20,15 @@ export function richEditor(root: ParentNode = document): HTMLElement | null {
 }
 
 export function richEditorValue(editor: HTMLElement): string {
+  // Read what a person sees as text: pill avatars are decorative and hidden.
   return [...editor.querySelectorAll(":scope > p")]
-    .map((paragraph) => paragraph.textContent ?? "")
+    .map((paragraph) => {
+      const copy = paragraph.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('[aria-hidden="true"]').forEach((node) => {
+        node.remove();
+      });
+      return copy.textContent ?? "";
+    })
     .join("\n");
 }
 

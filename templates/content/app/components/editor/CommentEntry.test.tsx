@@ -53,17 +53,22 @@ vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
     onChange,
+    onCancel,
     ariaLabel,
   }: {
     value: string;
     onChange: (value: string) => void;
+    onCancel?: () => void;
     ariaLabel: string;
   }) => (
-    <textarea
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <>
+      <textarea
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
+    </>
   ),
 }));
 
@@ -216,7 +221,7 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   );
 });
 
-it("shows the exact model on an agent-authored comment without crowding the date", async () => {
+it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
   await act(async () =>
     root.render(
       <Harness
@@ -231,15 +236,17 @@ it("shows the exact model on an agent-authored comment without crowding the date
     ),
   );
 
-  expect(container.textContent).toContain("GPT · 5.6 Sol");
-  const date = [...container.querySelectorAll("span")].find(
-    (node) => node.textContent === "Sep 10",
-  );
-  expect(date?.className).toContain("shrink-0");
-  expect(date?.className).toContain("whitespace-nowrap");
+  expect(container.textContent).toContain("GPT");
+  const badge = container.querySelector("[data-comment-agent-badge]");
+  expect(badge?.textContent).toBe("comments.agentBadge");
+  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  const time = container.querySelector("time");
+  expect(time?.getAttribute("datetime")).toBe(comment.created_at);
+  expect(time?.className).toContain("shrink-0");
+  expect(time?.className).toContain("whitespace-nowrap");
 });
 
-it("reserves stable header space for overlaid thread actions", async () => {
+it("places thread actions inline after the comment menu", async () => {
   await act(async () =>
     root.render(
       <CommentDraftProvider
@@ -252,14 +259,21 @@ it("reserves stable header space for overlaid thread actions", async () => {
           currentUserEmail={comment.author_email}
           canComment
           members={[]}
-          reserveThreadActions
+          headerActions={<button data-testid="resolve">resolve</button>}
         />
       </CommentDraftProvider>,
     ),
   );
 
-  const header = container.querySelector("[data-thread-actions-reserved]");
-  expect(header?.className).toContain("pr-16");
+  const actions = container.querySelector("[data-comment-row-actions]");
+  const buttons = [...(actions?.querySelectorAll("button") ?? [])];
+  expect(buttons[buttons.length - 1]?.dataset.testid).toBe("resolve");
+  expect(
+    buttons.some(
+      (button) =>
+        button.getAttribute("aria-label") === "comments.commentActions",
+    ),
+  ).toBe(true);
 });
 
 it("keeps the exact AI conversation link in the comment overflow", async () => {

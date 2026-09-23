@@ -359,7 +359,7 @@ describe("comment review interactions", () => {
       await type("Anchor A draft");
       await act(async () => {
         const submit = [...container.querySelectorAll("button")].find(
-          (button) => button.textContent === "comments.submit",
+          (button) => button.getAttribute("aria-label") === "comments.submit",
         )!;
         submit.click();
       });
