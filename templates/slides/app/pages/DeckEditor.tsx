@@ -120,10 +120,13 @@ import {
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
+  NEW_DECK_GENERATION_START_TIMEOUT_MS,
+  nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
   slideBeingFilledInPlace,
+  type NewDeckGenerationPhase,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { normalizeSlidePadding } from "@/lib/normalize-slide-padding";
@@ -385,12 +388,10 @@ export default function DeckEditor() {
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const newDeckGenerationStarted = useRef(false);
+  const [newDeckGenerationPhase, setNewDeckGenerationPhase] =
+    useState<NewDeckGenerationPhase>("pending");
   if (searchParams.get("generating") === "1") {
     wasNewDeckCreation.current = true;
-  }
-  if (wasNewDeckCreation.current && generating) {
-    newDeckGenerationStarted.current = true;
   }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
@@ -712,7 +713,7 @@ export default function DeckEditor() {
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
-    generationStarted: newDeckGenerationStarted.current,
+    phase: newDeckGenerationPhase,
   });
   const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
@@ -752,6 +753,34 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+
+  // A run promised by `?generating=1` that never starts — reload, a
+  // bookmark, a shared link, or a dead run — must stop blocking the editor
+  // once the start window lapses, but not while a live run or the question
+  // flow above is the reason nothing has happened yet.
+  useEffect(() => {
+    if (!wasNewDeckCreation.current) return;
+    setNewDeckGenerationPhase((phase) =>
+      nextNewDeckGenerationPhase({
+        phase,
+        generating,
+        waitingOnQuestions: showQuestionFlow,
+        waitExpired: false,
+      }),
+    );
+    if (generating || showQuestionFlow) return;
+    const timer = setTimeout(() => {
+      setNewDeckGenerationPhase((phase) =>
+        nextNewDeckGenerationPhase({
+          phase,
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: true,
+        }),
+      );
+    }, NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [generating, showQuestionFlow]);
   const fillingPlaceholderSlideId = slideBeingFilledInPlace({
     addSlideGenerating,
     addSlideTargetId,
@@ -1007,13 +1036,13 @@ export default function DeckEditor() {
       !id ||
       !shouldClearNewDeckGeneratingState({
         generating,
-        generationStarted: newDeckGenerationStarted.current,
+        phase: newDeckGenerationPhase,
       })
     ) {
       return;
     }
     void refreshOpenDeck(id);
-  }, [generating, id, refreshOpenDeck]);
+  }, [generating, id, newDeckGenerationPhase, refreshOpenDeck]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -1021,7 +1050,7 @@ export default function DeckEditor() {
     if (
       !shouldClearNewDeckGeneratingState({
         generating,
-        generationStarted: newDeckGenerationStarted.current,
+        phase: newDeckGenerationPhase,
       })
     ) {
       return;
@@ -1037,7 +1066,7 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, searchParams, setSearchParams]);
+  }, [generating, newDeckGenerationPhase, searchParams, setSearchParams]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
