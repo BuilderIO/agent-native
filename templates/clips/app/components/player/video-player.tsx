@@ -30,6 +30,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useMseVideoSource } from "@/hooks/use-mse-video-source";
 import { usePlaybackPosition } from "@/hooks/use-playback-position";
+import { setUrlSearchParam } from "@/lib/media-url";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -48,6 +49,7 @@ import {
   originalToEdited,
   parseEdits,
   type TrimRange,
+  lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
@@ -110,23 +112,6 @@ function videoSourceIdentity(url: string | undefined): string {
     }
     parsed.searchParams.sort();
     return `${parsed.origin}${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
-
-function setUrlSearchParam(url: string, key: string, value: string): string {
-  try {
-    const base =
-      typeof window === "undefined"
-        ? "http://clips.local"
-        : window.location.href;
-    const parsed = new URL(url, base);
-    parsed.searchParams.set(key, value);
-    if (url.startsWith("/") && !url.startsWith("//")) {
-      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    }
-    return parsed.href;
   } catch {
     return url;
   }
@@ -1147,7 +1132,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         const v = videoRef.current;
         if (!v) return;
-        const clamped = clampSeek(ms, v, resolvedDurationMs);
+        // Dragging past the end of the kept footage would otherwise show the
+        // trimmed tail, which is still in the file and was never redacted.
+        const requested =
+          lastKept > 0 && lastKept < resolvedDurationMs // i18n-ignore — a comparison, not copy
+            ? Math.min(ms, lastKept - 1)
+            : ms;
+        const clamped = clampSeek(requested, v, resolvedDurationMs);
         const visibleMs = clampSeek(
           skipExcludedRange(clamped, excludedRanges, resolvedDurationMs),
           v,
@@ -1730,6 +1721,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ? "Buffering"
           : "Preparing clip";
 
+    // Trims are not baked into the file, so playback can run past the end of the
+    // kept footage into removed material a redaction never covered.
+    const lastKept = useMemo(
+      () => lastKeptMs(resolvedDurationMs, excludedRanges),
+      [excludedRanges, resolvedDurationMs],
+    );
+
     return (
       <div
         ref={containerRef}
@@ -1904,6 +1902,38 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onTimeUpdate?.(0, resolvedDurationMs);
                 return;
               }
+              // A trimmed tail is not somewhere to skip forward to: there is
+              // nothing kept after it, so correcting forward lands on the last
+              // frame of the file — removed footage, which a redaction drawn
+              // against the edited video never covered — and it is on screen
+              // until `ended` fires. Stop at the last kept frame instead.
+              if (
+                lastKept > 0 && // i18n-ignore — a comparison, not copy
+                lastKept < resolvedDurationMs &&
+                ms >= lastKept
+              ) {
+                try {
+                  v.pause();
+                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+                } catch (err) {
+                  // Seeking can throw while the element is tearing down. The
+                  // state below still reads as finished, which is what matters
+                  // — but a seek failing for any other reason leaves the
+                  // trimmed tail on screen, so it gets said out loud.
+                  console.warn(
+                    "[player] could not stop at the last kept frame",
+                    {
+                      err: err instanceof Error ? err.message : String(err),
+                    },
+                  );
+                }
+                setCurrentMs(lastKept);
+                setIsPlaying(false);
+                setIsBuffering(false);
+                onTimeUpdate?.(lastKept, resolvedDurationMs);
+                onEnded?.();
+                return;
+              }
               const visibleMs = clampSeek(
                 skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
                 v,
@@ -1936,6 +1966,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onEnded={() => {
               clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;
+              // Leave a frame the viewer is meant to see. Without this the
+              // element rests wherever it stopped, which after a trimmed tail
+              // is inside the removed footage — and a redaction that ran to
+              // the end of the edit does not cover it.
+              const v = videoRef.current;
+              const restOnKeptFrame =
+                lastKept > 0 && lastKept < resolvedDurationMs; // i18n-ignore — a comparison, not copy
+              if (v && restOnKeptFrame) {
+                try {
+                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+                } catch (err) {
+                  // A seek can throw while the element is tearing down; the
+                  // poster is the fallback. Still worth saying, because the
+                  // frame left on screen is the thing this exists to control.
+                  console.warn(
+                    "[player] could not rest on the last kept frame",
+                    {
+                      err: err instanceof Error ? err.message : String(err),
+                    },
+                  );
+                }
+              }
               const endedMs =
                 resolvedDurationMs > 0
                   ? resolvedDurationMs
