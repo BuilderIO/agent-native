@@ -47,3 +47,50 @@ describe("OutputPreview chart accessibility", () => {
     );
   });
 });
+
+describe("OutputPreview saved MCP Apps", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders a saved MCP App inline in read-only mode", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="Fallback answer"
+          previewLabel="Agent output"
+          inlineApp={{
+            serverId: "design",
+            toolName: "render",
+            originalToolName: "render",
+            resourceUri: "ui://design",
+            toolInput: {},
+            toolResult: {},
+            resource: {
+              uri: "ui://design",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<html><body>Saved design</body></html>",
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe(
+      "allow-scripts",
+    );
+    expect(container.querySelector("iframe")?.srcdoc).toContain("Saved design");
+    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
+  });
+});

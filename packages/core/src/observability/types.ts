@@ -6,6 +6,8 @@
  * across the entire observability stack.
  */
 
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+
 // ─── Traces ───────────────────────────────────────────────────────────
 
 export type SpanType = "llm_call" | "tool_call" | "agent_run";
@@ -88,6 +90,7 @@ export interface OutputReviewRow {
   threadId: string | null;
   ask: string;
   answer: string;
+  inlineApp?: AgentMcpAppPayload;
   model: string;
   createdAt: number;
   feedback: FeedbackEntry[];

@@ -201,6 +201,27 @@ describe("McpAppRenderer security helpers", () => {
       "MCP App did not finish initializing.",
     );
   });
+
+  it("replays saved MCP Apps without granting network, tool, or navigation access", async () => {
+    const payload = mcpAppPayload({
+      resourceHtml: "<!doctype html><html><body>Saved app</body></html>",
+      openUrl: "https://plan.agent-native.com/plans/plan-123",
+    });
+
+    await act(async () => {
+      root.render(
+        React.createElement(McpAppRenderer, {
+          app: payload,
+          readOnly: true,
+        }),
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.srcdoc).toContain("connect-src 'none'");
+    expect(container.querySelector("button")).toBeNull();
+  });
 });
 
 function mcpAppPayload({

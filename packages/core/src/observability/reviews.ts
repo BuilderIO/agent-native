@@ -1,4 +1,5 @@
 import { resolveThreadsAccess } from "../chat-threads/store.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import {
   getFeedback,
   getInstructionUpdates,
@@ -18,6 +19,33 @@ function unwrapMessage(value: unknown): Record<string, unknown> | null {
   return nested && typeof nested === "object" && !Array.isArray(nested)
     ? (nested as Record<string, unknown>)
     : record;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function inlineMcpApp(value: unknown): AgentMcpAppPayload | null {
+  const app = record(value);
+  const resource = record(app?.resource);
+  if (
+    !app ||
+    typeof app.serverId !== "string" ||
+    typeof app.toolName !== "string" ||
+    typeof app.originalToolName !== "string" ||
+    typeof app.resourceUri !== "string" ||
+    !record(app.toolInput) ||
+    !record(app.toolResult) ||
+    typeof resource?.uri !== "string" ||
+    typeof resource.mimeType !== "string" ||
+    !resource.mimeType.toLowerCase().startsWith("text/html") ||
+    (typeof resource.text !== "string" && typeof resource.blob !== "string")
+  ) {
+    return null;
+  }
+  return value as AgentMcpAppPayload;
 }
 
 function messageText(value: unknown): string {
@@ -61,6 +89,7 @@ function readThreadMessages(threadData: string): Array<{
   role: "user" | "assistant";
   text: string;
   runId?: string;
+  inlineApps: AgentMcpAppPayload[];
 }> {
   try {
     const repository = JSON.parse(threadData);
@@ -83,8 +112,21 @@ function readThreadMessages(threadData: string): Array<{
         return [];
       }
       const text = messageText(content).trim();
-      return text
-        ? [{ role: message.role, text, runId: messageRunId(message) }]
+      const inlineApps = Array.isArray(content)
+        ? content.flatMap((part) => {
+            const app = inlineMcpApp(record(part)?.mcpApp);
+            return app ? [app] : [];
+          })
+        : [];
+      return text || inlineApps.length > 0
+        ? [
+            {
+              role: message.role,
+              text,
+              runId: messageRunId(message),
+              inlineApps,
+            },
+          ]
         : [];
     });
   } catch (error) {
@@ -97,7 +139,7 @@ function readThreadMessages(threadData: string): Array<{
 function askAndAnswer(
   summary: TraceSummary,
   threadData: string | null,
-): { ask: string; answer: string } {
+): { ask: string; answer: string; inlineApp?: AgentMcpAppPayload } {
   if (!threadData) return { ask: "", answer: "" };
   const messages = readThreadMessages(threadData);
   const askIndex = messages.findIndex(
@@ -122,6 +164,9 @@ function askAndAnswer(
   return {
     ask: resolvedAskIndex >= 0 ? messages[resolvedAskIndex]!.text : "",
     answer: answerIndex >= 0 ? messages[answerIndex]!.text : "",
+    ...(answerIndex >= 0 && messages[answerIndex]!.inlineApps.length > 0
+      ? { inlineApp: messages[answerIndex]!.inlineApps.at(-1) }
+      : {}),
   };
 }
 
@@ -164,12 +209,16 @@ export async function listOutputReviews(opts: {
         ? (threads.get(summary.threadId) ?? null)
         : null;
       if (summary.threadId && !thread) return null;
-      const { ask, answer } = askAndAnswer(summary, thread?.threadData ?? null);
+      const { ask, answer, inlineApp } = askAndAnswer(
+        summary,
+        thread?.threadData ?? null,
+      );
       return {
         runId: summary.runId,
         threadId: summary.threadId,
         ask,
         answer,
+        ...(inlineApp ? { inlineApp } : {}),
         model: summary.model,
         createdAt: summary.createdAt,
         feedback: feedbackByRun.get(summary.runId) ?? [],

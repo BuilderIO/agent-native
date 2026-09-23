@@ -1,5 +1,8 @@
 import type { CSSProperties } from "react";
 
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+
 type ChartPoint = { label: string; value: number };
 type DesignToken = { label: string; value: string };
 type TableColumn = { source: string | number; label: string };
@@ -303,13 +306,18 @@ export function parseOutputPreview(answer: string): OutputPreviewModel {
 export function OutputPreview({
   answer,
   previewLabel,
+  inlineApp,
 }: {
   answer: string;
   previewLabel: string;
+  inlineApp?: AgentMcpAppPayload;
 }) {
+  if (inlineApp) {
+    return <McpAppRenderer app={inlineApp} readOnly className="min-w-0" />;
+  }
+
   const preview = parseOutputPreview(answer);
-  const frameClassName =
-    "rounded-md border border-border bg-background p-3 text-sm text-foreground";
+  const contentClassName = "text-sm text-foreground";
 
   if (preview.kind === "chart") {
     const maxValue = Math.max(...preview.data.map((point) => point.value), 1);
@@ -319,7 +327,7 @@ export function OutputPreview({
     return (
       <div
         aria-label={`${preview.title ?? previewLabel}: ${chartSummary}`}
-        className={frameClassName}
+        className={contentClassName}
         data-preview-kind="chart"
         role="img"
       >
@@ -358,13 +366,13 @@ export function OutputPreview({
     return (
       <div
         aria-label={previewLabel}
-        className={`${frameClassName} overflow-x-auto p-0`}
+        className="overflow-x-auto text-sm text-foreground"
         data-preview-kind="table"
         role="region"
       >
         <table className="w-full min-w-[28rem] text-left text-xs">
           <caption className="sr-only">{previewLabel}</caption>
-          <thead className="bg-muted/30 text-muted-foreground">
+          <thead className="text-muted-foreground">
             <tr>
               {preview.headers.map((header) => (
                 <th key={header} className="px-3 py-2 font-medium">
@@ -377,7 +385,7 @@ export function OutputPreview({
             {preview.rows.map((row, rowIndex) => (
               <tr
                 key={`${rowIndex}-${row.join("|")}`}
-                className="border-t border-border"
+                className="border-t border-border/70"
               >
                 {row.map((cell, cellIndex) => (
                   <td
@@ -397,7 +405,7 @@ export function OutputPreview({
 
   if (preview.kind === "image") {
     return (
-      <figure className={frameClassName} data-preview-kind="image">
+      <figure data-preview-kind="image">
         <img
           src={preview.src}
           alt={preview.alt}
@@ -411,7 +419,7 @@ export function OutputPreview({
 
   if (preview.kind === "design") {
     return (
-      <div className={frameClassName} data-preview-kind="design">
+      <div className={contentClassName} data-preview-kind="design">
         {preview.imageUrl && (
           <img
             src={preview.imageUrl}
@@ -428,16 +436,14 @@ export function OutputPreview({
           </p>
         )}
         {preview.tokens.length > 0 && (
-          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+          <dl className="mt-3 divide-y divide-border/70">
             {preview.tokens.map((token) => (
               <div
                 key={`${token.label}-${token.value}`}
-                className="rounded border border-border bg-muted/20 px-2.5 py-2"
+                className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2 first:pt-0"
               >
-                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {token.label}
-                </dt>
-                <dd className="mt-1 text-xs">{token.value}</dd>
+                <dt className="text-xs text-muted-foreground">{token.label}</dt>
+                <dd className="text-xs">{token.value}</dd>
               </div>
             ))}
           </dl>
@@ -447,10 +453,11 @@ export function OutputPreview({
   }
 
   return (
-    <div className={frameClassName} data-preview-kind="text">
-      <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">
-        {preview.text}
-      </p>
-    </div>
+    <p
+      className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground"
+      data-preview-kind="text"
+    >
+      {preview.text}
+    </p>
   );
 }

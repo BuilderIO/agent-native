@@ -37,6 +37,7 @@ const useBrowserLayoutEffect =
 export interface McpAppRendererProps {
   app: AgentMcpAppPayload;
   className?: string;
+  readOnly?: boolean;
 }
 
 type ResourceUiMeta = {
@@ -58,7 +59,11 @@ type McpAppModelContext = {
   structuredContent?: unknown;
 };
 
-export function McpAppRenderer({ app, className }: McpAppRendererProps) {
+export function McpAppRenderer({
+  app,
+  className,
+  readOnly = false,
+}: McpAppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const desiredHeightRef = useRef(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const modelContextRef = useRef<McpAppModelContext | null>(null);
@@ -69,10 +74,13 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   const resourceHtml = app.resource ? htmlFromResource(app.resource) : "";
   const uiMeta = useMemo(() => resourceUiMeta(app), [app]);
   const supportedPermissions = useMemo(
-    () => supportedMcpAppPermissions(uiMeta.permissions),
-    [uiMeta.permissions],
+    () => (readOnly ? {} : supportedMcpAppPermissions(uiMeta.permissions)),
+    [readOnly, uiMeta.permissions],
   );
-  const csp = buildMcpAppCsp(uiMeta.csp);
+  const appCsp = readOnly
+    ? { resourceDomains: uiMeta.csp?.resourceDomains }
+    : uiMeta.csp;
+  const csp = buildMcpAppCsp(appCsp);
   const srcDoc = useMemo(
     () => (resourceHtml ? injectCsp(resourceHtml, csp) : ""),
     [resourceHtml, csp],
@@ -91,10 +99,10 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   // visibly working.
   const appRef = useRef(app);
   const supportedPermissionsRef = useRef(supportedPermissions);
-  const uiCspRef = useRef(uiMeta.csp);
+  const uiCspRef = useRef(appCsp);
   appRef.current = app;
   supportedPermissionsRef.current = supportedPermissions;
-  uiCspRef.current = uiMeta.csp;
+  uiCspRef.current = appCsp;
 
   useEffect(() => {
     desiredHeightRef.current = DEFAULT_MCP_APP_IFRAME_HEIGHT;
@@ -237,11 +245,15 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       }
     });
     bridge.onopenlink = async ({ url }) => {
+      if (readOnly) return { isError: true };
       if (!isSafeExternalUrl(url)) return { isError: true };
       window.open(url, "_blank", "noopener,noreferrer");
       return {};
     };
     bridge.oncalltool = async ({ name, arguments: toolArguments }) => {
+      if (readOnly) {
+        return errorToolResult("This saved MCP App is read-only.");
+      }
       const toolName = normalizeSameServerToolName(
         appRef.current.serverId,
         name,
@@ -263,16 +275,23 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       }
     };
     (bridge as any).onlisttools = async () =>
-      postMcpAppEndpoint("list-tools", { serverId: appRef.current.serverId });
-    bridge.onreadresource = async ({ uri }) =>
-      postMcpAppEndpoint("read-resource", {
+      readOnly
+        ? { tools: [] }
+        : postMcpAppEndpoint("list-tools", {
+            serverId: appRef.current.serverId,
+          });
+    bridge.onreadresource = async ({ uri }) => {
+      if (readOnly) throw new Error("This saved MCP App is read-only.");
+      return postMcpAppEndpoint("read-resource", {
         serverId: appRef.current.serverId,
         uri,
       });
+    };
     bridge.onlistresources = async () => ({ resources: [] });
     bridge.onlistresourcetemplates = async () => ({ resourceTemplates: [] });
     bridge.ondownloadfile = async () => ({ isError: true });
     bridge.onmessage = async (params) => {
+      if (readOnly) return { isError: true };
       const message = messageTextFromMcpUiMessage(params);
       if (!message.trim()) return { isError: true };
       const mode = requestModeFromMcpUiMessage(params);
@@ -317,14 +336,14 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     // The embedded resource identity is captured by `srcDoc`; `app`,
     // `supportedPermissions`, and `uiMeta.csp` are read via refs so a
     // new-but-equal `app` object reference does not tear down a live bridge.
-  }, [applyHeight, markReady, srcDoc]);
+  }, [applyHeight, markReady, readOnly, srcDoc]);
 
   if (!resourceHtml) {
     return (
       <div className={cn("agent-mcp-app agent-mcp-app--error", className)}>
         <IconAlertTriangle size={15} />
         <span>MCP App resource was not available.</span>
-        {externalOpenUrl && (
+        {externalOpenUrl && !readOnly && (
           <button
             type="button"
             className="agent-mcp-app__open"
@@ -358,7 +377,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
           <div className="agent-mcp-app__error-box">
             <IconAlertTriangle size={15} />
             <span>{error}</span>
-            {externalOpenUrl && (
+            {externalOpenUrl && !readOnly && (
               <button
                 type="button"
                 className="agent-mcp-app__open"
@@ -376,7 +395,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         ref={iframeRef}
         title={app.tool?.title ?? app.originalToolName}
         srcDoc={srcDoc}
-        sandbox={SANDBOX_FLAGS}
+        sandbox={readOnly ? "allow-scripts" : SANDBOX_FLAGS}
         allow={buildAllowAttribute(supportedPermissions)}
         style={{ height }}
         onError={handleIframeError}

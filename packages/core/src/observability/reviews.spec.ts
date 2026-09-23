@@ -88,6 +88,75 @@ describe("listOutputReviews", () => {
     ]);
   });
 
+  it("keeps a saved inline MCP App with its run's answer", async () => {
+    mockResolveThreadsAccess.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            ownerEmail: "alice@example.com",
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: [{ type: "text", text: "Show a chart" }],
+                    metadata: { custom: { submittedRunId: "run-1" } },
+                  },
+                },
+                {
+                  message: {
+                    role: "assistant",
+                    content: [
+                      { type: "text", text: "Here is the chart." },
+                      {
+                        type: "tool-call",
+                        mcpApp: {
+                          serverId: "analytics",
+                          toolName: "chart",
+                          originalToolName: "chart",
+                          resourceUri: "ui://chart",
+                          toolInput: {},
+                          toolResult: {},
+                          resource: {
+                            uri: "ui://chart",
+                            mimeType: "text/html;profile=mcp-app",
+                            text: "<html><body>Chart</body></html>",
+                          },
+                        },
+                      },
+                    ],
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+            }),
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      listOutputReviews({
+        sinceMs: 0,
+        limit: 10,
+        userId: "alice@example.com",
+      }),
+    ).resolves.toMatchObject([
+      {
+        ask: "Show a chart",
+        answer: "Here is the chart.",
+        inlineApp: {
+          serverId: "analytics",
+          resource: {
+            mimeType: "text/html;profile=mcp-app",
+            text: "<html><body>Chart</body></html>",
+          },
+        },
+      },
+    ]);
+  });
+
   it("does not return a thread owned by another user", async () => {
     mockResolveThreadsAccess.mockResolvedValueOnce(new Map());
     await expect(
