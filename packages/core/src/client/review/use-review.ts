@@ -406,7 +406,8 @@ export class ReviewOptimisticCache {
     }
     void this.queryClient.invalidateQueries({
       predicate: (query) =>
-        isReviewQueryAction(query.queryKey[1]) &&
+        (isReviewQueryAction(query.queryKey[1]) ||
+          query.queryKey[1] === "get-review-feedback") &&
         matchesReviewResource(query.queryKey[2], context.resource),
     });
   }

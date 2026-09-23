@@ -225,11 +225,15 @@ describe("ReviewOptimisticCache", () => {
     const other = { resourceType: "document", resourceId: "document-2" };
     const firstKey = ["action", "list-review-comments", resource] as const;
     const secondKey = ["action", "list-review-comments", other] as const;
+    const feedbackKey = ["action", "get-review-feedback", resource] as const;
+    const otherFeedbackKey = ["action", "get-review-feedback", other] as const;
     queryClient.setQueryData(
       firstKey,
       commentsResult([comment("comment-1", "One")]),
     );
     queryClient.setQueryData(secondKey, commentsResult([]));
+    queryClient.setQueryData(feedbackKey, { openCount: 1 });
+    queryClient.setQueryData(otherFeedbackKey, { openCount: 0 });
     const cache = new ReviewOptimisticCache(queryClient);
 
     const context = cache.begin({
@@ -242,6 +246,10 @@ describe("ReviewOptimisticCache", () => {
 
     expect(queryClient.getQueryState(firstKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(secondKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(feedbackKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherFeedbackKey)?.isInvalidated).toBe(
+      false,
+    );
   });
 });
 
