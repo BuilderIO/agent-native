@@ -6,6 +6,7 @@ import {
 import {
   getJevContextCredentials,
   isJevEnabled,
+  readDeployCredentialEnv,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
@@ -90,6 +91,12 @@ export async function resolveDefaultAutomationModel(
     );
   }
   if (jevAvailability.status === "checked" && jevAvailability.enabled) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+  if (readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim()) {
     return {
       engine: TYPESAFE_AUTOMATION_ENGINE,
       model: TYPESAFE_AUTOMATION_MODEL,

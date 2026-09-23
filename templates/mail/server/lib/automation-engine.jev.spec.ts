@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  dbSelect: vi.fn(),
+  getAiFilterState: vi.fn(),
   getJevContextCredentials: vi.fn(),
+  getUserSetting: vi.fn(),
   isJevEnabled: vi.fn(),
   readDeployCredentialEnv: vi.fn(),
   requestJevThroughBuilder: vi.fn(),
@@ -17,12 +20,22 @@ vi.mock("@agent-native/core/server", () => ({
     callback(),
 }));
 vi.mock("@agent-native/core/settings", () => ({
-  getUserSetting: vi.fn(),
+  getUserSetting: mocks.getUserSetting,
   putUserSetting: vi.fn(),
 }));
-vi.mock("../db/index.js", () => ({ db: {}, schema: {} }));
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: vi.fn(),
+  eq: vi.fn(),
+}));
+vi.mock("../db/index.js", () => ({
+  db: { select: mocks.dbSelect },
+  schema: {
+    automationRules: { ownerEmail: {}, domain: {}, enabled: {} },
+  },
+}));
 vi.mock("./ai-filter.js", () => ({
-  getAiFilterState: vi.fn(),
+  getAiFilterState: mocks.getAiFilterState,
   recordAiFilterDecisions: vi.fn(),
 }));
 vi.mock("./automation-actions.js", () => ({
@@ -40,7 +53,10 @@ vi.mock("./automation-model.js", () => ({
 vi.mock("./google-api.js", () => ({}));
 vi.mock("./google-auth.js", () => ({}));
 
-import { previewAutomationRules } from "./automation-engine.js";
+import {
+  previewAutomationRules,
+  processAutomationsForAccount,
+} from "./automation-engine.js";
 
 const builderAuth = { authorization: "Bearer builder-test-token" };
 const email = {
@@ -66,7 +82,16 @@ describe("Mail Jev automation routing", () => {
       builderAuth,
     });
     mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.getAiFilterState.mockResolvedValue({ enabled: false, feedback: [] });
+    mocks.getUserSetting.mockResolvedValue(null);
     mocks.readDeployCredentialEnv.mockReturnValue(undefined);
+    mocks.dbSelect.mockReturnValue({
+      from: () => ({
+        where: async () => [
+          { id: "rule-1", kind: "automation", actions: "[]" },
+        ],
+      }),
+    });
     mocks.requestJevThroughBuilder.mockResolvedValue({
       answers: { q_0_0: { noul: 0.91 } },
     });
@@ -190,5 +215,23 @@ describe("Mail Jev automation routing", () => {
     ).rejects.toThrow(
       "Could not check Jev credentials or Builder entitlement.",
     );
+  });
+
+  it("returns an automation error when Jev availability cannot be checked", async () => {
+    mocks.isJevEnabled.mockRejectedValue(
+      new Error("Builder Jev availability unavailable"),
+    );
+
+    await expect(
+      processAutomationsForAccount(
+        "owner@example.com",
+        "mailbox@example.com",
+        "google-access-token",
+      ),
+    ).resolves.toMatchObject({
+      accountEmail: "mailbox@example.com",
+      messagesProcessed: 0,
+      errors: 1,
+    });
   });
 });

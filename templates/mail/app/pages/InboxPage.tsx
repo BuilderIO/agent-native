@@ -361,8 +361,7 @@ export function InboxPage() {
       retry: 2,
     },
   );
-  const jevConfigured =
-    jevAvailability.isSuccess && jevAvailability.data?.configured === true;
+  const jevConfigured = jevAvailability.data?.configured === true;
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -852,10 +851,7 @@ export function InboxPage() {
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
-      sort:
-        sortMode === "priority" && (jevConfigured || jevAvailability.isError)
-          ? sortMode
-          : undefined,
+      sort: sortMode === "priority" && jevConfigured ? sortMode : undefined,
     });
   }, [
     view,

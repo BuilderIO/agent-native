@@ -1139,7 +1139,17 @@ export async function processAutomationsForAccount(
   // 2. Resolve model settings. Credentials are resolved by the selected engine
   // under the owner's request context, so Builder-managed models work here too.
   const modelSettings = await getAutomationModelSettings(ownerEmail);
-  const modelAccess = await canUseAutomationModel(ownerEmail, modelSettings);
+  let modelAccess: Awaited<ReturnType<typeof canUseAutomationModel>>;
+  try {
+    modelAccess = await canUseAutomationModel(ownerEmail, modelSettings);
+  } catch (error) {
+    console.error(
+      "[automation-engine] Model availability check failed:",
+      error,
+    );
+    result.errors = 1;
+    return result;
+  }
   if (!modelAccess.available) {
     result.errors = 1;
     return result;

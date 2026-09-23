@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getSetting: vi.fn(),
   isJevEnabled: vi.fn(),
   isResolvedEngineUsableForRequest: vi.fn(),
+  readDeployCredentialEnv: vi.fn(),
   registerBuiltinEngines: vi.fn(),
   resolveEngine: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock("@agent-native/core/agent/engine", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getJevContextCredentials: mocks.getJevContextCredentials,
   isJevEnabled: mocks.isJevEnabled,
+  readDeployCredentialEnv: mocks.readDeployCredentialEnv,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
 }));
@@ -40,6 +42,7 @@ describe("Mail automation model defaults", () => {
       personalApiKey: undefined,
       builderAuth: null,
     });
+    mocks.readDeployCredentialEnv.mockReturnValue(undefined);
     mocks.isJevEnabled.mockResolvedValue(false);
     mocks.isResolvedEngineUsableForRequest.mockResolvedValue(true);
     mocks.resolveEngine.mockResolvedValue({
@@ -89,6 +92,18 @@ describe("Mail automation model defaults", () => {
     expect(mocks.resolveEngine).toHaveBeenCalledWith({
       engineOption: DEFAULT_AUTOMATION_ENGINE,
     });
+  });
+
+  it("preserves the legacy Typesafe default for existing Mail deployments", async () => {
+    mocks.readDeployCredentialEnv.mockReturnValue("legacy-typesafe-key");
+
+    await expect(
+      resolveAutomationModelSettings("owner@example.com", null),
+    ).resolves.toEqual({
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    });
+    expect(mocks.resolveEngine).not.toHaveBeenCalled();
   });
 
   it("does not resolve Jev when the user selected an explicit model", async () => {
