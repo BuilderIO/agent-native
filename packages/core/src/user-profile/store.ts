@@ -180,19 +180,27 @@ export async function getUserProfiles(
 
     if (usersResult.status === "fulfilled") {
       batchLookupSucceeded = true;
-      for (const user of usersResult.value) {
-        const email = user.email.trim().toLowerCase();
-        if (!email) continue;
-        profiles.set(
-          email,
-          storedProfiles
+      // storedProfiles is only unavailable when the settings batch above
+      // failed; that must not drop every roster user's stored name/role
+      // override for the call, so retry each one individually here — the
+      // same per-user resilience profileFromAuthUserWithStoredName gave
+      // every caller before batching.
+      const rosterEntries = await Promise.all(
+        usersResult.value.map(async (user) => {
+          const email = user.email.trim().toLowerCase();
+          if (!email) return null;
+          const profile = storedProfiles
             ? profileFromAuthUserAndStoredProfile(
                 email,
                 user,
                 storedProfileFrom(email, storedProfiles.get(email) ?? null),
               )
-            : profileFromAuthUser(email, user),
-        );
+            : await profileFromAuthUserWithStoredName(email, user);
+          return [email, profile] as const;
+        }),
+      );
+      for (const entry of rosterEntries) {
+        if (entry) profiles.set(...entry);
       }
     } else if (!didWarnUserProfilesListUsersFailed) {
       didWarnUserProfilesListUsersFailed = true;

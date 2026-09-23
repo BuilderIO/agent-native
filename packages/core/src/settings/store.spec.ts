@@ -84,6 +84,18 @@ describe("settings store", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null instead of throwing for a corrupted (unparseable) stored value", async () => {
+    // A single flag/setting row corrupted by a bug or manual edit must not
+    // reject and take down a Promise.all sibling read (e.g. a valid
+    // organization override read alongside this global row) — see
+    // getFeatureFlagRules in feature-flags/store.ts.
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    await expect(getSetting("corrupt")).resolves.toBeNull();
+  });
+
   it("deletes an existing key and returns true", async () => {
     await putSetting("to-delete", { keep: false });
     const deleted = await deleteSetting("to-delete");
@@ -228,6 +240,22 @@ describe("getSettings (batched read)", () => {
     rawClient.execute.mockClear();
     expect(await getSettings([])).toEqual(new Map());
     expect(rawClient.execute).not.toHaveBeenCalled();
+  });
+
+  it("isolates a corrupted key's JSON from the rest of the batch", async () => {
+    await putSetting("good", { v: 1 });
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    const values = await getSettings(["good", "corrupt"]);
+
+    expect(values).toEqual(
+      new Map([
+        ["good", { v: 1 }],
+        ["corrupt", null],
+      ]),
+    );
   });
 
   it("bypasses and does not populate the request cache when bypassCache is set", async () => {

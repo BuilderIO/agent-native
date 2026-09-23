@@ -111,7 +111,7 @@ export async function getSetting(
   const cache = options?.transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
-    return cached == null ? null : JSON.parse(cached);
+    return cached == null ? null : parseSettingValue(key, cached);
   }
   if (!options?.transaction) await ensureTable();
   const client = options?.transaction ?? getDbExec();
@@ -122,7 +122,7 @@ export async function getSetting(
   });
   const raw = rows.length === 0 ? null : (rows[0].value as string);
   if (!options?.bypassCache) cache?.set(key, raw);
-  return raw == null ? null : JSON.parse(raw);
+  return raw == null ? null : parseSettingValue(key, raw);
 }
 
 // Keeps the IN-list under Postgres's bind-parameter ceiling and out of

@@ -112,7 +112,11 @@ describe("user profile store", () => {
     expect(getUserSettingMock).not.toHaveBeenCalled();
   });
 
-  it("degrades matched users to auth-only names when the settings batch fails", async () => {
+  it("retries stored names individually for matched users when the settings batch fails", async () => {
+    // A failed batch must not drop every roster user's stored override —
+    // that silently discarded a real saved name for the whole call. Each
+    // matched user gets the same per-user getUserSetting retry the
+    // pre-batching code gave every caller.
     getUserSettingsMock.mockRejectedValue(new Error("settings down"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -120,10 +124,14 @@ describe("user profile store", () => {
 
     expect(profiles.get("alice@example.com")).toEqual({
       email: "alice@example.com",
-      name: "alice",
+      name: "Saved Name",
       image: "https://lh3.googleusercontent.com/a/avatar.jpg",
       onboardingRole: null,
     });
+    expect(getUserSettingMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "user-profile",
+    );
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -144,7 +152,7 @@ describe("user profile store", () => {
 
     expect(profiles.get("alice@example.com")).toEqual({
       email: "alice@example.com",
-      name: "alice",
+      name: "Saved Name",
       image: "https://lh3.googleusercontent.com/a/avatar.jpg",
       onboardingRole: null,
     });
