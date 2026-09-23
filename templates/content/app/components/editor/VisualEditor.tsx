@@ -848,6 +848,9 @@ const CustomTable = BaseTable.extend({
 });
 
 const NotionTableHeader = TableHeader.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
+  },
   renderHTML({ HTMLAttributes }) {
     return [
       "td",
@@ -856,6 +859,21 @@ const NotionTableHeader = TableHeader.extend({
       }),
       0,
     ];
+  },
+});
+
+const tableAlignmentAttribute = {
+  textAlign: {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-alignment"),
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.textAlign ? { "data-alignment": attributes.textAlign } : {},
+  },
+};
+
+const NotionTableCell = TableCell.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
 });
 
@@ -2544,7 +2562,7 @@ export function createVisualEditorExtensions({
       }),
       TableRow,
       NotionTableHeader,
-      TableCell,
+      NotionTableCell,
       NormalizeTableHeaders,
       ...createNotionEditorExtensions({
         resolvePageLink: resolveNotionPageLink,
