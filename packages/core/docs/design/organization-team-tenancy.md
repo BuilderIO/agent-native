@@ -51,29 +51,28 @@ remove ordinary members and promote members to lead. A lead cannot demote or
 remove another lead using the lead role alone. A lead has no authority over
 another team.
 
-Members can leave. A lead can relinquish or leave only when another lead
-remains. Removing the sole lead requires a replacement lead first.
-
-Removing an organization member who is the sole lead in one or more teams
-requires a replacement lead in each affected team first; replacements may
-differ. The operation then atomically removes their team memberships and
-revokes team-derived access. Existing organization offboarding safeguards
-remain in effect.
+Teams may have zero or more leads. Organization owners and admins govern a
+leadless team. Leaving, removing, or offboarding a lead never requires a
+replacement lead. The operation atomically removes that person's team
+memberships and revokes their team-derived access. Existing organization
+offboarding safeguards remain in effect.
 
 ## Resource Scope
 
-Each family stores a durable `ownershipScope`: `personal`, `organization`, or
-`team`. For families with legacy personal rows, the additive database default is
-`personal`. No personal row backfill or reclassification occurs.
+Each enabled family stores a durable `ownershipScope`: `personal`,
+`organization`, or `team`. Adding teams changes no pre-existing row. Its human
+owner, scope or effective legacy scope, organization association, visibility,
+ACL, and behavior remain unchanged. No implicit migration backfill or
+reclassification occurs.
 
 Personal scope can retain a nonnull `orgId`. That value records organization
 association for the existing personal-resource ACL. It does not create
 organization ownership or a new scope.
 
-Adding teams does not change personal-resource access. Team membership and
-active-team selection do not alter personal-resource ACLs. Team-principal
-grants apply only to organization- and team-scoped resources. There is no
-legacy team principal.
+`orgId` alone records an existing organization association. It is not
+organization ownership or a new scope. Team membership and active-team
+selection do not alter existing ACLs. Team-principal grants apply only to new
+organization- and team-scoped resources. There is no legacy team principal.
 
 Organization and team scope require `orgId`. Only team scope has a nonnull
 `teamId`. That team must belong to the `orgId`.
@@ -110,10 +109,13 @@ action allows it. They become the human owner.
 
 ### Scope Moves
 
-Scope changes are explicit audited moves. They are never shares. A personal
-owner can move into an organization or team only with target create access. An
-organization owner or admin must authorize any move out of or between
-organization or team scopes. Cross-organization moves are prohibited.
+Scope changes are explicit audited moves. They are never shares. Generic Core
+moves exist only for authored resource families that explicitly declare move
+support, including linked-data and share effects. Credentials, history and
+runs, team-bound context, and other operational records are excluded. A
+personal owner can move into an organization or team only with target create
+access. An organization owner or admin must authorize any move out of or
+between organization or team scopes. Cross-organization moves are prohibited.
 
 Team-bound records cannot move out of team scope. A move preserves the human
 owner. For a move into an organization or team, an existing `orgId` must match
@@ -179,23 +181,31 @@ accepted external effect cannot be cancelled.
 ### Active Team Selection
 
 Selection filters lists and defaults new-resource placement. Direct reads and
-edits use actual resource ownership and grants, independent of selection. Deep
-links and explicit cross-scope sharing still work. Creates and moves use an
-explicit, server-validated target scope. The canonical selection is in URLs and
-deep links, mirrored in application state for agent context, and sent with
-action requests in a header or body.
+edits use actual resource ownership and grants, independent of selection.
+Independent authorized resource links still work. Creates and moves use an
+explicit, server-validated target scope. A stale, foreign, or archived team
+selection fails explicitly and never silently defaults placement. No team
+selection preserves existing personal and organization placement. The canonical
+selection is in URLs and deep links, mirrored in application state for agent
+context, and sent with action requests in a header or body.
 
 ## Team Archival
 
 Team deletion is archival. Retain a tombstone with its stable identifier and
-history. Delete live team context and learning before archival. Other live
-team-scoped resources and automations must move where permitted or be deleted.
-Immutable historical records may remain linked to the archived stable team ID
-and do not block archival.
+history. Archive is blocked until live team resources, context, automations,
+and grants are explicitly resolved and blockers are shown. An authorized,
+audited operation can move only eligible authored resources. It must preserve
+the moved resource's compatible independent grants, organization or public
+visibility, and independent resource links. It never auto-moves or deletes an
+authored resource. Remove or retain immovable team-bound records by their
+family policy. Stop or reassign automations, revoke grants, and remove live
+team context and learning. Inherited organization resources are not blockers.
+Atomically recheck all blockers before archival.
 
 Archival revokes team-principal grants and team connection-use permissions. It
-disables new team-scoped work. It does not delete inherited organization
-resources.
+disables new team-scoped work. Team-derived links and authority then fail.
+Immutable historical records may retain the archived stable team ID. It does
+not delete inherited organization resources.
 
 Records defined by their team, such as team context or team learning, require
 team scope and a valid `teamId`. They cannot be personal or organization
@@ -204,9 +214,10 @@ separate personal context or learning records.
 
 ## Resource-Family Enablement
 
-Resource families are enabled in phases. This is not a phased ownership model.
-Each enabled family has a complete tenancy contract. Team scope is opt-in per
-family and disabled by default.
+Core implementation completes first. Then every template, including Content,
+implements team support and proves its complete contract locally. Team scope is
+opt-in per family and disabled by default until that family's migration and
+complete checks pass.
 
 Rollout inventory to assess for phased enablement; it does not enable every
 item:
@@ -219,31 +230,26 @@ item:
 Organization-owned connection visibility is assessed separately from resource
 families and remains governed by its team and app grants.
 
-Before enabling a family, complete its inventory and focused tests. They cover
-every read, list, search, and export path. They cover item and mutation paths,
-sharing paths, and legacy HTTP handlers. They also cover background, agent, and
-automation paths. Every flow must apply the trusted scope; neither an action
-request nor an application-state value is authority.
+Before enabling a family, complete its inventory and focused local tests. They
+cover every read, list, search, export, item, mutation, sharing, and legacy
+HTTP path. They also cover background, agent, and automation paths. Every flow
+must apply the trusted scope. Neither an action request nor application state is
+authority. Content additionally proves transclusion, traversal, embeds,
+projections, caches, snippets, counts, pagination, search, export, AI, and
+background surfaces.
 
 The additive migration must be complete and its scope known.
 
-Families with pre-existing organization-owned rows must map those rows
-explicitly before readiness. After migration, only explicit, audited moves
-change a resource's scope. Shared access enforcement rejects an unknown or
-mismatched scope. It does not fall back to personal or organization behavior.
+Families with pre-existing rows retain their owner, effective legacy scope,
+organization association, visibility, ACL, and behavior. After migration, only
+an explicit, audited supported move changes a resource's scope. Shared access
+preserves existing personal and organization behavior. No deployment or
+live-server compatibility gate is required to complete this work.
 
-A deployment-wide ready capability is separate from persisted feature flags.
-It is present only after every live server and worker runs a team-compatible
-build. Only then can a family flag enable team scope.
-
-Missing readiness, incomplete migration, missing family registration, unknown
-scope, or a partial deployment fails closed. While a family is disabled, deny
-access to team-scoped rows and team-principal grants. Also deny team-scoped
-creation and moves into team scope. Do not coerce existing team rows to personal
-or organization scope.
-
-Rollback must retain a tenancy-aware build. Older handlers cannot safely
-process team rows.
+Incomplete migration, missing family registration, or unknown scope fails
+closed. While a family is disabled, deny access to team-scoped rows and
+team-principal grants. Also deny team-scoped creation and moves into team scope.
+Do not coerce existing rows to personal or organization scope.
 
 ## Consequences
 
