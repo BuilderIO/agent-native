@@ -23581,51 +23581,98 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         return;
       }
-      var svgFile = Array.from(e.clipboardData?.items ?? [])
+      var clipboardFiles = Array.from(e.clipboardData?.items ?? [])
         .filter(function (item) {
-          return (
-            item.kind === "file" &&
-            (item.type.toLowerCase() === "image/svg+xml" ||
-              item.getAsFile()?.name.toLowerCase().endsWith(".svg"))
-          );
+          return item.kind === "file";
         })
         .map(function (item) {
           return item.getAsFile();
         })
-        .find(function (file): file is File {
+        .filter(function (file): file is File {
           return Boolean(file);
         });
-      if (svgFile) {
+      var svgFiles = clipboardFiles.filter(function (file) {
+        return (
+          file.type.toLowerCase() === "image/svg+xml" ||
+          file.name.toLowerCase().endsWith(".svg")
+        );
+      });
+      var imageFiles = clipboardFiles.filter(function (file) {
+        return (
+          !svgFiles.includes(file) &&
+          (file.type.startsWith("image/") || file.type.startsWith("video/"))
+        );
+      });
+      if (svgFiles.length > 0 || imageFiles.length > 0) {
         stopNativeInteraction(e);
-        if (svgFile.size > 1000000) {
-          (window.parent as Window).postMessage(
-            {
-              type: "figma-clipboard-paste",
-              content: "",
-              svgFileError: "too-large",
-            },
-            "*",
-          );
-          return;
-        }
-        void svgFile
-          .text()
-          .then(function (source) {
-            (window.parent as Window).postMessage(
-              { type: "figma-clipboard-paste", content: "", svg: source },
-              "*",
-            );
-          })
-          .catch(function () {
-            (window.parent as Window).postMessage(
-              {
-                type: "figma-clipboard-paste",
-                content: "",
-                svgFileError: "unreadable",
-              },
-              "*",
-            );
+        var relayImageFiles = function () {
+          if (imageFiles.length === 0) return;
+          var readPromises = imageFiles.map(function (file) {
+            return new Promise<{
+              dataUrl: string;
+              type: string;
+              name: string;
+            } | null>(function (resolve) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve({
+                  dataUrl:
+                    typeof reader.result === "string" ? reader.result : "",
+                  type: file.type,
+                  name: file.name,
+                });
+              };
+              reader.onerror = function () {
+                resolve(null);
+              };
+              reader.readAsDataURL(file);
+            });
           });
+          void Promise.all(readPromises).then(function (results) {
+            var valid = results.filter(function (r) {
+              return r && r.dataUrl;
+            });
+            if (valid.length > 0) {
+              (window.parent as Window).postMessage(
+                { type: "canvas-image-paste", files: valid },
+                "*",
+              );
+            }
+          });
+        };
+        void Promise.all(
+          svgFiles.map(function (file) {
+            if (file.size > 1000000) {
+              return Promise.resolve({ error: "too-large" as const });
+            }
+            return file
+              .text()
+              .then(function (source) {
+                return { source: source };
+              })
+              .catch(function () {
+                return { error: "unreadable" as const };
+              });
+          }),
+        ).then(function (results) {
+          for (var result of results) {
+            (window.parent as Window).postMessage(
+              result.source
+                ? {
+                    type: "figma-clipboard-paste",
+                    content: "",
+                    svg: result.source,
+                  }
+                : {
+                    type: "figma-clipboard-paste",
+                    content: "",
+                    svgFileError: result.error,
+                  },
+              "*",
+            );
+          }
+          relayImageFiles();
+        });
         return;
       }
       // Relay image files pasted while the canvas has focus (e.g. "Copy as PNG"
@@ -23633,55 +23680,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // these because paste events inside an iframe don't bubble to the parent
       // document — the bridge reads each file as a data URL and relays it so
       // the parent's handlePastedImageFiles can insert an <img> layer.
-      var imageFiles = Array.from(e.clipboardData?.items ?? [])
-        .filter(function (item) {
-          return (
-            item.kind === "file" &&
-            item.type.toLowerCase() !== "image/svg+xml" &&
-            (item.type.startsWith("image/") || item.type.startsWith("video/"))
-          );
-        })
-        .map(function (item) {
-          return item.getAsFile();
-        })
-        .filter(function (f): f is File {
-          return Boolean(f);
-        });
-      if (imageFiles.length > 0) {
-        stopNativeInteraction(e);
-        var readPromises = imageFiles.map(function (file) {
-          return new Promise<{
-            dataUrl: string;
-            type: string;
-            name: string;
-          } | null>(function (resolve) {
-            var reader = new FileReader();
-            reader.onload = function () {
-              resolve({
-                dataUrl: typeof reader.result === "string" ? reader.result : "",
-                type: file.type,
-                name: file.name,
-              });
-            };
-            reader.onerror = function () {
-              resolve(null);
-            };
-            reader.readAsDataURL(file);
-          });
-        });
-        void Promise.all(readPromises).then(function (results) {
-          var valid = results.filter(function (r) {
-            return r && r.dataUrl;
-          });
-          if (valid.length > 0) {
-            (window.parent as Window).postMessage(
-              { type: "canvas-image-paste", files: valid },
-              "*",
-            );
-          }
-        });
-        return;
-      }
       // A paste carrying nothing importable stays silent, unless it plainly
       // came from Figma — the user expected a screen and must be told why they
       // got nothing. The parent applies the same rule to its own listener, but

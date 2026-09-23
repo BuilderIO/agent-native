@@ -378,6 +378,10 @@ describe("overview paste placement", () => {
 
     expect(getOverviewCanvasCenter(container)).toEqual({ x: 300, y: 150 });
 
+    world.style.transform = "matrix(0.5, 0, 0, 0.5, 120, 40)";
+    expect(getOverviewCanvasCenter(container)).toEqual({ x: 320, y: 280 });
+    world.style.transform = "matrix(2, 0, 0, 2, -680, -480)";
+
     const applyLocalContentUpdate = vi.fn();
     const selectInsertedLayers = vi.fn();
     const pasteArgs = args(

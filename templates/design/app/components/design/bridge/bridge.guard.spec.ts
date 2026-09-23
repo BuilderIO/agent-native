@@ -14702,6 +14702,89 @@ it(
 );
 
 it(
+  "relays every SVG and mixed image/video file from one iframe clipboard paste",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(['<svg><path d="M0 0h1"/></svg>'], "first.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        transfer.items.add(
+          new File(['<svg><circle r="2"/></svg>'], "second.svg", {
+            type: "application/octet-stream",
+          }),
+        );
+        transfer.items.add(
+          new File(["image"], "photo.png", { type: "image/png" }),
+        );
+        transfer.items.add(
+          new File(["video"], "clip.mp4", { type: "video/mp4" }),
+        );
+        document.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      });
+
+      await page.waitForFunction(
+        () => {
+          const messages = (window as any).__bridgeMessages ?? [];
+          return (
+            messages.filter(
+              (message: any) =>
+                message.type === "figma-clipboard-paste" && message.svg,
+            ).length === 2 &&
+            messages.some(
+              (message: any) => message.type === "canvas-image-paste",
+            )
+          );
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      const messages = await readBridgeMessages(page);
+      expect(
+        messages
+          .filter((message) => message.type === "figma-clipboard-paste")
+          .map((message) => (message as { svg?: string }).svg),
+      ).toEqual([
+        '<svg><path d="M0 0h1"/></svg>',
+        '<svg><circle r="2"/></svg>',
+      ]);
+      expect(messages.at(-1)).toMatchObject({
+        type: "canvas-image-paste",
+        files: [
+          expect.objectContaining({ type: "image/png", name: "photo.png" }),
+          expect.objectContaining({ type: "video/mp4", name: "clip.mp4" }),
+        ],
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "consumes oversized SVG clipboard files and reports the rejection",
   { timeout: 30_000 },
   async () => {

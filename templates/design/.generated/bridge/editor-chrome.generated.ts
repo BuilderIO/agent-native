@@ -16696,78 +16696,78 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           return;
         }
-        var svgFile = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
-          return item.kind === "file" && (item.type.toLowerCase() === "image/svg+xml" || item.getAsFile()?.name.toLowerCase().endsWith(".svg"));
+        var clipboardFiles = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
+          return item.kind === "file";
         }).map(function(item) {
           return item.getAsFile();
-        }).find(function(file) {
+        }).filter(function(file) {
           return Boolean(file);
         });
-        if (svgFile) {
-          stopNativeInteraction(e);
-          if (svgFile.size > 1e6) {
-            window.parent.postMessage(
-              {
-                type: "figma-clipboard-paste",
-                content: "",
-                svgFileError: "too-large"
-              },
-              "*"
-            );
-            return;
-          }
-          void svgFile.text().then(function(source) {
-            window.parent.postMessage(
-              { type: "figma-clipboard-paste", content: "", svg: source },
-              "*"
-            );
-          }).catch(function() {
-            window.parent.postMessage(
-              {
-                type: "figma-clipboard-paste",
-                content: "",
-                svgFileError: "unreadable"
-              },
-              "*"
-            );
-          });
-          return;
-        }
-        var imageFiles = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
-          return item.kind === "file" && item.type.toLowerCase() !== "image/svg+xml" && (item.type.startsWith("image/") || item.type.startsWith("video/"));
-        }).map(function(item) {
-          return item.getAsFile();
-        }).filter(function(f) {
-          return Boolean(f);
+        var svgFiles = clipboardFiles.filter(function(file) {
+          return file.type.toLowerCase() === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
         });
-        if (imageFiles.length > 0) {
+        var imageFiles = clipboardFiles.filter(function(file) {
+          return !svgFiles.includes(file) && (file.type.startsWith("image/") || file.type.startsWith("video/"));
+        });
+        if (svgFiles.length > 0 || imageFiles.length > 0) {
           stopNativeInteraction(e);
-          var readPromises = imageFiles.map(function(file) {
-            return new Promise(function(resolve) {
-              var reader = new FileReader();
-              reader.onload = function() {
-                resolve({
-                  dataUrl: typeof reader.result === "string" ? reader.result : "",
-                  type: file.type,
-                  name: file.name
-                });
-              };
-              reader.onerror = function() {
-                resolve(null);
-              };
-              reader.readAsDataURL(file);
+          var relayImageFiles = function() {
+            if (imageFiles.length === 0) return;
+            var readPromises = imageFiles.map(function(file) {
+              return new Promise(function(resolve) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                  resolve({
+                    dataUrl: typeof reader.result === "string" ? reader.result : "",
+                    type: file.type,
+                    name: file.name
+                  });
+                };
+                reader.onerror = function() {
+                  resolve(null);
+                };
+                reader.readAsDataURL(file);
+              });
             });
-          });
-          void Promise.all(readPromises).then(function(results) {
-            var valid = results.filter(function(r) {
-              return r && r.dataUrl;
+            void Promise.all(readPromises).then(function(results) {
+              var valid = results.filter(function(r) {
+                return r && r.dataUrl;
+              });
+              if (valid.length > 0) {
+                window.parent.postMessage(
+                  { type: "canvas-image-paste", files: valid },
+                  "*"
+                );
+              }
             });
-            if (valid.length > 0) {
+          };
+          void Promise.all(
+            svgFiles.map(function(file) {
+              if (file.size > 1e6) {
+                return Promise.resolve({ error: "too-large" });
+              }
+              return file.text().then(function(source) {
+                return { source };
+              }).catch(function() {
+                return { error: "unreadable" };
+              });
+            })
+          ).then(function(results) {
+            for (var result of results) {
               window.parent.postMessage(
-                { type: "canvas-image-paste", files: valid },
+                result.source ? {
+                  type: "figma-clipboard-paste",
+                  content: "",
+                  svg: result.source
+                } : {
+                  type: "figma-clipboard-paste",
+                  content: "",
+                  svgFileError: result.error
+                },
                 "*"
               );
             }
+            relayImageFiles();
           });
           return;
         }
