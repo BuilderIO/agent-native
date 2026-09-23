@@ -494,6 +494,11 @@ export const runBrainMigrations = runMigrations(
         ALTER TABLE IF EXISTS brain_source_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 27,
+      name: "brain-sensitivity-decision-scores",
+      sql: `ALTER TABLE brain_sensitivity_events ADD COLUMN IF NOT EXISTS decision_scores_json TEXT`,
+    },
   ],
   { table: "brain_migrations" },
 );
