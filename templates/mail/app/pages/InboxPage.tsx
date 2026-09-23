@@ -520,6 +520,7 @@ export function InboxPage() {
     return Promise.resolve();
   }, [inboxHasNextPage, inboxIsFetchingNextPage, inboxExtraPages]);
   const inboxAccountErrors = useMemo(() => {
+    if (inboxThreads.isPlaceholderData) return undefined;
     // Also covers `needs_reauth`: an account needing reconnection has unread
     // rows we could not read either, so it must count toward incomplete
     // coverage the same as a sync error (the reconnect-specific banner in
@@ -544,7 +545,11 @@ export function InboxPage() {
     );
     const combined = [...inboxErrors, ...labelErrors];
     return combined.length ? combined : undefined;
-  }, [inboxThreads.data?.accounts, labelAccountErrors]);
+  }, [
+    inboxThreads.data?.accounts,
+    inboxThreads.isPlaceholderData,
+    labelAccountErrors,
+  ]);
 
   useEffect(() => {
     if (

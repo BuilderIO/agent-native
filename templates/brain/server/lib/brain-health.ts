@@ -1,3 +1,7 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
@@ -7,6 +11,7 @@ import { getDb, schema } from "../db/index.js";
 import { nextBrainSourceSyncAt } from "../jobs/sync-sources.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import { parseJson, readBrainSettings } from "./brain.js";
+import { probeJevCredential } from "./jev-classifier.js";
 import { brainPrivacyReadiness } from "./privacy-readiness.js";
 import {
   BRAIN_SEARCH_INDEX_VERSION,
@@ -578,7 +583,13 @@ export async function readBrainHealth() {
       .map((artifact) => artifact.captureId),
   ).size;
   const privacySettings = await readBrainSettings();
-  const privacyClassifier = brainPrivacyReadiness(privacySettings);
+  const privacyClassifier = brainPrivacyReadiness(
+    privacySettings,
+    await probeJevCredential({
+      ownerEmail: getRequestUserEmail() ?? "",
+      orgId: getRequestOrgId(),
+    }),
+  );
   const lastEval = await readBrainEvalSnapshot();
 
   const realSources = sourceSummaries.filter((source) => !source.demo);

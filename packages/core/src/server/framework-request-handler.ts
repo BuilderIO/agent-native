@@ -29,6 +29,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
+import { PUBLIC_PATHNAME_CONTEXT_KEY } from "./framework-request-context.js";
 import {
   getFrameworkRoutePrefix,
   internalFrameworkPath,
@@ -59,7 +60,6 @@ const EARLY_FRAMEWORK_PATHS_KEY = "_agentNativeEarlyFrameworkPaths";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
-const PUBLIC_PATHNAME_CONTEXT_KEY = "_frameworkPublicPathname";
 const RETIRED_PATH_CONTEXT_KEY = "_frameworkRetiredPathname";
 
 const CANONICAL_AUTH_EARLY_PATHS = [
@@ -176,11 +176,7 @@ function translatePublicFrameworkRequest(event: H3Event): void {
   }
 }
 
-/** The public pathname the browser requested, when the boundary rewrote it. */
-export function getPublicFrameworkPathname(event: H3Event): string | undefined {
-  const value = (event as any).context?.[PUBLIC_PATHNAME_CONTEXT_KEY];
-  return typeof value === "string" ? value : undefined;
-}
+export { getPublicFrameworkPathname } from "./framework-request-context.js";
 
 /**
  * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API

@@ -21,7 +21,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-22"
 ---
 
 # Document editor
@@ -39,6 +39,7 @@ Ravi turns a paragraph into a callout, anchors a Comment, accepts an agent edit,
 - One visual document surface edits the canonical Blocks field and retains stable Page and block identity.
 - Agent proposals use the ordinary action, review, and history path; they are not a private inline editor.
 - Collaborators see reconciliation and failures honestly rather than silently losing edits.
+- Refresh and tab lifecycle saves carry durable editor lineage so stale recovery writes cannot reopen settled work; overlapping local intent wins only within Content's explicit reconciliation policy, with displaced versions retained in History.
 
 ## Boundaries and non-goals
 
@@ -57,7 +58,7 @@ Given media, comments, and an agent mutation, when export runs, then visible con
 
 ## Current evidence
 
-`app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` are donors; a joined end-to-end workflow is unproved.
+`app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` now share revisioned saves, idempotent external edits, and generation-fenced recovery. Focused transaction tests and a local browser/external-action pass cover immediate refresh and independent edits; the complete responsive and deployed collaboration matrix remains unproved.
 
 ## Proof plan
 

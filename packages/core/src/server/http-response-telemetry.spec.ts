@@ -12,6 +12,7 @@ import {
   type TrackingEvent,
 } from "../tracking/index.js";
 import {
+  getHttpRequestTelemetryId,
   installHttpResponseTelemetryHooks,
   normalizeHttpTelemetryPath,
   recordFrameworkReadyWait,
@@ -59,7 +60,9 @@ function eventFor(path: string) {
     url,
     context: {},
     req: new Request(url, { method: "GET" }),
-    res: { status: 200, headers: new Headers() },
+    // `errHeaders` mirrors real h3 H3Event.res: a bucket separate from
+    // `headers` that a thrown createError()'s response is built from.
+    res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
   };
 }
 
@@ -546,5 +549,85 @@ describe("http response telemetry", () => {
       duration_ms: 2_400,
       path: "/reports/:id",
     });
+  });
+
+  it("attributes http.response app/template from the deploy URL instead of the unset display name", async () => {
+    // getAppConfig().app.name is an optional display name (APP_NAME or
+    // npm_package_name) that Lambda never sets, so it silently dropped `app`
+    // and `template` from every deployed row. trackingIdentityProperties
+    // falls back to the platform's deploy URL env var instead.
+    vi.stubEnv("APP_URL", "https://slides.agent-native.com");
+    const { requestHooks, responseHooks } = createHooks();
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/get-deck");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(
+      tracked.find((entry) => entry.name === "http.response")?.properties,
+    ).toMatchObject({ app: "slides", template: "slides" });
+  });
+
+  it("attributes a beta host to the production app slug", async () => {
+    vi.stubEnv("APP_URL", "https://beta.slides.agent-native.com");
+    const { requestHooks, responseHooks } = createHooks();
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/get-deck");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(
+      tracked.find((entry) => entry.name === "http.response")?.properties,
+    ).toMatchObject({ app: "slides", template: "slides" });
+  });
+
+  it("writes the request-id header to both h3 response header buckets before the handler runs, so a guard's thrown error still carries it", async () => {
+    // h3 builds a thrown createError()'s response from `res.errHeaders`, a
+    // bucket separate from `res.headers` (its own CORS helpers write the
+    // same header to both, for the same reason). Only ever writing
+    // `res.headers` — as the "response" hook below still also does, for the
+    // ordinary success path — left every guard-rejected 401/403 action with
+    // no x-agent-native-request-id on the wire.
+    const { requestHooks } = createHooks();
+    const event = eventFor("/_agent-native/actions/get-labs");
+
+    await requestHooks[0](event);
+
+    const requestId = getHttpRequestTelemetryId(event as any);
+    expect(requestId).toEqual(expect.any(String));
+    expect(event.res.headers.get("x-agent-native-request-id")).toBe(requestId);
+    expect(event.res.errHeaders.get("x-agent-native-request-id")).toBe(
+      requestId,
+    );
+  });
+
+  it("carries app attribution into the slow-request log line too", async () => {
+    vi.stubEnv("APP_URL", "https://slides.agent-native.com");
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+
+    const startedAt = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    const event = eventFor("/reports/42");
+    await requestHooks[0](event);
+    nowSpy.mockReturnValue(startedAt + 2_400);
+    await responseHooks[0](new Response("ok"), event);
+    nowSpy.mockRestore();
+
+    expect(loggedLines()[0]).toMatchObject({ app: "slides" });
   });
 });

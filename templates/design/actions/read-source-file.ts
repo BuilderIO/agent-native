@@ -25,6 +25,12 @@ export default defineAction({
       path: ["path"],
     }),
   readOnly: true,
+  // Matches get-design.ts: access is enforced by resolveSourceWorkspace's own
+  // resolveAccess('design', designId) call (404 for a private design), not by
+  // the blanket session guard. Without this, every anonymous /visual-edit/:id
+  // visitor 401s here even for a public design get-design already lets them
+  // read in full.
+  requiresAuth: false,
   http: { method: "GET" },
   run: async ({ designId, path, fileId }) => {
     const workspace = await resolveSourceWorkspace(designId, {

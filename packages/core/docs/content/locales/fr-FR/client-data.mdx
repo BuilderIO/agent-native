@@ -405,7 +405,7 @@ Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est
   returns={{ type: "void" }}
 />
 
-Ce hook est destiné à maintenir l'UI synchronisée avec les changements de base de données qui se produisent en dehors de vos propres actions, comme une écriture de l'agent, un webhook, ou un changement effectué depuis un autre onglet du navigateur. Il écoute les changements via des événements envoyés par le serveur, et revient à l'interrogation lorsque les événements envoyés par le serveur ne sont pas disponibles.
+Ce hook est destiné à maintenir l'UI synchronisée avec les changements de base de données qui se produisent en dehors de vos propres actions, comme une écriture de l'agent, un webhook, ou un changement effectué depuis un autre onglet du navigateur. Il écoute les changements via des événements envoyés par le serveur, et revient à l'interrogation lorsque les événements envoyés par le serveur ne sont pas disponibles. Sur un déploiement serverless de production, le flux `/_agent-native/events` propre à l'app n'est pas disponible par conception — le serveur répond immédiatement par un 204 plutôt que de garder une instance de fonction ouverte —, si bien que l'interrogation y assure toute la synchronisation, au même rythme, sauf si l'app a activé la [passerelle de synchronisation temps réel hébergée](/docs/real-time-collaboration#hosted-gateway).
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

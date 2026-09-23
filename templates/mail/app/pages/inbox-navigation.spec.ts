@@ -265,6 +265,17 @@ describe("Inbox navigation commands", () => {
       'account.state === "error" || account.state === "needs_reauth"',
     );
   });
+
+  it("does not carry inbox account errors into placeholder tab data", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "if (inboxThreads.isPlaceholderData) return undefined;",
+    );
+    expect(source).toContain(
+      "    inboxThreads.isPlaceholderData,\n    labelAccountErrors,\n  ]);",
+    );
+  });
 });
 
 describe("Inbox pagination", () => {

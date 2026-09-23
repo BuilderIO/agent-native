@@ -65,12 +65,17 @@ import {
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../../lib/pending-redactions.js";
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
+  editsJson?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
   ownerEmail?: string | null;
@@ -369,6 +374,13 @@ export default defineEventHandler(async (event: H3Event) => {
       ) {
         setResponseStatus(event, 410);
         return { error: "Recording has expired" };
+      }
+      // Held while redactions are drawn but not burned in. This is the gate
+      // that matters: a link handed out before the box was drawn still points
+      // here, and the file behind it still shows what the box is over.
+      if (isHeldForRedaction(rec.editsJson, role)) {
+        setResponseStatus(event, 409);
+        return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
       }
 
       // Password gate — owners skip it (they set it). Same behavior as

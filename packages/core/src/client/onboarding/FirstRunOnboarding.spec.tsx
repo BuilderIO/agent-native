@@ -35,6 +35,12 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
+vi.mock("../settings/deferred-builder-connect-popover.js", async () => {
+  const { BuilderConnectPopover } =
+    await import("../settings/BuilderConnectPopover.js");
+  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
+});
+
 describe("FirstRunOnboarding", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -79,9 +85,18 @@ describe("FirstRunOnboarding", () => {
             id: "images",
             label: "Images",
             required: false,
+            suggested: true,
             builderIncluded: true,
             keySummary: "Image provider key",
             why: "Needed for image generation",
+          },
+          {
+            id: "figma",
+            label: "Figma",
+            required: false,
+            builderIncluded: false,
+            keySummary: "Figma personal access token",
+            why: "Only needed to read or update files in Figma.",
           },
           {
             id: "design-system-intelligence",
@@ -374,6 +389,29 @@ describe("FirstRunOnboarding", () => {
         button.textContent?.trim().endsWith("more"),
       ),
     ).toBeUndefined();
+  });
+
+  it("keeps per-app optional keys off both setup cards", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain("LLM provider key");
+    expect(document.body.textContent).toContain("Image provider key");
+    expect(document.body.textContent).not.toContain(
+      "Figma personal access token",
+    );
+    expect(document.body.textContent).not.toContain("Optional");
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
@@ -679,6 +717,60 @@ describe("FirstRunOnboarding", () => {
 
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("saves a custom role when Other is selected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-other'] input")
+        ?.click();
+    });
+
+    const continueButton = document.body.querySelector(
+      "[data-onboarding-screen='role'] button.bg-primary",
+    ) as HTMLButtonElement;
+    expect(continueButton.disabled).toBe(true);
+
+    const input = document.body.querySelector(
+      "[data-testid='first-run-role-other-input']",
+    ) as HTMLInputElement;
+    act(() => {
+      const setNativeValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setNativeValue?.call(input, "  Content strategist  ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(continueButton.disabled).toBe(false);
+    await act(async () => {
+      continueButton.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/onboarding/first-run/role"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ role: "Content strategist" }),
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_role_save_started",
+      { flow: "first_run", step_id: "role", role: "other" },
+    );
   });
 
   // Regression: Skip used to fire-and-forget completeFirstRun() with `void`,

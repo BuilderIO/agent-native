@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   sendToAgentChat: vi.fn(),
   sessionStatus: "authenticated" as string,
+  changeVersion: 0,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -15,8 +16,12 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mocks.callAction(...args),
-  useChangeVersions: vi.fn(() => "0"),
   useSession: vi.fn(() => ({ status: mocks.sessionStatus })),
+  // The hook itself no longer reads this. Kept mocked as a changing value so
+  // an exact revert of the actionVersion-dependency fix (see "does not
+  // restart the poll on an unrelated re-render" below) is caught instead of
+  // passing for the wrong reason.
+  useChangeVersions: vi.fn(() => mocks.changeVersion),
 }));
 
 import {
@@ -60,6 +65,7 @@ function BridgeHarness() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.sessionStatus = "authenticated";
+  mocks.changeVersion = 0;
   mocks.callAction.mockResolvedValue({ requests: [request] });
 });
 
@@ -115,7 +121,12 @@ describe("transactional email bridge", () => {
     );
   });
 
-  it("wakes up every 60 seconds for file-backed worker writes", async () => {
+  it("wakes up every few minutes for worker writes the browser can't observe", async () => {
+    // clips_transactional_email_jobs is SQL, but the cron job that claims and
+    // completes a job writes to it directly without bumping a change
+    // version, so this timer is the only thing that notices new work.
+    expect(TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS).toBe(3 * 60_000);
+
     vi.useFakeTimers();
     mocks.callAction.mockResolvedValue({ requests: [] });
     const container = document.createElement("div");
@@ -125,6 +136,43 @@ describe("transactional email bridge", () => {
     await act(async () => {
       root?.render(createElement(BridgeHarness));
     });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(
+        TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS - 1,
+      );
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    container.remove();
+  });
+
+  it("does not restart the poll on an unrelated re-render", async () => {
+    // The interval used to sit in an effect keyed on the app-wide action
+    // change version, so any mutation anywhere in the app re-fired this
+    // no-op claim poll immediately instead of waiting out the interval.
+    vi.useFakeTimers();
+    mocks.callAction.mockResolvedValue({ requests: [] });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(createElement(BridgeHarness));
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < 5; i++) {
+      mocks.changeVersion += 1;
+      await act(async () => {
+        root?.render(createElement(BridgeHarness));
+      });
+    }
     expect(mocks.callAction).toHaveBeenCalledTimes(1);
 
     await act(async () => {

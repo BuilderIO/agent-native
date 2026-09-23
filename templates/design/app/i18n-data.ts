@@ -701,6 +701,7 @@ const enUS = {
       figImportSelected: "Import {{count}} selected",
       figImportAll: "Import all",
       figImportAnalyzing: "Analyzing…",
+      figImportSaving: "Saving {{saved}} of {{total}} frames",
       figUploadDescriptionShort:
         "Local import — no Figma API quota used. Supported embedded images are included.",
       figUploadImagesSkippedWarning:
@@ -1221,6 +1222,8 @@ const enUS = {
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       saveConflict:
         "This screen changed elsewhere. Your last edit was not saved.",
+      versionHistoryUnavailable:
+        "Version history is unavailable for this design. Your edit was still saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       booleanSubtractUnsupported:
         "Select adjacent rectangles or ellipses with solid fills to subtract them.",
@@ -1372,6 +1375,7 @@ const enUS = {
     startBlankCanvasHint: "Draw it yourself with frames, shapes and text.",
     designSystem: "Design system",
     noDesignSystem: "No design system",
+    designSystemIndexing: "Indexing…",
     newDesignSystem: "New",
     createDesignSystem: "Create design system",
     template: "Template",
@@ -2119,6 +2123,7 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
         saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
+        versionHistoryUnavailable: "此设计暂无法使用版本历史。您的编辑已保存。",
       },
     },
     designSystemSetup: {
@@ -2585,6 +2590,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
         saveConflict:
           "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
+        versionHistoryUnavailable:
+          "El historial de versiones no está disponible para este diseño. Tu edición se guardó de todos modos.",
       },
     },
     designSystemSetup: {
@@ -3079,6 +3086,8 @@ const designLocaleOverrides = {
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
         saveConflict:
           "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
+        versionHistoryUnavailable:
+          "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -3573,6 +3582,8 @@ const designLocaleOverrides = {
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
         saveConflict:
           "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
+        versionHistoryUnavailable:
+          "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
       },
     },
     designSystemSetup: {
@@ -4065,6 +4076,8 @@ const designLocaleOverrides = {
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
         saveConflict:
           "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
+        versionHistoryUnavailable:
+          "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
       },
     },
     designSystemSetup: {
@@ -4552,6 +4565,8 @@ const designLocaleOverrides = {
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         saveConflict:
           "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
+        versionHistoryUnavailable:
+          "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       },
     },
     designSystemSetup: {
@@ -5032,6 +5047,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
         saveConflict:
           "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
+        versionHistoryUnavailable:
+          "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
       },
     },
     designSystemSetup: {
@@ -5517,6 +5534,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
+        versionHistoryUnavailable:
+          "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       },
     },
     designSystemSetup: {
@@ -5990,6 +6009,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
         saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
+        versionHistoryUnavailable:
+          "سجل الإصدارات غير متاح لهذا التصميم. تم حفظ تعديلك رغم ذلك.",
       },
     },
     designSystemSetup: {
@@ -6291,6 +6312,7 @@ const designRawLiteralOverrides = {
         "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
       designSystem: "Design系统",
       noDesignSystem: "没有设计系统",
+      designSystemIndexing: "正在索引…",
       newDesignSystem: "新",
       addAttachment: "添加",
       removeAttachment: "删除{{name}}",
@@ -6454,6 +6476,7 @@ const designRawLiteralOverrides = {
         "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
       designSystem: "sistema Design",
       noDesignSystem: "Sin sistema de diseño",
+      designSystemIndexing: "Indexando…",
       newDesignSystem: "Nuevo",
       addAttachment: "Añadir",
       removeAttachment: "Eliminar {{name}}",
@@ -6621,6 +6644,7 @@ const designRawLiteralOverrides = {
         "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
       designSystem: "Système Design",
       noDesignSystem: "Aucun système de conception",
+      designSystemIndexing: "Indexation…",
       newDesignSystem: "Nouveau",
       addAttachment: "Ajouter",
       removeAttachment: "Supprimer {{name}}",
@@ -6788,6 +6812,7 @@ const designRawLiteralOverrides = {
         "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
       designSystem: "Design-System",
       noDesignSystem: "Kein Designsystem",
+      designSystemIndexing: "Wird indiziert…",
       newDesignSystem: "Neu",
       addAttachment: "Hinzufügen",
       removeAttachment: "Entfernen Sie {{name}}",
@@ -6955,6 +6980,7 @@ const designRawLiteralOverrides = {
         "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
       designSystem: "Designシステム",
       noDesignSystem: "デザインシステムがない",
+      designSystemIndexing: "インデックス作成中…",
       newDesignSystem: "新しい",
       addAttachment: "追加",
       removeAttachment: "{{name}} を削除",
@@ -7117,6 +7143,7 @@ const designRawLiteralOverrides = {
         "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
       designSystem: "Design 시스템",
       noDesignSystem: "디자인 시스템 없음",
+      designSystemIndexing: "색인 생성 중…",
       newDesignSystem: "새로운",
       addAttachment: "추가",
       removeAttachment: "{{name}} 제거",
@@ -7281,6 +7308,7 @@ const designRawLiteralOverrides = {
         "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
       designSystem: "Sistema Design",
       noDesignSystem: "Nenhum sistema de design",
+      designSystemIndexing: "Indexando…",
       newDesignSystem: "Novo",
       addAttachment: "Adicionar",
       removeAttachment: "Remover {{name}}",
@@ -7446,6 +7474,7 @@ const designRawLiteralOverrides = {
         "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
       designSystem: "Design प्रणाली",
       noDesignSystem: "कोई डिज़ाइन प्रणाली नहीं",
+      designSystemIndexing: "इंडेक्स हो रहा है…",
       newDesignSystem: "नया",
       addAttachment: "जोड़ें",
       removeAttachment: "{{name}} हटाएँ",
@@ -7608,6 +7637,7 @@ const designRawLiteralOverrides = {
         "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
       designSystem: "نظام Design",
       noDesignSystem: "لا يوجد نظام التصميم",
+      designSystemIndexing: "جارٍ الفهرسة…",
       newDesignSystem: "جديد",
       addAttachment: "أضف",
       removeAttachment: "إزالة {{name}}",
@@ -13109,6 +13139,7 @@ const designImportOverrides = {
         figImportSelected: "匯入已選取的 {{count}} 個",
         figImportAll: "全部匯入",
         figImportAnalyzing: "分析中…",
+        figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -13189,6 +13220,7 @@ const designImportOverrides = {
         figImportSelected: "导入已选择的 {{count}} 个",
         figImportAll: "全部导入",
         figImportAnalyzing: "正在分析…",
+        figImportSaving: "正在保存 {{saved}} / {{total}} 个画框",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -13272,6 +13304,7 @@ const designImportOverrides = {
         figImportSelected: "Importar {{count}} seleccionados",
         figImportAll: "Importar todo",
         figImportAnalyzing: "Analizando…",
+        figImportSaving: "Guardando {{saved}} de {{total}} marcos",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -13357,6 +13390,7 @@ const designImportOverrides = {
         figImportSelected: "Importer {{count}} sélectionnés",
         figImportAll: "Tout importer",
         figImportAnalyzing: "Analyse…",
+        figImportSaving: "Enregistrement de {{saved}} cadres sur {{total}}",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -13442,6 +13476,7 @@ const designImportOverrides = {
         figImportSelected: "{{count}} ausgewählte importieren",
         figImportAll: "Alle importieren",
         figImportAnalyzing: "Wird analysiert…",
+        figImportSaving: "{{saved}} von {{total}} Frames werden gespeichert",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -13526,6 +13561,7 @@ const designImportOverrides = {
         figImportSelected: "選択した {{count}} 個をインポート",
         figImportAll: "すべてインポート",
         figImportAnalyzing: "分析中…",
+        figImportSaving: "{{total}} 個中 {{saved}} 個のフレームを保存中",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -13610,6 +13646,7 @@ const designImportOverrides = {
         figImportSelected: "선택한 {{count}}개 가져오기",
         figImportAll: "모두 가져오기",
         figImportAnalyzing: "분석 중…",
+        figImportSaving: "{{total}}개 중 {{saved}}개 프레임 저장 중",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -13696,6 +13733,7 @@ const designImportOverrides = {
         figImportSelected: "Importar {{count}} selecionados",
         figImportAll: "Importar tudo",
         figImportAnalyzing: "Analisando…",
+        figImportSaving: "Salvando {{saved}} de {{total}} quadros",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -13781,6 +13819,7 @@ const designImportOverrides = {
         figImportSelected: "{{count}} चुने हुए आयात करें",
         figImportAll: "सभी आयात करें",
         figImportAnalyzing: "विश्लेषण हो रहा है…",
+        figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -13865,6 +13904,7 @@ const designImportOverrides = {
         figImportSelected: "استيراد {{count}} المحددة",
         figImportAll: "استيراد الكل",
         figImportAnalyzing: "جار التحليل…",
+        figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",

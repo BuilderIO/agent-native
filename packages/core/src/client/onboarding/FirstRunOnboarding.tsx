@@ -28,7 +28,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
@@ -117,6 +117,7 @@ export function FirstRunOnboarding({
   );
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [customRole, setCustomRole] = useState("");
   const [savingRole, setSavingRole] = useState(false);
   const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
@@ -280,7 +281,8 @@ export function FirstRunOnboarding({
   }
 
   const builderCapabilities = profile.capabilities.filter(
-    (capability) => capability.builderIncluded,
+    (capability) =>
+      capability.builderIncluded && isHeadlineCapability(capability),
   );
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
@@ -326,18 +328,20 @@ export function FirstRunOnboarding({
   };
 
   const handleRoleContinue = async () => {
-    if (!selectedRole || savingRole) return;
+    const roleToSave =
+      selectedRole === "other" ? customRole.trim() : selectedRole;
+    if (!roleToSave || savingRole) return;
     setSavingRole(true);
     setRoleSaveError(null);
     if (!previewMode) {
       trackOnboardingEvent("onboarding_role_save_started", {
         flow: "first_run",
         step_id: "role",
-        role: selectedRole,
+        role: selectedRole === "other" ? "other" : selectedRole,
       });
     }
     try {
-      if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
+      if (!previewMode) await saveFirstRunOnboardingRole(roleToSave);
       trackFirstRunStepCompleted("role");
       setScreen("choice");
     } catch (error) {
@@ -485,7 +489,7 @@ export function FirstRunOnboarding({
                     </div>
                   ))}
                 </div>
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={connectFlow}
                   onConnect={(provisionAccount) =>
                     handleBuilder(provisionAccount)
@@ -507,7 +511,7 @@ export function FirstRunOnboarding({
                     )}
                     <IconArrowRight size={15} />
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
                 {connectFlow.error && !connectFlow.statusResolved && (
                   <p
                     role="status"
@@ -634,6 +638,26 @@ export function FirstRunOnboarding({
               </label>
             ))}
           </fieldset>
+          {selectedRole === "other" && (
+            <div className="mt-4 flex flex-col gap-2">
+              <label
+                htmlFor="first-run-role-other"
+                className="text-sm font-medium text-foreground"
+              >
+                {t("agentChat.onboarding.roleOtherInputLabel")}
+              </label>
+              <input
+                id="first-run-role-other"
+                data-testid="first-run-role-other-input"
+                type="text"
+                value={customRole}
+                maxLength={120}
+                disabled={savingRole}
+                onChange={(event) => setCustomRole(event.target.value)}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          )}
           {roleSaveError && (
             <p className="mt-4 text-xs leading-5 text-destructive" role="alert">
               {roleSaveError}
@@ -656,7 +680,11 @@ export function FirstRunOnboarding({
               type="button"
               className={primaryButtonClass}
               onClick={() => void handleRoleContinue()}
-              disabled={!selectedRole || savingRole}
+              disabled={
+                !selectedRole ||
+                (selectedRole === "other" && !customRole.trim()) ||
+                savingRole
+              }
             >
               {savingRole
                 ? t("agentChat.common.saving")
@@ -881,14 +909,15 @@ function CapabilityList({
 }) {
   const t = useT();
   const visibleCapabilities = useMemo(() => {
-    const required = capabilities.filter((capability) => capability.required);
-    const suggested = capabilities.filter(
+    const headline = capabilities.filter(isHeadlineCapability);
+    const required = headline.filter((capability) => capability.required);
+    const suggested = headline.filter(
       (capability) => !capability.required && capability.suggested,
     );
-    const optional = capabilities.filter(
+    const noManualPath = headline.filter(
       (capability) => !capability.required && !capability.suggested,
     );
-    return [...required, ...suggested, ...optional];
+    return [...required, ...suggested, ...noManualPath];
   }, [capabilities]);
 
   return (
@@ -913,6 +942,19 @@ function CapabilityList({
 // instead of mislabeling it "Optional".
 const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
 
+/** The setup cards are a scannable comparison, not a capability inventory:
+ *  they carry what the app needs (required), what we recommend (suggested),
+ *  and the Builder-only rows that make the manual column honest. Per-app
+ *  extras like an optional Figma token belong in Settings, where the user is
+ *  actually choosing them. */
+function isHeadlineCapability(capability: OnboardingCapability): boolean {
+  return (
+    capability.required ||
+    !!capability.suggested ||
+    NO_MANUAL_PATH_CAPABILITY_IDS.has(capability.id)
+  );
+}
+
 function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
   if (NO_MANUAL_PATH_CAPABILITY_IDS.has(copy.id)) {
     return (
@@ -925,13 +967,14 @@ function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-1">
       <IconKey className="shrink-0 text-muted-foreground" size={14} />
-      <span className="flex-1 text-xs text-foreground">{copy.keySummary}</span>
+      <span
+        className="min-w-0 flex-1 truncate text-xs text-foreground"
+        title={copy.keySummary}
+      >
+        {copy.keySummary}
+      </span>
       <span className="shrink-0 text-xs text-muted-foreground">
-        {copy.required
-          ? "Required"
-          : copy.suggested
-            ? "Recommended"
-            : "Optional"}
+        {copy.required ? "Required" : "Recommended"}
       </span>
     </div>
   );

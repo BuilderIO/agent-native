@@ -79,3 +79,44 @@ describe("Design import/export action contracts", () => {
     },
   );
 });
+
+describe("import-design-source fig-frame batch contract", () => {
+  const frame = (index: number) => ({
+    content: "<main>Frame</main>",
+    frameX: 0,
+    frameY: 0,
+    clientImportId: `batch-1:frame:${index}`,
+  });
+
+  it("accepts batches of up to 32 frames and batch aborts", () => {
+    const batch = {
+      sourceType: "fig-frame",
+      clientImportBatchId: "batch-1",
+      clientImportFinalBatch: true,
+      frames: Array.from({ length: 32 }, (_, index) => frame(index)),
+    };
+    expect(importDesignSource.schema.safeParse(batch).success).toBe(true);
+    expect(
+      importDesignSource.schema.safeParse({
+        ...batch,
+        frames: Array.from({ length: 33 }, (_, index) => frame(index)),
+      }).success,
+    ).toBe(false);
+    expect(
+      importDesignSource.schema.safeParse({
+        sourceType: "fig-frame",
+        clientImportBatchId: "batch-1",
+        abort: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      importDesignSource.schema.safeParse({
+        ...batch,
+        clientImportBatchId: "batch:1",
+      }).success,
+    ).toBe(false);
+    expect(importDesignSource.maxBodyBytes).toBeLessThanOrEqual(
+      4 * 1024 * 1024,
+    );
+  });
+});

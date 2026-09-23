@@ -102,3 +102,80 @@ SELECT
   user_key
 FROM tenant_user_days
 GROUP BY tenant_key, event_date, user_key;
+
+-- Canonical action.response reliability/latency shape — mirrors
+-- ACTION_RESPONSE_WEIGHT_SQL / ACTION_RESPONSE_OUTCOME_CLASS_SQL in
+-- templates/analytics/server/lib/first-party-metric-catalog.ts. Row-level
+-- (not pre-aggregated) so BigQuery callers can group by whatever window or
+-- dimension subset they need, same as the Postgres catalog does. `weight`
+-- must be SUMmed for counts and used to bucket `duration_ms` into a
+-- cumulative-weight quantile — never a raw COUNT/APPROX_QUANTILES, which
+-- would count each 10%-sampled fast success as one call instead of
+-- `sample_weight` many. `outcome_class = 'cancelled'` (a superseded/unmounted
+-- browser fetch) and `'suspended'` (a hidden-tab timeout, no real server
+-- wait) must stay out of both the success and failure side of a reliability
+-- rate.
+CREATE OR REPLACE VIEW `builder-3b0a2.analytics.first_party_action_responses` AS
+SELECT
+  CASE
+    WHEN org_id IS NOT NULL AND org_id <> '' THEN CONCAT('org:', org_id)
+    ELSE CONCAT('user:', owner_email)
+  END AS tenant_key,
+  owner_email,
+  org_id,
+  event_date,
+  session_id,
+  -- Mirrors TEMPLATE_EXPR in first-party-metric-catalog.ts: template (and its
+  -- properties fallbacks) win over app, so a row like template='chat' /
+  -- app='cs-account-health' attributes the same way here as on the Postgres
+  -- sink.
+  COALESCE(
+    NULLIF(template, ''),
+    NULLIF(JSON_VALUE(properties, '$.templateId'), ''),
+    NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''),
+    NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''),
+    NULLIF(app, ''),
+    NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''),
+    NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''),
+    'unknown'
+  ) AS app,
+  COALESCE(NULLIF(JSON_VALUE(properties, '$.action'), ''), 'unknown') AS action,
+  CASE
+    WHEN UPPER(COALESCE(JSON_VALUE(properties, '$.method'), '')) = 'GET' THEN 'read'
+    ELSE 'mutation'
+  END AS call_type,
+  CASE
+    WHEN NULLIF(user_id, '') IS NOT NULL THEN 'signed_in'
+    ELSE 'anonymous'
+  END AS auth_state,
+  CASE
+    WHEN hostname LIKE 'beta.%' THEN 'beta'
+    WHEN NULLIF(hostname, '') IS NOT NULL THEN 'prod'
+    ELSE 'unknown'
+  END AS deployment_env,
+  CASE
+    WHEN COALESCE(JSON_VALUE(properties, '$.outcome'), '') = 'cancelled' THEN 'cancelled'
+    WHEN COALESCE(JSON_VALUE(properties, '$.outcome'), '') = 'timeout'
+      AND COALESCE(JSON_VALUE(properties, '$.page_hidden'), '') = 'true' THEN 'suspended'
+    WHEN COALESCE(JSON_VALUE(properties, '$.success'), '') = 'true' THEN 'success'
+    ELSE 'failure'
+  END AS outcome_class,
+  CASE
+    WHEN JSON_VALUE(properties, '$.sample_weight') IS NOT NULL
+      THEN SAFE_CAST(JSON_VALUE(properties, '$.sample_weight') AS FLOAT64)
+    WHEN JSON_VALUE(properties, '$.success') = 'true'
+      AND COALESCE(SAFE_CAST(JSON_VALUE(properties, '$.duration_ms') AS FLOAT64), 1000) < 1000
+      AND COALESCE(SAFE_CAST(JSON_VALUE(properties, '$.status_code') AS INT64), 200) < 400
+      AND JSON_VALUE(properties, '$.framework_ready_wait_ms') IS NULL
+      AND JSON_VALUE(properties, '$.startup_db_operation_wall_ms') IS NULL
+      THEN 10
+    ELSE 1
+  END AS weight,
+  SAFE_CAST(JSON_VALUE(properties, '$.duration_ms') AS FLOAT64) AS duration_ms,
+  SAFE_CAST(JSON_VALUE(properties, '$.status_code') AS INT64) AS status_code,
+  -- Wall-clock duration for a call spanning a backgrounded tab is inflated by
+  -- browser timer throttling, not by the server or network; exclude these
+  -- from any latency quantile computed against this view.
+  NULLIF(JSON_VALUE(properties, '$.page_hidden'), '') AS page_hidden
+FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`
+WHERE event_name = 'action.response' AND event_date IS NOT NULL;

@@ -3,6 +3,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
@@ -226,6 +227,26 @@ describe("AppProviders session gate", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
+  it("emits the session bootstrap on private SSR paths only", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const privateMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false}>
+        <div>content</div>
+      </AppProviders>,
+    );
+    const publicMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+        <div>content</div>
+      </AppProviders>,
+    );
+
+    expect(privateMarkup).toContain('data-agent-native-session-bootstrap="1"');
+    expect(privateMarkup).toContain("AbortController");
+    expect(privateMarkup).toContain("abort()");
+    expect(publicMarkup).not.toContain("data-agent-native-session-bootstrap");
+  });
+
   it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
@@ -416,10 +437,12 @@ describe("AppProviders session gate", () => {
     // Bypass surfaces register immediately: a token-authenticated MCP embed's
     // host may call tools right away, so the manifest fetch must not wait out
     // the paint-aligned window (only the session-gated variant defers).
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/_agent-native/webmcp/manifest",
-      expect.objectContaining({ credentials: "same-origin" }),
-    );
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/webmcp/manifest",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+    });
 
     await vi.waitFor(() => {
       expect(modelContext.registerTool).toHaveBeenCalledWith(

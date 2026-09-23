@@ -408,7 +408,7 @@ describe("agent chat sidebar compositing invariants", () => {
 
   it("applies view-transition-name only while the drawer morph is running", () => {
     const source = readFileSync(
-      new URL("../client/AgentPanel.tsx", import.meta.url),
+      new URL("../client/AgentSidebar.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 

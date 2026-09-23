@@ -913,10 +913,49 @@ async function assertPendingWorkspaceAppCreationAvailable(
     ?.trim()
     .toLowerCase();
   if (ownerEmail && ownerEmail !== viewerEmail) {
-    throw new Error(
-      `Workspace app "${appId}" is already being created by another member.`,
-    );
+    throw new WorkspaceAppIdTakenError({
+      appId,
+      conflict: "pending",
+      owner: existing.createdBy ?? existing.owner,
+      message: `Workspace app "${appId}" is already being created by another member.`,
+    });
   }
+}
+
+/**
+ * A requested app id is already taken. Typed so reservation failures the caller
+ * can fix stay separable from the registry/storage failures these same helpers
+ * throw: only this one may be reported back as a normal result.
+ */
+export class WorkspaceAppIdTakenError extends Error {
+  readonly appId: string;
+  readonly conflict: "registered" | "pending";
+  readonly owner: string | null;
+
+  constructor(input: {
+    appId: string;
+    conflict: "registered" | "pending";
+    owner?: string | null;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = "WorkspaceAppIdTakenError";
+    this.appId = input.appId;
+    this.conflict = input.conflict;
+    this.owner = input.owner?.trim() || null;
+  }
+}
+
+function appIdTakenResult(
+  err: WorkspaceAppIdTakenError,
+): AppCreationAppIdTakenResult {
+  return {
+    mode: "app-id-taken",
+    appId: err.appId,
+    conflict: err.conflict,
+    owner: err.owner,
+    message: `${err.message} Choose a different app name and try again.`,
+  };
 }
 
 async function assertWorkspaceAppIdRegisteredFree(
@@ -935,7 +974,11 @@ async function assertWorkspaceAppIdRegisteredFree(
     );
   }
   if (existing.length > 0) {
-    throw new Error(`Workspace app "${appId}" is already registered.`);
+    throw new WorkspaceAppIdTakenError({
+      appId,
+      conflict: "registered",
+      message: `Workspace app "${appId}" is already registered.`,
+    });
   }
 }
 
@@ -960,13 +1003,15 @@ async function reservePendingWorkspaceApp(input: {
       .filter((app) => !isPendingWorkspaceAppExpired(app))
       .find((app) => app.id === input.appId);
     if (existing) {
-      throw new Error(
-        `Workspace app "${input.appId}" is already being created${
-          existing.createdBy || existing.owner
-            ? ` by ${existing.createdBy ?? existing.owner}`
-            : ""
+      const owner = existing.createdBy ?? existing.owner ?? null;
+      throw new WorkspaceAppIdTakenError({
+        appId: input.appId,
+        conflict: "pending",
+        owner,
+        message: `Workspace app "${input.appId}" is already being created${
+          owner ? ` by ${owner}` : ""
         }.`,
-      );
+      });
     }
 
     const reservation: PendingWorkspaceApp = {
@@ -2910,6 +2955,21 @@ export interface AppCreationComingSoonResult {
   message: string;
 }
 
+/**
+ * The requested app id collides with an existing app or an in-flight creation.
+ * Distinct from `builder-unavailable`: nothing is wrong with the deployment,
+ * and the caller fixes it by choosing another name.
+ */
+export interface AppCreationAppIdTakenResult {
+  mode: "app-id-taken";
+  appId: string;
+  /** `registered` = a live workspace app; `pending` = a creation in flight. */
+  conflict: "registered" | "pending";
+  /** Who is already creating it, when the conflict is a pending creation. */
+  owner: string | null;
+  message: string;
+}
+
 export interface AppCreationBuilderResult {
   mode: "builder";
   appId: string;
@@ -2925,6 +2985,7 @@ export interface AppCreationBuilderResult {
 export type StartWorkspaceAppCreationResult =
   | AppCreationIdentityUnavailableResult
   | AppCreationBuilderUnavailableResult
+  | AppCreationAppIdTakenResult
   | AppCreationLocalAgentResult
   | AppCreationComingSoonResult
   | AppCreationBuilderResult;
@@ -2960,7 +3021,12 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const creationVisibility = await workspaceAppDefaultVisibility();
-  await assertPendingWorkspaceAppCreationAvailable(initial.appId);
+  try {
+    await assertPendingWorkspaceAppCreationAvailable(initial.appId);
+  } catch (err) {
+    if (err instanceof WorkspaceAppIdTakenError) return appIdTakenResult(err);
+    throw err;
+  }
 
   const selectedKeys = input.secretIds?.length
     ? (await listSecretOptions())
@@ -3037,12 +3103,20 @@ export async function startWorkspaceAppCreation(input: {
     }
   }
 
-  await reservePendingWorkspaceApp({
-    appId: built.appId,
-    description: appDescription,
-    projectId: builderProjectId,
-    visibility: creationVisibility,
-  });
+  try {
+    await reservePendingWorkspaceApp({
+      appId: built.appId,
+      description: appDescription,
+      projectId: builderProjectId,
+      visibility: creationVisibility,
+    });
+  } catch (err) {
+    // Narrow on purpose: reservation also fails when the app registry cannot
+    // be read, and that must keep propagating rather than be reported as a
+    // name the caller can simply change.
+    if (err instanceof WorkspaceAppIdTakenError) return appIdTakenResult(err);
+    throw err;
+  }
 
   let result: {
     branchName: string;

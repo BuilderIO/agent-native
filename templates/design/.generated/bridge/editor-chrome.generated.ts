@@ -2539,6 +2539,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return containerScopeAncestor(resolved, scope);
     }
+    function plainClickSelectionTarget(hit) {
+      if (!designCanvasBoardSurface) {
+        selectionContainerScope = null;
+        return selectionTargetForHit(hit);
+      }
+      return containerFirstSelectionTarget(hit);
+    }
     function clickThroughSelectionTarget(hit, ev) {
       if (ev.detail > 1) return null;
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
@@ -6590,6 +6597,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       return false;
     }
     var HANDLE_MAX_INWARD_FRACTION = 0.25;
+    function isAxisAlignedTransform(transform) {
+      if (!transform || transform === "none") return true;
+      var matrixMatch = /^matrix\\(([^)]+)\\)$/.exec(transform);
+      if (matrixMatch) {
+        var matrixValues = matrixMatch[1].split(",").map(Number);
+        return matrixValues.length === 6 && matrixValues.every(function(value) {
+          return Number.isFinite(value);
+        }) && Math.abs(matrixValues[1]) < 1e-3 && Math.abs(matrixValues[2]) < 1e-3;
+      }
+      var matrix3dMatch = /^matrix3d\\(([^)]+)\\)$/.exec(transform);
+      if (!matrix3dMatch) return false;
+      var matrix3dValues = matrix3dMatch[1].split(",").map(Number);
+      return matrix3dValues.length === 16 && matrix3dValues.every(function(value) {
+        return Number.isFinite(value);
+      }) && Math.abs(matrix3dValues[1]) < 1e-3 && Math.abs(matrix3dValues[2]) < 1e-3 && Math.abs(matrix3dValues[3]) < 1e-3 && Math.abs(matrix3dValues[4]) < 1e-3 && Math.abs(matrix3dValues[6]) < 1e-3 && Math.abs(matrix3dValues[7]) < 1e-3 && Math.abs(matrix3dValues[8]) < 1e-3 && Math.abs(matrix3dValues[9]) < 1e-3 && Math.abs(matrix3dValues[11]) < 1e-3 && Math.abs(matrix3dValues[10] - 1) < 1e-3 && Math.abs(matrix3dValues[15] - 1) < 1e-3;
+    }
     function clampHandleInwardReach(nominalInward, elementDimension) {
       if (!Number.isFinite(elementDimension) || elementDimension <= 0) {
         return nominalInward;
@@ -8247,7 +8270,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : plainClickSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -12448,7 +12471,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return runtimeMutationApplied;
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId, requestIdOverride, runtimeInsert) {
       if (!el || !target || !target.anchor) return;
       var messageAnchor = collectMessages ? target.anchor : target.persistenceAnchor || target.anchor;
       var messagePlacement = collectMessages ? target.placement : target.persistencePlacement || target.placement;
@@ -12460,7 +12483,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         persistencePlacement: messagePlacement,
         dropMode: target.dropMode || "flow-insert"
       });
-      var requestId = "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      var requestId = requestIdOverride || "move-" + Date.now() + "-" + Math.random().toString(16).slice(2);
       pendingStructureMoves[requestId] = {
         requestId,
         el,
@@ -12498,6 +12521,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         // the change. The host must NOT tell the coding agent to relocate an
         // element the source file has never contained.
         insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
+        // A runtime insert has a separate applied acknowledgement. Its
+        // optimistic visual-structure echo is informational and must not be
+        // rejected independently, or the target bridge removes a successful
+        // cross-screen/canvas insert before the host records it.
+        runtimeInsert: runtimeInsert === true ? true : void 0,
         replaced: replaced === true ? true : void 0,
         replacementSnapshotHtml,
         sourceRect: rectInfoForElement(el),
@@ -16258,7 +16286,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : !designCanvasBoardSurface ? plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
           selectTarget(cycledEl, ev, true);
         } else {
@@ -16277,10 +16305,101 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
     }
+    var selectionHandleMoveRerouted = false;
+    function rerouteStaleSelectionHandleHitToMove(e) {
+      if (readOnly || !selectedEl || !document.documentElement.contains(selectedEl) || !e || e.button !== 0) {
+        return false;
+      }
+      var target = e.target;
+      var isResizeHandle = Boolean(
+        target && target.getAttribute && (target.getAttribute("data-agent-native-edit-handle") || target.getAttribute("data-agent-native-edge-handle"))
+      );
+      if (!isResizeHandle) return false;
+      var hadSuppressedHandleTransition = selectionOverlay.hasAttribute(
+        "data-agent-native-suppress-handle-transition"
+      );
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.setAttribute(
+          "data-agent-native-suppress-handle-transition",
+          ""
+        );
+      }
+      applySelectionHandleHitGeometry(selectedEl);
+      void selectionOverlay.offsetHeight;
+      var refreshedTarget = document.elementFromPoint(e.clientX, e.clientY);
+      var resizeHandlePosition = (target.getAttribute("data-agent-native-edit-handle") || target.getAttribute("data-agent-native-edge-handle") || "").toLowerCase();
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var selectedTransform = window.getComputedStyle(selectedEl).transform;
+      var isAxisAligned = isAxisAlignedTransform(selectedTransform);
+      var isClearlyInsideMoveBand = false;
+      if (isAxisAligned && e.clientX >= selectedRect.left && e.clientX <= selectedRect.right && e.clientY >= selectedRect.top && e.clientY <= selectedRect.bottom) {
+        var moveBandX = selectedRect.width * HANDLE_MAX_INWARD_FRACTION;
+        var moveBandY = selectedRect.height * HANDLE_MAX_INWARD_FRACTION;
+        var awayFromTop = e.clientY > selectedRect.top + moveBandY;
+        var awayFromBottom = e.clientY < selectedRect.bottom - moveBandY;
+        var awayFromLeft = e.clientX > selectedRect.left + moveBandX;
+        var awayFromRight = e.clientX < selectedRect.right - moveBandX;
+        var onTop = resizeHandlePosition.indexOf("n") !== -1;
+        var onBottom = resizeHandlePosition.indexOf("s") !== -1;
+        var onLeft = resizeHandlePosition.indexOf("w") !== -1;
+        var onRight = resizeHandlePosition.indexOf("e") !== -1;
+        isClearlyInsideMoveBand = (!onTop || awayFromTop) && (!onBottom || awayFromBottom) && (!onLeft || awayFromLeft) && (!onRight || awayFromRight);
+      }
+      var refreshedResizeHandle = Boolean(
+        refreshedTarget && refreshedTarget.getAttribute && (refreshedTarget.getAttribute("data-agent-native-edit-handle") || refreshedTarget.getAttribute("data-agent-native-edge-handle"))
+      );
+      if (isClearlyInsideMoveBand) {
+        selectionHandleMoveRerouted = true;
+        window.setTimeout(function() {
+          selectionHandleMoveRerouted = false;
+        }, 0);
+        beginPotentialShieldDrag(e);
+        if (!hadSuppressedHandleTransition) {
+          selectionOverlay.removeAttribute(
+            "data-agent-native-suppress-handle-transition"
+          );
+        }
+        return true;
+      }
+      if (refreshedResizeHandle) {
+        if (!hadSuppressedHandleTransition) {
+          selectionOverlay.removeAttribute(
+            "data-agent-native-suppress-handle-transition"
+          );
+        }
+        return false;
+      }
+      selectionHandleMoveRerouted = true;
+      window.setTimeout(function() {
+        selectionHandleMoveRerouted = false;
+      }, 0);
+      beginPotentialShieldDrag(e);
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition"
+        );
+      }
+      return true;
+    }
+    selectionOverlay.addEventListener(
+      "pointerdown",
+      function(e) {
+        if (readOnly || e.button !== 0) return;
+        if (rerouteStaleSelectionHandleHitToMove(e)) return;
+        if (e.pointerId !== void 0 && selectionOverlay.setPointerCapture) {
+          selectionOverlay.setPointerCapture(e.pointerId);
+        }
+      },
+      true
+    );
     selectionOverlay.addEventListener(
       "mousedown",
       function(e) {
         if (readOnly) return;
+        if (selectionHandleMoveRerouted) {
+          selectionHandleMoveRerouted = false;
+          return;
+        }
         var spacingKey = e.target && e.target.getAttribute && e.target.getAttribute("data-spacing-key");
         if (spacingKey) {
           startSpacingDrag(spacingKey, e);
@@ -17195,7 +17314,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastHoverClientPoint = null;
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
-      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+      return deepSelect || !designCanvasBoardSurface ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
     }
     function reresolveHoverAtLastPoint(deepSelect) {
       if (!lastHoverClientPoint) return;
@@ -18178,7 +18297,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             parsedInsertEl.outerHTML,
             true,
-            replacementSnapshot.html
+            replacementSnapshot.html,
+            void 0,
+            typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
+            String(insertRequestId),
+            true
           );
           replaceParent.removeChild(insertAnchor);
           refreshOverlays();
@@ -18204,7 +18327,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           void 0,
           void 0,
           void 0,
-          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0
+          typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
+          String(insertRequestId),
+          true
         );
         acknowledgeInsert(parsedInsertEl);
         return;

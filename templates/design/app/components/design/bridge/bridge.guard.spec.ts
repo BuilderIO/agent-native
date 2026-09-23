@@ -81,14 +81,17 @@ function generatedPath(bridgeFilename: string): string {
 function hydratedEditorChromeBridgeScript(
   runtimeLayerSnapshotEnabled = false,
   screenId = "bridge-guard",
+  boardSurface = true,
 ): string {
+  // Most bridge guards exercise the infinite-canvas/Figma policy. Pass false
+  // explicitly when a test is asserting the screen's direct-click exception.
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(screenId))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", String(boardSurface))
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace(
@@ -105,7 +108,7 @@ function hydratedReadOnlyEditorChromeBridgeScript(): string {
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("read-only"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
@@ -152,7 +155,7 @@ function hydratedEditorChromeBridgeScriptWithScale(scale: number): string {
     .replace("__EDITOR_CHROME_SCALE_X__", String(scale))
     .replace("__EDITOR_CHROME_SCALE_Y__", String(scale))
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
@@ -167,7 +170,7 @@ function hydratedEditorChromeBridgeScriptWithTextEditing(): string {
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
@@ -2293,6 +2296,78 @@ it(
 );
 
 it(
+  "uses direct single-click selection inside screens while the board keeps Figma container-first selection",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const openSurface = async (boardSurface: boolean) => {
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #screen { position: absolute; left: 100px; top: 100px; width: 320px; height: 220px; background: #f5f5f5; }
+      #frame { position: absolute; left: 20px; top: 20px; width: 280px; height: 180px; background: #e5e7eb; }
+      #heading { position: absolute; left: 20px; top: 20px; width: 180px; height: 48px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="screen" data-agent-native-node-id="screen">
+      <div id="frame" data-agent-native-node-id="frame">
+        <div id="heading" data-agent-native-node-id="heading"></div>
+      </div>
+    </div>
+  </body>
+</html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(
+            false,
+            boardSurface ? "board" : "screen",
+            boardSurface,
+          ),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.evaluate(() => {
+          (window as any).__selectedIds = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__selectedIds.push(event.data.payload?.sourceId);
+            }
+          });
+        });
+
+        // HUMAN-DIRECTED UX EXCEPTION: the screen path is intentionally a
+        // direct single-click selection, unlike the board's Figma behavior.
+        await page.mouse.click(160, 160);
+        await page.waitForFunction(
+          () => ((window as any).__selectedIds as string[]).length > 0,
+        );
+        const selectedId = await page.evaluate(() => {
+          const selectedIds = (window as any).__selectedIds as string[];
+          return selectedIds[selectedIds.length - 1];
+        });
+        return { page, selectedId };
+      };
+
+      const screen = await openSurface(false);
+      const board = await openSurface(true);
+      expect(screen.selectedId).toBe("heading");
+      expect(board.selectedId).toBe("screen");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
   { timeout: 30_000 },
   async () => {
@@ -2647,6 +2722,7 @@ it(
       await page.evaluate(() => {
         window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
       });
+      await page.waitForTimeout(10);
 
       const seBox2 = await seHandle.boundingBox();
       if (!seBox2) throw new Error("resize handle not found after resize");

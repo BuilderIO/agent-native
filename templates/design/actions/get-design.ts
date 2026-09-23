@@ -10,6 +10,33 @@ import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import getDesignSystem from "./get-design-system.js";
 
+// The editor re-reads get-design after saves, on sync events, and every second
+// while a generation runs. Count a signed-in viewer's view once per window,
+// not once per read. Per server instance; anonymous reads have no viewer key.
+const DESIGN_VIEW_TRACK_WINDOW_MS = 30 * 60 * 1000;
+const DESIGN_VIEW_TRACK_MAX_KEYS = 5000;
+const lastDesignViewTrackedAt = new Map<string, number>();
+
+function shouldTrackDesignView(
+  viewer: string | undefined,
+  designId: string,
+): boolean {
+  if (!viewer) return true;
+  const key = `${viewer}\u0000${designId}`;
+  const now = Date.now();
+  const last = lastDesignViewTrackedAt.get(key);
+  if (last !== undefined && now - last < DESIGN_VIEW_TRACK_WINDOW_MS) {
+    return false;
+  }
+  lastDesignViewTrackedAt.delete(key);
+  lastDesignViewTrackedAt.set(key, now);
+  if (lastDesignViewTrackedAt.size > DESIGN_VIEW_TRACK_MAX_KEYS) {
+    const oldest = lastDesignViewTrackedAt.keys().next();
+    if (!oldest.done) lastDesignViewTrackedAt.delete(oldest.value);
+  }
+  return true;
+}
+
 export default defineAction({
   description:
     "Get a design project by ID. Returns the full design data including all associated files and linked `designSystem.agentContext` when readable. Treat that context as authoritative before authoring or restyling.",
@@ -51,17 +78,19 @@ export default defineAction({
       getDesignSystem,
     );
 
-    track(
-      "design_viewed",
-      {
-        app_name: "design",
-        template_name: "design",
-        output_id: id,
-        output_type: "design",
-        is_owner: access.role === "owner",
-      },
-      ctx,
-    );
+    if (shouldTrackDesignView(ctx?.userEmail, id)) {
+      track(
+        "design_viewed",
+        {
+          app_name: "design",
+          template_name: "design",
+          output_id: id,
+          output_type: "design",
+          is_owner: access.role === "owner",
+        },
+        ctx,
+      );
+    }
 
     return {
       id: row.id,

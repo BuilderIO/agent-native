@@ -45,6 +45,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOps": "Operações",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Outro",
+  "onboarding.roleOtherInputLabel": "Descreva sua função",
   "onboarding.skipForNow": "Pular por enquanto",
   "onboarding.saveRoleError": "Não foi possível salvar sua função.",
   "onboarding.builderActivateCredits":
@@ -171,6 +172,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "Carregando...",
   "common.no": "Não",
   "common.retry": "Tentar novamente",
+  "common.chunkLoadFailed": "Não foi possível carregar. Tente novamente.",
   "common.save": "Salvar",
   "agents.hostedAgent": "Agente hospedado",
   "agents.provider": "Provedor",

@@ -16,6 +16,14 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("playerRef.current?.seek(requestedStartMs)");
   });
 
+  it("preserves only public playback state in the anonymous legacy redirect", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("buildShareContinuationQuery");
+    expect(route).toContain("legacyShareQuery");
+    expect(route).toContain('searchParams.get("panel")');
+  });
+
   it("clamps route playback state before exposing it", () => {
     const recordingRoute = readRoute("_app.r.$recordingId.tsx");
     const shareRoute = readRoute("share.$shareId.tsx");

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  fetchAuthSessionStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
   invalidateClientStatusRequest,
@@ -17,11 +18,13 @@ function jsonResponse(data: unknown): Response {
 describe("client status requests", () => {
   beforeEach(() => {
     invalidateClientStatusRequests();
+    delete window.__agentNativeSessionBootstrap;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   afterEach(() => {
+    delete window.__agentNativeSessionBootstrap;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -42,6 +45,43 @@ describe("client status requests", () => {
       state: "available",
       value: { configured: true },
     });
+  });
+
+  it("consumes the session request started by the static shell", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ error: "unexpected fetch" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(window.__agentNativeSessionBootstrap).toBeUndefined();
+  });
+
+  it("discards an unconsumed session bootstrap when session status is invalidated", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ userId: "current-user", email: "current@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "stale-user", email: "stale@example.com" },
+    });
+
+    invalidateClientStatusRequest("/_agent-native/auth/session");
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "current-user", email: "current@example.com" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("starts fresh after invalidation and ignores a late stale result", async () => {

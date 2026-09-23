@@ -201,7 +201,7 @@ export default function ImportRoute() {
         };
         const recordingId = result?.recordingId;
         if (!recordingId) {
-          throw new Error("Loom import did not return a recording id.");
+          throw new Error(t("recordRoute.couldNotImportLoom"));
         }
 
         clearTimers();

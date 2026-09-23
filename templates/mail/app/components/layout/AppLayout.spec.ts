@@ -231,9 +231,8 @@ describe("AppLayout inbox tab bar", () => {
   it("closes the captured popout drafts through the save-aware close-all path", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
-    );
+    expect(source).toContain("const savePromises = compose.closeAll(");
+    expect(source).toContain("popoutDrafts.map((draft) => draft.id)");
     expect(source).toContain("compose.setActiveId(snapshot.id)");
     expect(source).toContain("compose.discard(snapshot.id)");
   });

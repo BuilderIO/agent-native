@@ -1205,6 +1205,25 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS documents_parent_updated_id_idx ON documents (parent_id, updated_at, id);
         CREATE INDEX IF NOT EXISTS content_database_items_database_position_id_idx ON content_database_items (database_id, position, id)`,
     },
+    {
+      version: 101,
+      name: "content-preview-draft-edit-settlements",
+      sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS editor_session_id TEXT;
+        ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS edit_generation INTEGER;
+        CREATE TABLE IF NOT EXISTS document_preview_draft_settlements (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          editor_session_id TEXT NOT NULL,
+          settled_generation INTEGER NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_preview_draft_settlements_scope_unique
+          ON document_preview_draft_settlements (owner_email, org_id, document_id, editor_session_id);
+        CREATE INDEX IF NOT EXISTS document_preview_draft_settlements_document_idx
+          ON document_preview_draft_settlements (owner_email, org_id, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
