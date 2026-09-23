@@ -174,9 +174,10 @@ export default defineAction({
         Number.isFinite(timestamp) &&
         Date.now() - timestamp >= STALE_IMAGE_RUN_MS
       ) {
+        // Legacy slots have no owner field, but their app state is request-scoped.
         await assertCanDraftAuthoredBy(
           state.libraryId,
-          slot.ownerEmail,
+          slot.ownerEmail ?? ctx?.userEmail,
           "A generation run",
         );
         const reconciled = await failMissingVariantRun({

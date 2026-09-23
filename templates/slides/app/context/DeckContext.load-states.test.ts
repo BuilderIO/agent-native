@@ -261,6 +261,32 @@ describe("deck list recovery through the fallback poll", () => {
     expect(seen[seen.length - 1]).toBe("decks");
   });
 
+  it("fast-retries a later poll failure and clears it after list reconciliation", async () => {
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+
+    const { result } = renderDeckListStates();
+    await waitFor(() => expect(result.current.decks).toHaveLength(1));
+
+    api.failNextListReads(1, 500);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    await waitFor(() => expect(result.current.loadError).toBe(true));
+
+    const listCallCount = () =>
+      api.fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/list-decks"),
+      ).length;
+    const failedPollCallCount = listCallCount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    await waitFor(() => expect(result.current.loadError).toBe(false));
+    expect(listCallCount()).toBeGreaterThan(failedPollCallCount);
+    expect(result.current.decks).toHaveLength(1);
+  });
+
   it("keeps the error when the list names decks whose bodies cannot be read back", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a")]);

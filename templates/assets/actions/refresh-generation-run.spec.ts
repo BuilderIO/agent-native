@@ -273,6 +273,41 @@ describe("refresh-generation-run", () => {
     });
   });
 
+  it("uses the request owner for a stale legacy slot without ownerEmail", async () => {
+    getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
+    readVariantStateMock.mockResolvedValue({
+      libraryId: "library-1",
+      slots: [
+        {
+          runId: "missing-run",
+          slotId: "slot-1",
+          status: "pending",
+          createdAt: "2026-05-28T11:49:00.000Z",
+        },
+      ],
+    });
+    failMissingVariantRunMock.mockResolvedValue(true);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
+
+    const result = await action.run(
+      { runId: "missing-run", threadId: "thread-1" },
+      { userEmail: "author@example.test" },
+    );
+
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
+    expect(result).toEqual({
+      run: null,
+      assets: [],
+      missingRun: true,
+      slotReconciled: true,
+    });
+  });
+
   it("keeps a fresh missing run visible as an error instead of clearing it", async () => {
     getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
     readVariantStateMock.mockResolvedValue({

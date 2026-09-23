@@ -103,6 +103,7 @@ import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
   deckAccessCheckKey,
+  retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
@@ -281,6 +282,7 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const deckAccessStatusQuery = useDeckAccessStatus(id);
+  const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
@@ -866,12 +868,15 @@ export default function DeckEditor() {
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
     try {
-      await refetchOrg();
-      await reloadDecks();
+      await retryMissingDeck({
+        refetchOrg,
+        reloadDecks,
+        refetchAccessStatus: refetchDeckAccessStatus,
+      });
     } finally {
       setRetryingMissingDeck(false);
     }
-  }, [refetchOrg, reloadDecks]);
+  }, [refetchDeckAccessStatus, refetchOrg, reloadDecks]);
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({

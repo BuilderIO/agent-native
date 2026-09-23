@@ -5,6 +5,20 @@ export function deckAccessCheckKey(
   return deckId ? JSON.stringify([deckId, orgId ?? null]) : null;
 }
 
+export async function retryMissingDeck({
+  refetchOrg,
+  reloadDecks,
+  refetchAccessStatus,
+}: {
+  refetchOrg: () => Promise<unknown>;
+  reloadDecks: () => Promise<unknown>;
+  refetchAccessStatus: () => Promise<unknown>;
+}): Promise<void> {
+  await refetchOrg();
+  await reloadDecks();
+  await refetchAccessStatus();
+}
+
 export function shouldShowDeckEditorSkeleton({
   deckFound,
   decksLoading,

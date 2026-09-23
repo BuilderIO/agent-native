@@ -2,11 +2,30 @@ import { describe, expect, it } from "vitest";
 
 import {
   deckAccessCheckKey,
+  retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "./deck-editor-loading";
 
 describe("deck editor loading state", () => {
   const accessCheckKey = deckAccessCheckKey("deck-1", "org-1");
+
+  it("refreshes access status after organization and deck reloads on retry", async () => {
+    const calls: string[] = [];
+
+    await retryMissingDeck({
+      refetchOrg: async () => {
+        calls.push("org");
+      },
+      reloadDecks: async () => {
+        calls.push("decks");
+      },
+      refetchAccessStatus: async () => {
+        calls.push("access-status");
+      },
+    });
+
+    expect(calls).toEqual(["org", "decks", "access-status"]);
+  });
 
   it("keeps the skeleton visible through the org-scoped deck reload", () => {
     expect(

@@ -2424,8 +2424,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const fresh = await fetchDecksFromAPI(includePreview);
     if (requestId !== deckListRequestIdRef.current) return;
     // A null result means the fetch failed (network error or non-2xx). Skip
-    // the diff so we don't wipe local state on a transient failure.
-    if (fresh === null) return;
+    // the diff so we don't wipe local state, but mark the failure so polling
+    // switches to its fast recovery cadence.
+    if (fresh === null) {
+      loadErrorRef.current = true;
+      setLoadError(true);
+      return;
+    }
     // A snapshot that reached the server is authoritative for every deck it
     // named — whatever staleDeckIdsRef was tracking is covered by it now.
     staleDeckIdsRef.current.clear();
@@ -2481,6 +2486,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       removed.length === 0 &&
       changedMetadataIds.length === 0
     ) {
+      loadErrorRef.current = false;
       setLoadError(false);
       return;
     }
@@ -2528,7 +2534,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    if (hydratedEveryAddedDeck) setLoadError(false);
+    if (hydratedEveryAddedDeck) {
+      loadErrorRef.current = false;
+      setLoadError(false);
+    }
   }, [isNewerThanSnapshot]);
 
   // Coalesces the sync-event handler's home-grid list refresh: a burst of
