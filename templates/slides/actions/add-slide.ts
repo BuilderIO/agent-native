@@ -515,6 +515,9 @@ export default defineAction({
           slide_id: newSlideId,
           slide_count: slides.length,
           edit_mode: "add_slide",
+          ...(typeof generationContext?.generationAttemptId === "string"
+            ? { generation_attempt_id: generationContext.generationAttemptId }
+            : {}),
         },
         ctx,
       );

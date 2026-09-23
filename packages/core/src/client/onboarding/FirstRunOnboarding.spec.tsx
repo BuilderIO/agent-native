@@ -169,6 +169,30 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
   });
 
+  it("records the current step when setup is abandoned on page exit", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      {
+        flow: "first_run",
+        step_id: "role",
+        step_index: 0,
+        reason: "page_exit",
+      },
+    );
+  });
+
   it("surfaces a failed dismissal with a retry action", async () => {
     mocks.completeFirstRun.mockRejectedValue(
       new Error("first-run completion failed: 500"),

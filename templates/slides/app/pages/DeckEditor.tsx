@@ -341,7 +341,12 @@ export default function DeckEditor() {
     if (pendingDeckNavigationBlocker.state !== "blocked") return;
     pendingDeckNavigationBlocker.proceed();
   }, [pendingDeckNavigationBlocker]);
-  const { generating } = useAgentGenerating();
+  const {
+    generating,
+    runError: generationRunError,
+    stopReason: generationStopReason,
+    timedOut: generationTimedOut,
+  } = useAgentGenerating();
   // Dedicated instance (not the `generating` one above, which reflects ANY
   // agent chat activity) so an unrelated concurrent run can't be mistaken
   // for this one finishing and clear the flag early. Owning the submit call
@@ -385,6 +390,9 @@ export default function DeckEditor() {
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
   const newDeckGenerationStarted = useRef(false);
+  const generationStartedAtRef = useRef<number | null>(null);
+  const generationSawActiveRef = useRef(false);
+  const generationTerminalAttemptRef = useRef<string | null>(null);
   if (searchParams.get("generating") === "1") {
     wasNewDeckCreation.current = true;
   }
@@ -637,6 +645,123 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const generationContext =
+    deck?.generationContext &&
+    typeof deck.generationContext === "object" &&
+    !Array.isArray(deck.generationContext)
+      ? deck.generationContext
+      : null;
+  const generationAttemptId =
+    typeof generationContext?.generationAttemptId === "string"
+      ? generationContext.generationAttemptId
+      : searchParams.get("generation_attempt_id");
+  const targetSlideCount =
+    typeof generationContext?.targetSlideCount === "number" &&
+    Number.isInteger(generationContext.targetSlideCount) &&
+    generationContext.targetSlideCount > 0
+      ? generationContext.targetSlideCount
+      : null;
+
+  useEffect(() => {
+    if (!generationAttemptId || !wasNewDeckCreation.current) return;
+    if (generating) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= Date.now();
+      return;
+    }
+    if (
+      !generationSawActiveRef.current ||
+      generationTerminalAttemptRef.current === generationAttemptId
+    ) {
+      return;
+    }
+    generationTerminalAttemptRef.current = generationAttemptId;
+    const durationMs = generationStartedAtRef.current
+      ? Math.max(0, Date.now() - generationStartedAtRef.current)
+      : undefined;
+    const failureCode =
+      generationStopReason === "stopped"
+        ? "cancelled"
+        : generationTimedOut
+          ? "timeout"
+          : generationRunError
+            ? "agent_error"
+            : targetSlideCount !== null && slideCount < targetSlideCount
+              ? "incomplete_output"
+              : slideCount === 0
+                ? "no_output"
+                : null;
+    const properties = {
+      app_name: "slides",
+      template_name: "slides",
+      generation_attempt_id: generationAttemptId,
+      output_id: id,
+      output_type: "deck",
+      slide_count: slideCount,
+      ...(targetSlideCount !== null
+        ? { target_slide_count: targetSlideCount }
+        : {}),
+      ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+      source: "new_deck_prompt",
+    };
+    if (failureCode === "cancelled") {
+      trackEvent("generation_cancelled", {
+        ...properties,
+        outcome: "cancelled",
+        failure_code: failureCode,
+      });
+    } else if (failureCode === "timeout") {
+      trackEvent("generation_stuck", {
+        ...properties,
+        outcome: "stuck",
+        failure_code: failureCode,
+      });
+    } else if (failureCode) {
+      trackEvent("generation_failed", {
+        ...properties,
+        failure_code: failureCode,
+        failure_stage: "agent",
+      });
+    } else {
+      trackEvent("generation_completed", properties);
+    }
+    generationSawActiveRef.current = false;
+    generationStartedAtRef.current = null;
+  }, [
+    generating,
+    generationAttemptId,
+    generationRunError,
+    generationStopReason,
+    generationTimedOut,
+    id,
+    slideCount,
+    targetSlideCount,
+  ]);
+
+  useEffect(() => {
+    if (!generationAttemptId || !wasNewDeckCreation.current) return;
+    const handlePageHide = () => {
+      if (
+        !generationSawActiveRef.current ||
+        generationTerminalAttemptRef.current === generationAttemptId
+      ) {
+        return;
+      }
+      generationTerminalAttemptRef.current = generationAttemptId;
+      trackEvent("generation_abandoned", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: id,
+        output_type: "deck",
+        slide_count: slideCount,
+        reason: "page_exit",
+        source: "new_deck_prompt",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [generationAttemptId, id, slideCount]);
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor. Only assume edit access while the role is still
@@ -1026,11 +1151,15 @@ export default function DeckEditor() {
       return;
     }
     wasNewDeckCreation.current = false;
-    if (searchParams.get("generating")) {
+    if (
+      searchParams.get("generating") ||
+      searchParams.get("generation_attempt_id")
+    ) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("generating");
+          next.delete("generation_attempt_id");
           return next;
         },
         { replace: true },

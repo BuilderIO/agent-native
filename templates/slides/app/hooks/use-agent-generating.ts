@@ -213,6 +213,9 @@ export function useAgentGenerating() {
       (generating || recentlyGenerating) &&
       !timedOut &&
       !runError,
+    runError,
+    stopReason,
+    timedOut,
     submit,
   };
 }

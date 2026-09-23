@@ -160,6 +160,8 @@ export function FirstRunOnboarding({
     screen: FirstRunScreen | null;
     extensionIndex: number;
   } | null>(null);
+  const onboardingTerminalRef = useRef(false);
+  const abandonmentTrackedRef = useRef(false);
   const finishOnboarding = useCallback(
     async (
       completedScreen: FirstRunScreen | null,
@@ -173,6 +175,7 @@ export function FirstRunOnboarding({
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
+        onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
         return true;
       } catch {
@@ -191,6 +194,28 @@ export function FirstRunOnboarding({
     if (previewMode || !firstRun || loading || !profile) return;
     const step = firstRunStepProperties(screen, extensions, extensionIndex);
     trackOnboardingEvent("onboarding_step_viewed", step);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const handlePageHide = () => {
+      if (onboardingTerminalRef.current || abandonmentTrackedRef.current)
+        return;
+      abandonmentTrackedRef.current = true;
+      trackOnboardingEvent("onboarding_abandoned", {
+        ...firstRunStepProperties(screen, extensions, extensionIndex),
+        reason: "page_exit",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
   }, [
     extensionIndex,
     extensions,

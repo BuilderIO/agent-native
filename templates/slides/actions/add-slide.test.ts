@@ -7,6 +7,7 @@ const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
+const mockTrack = vi.fn();
 
 let deckData: Record<string, unknown>;
 let updatedFields: Record<string, unknown> | undefined;
@@ -114,6 +115,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
@@ -165,6 +170,7 @@ import action from "./add-slide";
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
+  mockTrack.mockReset();
   deckData = {
     title: "Test deck",
     slides: [
@@ -178,6 +184,28 @@ beforeEach(() => {
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
+  });
+
+  it("carries a generation attempt id into slide writes", async () => {
+    deckData.generationContext = {
+      targetSlideCount: 3,
+      generationAttemptId: "attempt-1",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    });
+
+    const edited = mockTrack.mock.calls.find(
+      ([name]) => name === "deck_edited",
+    );
+    expect(edited?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      slide_count: 3,
+    });
   });
 
   it.each(["tool", "webmcp"] as const)(

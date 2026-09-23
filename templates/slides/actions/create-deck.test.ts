@@ -11,6 +11,7 @@ const mockNotifyClients = vi.fn();
 const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
 const mockRecordGenerationCreativeContext = vi.fn();
+const mockTrack = vi.hoisted(() => vi.fn());
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -110,6 +111,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 vi.mock("@agent-native/creative-context/server", () => ({
   recordGenerationCreativeContext: (...args: unknown[]) =>
     mockRecordGenerationCreativeContext(...args),
@@ -161,6 +166,7 @@ beforeEach(() => {
   titleQueryRows = [];
   insertedRow = undefined;
   updatedFields = undefined;
+  mockTrack.mockClear();
   mockGetUserEmail.mockReturnValue("owner@example.com");
   mockGetOrgId.mockReturnValue(null);
 });
@@ -478,4 +484,75 @@ describe("create-deck — aspectRatio", () => {
       ids[1],
     );
   });
+});
+
+describe("create-deck — generation lifecycle tracking", () => {
+  function trackedEvents() {
+    return mockTrack.mock.calls.map(([name, properties]) => ({
+      name,
+      properties: properties as Record<string, unknown>,
+    }));
+  }
+
+  it("joins generation start and completion with one opaque attempt id", async () => {
+    await action.run({ title: "T", slides: [] });
+
+    const events = trackedEvents();
+    const started = events.find((event) => event.name === "generation_started");
+    const completed = events.find(
+      (event) => event.name === "generation_completed",
+    );
+
+    expect(started?.properties.generation_attempt_id).toEqual(
+      completed?.properties.generation_attempt_id,
+    );
+    expect(started?.properties.generation_attempt_id).toEqual(
+      expect.any(String),
+    );
+    expect(started?.properties).not.toHaveProperty("title");
+    expect(started?.properties).not.toHaveProperty("prompt");
+    expect(completed?.properties).toMatchObject({
+      output_type: "deck",
+      slide_count: 0,
+      duration_ms: expect.any(Number),
+    });
+  });
+
+  it.each([
+    ["generation_failed", undefined, "failed", "action_error"],
+    ["generation_stuck", "no_progress", "stuck", "stuck"],
+    ["generation_cancelled", "user_stuck_cancel", "cancelled", "cancelled"],
+  ] as const)(
+    "emits %s with the attempt id and bounded failure fields",
+    async (eventName, abortReason, outcome, failureCode) => {
+      const controller = new AbortController();
+      if (abortReason) controller.abort(abortReason);
+      mockValidateGenerationCreativeContext.mockRejectedValueOnce(
+        new Error("generation failed with private details"),
+      );
+
+      await expect(
+        action.run(
+          { title: "T", slides: [] },
+          { caller: "tool", signal: controller.signal },
+        ),
+      ).rejects.toThrow("generation failed");
+
+      const events = trackedEvents();
+      const started = events.find(
+        (event) => event.name === "generation_started",
+      );
+      const terminal = events.find((event) => event.name === eventName);
+
+      expect(terminal?.properties.generation_attempt_id).toBe(
+        started?.properties.generation_attempt_id,
+      );
+      expect(terminal?.properties).toMatchObject({
+        outcome,
+        failure_code: failureCode,
+        error_type: "Error",
+      });
+      expect(terminal?.properties).not.toHaveProperty("error_message");
+    },
+  );
 });

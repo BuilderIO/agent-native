@@ -116,6 +116,65 @@ function deckNavigationCommand(deckId: string): Record<string, string> {
   };
 }
 
+function createGenerationAttemptId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `slides-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  );
+}
+
+function generationTerminalEvent(signal?: AbortSignal): {
+  name: "generation_failed" | "generation_stuck" | "generation_cancelled";
+  outcome: "failed" | "stuck" | "cancelled";
+  failure_code: string;
+} {
+  if (!signal?.aborted) {
+    return {
+      name: "generation_failed",
+      outcome: "failed",
+      failure_code: "action_error",
+    };
+  }
+
+  const reason =
+    typeof signal.reason === "string"
+      ? signal.reason
+      : signal.reason instanceof Error
+        ? signal.reason.name
+        : "";
+  if (/cancel/i.test(reason)) {
+    return {
+      name: "generation_cancelled",
+      outcome: "cancelled",
+      failure_code: "cancelled",
+    };
+  }
+  if (/stuck|timeout|no_progress/i.test(reason)) {
+    return {
+      name: "generation_stuck",
+      outcome: "stuck",
+      failure_code: "stuck",
+    };
+  }
+  return {
+    name: "generation_cancelled",
+    outcome: "cancelled",
+    failure_code: "cancelled",
+  };
+}
+
+function trackGenerationEvent(
+  name: string,
+  properties: Record<string, unknown>,
+  source: Parameters<typeof track>[2],
+): void {
+  try {
+    track(name, properties, source);
+  } catch {
+    // coercion-ok: analytics is best-effort and must not affect deck writes.
+  }
+}
+
 export default defineAction({
   title: "Create Slides deck",
   description:
@@ -195,6 +254,9 @@ export default defineAction({
     },
     ctx,
   ) => {
+    const generationAttemptId = createGenerationAttemptId();
+    const generationStartedAt = Date.now();
+    let generationOutputId = deckId;
     const db = getDb();
     const now = new Date().toISOString();
     const normalizedSlides = ensureUniqueSlideIds(
@@ -207,261 +269,323 @@ export default defineAction({
       normalizedSlides.slides,
       normalizedSlides.originalIds,
     );
-    track(
+    trackGenerationEvent(
       "generation_started",
       {
         app_name: "slides",
         template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        source: "create_deck_action",
         has_reference_deck: Boolean(contextPackId),
         slide_count: slides.length,
         ...(deckId ? { output_id: deckId } : {}),
       },
       ctx,
     );
-    const validatedCreativeContext = await validateGenerationCreativeContext({
-      contextPackId,
-      contextModeOverride,
-      reuseLabels: Array.from(
-        new Map(
-          [
-            ...reuseLabels,
-            ...slides.flatMap(
-              (slide) => slide.creativeContextReuseLabels ?? [],
-            ),
-          ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
-        ).values(),
-      ),
-    });
-    const creativeContextProvenance = {
-      contextMode: validatedCreativeContext.contextMode,
-      contextPackId: validatedCreativeContext.contextPackId,
-      reuseLabels: validatedCreativeContext.reuseLabels,
-    };
-    const elementProvenance: CreativeContextElementProvenance[] = [
-      ...reuseLabels.map((label) => ({
-        elementId: label.elementId ?? "deck",
-        influence: label.influence ?? ("reference-conditioned" as const),
-        ...(label.itemId ? { itemId: label.itemId } : {}),
-        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
-        label: label.label,
-      })),
-      ...slides.flatMap((slide) => {
-        const labels = slide.creativeContextReuseLabels ?? [];
-        return labels.length
-          ? labels.map((label) => ({
-              elementId: label.elementId ?? slide.id,
-              influence: label.influence ?? ("reference-conditioned" as const),
-              ...(label.itemId ? { itemId: label.itemId } : {}),
-              ...(label.itemVersionId
-                ? { itemVersionId: label.itemVersionId }
-                : {}),
-              label: label.label,
-            }))
-          : [
-              {
-                elementId: slide.id,
-                influence: "generated" as const,
-                label: "Net-new slide",
-              },
-            ];
-      }),
-      ...(reuseLabels.length === 0 && slides.length === 0
-        ? [
-            {
-              elementId: "deck",
-              influence: "generated" as const,
-              label: "Net-new deck",
-            },
-          ]
-        : []),
-    ];
-
-    const firstSlideContent = slides[0]?.content;
-    const resolvedTitle =
-      repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
-
-    // Resolve the title form before the branches split so replacing a deck
-    // honors it the same way creating one does.
-    const designSystemId =
-      explicitDesignSystemId ??
-      (designSystem
-        ? await resolveDesignSystemIdByTitle(designSystem)
-        : undefined);
-
-    if (deckId) {
-      if (designSystemId) {
-        await assertAccess("design-system", designSystemId, "viewer");
-      }
-      // Update existing deck — requires editor access.
-      await assertAccess("deck", deckId, "editor");
-      const existing = await db
-        .select()
-        .from(schema.decks)
-        .where(eq(schema.decks.id, deckId))
-        .limit(1);
-      if (!existing[0]) {
-        throw new Error(`Deck not found: ${deckId}`);
-      }
-      const existingDeckTitle =
-        repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
-        resolvedTitle;
-      assertHumanReadableDeckTitle(existingDeckTitle);
-      const writeNow = nextDeckRevision(existing[0].updatedAt);
-      const prevData = JSON.parse(existing[0].data);
-      const previousDesignSystemId = resolveDeckDesignSystemId(
-        existing[0],
-        prevData,
-      );
-      const data = {
-        ...prevData,
-        title: existingDeckTitle,
-        slides,
-        updatedAt: writeNow,
-        aspectRatio: aspectRatio ?? prevData.aspectRatio,
-        designSystemId: designSystemId ?? prevData.designSystemId,
-        creativeContext: creativeContextProvenance,
+    try {
+      const validatedCreativeContext = await validateGenerationCreativeContext({
+        contextPackId,
+        contextModeOverride,
+        reuseLabels: Array.from(
+          new Map(
+            [
+              ...reuseLabels,
+              ...slides.flatMap(
+                (slide) => slide.creativeContextReuseLabels ?? [],
+              ),
+            ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
+          ).values(),
+        ),
+      });
+      const creativeContextProvenance = {
+        contextMode: validatedCreativeContext.contextMode,
+        contextPackId: validatedCreativeContext.contextPackId,
+        reuseLabels: validatedCreativeContext.reuseLabels,
       };
-      await db.transaction(async (tx: any) => {
-        await createDeckVersionSnapshot(
-          {
-            id: existing[0].id,
-            title: existing[0].title,
-            data: existing[0].data,
-            ownerEmail: existing[0].ownerEmail,
-          },
-          { force: true, label: "Before bulk replace", db: tx },
+      const elementProvenance: CreativeContextElementProvenance[] = [
+        ...reuseLabels.map((label) => ({
+          elementId: label.elementId ?? "deck",
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        })),
+        ...slides.flatMap((slide) => {
+          const labels = slide.creativeContextReuseLabels ?? [];
+          return labels.length
+            ? labels.map((label) => ({
+                elementId: label.elementId ?? slide.id,
+                influence:
+                  label.influence ?? ("reference-conditioned" as const),
+                ...(label.itemId ? { itemId: label.itemId } : {}),
+                ...(label.itemVersionId
+                  ? { itemVersionId: label.itemVersionId }
+                  : {}),
+                label: label.label,
+              }))
+            : [
+                {
+                  elementId: slide.id,
+                  influence: "generated" as const,
+                  label: "Net-new slide",
+                },
+              ];
+        }),
+        ...(reuseLabels.length === 0 && slides.length === 0
+          ? [
+              {
+                elementId: "deck",
+                influence: "generated" as const,
+                label: "Net-new deck",
+              },
+            ]
+          : []),
+      ];
+
+      const firstSlideContent = slides[0]?.content;
+      const resolvedTitle =
+        repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
+
+      // Resolve the title form before the branches split so replacing a deck
+      // honors it the same way creating one does.
+      const designSystemId =
+        explicitDesignSystemId ??
+        (designSystem
+          ? await resolveDesignSystemIdByTitle(designSystem)
+          : undefined);
+
+      if (deckId) {
+        if (designSystemId) {
+          await assertAccess("design-system", designSystemId, "viewer");
+        }
+        // Update existing deck — requires editor access.
+        await assertAccess("deck", deckId, "editor");
+        const existing = await db
+          .select()
+          .from(schema.decks)
+          .where(eq(schema.decks.id, deckId))
+          .limit(1);
+        if (!existing[0]) {
+          throw new Error(`Deck not found: ${deckId}`);
+        }
+        const existingDeckTitle =
+          repairGeneratedDeckTitle(
+            title,
+            firstSlideContent,
+            existing[0].title,
+          ) ?? resolvedTitle;
+        assertHumanReadableDeckTitle(existingDeckTitle);
+        const writeNow = nextDeckRevision(existing[0].updatedAt);
+        const prevData = JSON.parse(existing[0].data);
+        const previousDesignSystemId = resolveDeckDesignSystemId(
+          existing[0],
+          prevData,
         );
-        const updateResult = await tx
-          .update(schema.decks)
-          .set({
-            title: existingDeckTitle,
-            data: JSON.stringify(data),
-            designSystemId: designSystemId ?? previousDesignSystemId,
-            updatedAt: writeNow,
-          })
-          .where(
-            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+        const data = {
+          ...prevData,
+          title: existingDeckTitle,
+          slides,
+          updatedAt: writeNow,
+          aspectRatio: aspectRatio ?? prevData.aspectRatio,
+          designSystemId: designSystemId ?? prevData.designSystemId,
+          creativeContext: creativeContextProvenance,
+        };
+        await db.transaction(async (tx: any) => {
+          await createDeckVersionSnapshot(
+            {
+              id: existing[0].id,
+              title: existing[0].title,
+              data: existing[0].data,
+              ownerEmail: existing[0].ownerEmail,
+            },
+            { force: true, label: "Before bulk replace", db: tx },
           );
-        assertDeckWriteApplied(updateResult, deckId, "deck replacement");
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({
+              title: existingDeckTitle,
+              data: JSON.stringify(data),
+              designSystemId: designSystemId ?? previousDesignSystemId,
+              updatedAt: writeNow,
+            })
+            .where(
+              deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+            );
+          assertDeckWriteApplied(updateResult, deckId, "deck replacement");
+        });
+        // Broadcast to open editors (in-process SSE) + application-state
+        // refresh signal (cross-process polling fallback for serverless).
+        await notifyClients(deckId);
+        await writeAppStateForCurrentTab(
+          "navigate",
+          deckNavigationCommand(deckId),
+        );
+        await writeAppState("refresh-signal", {
+          ts: writeNow,
+          source: "create-deck",
+        });
+        await recordGenerationCreativeContext({
+          appId: "slides",
+          artifactType: "deck",
+          artifactId: deckId,
+          ...creativeContextProvenance,
+          ...(elementProvenance.length ? { elementProvenance } : {}),
+        });
+        trackGenerationEvent(
+          "generation_completed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            source: "create_deck_action",
+            output_id: deckId,
+            output_type: "deck",
+            slide_count: slides.length,
+            duration_ms: Date.now() - generationStartedAt,
+          },
+          ctx,
+        );
+        track(
+          "deck_edited",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: deckId,
+            output_type: "deck",
+            slide_count: slides.length,
+            edit_mode: "replace_all",
+          },
+          ctx,
+        );
+        return {
+          id: deckId,
+          title: existingDeckTitle,
+          slideCount: slides.length,
+          designSystemId: designSystemId ?? previousDesignSystemId,
+          designSystem: await loadAgentDesignSystemContext(
+            designSystemId ?? previousDesignSystemId,
+            getDesignSystem,
+            { full: true },
+          ),
+          url: getDeckUrl(deckId),
+          appUrl: getDeckUrl(deckId),
+          deepLink: deckDeepLink(deckId),
+          slides,
+          ...creativeContextProvenance,
+        };
+      }
+
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
+      assertHumanReadableDeckTitle(resolvedTitle);
+
+      let resolvedDesignSystemId = designSystemId;
+      if (resolvedDesignSystemId) {
+        await assertAccess("design-system", resolvedDesignSystemId, "viewer");
+      } else {
+        resolvedDesignSystemId =
+          (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
+      }
+
+      const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      generationOutputId = id;
+      const data: Record<string, unknown> = {
+        title: resolvedTitle,
+        slides,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (aspectRatio) data.aspectRatio = aspectRatio;
+      if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
+      data.creativeContext = creativeContextProvenance;
+      await db.insert(schema.decks).values({
+        id,
+        title: resolvedTitle,
+        data: JSON.stringify(data),
+        designSystemId: resolvedDesignSystemId ?? null,
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        createdAt: now,
+        updatedAt: now,
       });
-      // Broadcast to open editors (in-process SSE) + application-state
-      // refresh signal (cross-process polling fallback for serverless).
-      await notifyClients(deckId);
-      await writeAppStateForCurrentTab(
-        "navigate",
-        deckNavigationCommand(deckId),
-      );
-      await writeAppState("refresh-signal", {
-        ts: writeNow,
-        source: "create-deck",
-      });
+
+      await notifyClients(id);
+      await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
+      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
       await recordGenerationCreativeContext({
         appId: "slides",
         artifactType: "deck",
-        artifactId: deckId,
+        artifactId: id,
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
-      track(
-        "deck_edited",
+      trackGenerationEvent(
+        "generation_completed",
         {
           app_name: "slides",
           template_name: "slides",
-          output_id: deckId,
+          generation_attempt_id: generationAttemptId,
+          source: "create_deck_action",
+          output_id: id,
           output_type: "deck",
           slide_count: slides.length,
-          edit_mode: "replace_all",
+          duration_ms: Date.now() - generationStartedAt,
+        },
+        ctx,
+      );
+      track(
+        "deck_created",
+        {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: id,
+          output_type: "deck",
+          slide_count: slides.length,
         },
         ctx,
       );
       return {
-        id: deckId,
-        title: existingDeckTitle,
+        id,
+        title: resolvedTitle,
         slideCount: slides.length,
-        designSystemId: designSystemId ?? previousDesignSystemId,
+        designSystemId: resolvedDesignSystemId ?? null,
         designSystem: await loadAgentDesignSystemContext(
-          designSystemId ?? previousDesignSystemId,
+          resolvedDesignSystemId,
           getDesignSystem,
           { full: true },
         ),
-        url: getDeckUrl(deckId),
-        appUrl: getDeckUrl(deckId),
-        deepLink: deckDeepLink(deckId),
+        url: getDeckUrl(id),
+        appUrl: getDeckUrl(id),
+        deepLink: deckDeepLink(id),
         slides,
         ...creativeContextProvenance,
       };
+    } catch (error) {
+      const terminal = generationTerminalEvent(ctx?.signal);
+      trackGenerationEvent(
+        terminal.name,
+        {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          source: "create_deck_action",
+          ...(generationOutputId
+            ? { output_id: generationOutputId, output_type: "deck" }
+            : {}),
+          slide_count: slides.length,
+          duration_ms: Date.now() - generationStartedAt,
+          outcome: terminal.outcome,
+          failure_code: terminal.failure_code,
+          error_type: error instanceof Error ? error.name : "unknown_error",
+        },
+        ctx,
+      );
+      throw error;
     }
-
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    assertHumanReadableDeckTitle(resolvedTitle);
-
-    let resolvedDesignSystemId = designSystemId;
-    if (resolvedDesignSystemId) {
-      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
-    } else {
-      resolvedDesignSystemId =
-        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
-    }
-
-    const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const data: Record<string, unknown> = {
-      title: resolvedTitle,
-      slides,
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (aspectRatio) data.aspectRatio = aspectRatio;
-    if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
-    data.creativeContext = creativeContextProvenance;
-    await db.insert(schema.decks).values({
-      id,
-      title: resolvedTitle,
-      data: JSON.stringify(data),
-      designSystemId: resolvedDesignSystemId ?? null,
-      ownerEmail,
-      orgId: getRequestOrgId(),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await notifyClients(id);
-    await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
-    await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
-    await recordGenerationCreativeContext({
-      appId: "slides",
-      artifactType: "deck",
-      artifactId: id,
-      ...creativeContextProvenance,
-      ...(elementProvenance.length ? { elementProvenance } : {}),
-    });
-    track(
-      "deck_created",
-      {
-        app_name: "slides",
-        template_name: "slides",
-        output_id: id,
-        output_type: "deck",
-        slide_count: slides.length,
-      },
-      ctx,
-    );
-    return {
-      id,
-      title: resolvedTitle,
-      slideCount: slides.length,
-      designSystemId: resolvedDesignSystemId ?? null,
-      designSystem: await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
-      url: getDeckUrl(id),
-      appUrl: getDeckUrl(id),
-      deepLink: deckDeepLink(id),
-      slides,
-      ...creativeContextProvenance,
-    };
   },
   link: ({ result }) => {
     const id =

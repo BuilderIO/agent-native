@@ -296,6 +296,7 @@ export interface DeckGenerationContext {
   referenceSource?: NewDeckReferenceSelection["referenceSource"];
   mode: "new" | "source-preserving";
   targetSlideCount?: number;
+  generationAttemptId?: string;
 }
 
 export async function persistDeckGenerationContext(
