@@ -75,6 +75,10 @@ export {
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {
+  useLaunchDarklyFlag,
+  useLaunchDarklyFlags,
+} from "./launchdarkly/index.js";
+export {
   LabsSettings,
   useLab,
   useLabState,
