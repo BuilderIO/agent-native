@@ -278,6 +278,7 @@ async function requestJev(options: {
   builderAuth?: BuilderGatewayAuth | null;
   request: JevRequest;
 }): Promise<JevResponse> {
+  const personalApiKey = options.personalApiKey?.trim();
   if (options.builderAuth) {
     try {
       return await requestJevThroughBuilder(
@@ -285,20 +286,20 @@ async function requestJev(options: {
         options.request,
       );
     } catch (error) {
-      if (!options.personalApiKey) throw error;
+      if (!personalApiKey) throw error;
       console.warn(
         "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
         error instanceof Error ? error.message : "unknown error",
       );
-      return requestJevDirect(options.personalApiKey, options.request);
+      return requestJevDirect(personalApiKey, options.request);
     }
   }
 
-  if (!options.personalApiKey) {
+  if (!personalApiKey) {
     throw new Error("Builder Jev proxy is unavailable.");
   }
 
-  return requestJevDirect(options.personalApiKey, options.request);
+  return requestJevDirect(personalApiKey, options.request);
 }
 
 async function requestJevDirect(

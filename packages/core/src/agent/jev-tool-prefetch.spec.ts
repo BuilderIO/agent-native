@@ -353,7 +353,7 @@ describe("preloadJevTools", () => {
       rankJevCandidates({
         request: "Find customer records",
         apiKey: "deployment-jev-key",
-        personalApiKey: "personal-jev-key",
+        personalApiKey: " personal-jev-key ",
         builderAuth: { authorization: "Bearer builder-test-token" },
         candidates: [
           { id: "search-customers", description: "Search customers" },
