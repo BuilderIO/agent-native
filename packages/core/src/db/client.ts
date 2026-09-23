@@ -117,7 +117,7 @@ function hasCloudflareRuntime(): boolean {
  * `MAIL_DATABASE_URL=postgres://...` in the shared env.
  */
 export function getDatabaseUrl(fallback = ""): string {
-  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const appName = getAppEnvPrefix();
   if (appName) {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
@@ -256,7 +256,9 @@ export function getRuntimeDatabaseSource(fallback = ""): string {
 }
 
 function getAppEnvPrefix(): string | undefined {
-  return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
+  const appName =
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID || process.env.APP_NAME;
+  return appName?.toUpperCase().replace(/-/g, "_") || undefined;
 }
 
 /**
