@@ -1499,7 +1499,15 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (!zoomResult?.meetingUrl) {
+        if (zoomResult.status === "not_started") {
+          await getDb()
+            .update(schema.bookings)
+            .set({ status: "cancelled" })
+            .where(eq(schema.bookings.id, id));
+          setResponseStatus(event, 503);
+          return { error: "Failed to create booking" };
+        }
+        if (!zoomResult.meetingUrl) {
           throw new Error("Zoom meeting was not created");
         }
         meetingLink = zoomResult.meetingUrl;

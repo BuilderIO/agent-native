@@ -107,6 +107,19 @@ const bookingLink = {
 };
 
 function createDb() {
+  const update = vi.fn(() => ({
+    set: vi.fn((values: Record<string, unknown>) => ({
+      where: vi.fn(async () => {
+        if (values.status === "cancelled") {
+          const booking = [...mocks.insertedBookings]
+            .reverse()
+            .find((row) => row.status === "confirmed");
+          if (booking) booking.status = "cancelled";
+        }
+        return [];
+      }),
+    })),
+  }));
   const transaction = vi.fn(async (callback: (tx: unknown) => unknown) =>
     callback({
       insert: vi.fn(() => ({
@@ -118,18 +131,16 @@ function createDb() {
         from: vi.fn((table: unknown) => ({
           where: vi.fn(async () =>
             table === schema.bookings
-              ? mocks.insertedBookings
+              ? mocks.insertedBookings.filter(
+                  (booking) => booking.status !== "cancelled",
+                )
               : table === schema.bookingLinks
                 ? [bookingLink]
                 : [],
           ),
         })),
       })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn(async () => []),
-        })),
-      })),
+      update,
     }),
   );
   return {
@@ -140,6 +151,7 @@ function createDb() {
         ),
       })),
     })),
+    update,
     transaction,
   };
 }
@@ -285,5 +297,32 @@ describe("draft booking availability previews", () => {
     });
     expect(mocks.createZoomMeeting).toHaveBeenCalledTimes(1);
     expect(mocks.insertedBookings).toHaveLength(1);
+  });
+
+  it("releases the slot when Zoom creation never starts", async () => {
+    bookingLink.conferencing = JSON.stringify({ type: "zoom" });
+    bookingLink.hosts = JSON.stringify([]);
+    mocks.createZoomMeeting
+      .mockResolvedValueOnce({ status: "not_started" })
+      .mockRejectedValueOnce(new Error("ambiguous Zoom failure"));
+    const event = {};
+
+    const response = await (createBooking as any)(event);
+
+    expect(response).toEqual({ error: "Failed to create booking" });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
+    expect(mocks.insertedBookings).toHaveLength(1);
+    expect(mocks.insertedBookings[0]).toEqual(
+      expect.objectContaining({ status: "cancelled" }),
+    );
+
+    const retryResponse = await (createBooking as any)({});
+
+    expect(retryResponse).toEqual({ error: "Failed to create booking" });
+    expect(mocks.createZoomMeeting).toHaveBeenCalledTimes(2);
+    expect(mocks.insertedBookings).toHaveLength(2);
+    expect(mocks.insertedBookings[1]).toEqual(
+      expect.objectContaining({ status: "confirmed" }),
+    );
   });
 });
