@@ -952,12 +952,16 @@ export function SlashCommandMenu({
         return;
       }
       const toastId = toast.loading(t("editor.creatingDatabase"));
+      const createdDocumentId = crypto.randomUUID();
+      const createdOwnerBlockId = `inline-database-${crypto.randomUUID()}`;
       let createdBlock: CreateInlineDatabaseResponse["block"] | null = null;
       let parentPersisted = false;
       try {
         const result = await createInlineDatabase.mutateAsync({
           hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
+          newDocumentId: createdDocumentId,
+          ownerBlockId: createdOwnerBlockId,
         });
         createdBlock = result.block;
         const inserted = insertInlineDatabaseBlock(
@@ -984,21 +988,20 @@ export function SlashCommandMenu({
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
         const blockToCleanup = createdBlock;
-        const cleanupErrors =
-          blockToCleanup && !parentPersisted
-            ? await cleanupFailedSlashCreation(
-                () =>
-                  removeCreatedInlineCollection(
-                    editor,
-                    blockToCleanup.ownerBlockId,
-                  ),
-                () =>
-                  rollbackCreatedSlashDocument.mutateAsync({
-                    id: blockToCleanup.databaseDocumentId,
-                    parentId: documentId,
-                  }),
-              )
-            : [];
+        const cleanupErrors = !parentPersisted
+          ? await cleanupFailedSlashCreation(
+              () =>
+                removeCreatedInlineCollection(
+                  editor,
+                  blockToCleanup?.ownerBlockId ?? createdOwnerBlockId,
+                ),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: createdDocumentId,
+                  parentId: documentId,
+                }),
+            )
+          : [];
         toast.error(t("editor.failedToCreateDatabase"), {
           id: toastId,
           description: [error, ...cleanupErrors]
@@ -1026,12 +1029,14 @@ export function SlashCommandMenu({
       let createdPageId: string | null = null;
       let parentPersisted = false;
       try {
+        const newDocumentId = crypto.randomUUID();
         const request = contentDatabaseCreationRequest({
-          newDocumentId: crypto.randomUUID(),
+          newDocumentId,
           parentId: documentId,
           spaceId: contentSpaceId,
           title: t("editor.untitledDatabase"),
         });
+        createdPageId = newDocumentId;
         const result = await createFullPageDatabase
           .mutateAsync(request)
           .catch(() => createFullPageDatabase.mutateAsync(request));

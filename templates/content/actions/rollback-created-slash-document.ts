@@ -77,7 +77,6 @@ export default defineAction({
       "editor",
       "parentId",
     );
-    await assertDocumentMutationAccess(id, "viewer", "id");
     const ownerEmail = parentAccess.resource.ownerEmail as string;
     const db = getDb();
     const deletedIds = await db.transaction(async (transaction) => {
@@ -110,7 +109,7 @@ export default defineAction({
           ),
         )
         .for("update");
-      if (!parent || !child) {
+      if (!parent) {
         throw new ActionContractError(
           "The new page is unavailable for rollback.",
           {
@@ -119,6 +118,7 @@ export default defineAction({
           },
         );
       }
+      if (!child) return [];
       const [database] = await tx
         .select({
           id: schema.contentDatabases.id,
@@ -175,7 +175,14 @@ export default defineAction({
         lockedDatabaseIds,
       );
     });
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    return { success: true, id, deletedIds };
+    if (deletedIds.length > 0) {
+      await writeAppState("refresh-signal", { ts: Date.now() });
+    }
+    return {
+      success: true,
+      id,
+      disposition: deletedIds.length > 0 ? "trashed" : "absent",
+      deletedIds,
+    };
   },
 });

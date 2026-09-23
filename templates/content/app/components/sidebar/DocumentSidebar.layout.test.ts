@@ -292,7 +292,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "const handleCreateDatabaseInSpace = useCallback",
     );
-    expect(sidebar).toContain("return handleSelectContentSpace(space, null);");
+    expect(sidebar).toContain(
+      "return handleSelectContentSpace(space, null, true);",
+    );
     expect(sidebar).toContain(
       "explicitSpaceSelectionRef.current = previousExplicitSelection;",
     );
@@ -370,7 +372,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`",
     );
-    expect(sidebar).toContain("return handleSelectContentSpace(space, null)");
+    expect(sidebar).toContain("return handleSelectContentSpace(space, null, true)");
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );

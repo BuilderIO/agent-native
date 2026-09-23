@@ -913,7 +913,8 @@ describe("inline database slash command", () => {
     expect(source).toContain("await onDraftPersisted(content)");
     expect(source).toContain("useCreateContentDatabase");
     expect(source).toContain("contentDatabaseCreationRequest({");
-    expect(source).toContain("newDocumentId: crypto.randomUUID()");
+    expect(source).toContain("const newDocumentId = crypto.randomUUID()");
+    expect(source).toContain("createdPageId = newDocumentId");
     expect(source).toContain(
       ".catch(() => createFullPageDatabase.mutateAsync(request))",
     );

@@ -1202,7 +1202,12 @@ export function useDeleteDocument() {
 export function useRollbackCreatedSlashDocument() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; id: string; deletedIds: string[] },
+    {
+      success: boolean;
+      id: string;
+      disposition: "trashed" | "absent";
+      deletedIds: string[];
+    },
     { id: string; parentId: string }
   >("rollback-created-slash-document", {
     onSuccess: (_result, { id }) => {

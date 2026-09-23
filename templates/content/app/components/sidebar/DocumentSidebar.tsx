@@ -1251,9 +1251,10 @@ export function DocumentSidebar({
     async (
       space: (typeof contentSpaces)[number],
       targetDocumentId?: string | null,
+      explicitSelection = targetDocumentId === undefined,
     ) => {
       const previousExplicitSelection = explicitSpaceSelectionRef.current;
-      if (targetDocumentId === undefined) {
+      if (explicitSelection) {
         explicitSpaceSelectionRef.current = space.id;
       }
       try {
@@ -1290,7 +1291,7 @@ export function DocumentSidebar({
         return true;
       } catch (error) {
         if (
-          targetDocumentId === undefined &&
+          explicitSelection &&
           explicitSpaceSelectionRef.current === space.id
         ) {
           explicitSpaceSelectionRef.current = previousExplicitSelection;
@@ -1791,7 +1792,7 @@ export function DocumentSidebar({
   const selectSpaceForCreation = useCallback(
     async (space: ContentSpaceSummary) => {
       if (selectedSpace?.id !== space.id) {
-        return handleSelectContentSpace(space, null);
+        return handleSelectContentSpace(space, null, true);
       }
       return true;
     },
