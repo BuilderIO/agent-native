@@ -1292,6 +1292,20 @@ describe("workspace deploy", () => {
     expect(execFile).not.toHaveBeenCalled();
   });
 
+  it("rejects dotted app ids that collide with root data routes", async () => {
+    makeWorkspaceApp(tmpDir, "starter");
+    makeWorkspaceApp(tmpDir, "starter.data");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/must use lowercase letters, numbers, and hyphens/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
   it("routes root framework requests to Dispatch for Cloudflare workspaces", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
