@@ -121,6 +121,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  inArray: vi.fn((left, right) => ({ left, right })),
+  like: vi.fn((left, right) => ({ left, right })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -141,6 +143,7 @@ vi.mock("../db/index.js", () => ({
 }));
 
 vi.mock("./design-data-mutation.js", () => ({
+  InvalidDesignDataError: class InvalidDesignDataError extends Error {},
   mutateDesignData: mocks.mutateDesignData,
 }));
 
@@ -531,5 +534,65 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
       "existing-screen",
       existingContent,
     );
+  });
+  it("refuses invalid design data before inserting any file", async () => {
+    mocks.setDesignRow({ id: "design-1", data: "{not json" });
+
+    await expect(
+      saveImportedDesignFiles({
+        designId: "design-1",
+        sourceType: "fig-upload",
+        files: [
+          { filename: "a.html", fileType: "html", content: "<main>A</main>" },
+        ],
+      }),
+    ).rejects.toThrow();
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("places a placement group at the origin its first batch stored", async () => {
+    mocks.setExistingFiles([
+      { id: "existing-screen", filename: "existing.html", fileType: "html" },
+      // Content edits clear the row marker; group membership must not need it.
+      { id: "earlier-batch", filename: "earlier.html", fileType: "html" },
+      { id: "added-mid-import", filename: "added.html", fileType: "html" },
+    ]);
+    mocks.setDesignData({
+      canvasFrames: {
+        "existing-screen": { x: 0, y: 0, width: 400, height: 300, z: 0 },
+        // An earlier batch of the same import, placed at origin 496 + 0.
+        "earlier-batch": { x: 496, y: 0, width: 200, height: 300, z: 1 },
+        "added-mid-import": { x: 3000, y: 0, width: 200, height: 300, z: 2 },
+      },
+      screenMetadata: {
+        "earlier-batch": {
+          operationSource: "fig-import:run-1:frame:0",
+          importOriginX: 496,
+        },
+      },
+    });
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      placementGroup: "fig-import:run-1:",
+      files: [
+        {
+          filename: "later.html",
+          fileType: "html",
+          content: "<main>Later</main>",
+          source: { operationSource: "fig-import:run-1:frame:1" },
+          preferredFrame: { width: 200, height: 300, x: 1000, y: 500 },
+        },
+      ],
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({
+      x: 1496,
+      y: 500,
+      z: 3,
+    });
+    expect(result.files[0]?.source).toMatchObject({ importOriginX: 496 });
   });
 });

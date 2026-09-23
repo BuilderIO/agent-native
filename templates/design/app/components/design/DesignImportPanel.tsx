@@ -14,7 +14,14 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -37,7 +44,10 @@ import {
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
 } from "@/lib/design-import";
-import type { PreparedFigImport } from "@/lib/fig-client-import";
+import type {
+  FigClientImportProgress,
+  PreparedFigImport,
+} from "@/lib/fig-client-import";
 import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
@@ -100,8 +110,12 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     null,
   );
   const [figUploadPhase, setFigUploadPhase] = useState<
-    "decoding" | "images" | "saving" | "uploading"
+    FigClientImportProgress["phase"] | "uploading"
   >("uploading");
+  const [figSaveCount, setFigSaveCount] = useState<{
+    saved: number;
+    total: number;
+  } | null>(null);
   const [figUploadBusy, setFigUploadBusy] = useState(false);
   const [figImportPreview, setFigImportPreview] =
     useState<FigImportPreview | null>(null);
@@ -109,12 +123,23 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     () => new Set(),
   );
   const pendingFigImportRef = useRef<PreparedFigImport | null>(null);
+  const unmountedRef = useRef(false);
+
+  // A prepared import holds a Worker with the decoded document in it.
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      pendingFigImportRef.current?.dispose();
+    };
+  }, []);
 
   const clearFigUploadState = useCallback(() => {
     setFigUploadBusy(false);
     setFigUploadName(null);
     setFigUploadProgress(null);
     setFigUploadPhase("uploading");
+    setFigSaveCount(null);
     if (figFileInputRef.current) figFileInputRef.current.value = "";
   }, []);
 
@@ -310,7 +335,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     async (prepared: PreparedFigImport, selection?: ReadonlySet<string>) => {
       setFigUploadName(prepared.file.name);
       setFigUploadProgress(0);
-      setFigUploadPhase("images");
+      setFigUploadPhase("rendering");
       setFigUploadBusy(true);
       try {
         let result: ImportResult;
@@ -320,12 +345,15 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           result = await importFigInBrowser({
             designId: context.designId,
             file: prepared.file,
-            decoded: prepared.decoded,
+            prepared,
             selection,
-            onProgress: ({ phase, ratio }) => {
+            onProgress: ({ phase, ratio, saved, total }) => {
               setFigUploadPhase(phase);
-              setFigUploadProgress(
-                phase === "decoding" ? 5 : Math.round((ratio ?? 0) * 90) + 5,
+              setFigUploadProgress(Math.round((ratio ?? 0) * 90) + 5);
+              setFigSaveCount(
+                saved === undefined || total === undefined
+                  ? null
+                  : { saved, total },
               );
             },
           });
@@ -387,6 +415,10 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             setFigUploadPhase(phase);
             setFigUploadProgress(phase === "decoding" ? 5 : 0);
           });
+          if (unmountedRef.current) {
+            prepared.dispose();
+            return;
+          }
           if (shouldWarnForFigImport(file.size, prepared.summary)) {
             pendingFigImportRef.current = prepared;
             setFigImportSelection(
@@ -440,7 +472,17 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     ],
   );
 
+  const toggleFigImportFrame = useCallback((id: string, checked: boolean) => {
+    setFigImportSelection((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
   const cancelFigImportPreview = useCallback(() => {
+    pendingFigImportRef.current?.dispose();
     pendingFigImportRef.current = null;
     setFigImportPreview(null);
     setFigImportSelection(new Set());
@@ -756,35 +798,12 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                       </div>
                       <div className="max-h-40 space-y-0.5 overflow-y-auto rounded border border-border/60 bg-background/60 p-1">
                         {figImportPreview.frames.map((frame) => (
-                          <label
+                          <FigImportFrameRow
                             key={frame.id}
-                            className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-muted/60"
-                          >
-                            <Checkbox
-                              checked={figImportSelection.has(frame.id)}
-                              onCheckedChange={(checked) =>
-                                setFigImportSelection((current) => {
-                                  const next = new Set(current);
-                                  if (checked) next.add(frame.id);
-                                  else next.delete(frame.id);
-                                  return next;
-                                })
-                              }
-                              className="mt-0.5"
-                              aria-label={frame.frameName}
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-foreground">
-                                {frame.frameName}
-                              </span>
-                              <span className="block truncate text-xs text-muted-foreground">
-                                {frame.pageName}
-                                {frame.width && frame.height
-                                  ? ` · ${Math.round(frame.width)} × ${Math.round(frame.height)}`
-                                  : ""}
-                              </span>
-                            </span>
-                          </label>
+                            frame={frame}
+                            checked={figImportSelection.has(frame.id)}
+                            onCheckedChange={toggleFigImportFrame}
+                          />
                         ))}
                       </div>
                     </>
@@ -847,11 +866,17 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                     <span className="tabular-nums">
                       {figUploadPhase === "decoding"
                         ? t("designEditor.import.figImportAnalyzing")
-                        : figUploadProgress === 100
+                        : figUploadPhase === "rendering" ||
+                            figUploadProgress === 100
                           ? t("designEditor.import.figUploadProcessing")
-                          : t("designEditor.import.figUploadUploading", {
-                              progress: figUploadProgress ?? 0,
-                            })}
+                          : figSaveCount
+                            ? t("designEditor.import.figImportSaving", {
+                                saved: formatNumber(figSaveCount.saved),
+                                total: formatNumber(figSaveCount.total),
+                              })
+                            : t("designEditor.import.figUploadUploading", {
+                                progress: figUploadProgress ?? 0,
+                              })}
                     </span>
                   </div>
                   <div
@@ -999,6 +1024,39 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     </div>
   );
 }
+
+/** Memoized: toggling one of a few hundred frames re-renders only its row. */
+const FigImportFrameRow = memo(function FigImportFrameRow({
+  frame,
+  checked,
+  onCheckedChange,
+}: {
+  frame: FigImportPreview["frames"][number];
+  checked: boolean;
+  onCheckedChange: (id: string, checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-muted/60">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(frame.id, next === true)}
+        className="mt-0.5"
+        aria-label={frame.frameName}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-foreground">
+          {frame.frameName}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {frame.pageName}
+          {frame.width && frame.height
+            ? ` · ${Math.round(frame.width)} × ${Math.round(frame.height)}`
+            : ""}
+        </span>
+      </span>
+    </label>
+  );
+});
 
 function VisualEditCommandRow({
   command,

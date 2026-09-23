@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     })),
     resolveAccess: vi.fn(),
     selectChain,
+    track: vi.fn(),
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
       title: "Acme",
@@ -24,6 +25,8 @@ const mocks = vi.hoisted(() => {
     })),
   };
 });
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("@agent-native/core/sharing", () => ({
   registerShareableResource: vi.fn(),
@@ -164,6 +167,24 @@ describe("get-design", () => {
       { asc: "designFiles.createdAt" },
       { asc: "designFiles.id" },
     );
+  });
+
+  it("tracks one view per signed-in viewer across repeated reads", async () => {
+    mocks.track.mockClear();
+    const ctx = { userEmail: "viewer-a@example.com" } as never;
+    await action.run({ id: "design_views" }, ctx);
+    await action.run({ id: "design_views" }, ctx);
+    await action.run({ id: "design_views" }, {
+      userEmail: "viewer-b@example.com",
+    } as never);
+    await action.run({ id: "design_views" });
+    await action.run({ id: "design_views" });
+
+    const views = mocks.track.mock.calls.filter(
+      ([name]) => name === "design_viewed",
+    );
+    // viewer-a once, viewer-b once, and each anonymous read.
+    expect(views).toHaveLength(4);
   });
 
   it("returns an explicit not-found error for a deleted or inaccessible design", async () => {

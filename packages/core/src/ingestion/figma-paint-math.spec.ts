@@ -437,7 +437,7 @@ describe("cssBlendMode", () => {
 
   it("returns approximated for Figma-only blend modes", () => {
     expect(cssBlendMode("LINEAR_BURN")).toEqual({
-      cssMode: "plus-darker",
+      cssMode: "multiply",
       verdict: "approximated",
     });
     expect(cssBlendMode("LINEAR_DODGE")).toEqual({
