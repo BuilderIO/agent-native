@@ -137,11 +137,13 @@ export function getCachedScreenContentNode(
 ): ReactNode {
   const width = Math.max(1, Math.round(geometry.width));
   const height = Math.max(1, Math.round(geometry.height));
+  const renderKey = options?.cacheKey;
   const prior = cache.get(screen.id);
   if (
     prior &&
     prior.screen === screen &&
     prior.renderScreenContent === renderScreenContent &&
+    prior.renderKey === renderKey &&
     sameResolvedMetadata(prior.metadata, metadata) &&
     prior.width === width &&
     prior.height === height
@@ -155,6 +157,7 @@ export function getCachedScreenContentNode(
     width,
     height,
     renderScreenContent,
+    renderKey,
     contentNode,
   });
   return contentNode;

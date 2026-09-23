@@ -25127,6 +25127,20 @@ function DesignEditor() {
     [renderEditableScreenContent],
   );
 
+  // Runtime structure requests are delivered through each screen's
+  // DesignCanvas element. Keep the iframe document mounted while still
+  // invalidating the overview's React-element cache so a request created after
+  // the initial render reaches its live destination. Without this explicit
+  // key, a cached screen node can retain the old null request and a board to
+  // live drop appears to complete while the destination never changes.
+  const overviewScreenContentRenderKey = [
+    runtimeStructureMoveRequest?.requestId ?? "",
+    runtimeStructureInsertRequest?.requestId ?? "",
+    runtimeStructureInsertRequest?.transactionId ?? "",
+    runtimeStructureDeleteRequest?.requestId ?? "",
+    runtimeStructureRollbackRequest?.requestId ?? "",
+  ].join("|");
+
   // ── Board element handlers ─────────────────────────────────────────────────
   // PF8: the board <DesignCanvas> callbacks below curry `boardFileId` into the
   // shared `handleScreen*` handlers. Previously these were inline arrows
@@ -27913,6 +27927,7 @@ function DesignEditor() {
                         }
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
+                        screenContentRenderKey={overviewScreenContentRenderKey}
                         screenSnapshotsById={liveScreenSnapshotsById}
                         tweakValues={cssVarValues}
                         renderBreakpointContent={renderBreakpointContent}
