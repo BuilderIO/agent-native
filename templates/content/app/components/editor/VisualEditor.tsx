@@ -2539,7 +2539,7 @@ export function createVisualEditorExtensions({
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
-        resizable: false,
+        resizable: true,
         HTMLAttributes: { class: "notion-table" },
       }),
       TableRow,
