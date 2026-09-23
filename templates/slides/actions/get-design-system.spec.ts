@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
+const mockWhere = vi.fn();
+const mockSet = vi.fn(() => ({ where: mockWhere }));
+const mockUpdate = vi.fn(() => ({ set: mockSet }));
 
 vi.mock("@agent-native/core/server", () => ({
   hydrateBuilderDesignSystemReference: (
@@ -18,7 +21,12 @@ vi.mock("@agent-native/core/sharing", () => ({
     mockResolveAccess(...args),
 }));
 
-vi.mock("../server/db/index.js", () => ({}));
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => ({ update: mockUpdate }),
+  schema: {
+    designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
+  },
+}));
 
 import action from "./get-design-system.js";
 
@@ -28,6 +36,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
@@ -81,5 +90,48 @@ describe("get-design-system", () => {
       "Use quiet title slides and Acme metric-card components.",
     );
     expect(result.agentContext).toContain("override local proxy placeholders");
+  });
+
+  it("persists the hydrated docCount onto the row when it changes", async () => {
+    await action.run({ id: "builder-ds-1" });
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockSet).toHaveBeenCalledWith({
+      data: JSON.stringify({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        colors: { primary: "var(--primary)" },
+        docCount: 1,
+      }),
+    });
+  });
+
+  it("does not write when the hydrated docCount matches the cached row", async () => {
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
+        title: "Acme Slides",
+        description: "Acme presentation system",
+        data: JSON.stringify({
+          source: "builder",
+          builderDesignSystemId: "ds-1",
+          builderJobId: "job-1",
+          colors: { primary: "var(--primary)" },
+          docCount: 1,
+        }),
+        assets: "[]",
+        customInstructions: "Use restrained executive presentation layouts.",
+        isDefault: false,
+        visibility: "private",
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+      },
+    });
+
+    await action.run({ id: "builder-ds-1" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
