@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -31,16 +31,9 @@ export default defineAction({
   },
   mcpTool: true,
   http: { method: "GET" },
-  maxResultChars: 512_000,
+  maxResultChars: 64 * 1024,
   run: async ({ designId }) => {
-    const access = await resolveAccess("design", designId);
-    if (!access) {
-      const error = new Error("Design not found") as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 404;
-      throw error;
-    }
+    await assertAccess("design", designId, "editor");
 
     const [pending] = await getDb()
       .select({

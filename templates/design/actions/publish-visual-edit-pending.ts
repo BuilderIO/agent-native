@@ -1,12 +1,12 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
-const MAX_PROMPT_LENGTH = 512_000;
+const MAX_PROMPT_LENGTH = 64 * 1024;
 
 const pendingSchema = z
   .object({
@@ -44,10 +44,7 @@ export default defineAction({
       });
     }
 
-    const access = await resolveAccess("design", designId);
-    if (!access) {
-      fail("Design not found.", { errorCode: "design_not_found" });
-    }
+    const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const now = new Date().toISOString();
     const values = {

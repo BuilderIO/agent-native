@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => {
     })),
     insertChain,
     isSameOrigin: vi.fn(),
-    resolveAccess: vi.fn(),
+    assertAccess: vi.fn(),
     selectChain,
   };
 });
@@ -44,7 +44,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: mocks.resolveAccess,
+  assertAccess: mocks.assertAccess,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -76,8 +76,9 @@ const design = {
 describe("visual-edit pending handoff", () => {
   beforeEach(() => {
     mocks.isSameOrigin.mockReset();
-    mocks.resolveAccess.mockReset();
-    mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: design });
+    mocks.assertAccess.mockReset();
+    mocks.assertAccess.mockResolvedValue({ role: "editor", resource: design });
+    mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
@@ -108,10 +109,33 @@ describe("visual-edit pending handoff", () => {
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).rejects.toThrow(/same-origin Design page/);
-    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
   });
 
-  it("upserts a public viewer handoff without exposing bridge credentials", async () => {
+  it("rejects a plain public viewer before publishing a handoff", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: "design_public",
+          pending: {
+            designId: "design_public",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Forged handoff",
+          },
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).rejects.toThrow(/Requires editor role/);
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("upserts a capability-scoped visual-edit handoff without exposing bridge credentials", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
 
@@ -179,6 +203,36 @@ describe("visual-edit pending handoff", () => {
       status: "ready",
       prompt: "Move the CTA to the right.",
     });
-    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_public");
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_public",
+      "editor",
+    );
+  });
+
+  it("does not let a public viewer read the coding-agent handoff", async () => {
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      getPendingAction.run({ designId: "design_public" }),
+    ).rejects.toThrow(/Requires editor role/);
+    expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("bounds the durable prompt to a single handoff-sized payload", () => {
+    const parsed = publishPendingAction.schema.safeParse({
+      designId: "design_public",
+      pending: {
+        designId: "design_public",
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: "x".repeat(64 * 1024 + 1),
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(getPendingAction.maxResultChars).toBe(64 * 1024);
   });
 });
