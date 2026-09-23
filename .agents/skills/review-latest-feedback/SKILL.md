@@ -32,8 +32,8 @@ Other agents work concurrently. The eye is a temporary work lock: keep it only
 while investigating, fixing, or waiting on one targeted detail.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
-Failure to reproduce means ask, not close; state what you tried and request one
-unblocker - request id, time, screenshot, account, or URL.
+Investigate first; ask what they saw or did in plain language. Gather request
+details and logs yourself; don't send reporters to developer tools.
 
 ### Checkmark gate
 
@@ -500,9 +500,9 @@ can ship the fix.* Ask the three with the strongest answer. If fewer than
 three clear that bar, ask fewer. Everything below the cut is an internal open
 item, not a message.
 
-Never ask for information already supplied, a run/request/session ID as the
-primary ask, a build number unless it changes the action, evidence you can
-inspect yourself, a subjective product choice, or an internal blocker.
+Never ask for supplied/inspectable evidence, irrelevant IDs/build numbers,
+subjective choices, or internal blockers. If a user-visible link or ID is the
+sole blocker, ask plainly and say where to find it.
 
 At most one clarification question may be pending per thread at a time. Once it
 is answered or resolved, attempt the fix; if that exposes a different required
