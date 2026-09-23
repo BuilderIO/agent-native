@@ -32,6 +32,7 @@ import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
 } from "./lib/loom-import-job.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -226,11 +227,13 @@ export default defineAction({
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds),
+      folderId: args.folderId ?? existingRecording?.folderId,
+    });
     const oembed = isLoom ? await fetchLoomOembed(loomShareUrl!) : null;
-
-    const spaceIds = (
-      args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds)
-    ).filter((value, index, arr) => value && arr.indexOf(value) === index);
     const title =
       args.title?.trim() ||
       (existingRecording?.title &&

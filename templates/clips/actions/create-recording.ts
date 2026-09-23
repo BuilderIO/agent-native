@@ -33,6 +33,7 @@ import {
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
 export default defineAction({
@@ -57,9 +58,12 @@ export default defineAction({
       actionContext?.userEmail ?? ownerEmail,
     );
 
-    const spaceIds = (args.spaceIds ?? []).filter(
-      (value, index, arr) => value && arr.indexOf(value) === index,
-    );
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? [],
+      folderId: args.folderId,
+    });
 
     await db.insert(schema.recordings).values({
       id,
