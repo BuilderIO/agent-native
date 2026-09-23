@@ -7323,6 +7323,11 @@ export default function SlideEditor({
         for (const promotion of promotions) {
           preserveSlideObjectLayoutSpacer(promotion.element);
         }
+        if (!promotions.some((promotion) => promotion.restoreMarkdownTree)) {
+          for (const member of members) {
+            releaseSlideObjectFromLeftBoxes(member.element, positioningLayer);
+          }
+        }
         const html = readCurrentSlideContentHtml();
         if (html === null) {
           restorePromotions();
@@ -7383,6 +7388,10 @@ export default function SlideEditor({
       geometry.y += dy;
       applyObjectGeometry(frozen.element, geometry);
       preserveSlideObjectLayoutSpacer(frozen.element);
+      const nudgeLayer = resolveSlidePositioningLayer(frozen.element);
+      if (!frozen.restoreMarkdownTree && nudgeLayer) {
+        releaseSlideObjectFromLeftBoxes(frozen.element, nudgeLayer);
+      }
       const html = readCurrentSlideContentHtml();
 
       if (frozen.restoreMarkdownTree) {
