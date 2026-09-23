@@ -130,7 +130,7 @@ describe("BigQuery delivery queue", () => {
     );
   });
 
-  it("keeps later tenant leases unclaimed while a BigQuery request runs past the lease", async () => {
+  it("renews an active claim while BigQuery is sending so another worker cannot reclaim it", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
     const secondQueueRow = {
@@ -147,7 +147,12 @@ describe("BigQuery delivery queue", () => {
       org_id: secondQueueRow.org_id,
     };
     let firstInsertInProgress = false;
-    let secondClaimDuringFirstInsert = false;
+    let competingRunActive = false;
+    let competingWorkerClaimedFirstScope = false;
+    let competingWorkerStatus: string | null = null;
+    let firstLeaseExpiresAt = 0;
+    let initialRenewalComplete = false;
+    let firstHeartbeatFailed = false;
     const claimTimes: number[] = [];
     const renewals: string[][] = [];
     const eventRows = [eventRow, secondEventRow];
@@ -163,13 +168,15 @@ describe("BigQuery delivery queue", () => {
             );
             return { rows: [queueRow] };
           })
-          .mockResolvedValueOnce({ rowsAffected: 1 }),
+          .mockImplementationOnce(async (query: { args?: unknown[] }) => {
+            firstLeaseExpiresAt = Date.parse(String(query.args?.[1]));
+            return { rowsAffected: 1 };
+          }),
       },
       {
         execute: vi
           .fn()
           .mockImplementationOnce(async () => {
-            if (firstInsertInProgress) secondClaimDuringFirstInsert = true;
             claimTimes.push(Date.now());
             return { rows: [secondQueueRow] };
           })
@@ -178,6 +185,18 @@ describe("BigQuery delivery queue", () => {
       { execute: vi.fn().mockResolvedValue({ rows: [] }) },
     ];
     const cleanupTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const competingTx = {
+      execute: vi.fn(async (query: { sql: string }) => {
+        if (query.sql.includes("WITH next_scope AS MATERIALIZED")) {
+          if (firstLeaseExpiresAt <= Date.now()) {
+            competingWorkerClaimedFirstScope = true;
+            return { rows: [queueRow] };
+          }
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
     let transactionIndex = 0;
     const db = {
       execute: vi.fn(async (query: { sql: string; args?: unknown[] }) => {
@@ -189,6 +208,17 @@ describe("BigQuery delivery queue", () => {
         if (query.sql.includes("lease_expires_at = $1")) {
           const ids = query.args?.slice(3) as string[];
           renewals.push(ids);
+          if (ids.includes("evt_1")) {
+            if (!initialRenewalComplete) {
+              initialRenewalComplete = true;
+              firstLeaseExpiresAt = Date.parse(String(query.args?.[0]));
+            } else if (!firstHeartbeatFailed) {
+              firstHeartbeatFailed = true;
+              throw new Error("temporary database error");
+            } else {
+              firstLeaseExpiresAt = Date.parse(String(query.args?.[0]));
+            }
+          }
           return { rowsAffected: ids.length };
         }
         if (query.sql.includes("FROM analytics_events")) {
@@ -216,6 +246,7 @@ describe("BigQuery delivery queue", () => {
         throw new Error(`Unexpected delivery query: ${query.sql}`);
       }),
       transaction: vi.fn((fn: (tx: unknown) => unknown) => {
+        if (competingRunActive) return fn(competingTx);
         const tx = claimTransactions[transactionIndex] ?? cleanupTx;
         if (transactionIndex < claimTransactions.length) transactionIndex += 1;
         return fn(tx);
@@ -224,10 +255,18 @@ describe("BigQuery delivery queue", () => {
     mocks.getDbExec.mockReturnValue(db);
     mocks.insertWithResults.mockImplementation(
       async (rows: Array<{ id: string }>) => {
-        if (rows[0]?.id === "evt_1") {
+        if (rows[0]?.id === "evt_1" && !firstInsertInProgress) {
           firstInsertInProgress = true;
           await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
-          firstInsertInProgress = false;
+          competingRunActive = true;
+          try {
+            const competingSweep =
+              await runFirstPartyAnalyticsBigQueryDeliveryOnce();
+            competingWorkerStatus = competingSweep.status;
+          } finally {
+            competingRunActive = false;
+            firstInsertInProgress = false;
+          }
         }
         return {
           acceptedIds: rows.map((row) => row.id),
@@ -243,7 +282,9 @@ describe("BigQuery delivery queue", () => {
         status: "progress",
         delivered: 2,
       });
-      expect(secondClaimDuringFirstInsert).toBe(false);
+      expect(competingWorkerStatus).toBe("idle");
+      expect(competingWorkerClaimedFirstScope).toBe(false);
+      expect(firstHeartbeatFailed).toBe(true);
       expect(claimTimes).toHaveLength(2);
       expect(claimTimes[1]! - claimTimes[0]!).toBeGreaterThan(5 * 60 * 1000);
       expect(

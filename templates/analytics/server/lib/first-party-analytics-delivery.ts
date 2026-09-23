@@ -472,6 +472,9 @@ async function withDeliveryLeaseHeartbeat<T>(
   const timer = setInterval(() => {
     if (renewal) return;
     renewal = renewDeliveryRows(db, rows, new Date().toISOString())
+      .then(() => {
+        renewalError = undefined;
+      })
       .catch((error: unknown) => {
         renewalError = error;
       })

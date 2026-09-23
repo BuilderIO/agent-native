@@ -64,8 +64,8 @@ export interface AnalyticsQueryOptions {
 
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
-// BigQuery rejects streamed time-partitioned rows older than 3,650 days.
-const MAX_ANALYTICS_TIMESTAMP_AGE_MS = 3_650 * 24 * 60 * 60 * 1_000;
+// Leave seven days for retries inside BigQuery's 3,650-day streaming limit.
+const MAX_ANALYTICS_TIMESTAMP_AGE_MS = (3_650 - 7) * 24 * 60 * 60 * 1_000;
 const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_events",
   "analytics_event_daily_rollups",
