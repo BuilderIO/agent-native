@@ -3921,18 +3921,34 @@ function aliasArrayFrom(alias: unknown): any[] {
   return [];
 }
 
-const DEFAULT_VITE_WATCH_IGNORES = [
-  "**/.git/**",
-  "**/node_modules/**",
-  "**/.react-router/**",
-  "**/.generated/**",
-  "**/.agents/**",
-  "**/.claude/**",
-  "**/.data/**",
-  "**/data/**",
-  "**/dist/**",
-  "**/build/**",
-];
+const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".react-router",
+  ".generated",
+  ".agents",
+  ".claude",
+  ".data",
+  "data",
+  "dist",
+  "build",
+]);
+
+/**
+ * Ignores files inside these directories, judged from the app root only. A
+ * `**\/.claude/**` glob also matches the root's own ancestors, so an app run
+ * from a `.claude/worktrees/*` checkout silently got no file watching or HMR.
+ */
+export function defaultViteWatchIgnored(
+  root: string,
+): (file: string) => boolean {
+  return (file) =>
+    path
+      .relative(root, file)
+      .split(/[\\/]/)
+      .slice(0, -1)
+      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+}
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
@@ -4474,7 +4490,7 @@ function createAgentNativeConfig(
       watch: {
         ...userWatch,
         ignored: [
-          ...DEFAULT_VITE_WATCH_IGNORES,
+          defaultViteWatchIgnored(path.resolve(cwd, userConfig.root ?? "")),
           ...arrayFrom((userWatch as { ignored?: any })?.ignored),
         ],
         ...(forcePollingWatch

@@ -45,6 +45,10 @@ import { resolveTranscriptPresentation } from "../../../shared/transcript-status
 import { getDb, schema } from "../../db/index.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
@@ -287,6 +291,16 @@ export default defineEventHandler(async (event) => {
   if (recordingExpired) {
     setResponseStatus(event, 410);
     return { error: "Recording has expired", expired: true };
+  }
+
+  // Same hold as the media route, so the page explains instead of loading a
+  // player that cannot fetch anything.
+  if (isHeldForRedaction(rec.editsJson, viewerAccess?.role ?? null)) {
+    setResponseStatus(event, 409);
+    return {
+      error: REDACTION_HOLD_MESSAGE,
+      redactionPending: true,
+    };
   }
 
   // Password check

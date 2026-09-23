@@ -17,6 +17,38 @@ export function getBoardSurfaceHtml(html: string | undefined) {
   return hasBoardSurfaceContent(html) ? html : EMPTY_BOARD_SURFACE_HTML;
 }
 
+export function shouldMountBoardSurface(args: {
+  hasAuthoredContent: boolean;
+  crossScreenDragActive: boolean;
+  hasPendingRuntimeInsert: boolean;
+  hasPendingRuntimeRollback?: boolean;
+  hasRuntimeContent?: boolean;
+  runtimeContentBoardId?: string | null;
+  boardFileId?: string;
+}): boolean {
+  return (
+    args.hasAuthoredContent ||
+    args.crossScreenDragActive ||
+    args.hasPendingRuntimeInsert ||
+    Boolean(args.hasPendingRuntimeRollback) ||
+    Boolean(args.hasRuntimeContent) ||
+    (args.runtimeContentBoardId != null &&
+      args.runtimeContentBoardId === args.boardFileId)
+  );
+}
+
+export function hasBoardRuntimeSurfaceContent(args: {
+  boardFileId?: string;
+  runtimeBoardFileId: string | null;
+  runtimeRequestKeys: readonly string[];
+}): boolean {
+  return (
+    args.boardFileId !== undefined &&
+    args.runtimeBoardFileId === args.boardFileId &&
+    args.runtimeRequestKeys.length > 0
+  );
+}
+
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;

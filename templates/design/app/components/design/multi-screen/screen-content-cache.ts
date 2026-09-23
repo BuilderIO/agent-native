@@ -1,3 +1,4 @@
+import { isStandaloneHttpUrl } from "@shared/html-content";
 import type { ReactNode } from "react";
 
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
@@ -274,14 +275,9 @@ export function getPreviewUrl(content: string) {
   )?.toString();
 }
 
+// Screen content is usually a whole HTML document; the predicate rejects it at
+// the first `<` or whitespace instead of running the WHATWG parser over it.
 function getUrl(value: string | undefined) {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  if (!value || !isStandaloneHttpUrl(value)) return undefined;
+  return new URL(value.trim());
 }

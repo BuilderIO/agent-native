@@ -377,7 +377,10 @@ const CSS_BLEND_MODES = new Set([
  * closest CSS mode (approximation) and callers should record the verdict.
  */
 const FIGMA_ONLY_BLEND_MODE_FALLBACK: Record<string, string> = {
-  LINEAR_BURN: "plus-darker",
+  // Not `plus-darker`: Chromium rejects it, drops the declaration and blends
+  // normally while the verdict claims otherwise. `multiply` is the nearest
+  // darkening mode every engine draws.
+  LINEAR_BURN: "multiply",
   LINEAR_DODGE: "plus-lighter",
   LIGHTER: "plus-lighter",
   DARKER: "darken",

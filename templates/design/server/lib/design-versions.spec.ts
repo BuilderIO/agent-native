@@ -916,4 +916,84 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(2);
     expect(captureMocks.revisions).toHaveLength(2);
   });
+
+  it("dedupes a large checkpoint by its stored state hash without reading the blob", async () => {
+    const blob = {
+      id: "blob-1",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    putPrivateBlob.mockResolvedValue(blob);
+    readPrivateBlob.mockReset();
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    const first = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+    const same = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(same).toEqual(first);
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(readPrivateBlob).not.toHaveBeenCalled();
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "y".repeat(300 * 1024),
+        },
+      ],
+    };
+    const changed = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(changed.id).not.toBe(first.id);
+    expect(captureMocks.revisions).toHaveLength(2);
+    expect(readPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("still dedupes against a checkpoint written before state hashes", async () => {
+    const legacySnapshot = {
+      schemaVersion: 1,
+      snapshotKind: "design-history",
+      designId: "design-1",
+      designData: JSON.stringify({ breakpointSet: { breakpoints: [] } }),
+      designTitle: "Landing page",
+      designDescription: null,
+      projectType: "prototype",
+      designSystemId: "system-1",
+      files: captureMocks.liveSnapshot.files,
+      tweaks: [],
+      appliedTweaks: {},
+      resolvedCssVars: {},
+    };
+    captureMocks.revisions.push({
+      id: "legacy-version",
+      designId: "design-1",
+      label: "Chat autosave",
+      snapshot: JSON.stringify(legacySnapshot),
+      chatContext: null,
+      createdAt: "2026-07-08T00:00:00.000Z",
+    });
+
+    const same = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(same.id).toBe("legacy-version");
+    expect(captureMocks.revisions).toHaveLength(1);
+  });
 });

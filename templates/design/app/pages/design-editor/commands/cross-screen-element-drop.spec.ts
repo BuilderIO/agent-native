@@ -2153,6 +2153,91 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     );
   });
 
+  it("refuses a second live transaction while the first is awaiting acknowledgement", () => {
+    const sourceMarkup =
+      '<div data-agent-native-node-id="runtime-source">Source</div>';
+    const sourceNode = buildCodeLayerProjection(sourceMarkup).nodes[0]!;
+    const sourceTree = buildCodeLayerTree(
+      buildCodeLayerProjection(sourceMarkup),
+    );
+    const pendingTransactionRef = { current: "already-pending" };
+    const setInsertRequest = vi.fn();
+    const setDeleteRequest = vi.fn();
+    const sharedArgs = {
+      applyFileContentUpdate: () => {
+        throw new Error("public live-to-board moves must not write content");
+      },
+      boardFileId: "board",
+      canEditDesign: false,
+      canEditLiveBoard: true,
+      canEditLiveScreen: () => true,
+      clearPendingOverviewLayerSelectionTimer: () => {},
+      codeLayerOwnerByNodeIdRef: {
+        current: new Map([
+          [
+            sourceNode.id,
+            {
+              fileId: "source",
+              node: sourceNode,
+              tree: sourceTree,
+              runtimeOnly: true,
+            },
+          ],
+        ]),
+      },
+      designSourceType: "localhost" as const,
+      getScreenContent: (screenId: string) =>
+        screenId === "board"
+          ? "<!doctype html><html><body></body></html>"
+          : "http://localhost:5173/",
+      id: undefined,
+      overviewScreens: [
+        {
+          id: "source",
+          filename: "source.html",
+          content: "http://localhost:5173/",
+          sourceType: "localhost" as const,
+          updatedAt: "2026-09-22T00:00:00.000Z",
+          heightPinned: false,
+        },
+      ],
+      pendingOverviewLayerSelectionRef: { current: null },
+      pendingOverviewScreenSelectionRef: { current: null },
+      recordContentHistoryEntry: vi.fn(),
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      runtimeStructurePendingTransactionRef: pendingTransactionRef,
+      sendRuntimeLayerMoveSemanticHandoff: vi.fn(),
+      setActiveFileId: vi.fn(),
+      setCreatedOverviewLayerSelection: vi.fn(),
+      setOverviewSelectedScreenIds: vi.fn(),
+      setRuntimeStructureDeleteRequest: setDeleteRequest,
+      setRuntimeStructureInsertRequest: setInsertRequest,
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key: string) => key,
+      viewModeRef: { current: "overview" as const },
+    } satisfies Parameters<typeof runCrossScreenElementDrop>[0];
+
+    runCrossScreenElementDrop(sharedArgs, {
+      sourceSelector: '[data-agent-native-node-id="runtime-source"]',
+      sourceNodeId: "runtime-source",
+      sourceScreenId: "source",
+      targetScreenId: "board",
+      targetLocalPoint: { x: 120, y: 180 },
+      targetDropMode: "absolute-container",
+      sourcePointerOffset: { x: 8, y: 10 },
+      sourceCloneHtml: sourceMarkup,
+    });
+
+    expect(setInsertRequest).not.toHaveBeenCalled();
+    expect(setDeleteRequest).not.toHaveBeenCalled();
+    expect(pendingTransactionRef.current).toBe("already-pending");
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+  });
+
   it("uses the live source outerHTML for an atomic live-to-live move", () => {
     const sourceMarkup =
       '<div data-agent-native-node-id="runtime-source">Source</div>';

@@ -7,6 +7,8 @@ import { isLiveRecordingUpload } from "@/lib/recording-status";
 
 export interface RecordingSummary {
   id: string;
+  /** Redaction boxes drawn but not yet burned into the file. */
+  pendingRedactions?: number;
   title: string;
   titleSource?: "default" | "context" | "upload" | "ai" | "manual";
   sourceAppName?: string | null;

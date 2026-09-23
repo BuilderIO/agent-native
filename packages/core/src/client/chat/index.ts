@@ -6,14 +6,16 @@ export {
 export {
   AgentChatSurface,
   AgentPanel,
-  AgentSidebar,
-  AgentToggleButton,
-  focusAgentChat,
   type AgentChatSurfaceMode,
   type AgentChatSurfaceProps,
   type AgentPanelProps,
-  type AgentSidebarProps,
 } from "../AgentPanel.js";
+export {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  type AgentSidebarProps,
+} from "../AgentSidebar.js";
 export {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_CLASS,

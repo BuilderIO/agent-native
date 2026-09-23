@@ -578,6 +578,42 @@ export function __clearEditorCheckpointSkipsForTests(): void {
   editorCheckpointRecentSkips.clear();
 }
 
+/**
+ * Rows carrying a state hash answer "unchanged?" without downloading and
+ * re-serializing a snapshot that can be megabytes on a large design.
+ */
+async function latestStateMatches(
+  raw: string,
+  designId: string,
+  stateHash: string,
+  currentStateJson: string,
+): Promise<boolean> {
+  try {
+    const stored: unknown = JSON.parse(raw);
+    if (isRecord(stored) && typeof stored.stateHash === "string") {
+      return stored.stateHash === stateHash;
+    }
+    const previous = await readDesignVersionSnapshot(raw, designId);
+    const previousState = {
+      designData: previous.designData,
+      designTitle: previous.designTitle,
+      designDescription: previous.designDescription,
+      projectType: previous.projectType,
+      designSystemId: previous.designSystemId,
+      files: previous.files,
+      tweaks: previous.tweaks,
+      appliedTweaks: previous.appliedTweaks,
+      resolvedCssVars: previous.resolvedCssVars,
+      deletionGeometry: previous.deletionGeometry,
+    };
+    return stableStringify(previousState) === currentStateJson;
+    // coercion-ok: unreadable history cannot suppress a new autosave.
+  } catch {
+    // An unreadable checkpoint cannot establish equality; preserve autosave.
+    return false;
+  }
+}
+
 async function captureDesignVersion(
   designId: string,
   options: {
@@ -651,6 +687,8 @@ async function captureDesignVersion(
     resolvedCssVars: liveSnapshot.resolvedCssVars,
     deletionGeometry: options.deletionGeometry,
   };
+  const currentStateJson = stableStringify(currentState);
+  const stateHash = createHash("sha256").update(currentStateJson).digest("hex");
   const db = database ?? getDb();
   const [latest] = await db
     .select({
@@ -681,36 +719,20 @@ async function captureDesignVersion(
         chatContextCompatible = false;
       }
     }
-    try {
-      const previous = await readDesignVersionSnapshot(
+    if (
+      chatContextCompatible &&
+      (await latestStateMatches(
         latest.snapshot,
         designId,
-      );
-      const previousState = {
-        designData: previous.designData,
-        designTitle: previous.designTitle,
-        designDescription: previous.designDescription,
-        projectType: previous.projectType,
-        designSystemId: previous.designSystemId,
-        files: previous.files,
-        tweaks: previous.tweaks,
-        appliedTweaks: previous.appliedTweaks,
-        resolvedCssVars: previous.resolvedCssVars,
-        deletionGeometry: previous.deletionGeometry,
+        stateHash,
+        currentStateJson,
+      ))
+    ) {
+      return {
+        id: latest.id,
+        createdAt: latest.createdAt ?? createdAt,
+        label: latest.label ?? options.label,
       };
-      if (
-        chatContextCompatible &&
-        stableStringify(previousState) === stableStringify(currentState)
-      ) {
-        return {
-          id: latest.id,
-          createdAt: latest.createdAt ?? createdAt,
-          label: latest.label ?? options.label,
-        };
-      }
-      // coercion-ok: unreadable history cannot suppress a new autosave.
-    } catch {
-      // An unreadable checkpoint cannot establish equality; preserve autosave.
     }
   }
   const id = `design-version-${createHash("sha256")
@@ -719,7 +741,7 @@ async function captureDesignVersion(
         designId,
         previousVersionId: latest?.id ?? "initial",
         chatContextKey: chatContextKey(options.chatContext),
-        state: currentState,
+        stateHash,
       }),
     )
     .digest("hex")}`;
@@ -737,6 +759,7 @@ async function captureDesignVersion(
     appliedTweaks: liveSnapshot.appliedTweaks,
     resolvedCssVars: liveSnapshot.resolvedCssVars,
     capturedAt: createdAt,
+    stateHash,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
     ...(options.deletionGeometry
       ? { deletionGeometry: options.deletionGeometry }
@@ -768,6 +791,7 @@ async function captureDesignVersion(
       designId,
       fileCount: liveSnapshot.files.length,
       capturedAt: createdAt,
+      stateHash,
       ...(options.chatContext ? { chatContext: options.chatContext } : {}),
       ...(options.deletionGeometry
         ? { deletionGeometry: options.deletionGeometry }

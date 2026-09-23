@@ -603,16 +603,17 @@ function ManualSetupCard({
 
 function friendlyModelName(model: string): string {
   if (model === "z-ai/glm-5.2") return "GLM 5.2";
-  const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
+  const normalizedModel = model.replace(/^(?:anthropic|openai)\//, "");
+  const claude = normalizedModel.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
     return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  if (model.startsWith("gpt-")) {
-    const rest = model.slice(4);
-    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
+  if (normalizedModel.startsWith("gpt-")) {
+    const rest = normalizedModel.slice(4);
+    const gpt = rest.match(/^(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
     if (gpt) {
       const suffix = gpt[3]
         ? ` ${gpt[3]
@@ -620,11 +621,12 @@ function friendlyModelName(model: string): string {
             .map((part) => part[0].toUpperCase() + part.slice(1))
             .join(" ")}`
         : "";
-      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
+      const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
+      return `GPT-${version}${suffix}`;
     }
     return `GPT-${rest}`;
   }
-  if (/^o\d/.test(model)) return model;
+  if (/^o\d/.test(normalizedModel)) return normalizedModel;
   const geminiVersioned = model.match(
     /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
   );
@@ -687,7 +689,9 @@ function computeSourceBadge(args: {
 function latestModelsOnly(models: string[]): string[] {
   const seen = new Set<string>();
   return models.filter((m) => {
-    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
+    const claude = m
+      .replace(/^anthropic\//, "")
+      .match(/^claude-(opus|sonnet|haiku)-/);
     if (claude) {
       if (seen.has(claude[1])) return false;
       seen.add(claude[1]);

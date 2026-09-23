@@ -315,6 +315,12 @@ export function LibraryGrid({
         : [],
     [folderId, scopedFolders, view],
   );
+  const isEmptyState =
+    !isLoading &&
+    !(view !== "shared" && isFoldersLoading) &&
+    !isError &&
+    recordings.length === 0 &&
+    visibleFolders.length === 0;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
   const moveTargets = useMemo(
     () =>
@@ -501,6 +507,7 @@ export function LibraryGrid({
       {sharingRec && (
         <ShareRecordingDialog
           recordingId={sharingRec.id}
+          pendingRedactions={sharingRec.pendingRedactions ?? 0}
           recordingTitle={sharingRec.title}
           initialVisibility={sharingRec.visibility}
           hasPassword={sharingRec.hasPassword}
@@ -539,13 +546,17 @@ export function LibraryGrid({
               <PageBreadcrumb items={pageBreadcrumbItems} />
             ) : null}
           </div>
-          <SearchBar
-            side="bottom"
-            className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
-          />
+          {!isEmptyState && (
+            <SearchBar
+              side="bottom"
+              className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
+            />
+          )}
           <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
-            {extraActions}
-            <SortMenu value={sort} onChange={handleSortChange} />
+            {!isEmptyState && extraActions}
+            {!isEmptyState && (
+              <SortMenu value={sort} onChange={handleSortChange} />
+            )}
           </div>
         </div>
       </PageHeader>

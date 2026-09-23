@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import {
   Tooltip,
@@ -72,12 +72,36 @@ export function Timeline({
     return out;
   }, [durationMs, width]);
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+  const seekTo = (e: { currentTarget: Element; clientX: number }) => {
     if (!onSeek) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const ms = Math.max(0, Math.min(durationMs, (x / width) * durationMs));
     onSeek(ms);
+  };
+
+  // The ruler is where scrubbing lives: the track above it spends its drags
+  // on moving cuts, so dragging here is the way to run the playhead along.
+  const scrubbingRef = useRef(false);
+
+  const startScrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!onSeek || e.button !== 0) return;
+    scrubbingRef.current = true;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    seekTo(e);
+  };
+
+  const continueScrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrubbingRef.current) return;
+    seekTo(e);
+  };
+
+  const endScrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrubbingRef.current) return;
+    scrubbingRef.current = false;
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
   };
 
   const playheadX = (playheadMs / Math.max(durationMs, 1)) * width;
@@ -86,9 +110,12 @@ export function Timeline({
     <div className={cn("relative", className)}>
       {/* Ruler */}
       <div
-        className="relative border-b border-border bg-card/40 cursor-pointer"
+        className="relative border-b border-border bg-card/40 cursor-ew-resize"
         style={{ width, height: RULER_HEIGHT }}
-        onClick={handleSeek}
+        onPointerDown={startScrub}
+        onPointerMove={continueScrub}
+        onPointerUp={endScrub}
+        onPointerCancel={endScrub}
       >
         {ticks.map((t) => {
           const x = (t.ms / Math.max(durationMs, 1)) * width;

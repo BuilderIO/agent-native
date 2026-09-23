@@ -213,6 +213,7 @@ export function runSaveFileContent(
               skippedStaleOperation?: boolean;
               versionHash?: string;
               checkpoint?: { skipped: true; reason: string };
+              updatedAt?: unknown;
             }
           | undefined;
         const persistedContentMatches = updateFileResultPersistedContent(
@@ -248,26 +249,30 @@ export function runSaveFileContent(
           await acknowledgeOutboxEntry(outboxEntry);
         }
         if (persistedContentMatches && designId) {
-          queryClient.setQueryData(
-            ["action", "get-design", { id: designId }],
-            (old: any) => {
-              if (
-                !old ||
-                typeof old !== "object" ||
-                !Array.isArray(old.files)
-              ) {
-                return old;
-              }
-              return {
-                ...old,
-                files: old.files.map((file: { id?: unknown }) =>
-                  file.id === pending.id
-                    ? { ...file, content: pending.content }
-                    : file,
-                ),
-              };
-            },
-          );
+          const designQueryKey = ["action", "get-design", { id: designId }];
+          const persistedUpdatedAt =
+            typeof resultInfo?.updatedAt === "string"
+              ? resultInfo.updatedAt
+              : undefined;
+          queryClient.setQueryData(designQueryKey, (old: any) => {
+            if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+              return old;
+            }
+            return {
+              ...old,
+              files: old.files.map((file: { id?: unknown }) =>
+                file.id === pending.id
+                  ? {
+                      ...file,
+                      content: pending.content,
+                      ...(persistedUpdatedAt !== undefined
+                        ? { updatedAt: persistedUpdatedAt }
+                        : {}),
+                    }
+                  : file,
+              ),
+            };
+          });
           if (
             resultInfo?.checkpoint?.skipped &&
             !warnedVersionHistoryDesigns.has(designId)
@@ -275,6 +280,19 @@ export function runSaveFileContent(
             warnedVersionHistoryDesigns.add(designId);
             toast.warning(t("designEditor.toasts.versionHistoryUnavailable"), {
               id: `design-version-history-unavailable:${designId}`,
+            });
+          }
+          // The pending overlay retires only once the row's updatedAt moves
+          // (shouldRetirePendingLocalFileContent), and a read already in
+          // flight may carry pre-write bytes; invalidating cancels it. Only a
+          // server-confirmed updatedAt with no read in flight can skip
+          // refetching every file's content.
+          if (
+            persistedUpdatedAt === undefined ||
+            queryClient.isFetching({ queryKey: designQueryKey }) > 0
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
             });
           }
         } else if (!persistedContentMatches) {

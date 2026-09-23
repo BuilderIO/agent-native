@@ -2566,6 +2566,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return containerScopeAncestor(resolved, scope);
   }
 
+  /*
+   * HUMAN-DIRECTED UX EXCEPTION - DO NOT REVERT TO FIGMA:
+   * Screen contents intentionally select the deepest block under a plain
+   * single click. This is a rare, 100% intentional deviation from Figma UX,
+   * requested by user feedback because people expect to click directly into
+   * blocks while working inside a screen. The infinite-canvas board keeps the
+   * Figma container-first behavior above. Do not remove or “fix” this branch
+   * unless a human explicitly asks for this behavior to change.
+   * Feedback: https://builder-internal.slack.com/archives/C0ATH3CCZT4/p1790099891790049?thread_ts=1790099192.113439&cid=C0ATH3CCZT4
+   */
+  function plainClickSelectionTarget(hit: Element | null): Element | null {
+    if (!designCanvasBoardSurface) {
+      // A direct screen click also exits any board-style drill scope left by a
+      // prior interaction before resolving the block under the pointer.
+      selectionContainerScope = null;
+      return selectionTargetForHit(hit);
+    }
+    return containerFirstSelectionTarget(hit);
+  }
+
   // Figma "click through": with a container selected, a plain click on one
   // of its descendants selects the container's child under the pointer, one
   // level per click, and the scope follows so later clicks stay inside it.
@@ -5751,12 +5771,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
-  // Figma parity: a plain click resolves to the outermost child of this
-  // container (the screen root, i.e. null, by default) rather than the raw
-  // deepest hit. Double-click drilling (beginTextEditingFromEvent's descend
-  // fallback) sets this to the container just drilled into; a plain click
-  // that lands outside it exits drill mode by clearing it back to null. See
-  // containerFirstSelectionTarget.
+  // Figma parity on the infinite-canvas board: a plain click resolves to the
+  // outermost child of this container (the screen root, i.e. null, by default)
+  // rather than the raw deepest hit. Double-click drilling
+  // (beginTextEditingFromEvent's descend fallback) sets this to the container
+  // just drilled into; a plain click that lands outside it exits drill mode by
+  // clearing it back to null. See containerFirstSelectionTarget. Screen
+  // contents intentionally use plainClickSelectionTarget instead.
   var selectionContainerScope: Element | null = null;
   var selectionGeneration = 0;
   // When true, selection chrome stays hidden through async reflows so a
@@ -11107,7 +11128,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
         ? selectionTargetForHit(target)
-        : containerFirstSelectionTarget(target);
+        : plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -17540,6 +17561,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     collectMessages?: any[],
     transactionId?: string,
     requestIdOverride?: string,
+    runtimeInsert?: boolean,
   ) {
     if (!el || !target || !target.anchor) return;
     // Batched grid messages keep the grid container as their runtime anchor;
@@ -17600,6 +17622,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the change. The host must NOT tell the coding agent to relocate an
       // element the source file has never contained.
       insertedHtml: typeof insertedHtml === "string" ? insertedHtml : undefined,
+      // A runtime insert has a separate applied acknowledgement. Its
+      // optimistic visual-structure echo is informational and must not be
+      // rejected independently, or the target bridge removes a successful
+      // cross-screen/canvas insert before the host records it.
+      runtimeInsert: runtimeInsert === true ? true : undefined,
       replaced: replaced === true ? true : undefined,
       replacementSnapshotHtml: replacementSnapshotHtml,
       sourceRect: rectInfoForElement(el),
@@ -22931,9 +22958,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? selectionTargetForHit(hit)
-          : (!readOnly && !e.shiftKey
-              ? clickThroughSelectionTarget(hit, ev)
-              : null) || containerFirstSelectionTarget(hit);
+          : !designCanvasBoardSurface
+            ? plainClickSelectionTarget(hit)
+            : (!readOnly && !e.shiftKey
+                ? clickThroughSelectionTarget(hit, ev)
+                : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
         // Real event (not undefined): selectionIntentFromEvent now reports
         // Cmd/Ctrl-alone as non-additive, so the intent this carries already
@@ -24353,7 +24382,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     deepSelect: boolean,
   ): Element | null {
     var rawHit = elementFromEditorPoint(clientX, clientY);
-    return deepSelect
+    return deepSelect || !designCanvasBoardSurface
       ? selectionTargetForHit(rawHit)
       : containerFirstSelectionTarget(rawHit);
   }
@@ -25768,6 +25797,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parsedInsertEl.outerHTML,
           true,
           replacementSnapshot.html,
+          undefined,
+          typeof e.data.transactionId === "string"
+            ? e.data.transactionId
+            : undefined,
+          String(insertRequestId),
+          true,
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();
@@ -25802,6 +25837,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? e.data.transactionId
           : undefined,
         String(insertRequestId),
+        true,
       );
       acknowledgeInsert(parsedInsertEl);
       return;

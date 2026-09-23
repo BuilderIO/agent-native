@@ -701,6 +701,7 @@ const enUS = {
       figImportSelected: "Import {{count}} selected",
       figImportAll: "Import all",
       figImportAnalyzing: "Analyzing…",
+      figImportSaving: "Saving {{saved}} of {{total}} frames",
       figUploadDescriptionShort:
         "Local import — no Figma API quota used. Supported embedded images are included.",
       figUploadImagesSkippedWarning:
@@ -13128,6 +13129,7 @@ const designImportOverrides = {
         figImportSelected: "匯入已選取的 {{count}} 個",
         figImportAll: "全部匯入",
         figImportAnalyzing: "分析中…",
+        figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -13208,6 +13210,7 @@ const designImportOverrides = {
         figImportSelected: "导入已选择的 {{count}} 个",
         figImportAll: "全部导入",
         figImportAnalyzing: "正在分析…",
+        figImportSaving: "正在保存 {{saved}} / {{total}} 个画框",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -13291,6 +13294,7 @@ const designImportOverrides = {
         figImportSelected: "Importar {{count}} seleccionados",
         figImportAll: "Importar todo",
         figImportAnalyzing: "Analizando…",
+        figImportSaving: "Guardando {{saved}} de {{total}} marcos",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -13376,6 +13380,7 @@ const designImportOverrides = {
         figImportSelected: "Importer {{count}} sélectionnés",
         figImportAll: "Tout importer",
         figImportAnalyzing: "Analyse…",
+        figImportSaving: "Enregistrement de {{saved}} cadres sur {{total}}",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -13461,6 +13466,7 @@ const designImportOverrides = {
         figImportSelected: "{{count}} ausgewählte importieren",
         figImportAll: "Alle importieren",
         figImportAnalyzing: "Wird analysiert…",
+        figImportSaving: "{{saved}} von {{total}} Frames werden gespeichert",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -13545,6 +13551,7 @@ const designImportOverrides = {
         figImportSelected: "選択した {{count}} 個をインポート",
         figImportAll: "すべてインポート",
         figImportAnalyzing: "分析中…",
+        figImportSaving: "{{total}} 個中 {{saved}} 個のフレームを保存中",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -13629,6 +13636,7 @@ const designImportOverrides = {
         figImportSelected: "선택한 {{count}}개 가져오기",
         figImportAll: "모두 가져오기",
         figImportAnalyzing: "분석 중…",
+        figImportSaving: "{{total}}개 중 {{saved}}개 프레임 저장 중",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -13715,6 +13723,7 @@ const designImportOverrides = {
         figImportSelected: "Importar {{count}} selecionados",
         figImportAll: "Importar tudo",
         figImportAnalyzing: "Analisando…",
+        figImportSaving: "Salvando {{saved}} de {{total}} quadros",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -13800,6 +13809,7 @@ const designImportOverrides = {
         figImportSelected: "{{count}} चुने हुए आयात करें",
         figImportAll: "सभी आयात करें",
         figImportAnalyzing: "विश्लेषण हो रहा है…",
+        figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -13884,6 +13894,7 @@ const designImportOverrides = {
         figImportSelected: "استيراد {{count}} المحددة",
         figImportAll: "استيراد الكل",
         figImportAnalyzing: "جار التحليل…",
+        figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",

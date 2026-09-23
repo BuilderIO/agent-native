@@ -325,6 +325,7 @@ export default defineAction({
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
     let persistedVersionHash: string | undefined;
+    let persistedUpdatedAt: string | undefined;
 
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
@@ -333,6 +334,7 @@ export default defineAction({
           skippedStaleMirror = false;
           skippedStaleOperation = false;
           exactOperationAlreadyPersisted = false;
+          persistedUpdatedAt = undefined;
           const [persistedFile] = await tx
             .select({
               content: schema.designFiles.content,
@@ -692,6 +694,7 @@ export default defineAction({
             .update(schema.designs)
             .set({ updatedAt: now })
             .where(eq(schema.designs.id, file.designId));
+          persistedUpdatedAt = now;
           return;
         }
         logSaveConflictDebug("retry-exhausted", {
@@ -739,6 +742,7 @@ export default defineAction({
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
         versionHash: persistedVersionHash,
+        ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
         ...checkpointField,
       };
     }

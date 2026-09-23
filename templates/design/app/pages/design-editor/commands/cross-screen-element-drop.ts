@@ -150,6 +150,7 @@ export interface CrossScreenElementDropArgs {
   clearPendingHistory?: () => void;
   syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
@@ -201,6 +202,7 @@ export function runCrossScreenElementDrop(
     clearPendingHistory,
     syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
+    runtimeStructurePendingTransactionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
     setCreatedOverviewLayerSelection,
@@ -406,6 +408,18 @@ export function runCrossScreenElementDrop(
   if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
     return;
 
+  const beginRuntimeStructureTransaction = () => {
+    if (runtimeStructurePendingTransactionRef?.current) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return null;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (runtimeStructurePendingTransactionRef) {
+      runtimeStructurePendingTransactionRef.current = transactionId;
+    }
+    return transactionId;
+  };
+
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
@@ -475,7 +489,8 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
-    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
@@ -558,9 +573,12 @@ export function runCrossScreenElementDrop(
         });
         return;
       }
+      const transactionId = beginRuntimeStructureTransaction();
+      if (!transactionId) return;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
         screenId: targetScreenId,
         sourceScreenId,
         remintCollidingNodeIds: true,
@@ -834,9 +852,12 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
       screenId: targetScreenId,
       sourceScreenId,
       remintCollidingNodeIds: true,

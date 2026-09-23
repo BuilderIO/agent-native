@@ -10,7 +10,7 @@ import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import type {
   IframeContextMenuPayload,
@@ -328,6 +328,9 @@ export interface MultiScreenCanvasProps {
   ) => ReactNode;
   /** Cached inert HTML used while a live screen is waiting for a boot slot. */
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
+  /** The design's resolved tweak CSS custom properties. Editors receive them
+   *  from their own DesignCanvas; static previews are posted them here. */
+  tweakValues?: Record<string, string>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview
@@ -508,10 +511,12 @@ export interface MultiScreenCanvasProps {
         screenId: string;
       })
     | null;
+  /** Shared admission lock used to associate a board timeout with its transaction. */
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   onBoardRuntimeStructureInsertRejected?: (
     reason: string,
     transactionId?: string,
-  ) => void;
+  ) => boolean | void;
   onBoardRuntimeStructureInsertApplied?: (details: {
     requestId: string;
     transactionId?: string;

@@ -5,8 +5,6 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,7 +15,6 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -904,7 +901,10 @@ describe("Netlify static root shell", () => {
 
 async function importGeneratedWorker(
   entrySource: string,
-  options: { responseHeaders?: Record<string, string> } = {},
+  options: {
+    responseHeaders?: Record<string, string>;
+    rootDataLocation?: string;
+  } = {},
 ) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
@@ -920,6 +920,18 @@ export function createRequestHandler() {
   return async (request) => {
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
+      if (url.pathname === "/.data") {
+        const rootDataLocation = ${JSON.stringify(options.rootDataLocation ?? null)};
+        if (rootDataLocation) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: rootDataLocation },
+          });
+        }
+        return new Response(url.pathname, {
+          headers: { "content-type": "text/x-script" },
+        });
+      }
       if (url.pathname === "/custom.data") {
         return new Response('{"ok":true}', {
           headers: {
@@ -1401,6 +1413,37 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
+  it("strips the mount from React Router's root data URL", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs.data"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("/.data");
+  });
+
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        rootDataLocation: location,
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/docs.data"),
+        { APP_BASE_PATH: "/docs" },
+        {},
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+    },
+  );
+
   it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1731,17 +1774,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain("__agentNativeLoadingLabelIndex");
-    expect(html).toContain("Math.random()");
-    expect(html).toContain("setInterval");
-    expect(html).toContain("__agentNativeLoadingLabelHydrated");
-    expect(html).toContain("__agentNativeLoadingLabelInterval");
-    expect(html).toContain("__agentNativeLoadingLabelCleanup");
-    expect(html).toContain("clearInterval");
-    expect(html).toContain("MutationObserver");
-    expect(html).toContain("loader.isConnected");
-    expect(html).toContain("an-cube-pulse");
-    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).toContain('data-agent-native-app-skeleton="true"');
+    expect(html).not.toContain("data-agent-native-session-bootstrap");
+    expect(html).not.toContain("data-agent-native-cube-loader");
+    expect(html).not.toContain("an-cube-pulse");
     expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
