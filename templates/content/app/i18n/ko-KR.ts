@@ -844,6 +844,8 @@ const rawLiterals = {
     contentSpace: "Content 공간",
     addChild: "하위 항목 추가",
     addChildTo: "{{title}}에 하위 항목 추가",
+    collapseItem: "{{title}} 접기",
+    expandItem: "{{title}} 펼치기",
     database: "컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",
     databaseRestored: "컬렉션가 복원되었습니다",

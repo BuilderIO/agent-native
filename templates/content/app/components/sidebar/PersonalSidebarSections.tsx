@@ -17,6 +17,7 @@ import {
   IconDots,
   IconFiles,
   IconPin,
+  IconPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -41,6 +42,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useContentRecent } from "@/hooks/use-content-recent";
 import { cn } from "@/lib/utils";
 
@@ -50,14 +56,20 @@ import {
   useSidebarReorderItem,
   type SidebarReorderLabels,
 } from "./sidebar-reorder";
-import { SidebarNavigationRow } from "./SidebarNavigationRow";
+import {
+  SidebarNavigationRow,
+  sidebarShowMoreClassName,
+} from "./SidebarNavigationRow";
 
 export function PersonalSidebarSections({
   renderPinned,
   pinnedCount,
   renderFiles,
   spaceId,
+  activeDocumentId,
   onNavigate,
+  onCreatePage,
+  createPagePending = false,
   reorderLabels,
   seeAllHrefs,
 }: {
@@ -65,7 +77,10 @@ export function PersonalSidebarSections({
   pinnedCount: number;
   renderFiles: () => ReactNode;
   spaceId: string;
+  activeDocumentId?: string | null;
   onNavigate?: () => void;
+  onCreatePage?: () => void;
+  createPagePending?: boolean;
   reorderLabels: SidebarReorderLabels;
   seeAllHrefs: Record<ContentSidebarSectionId, string>;
 }) {
@@ -198,6 +213,25 @@ export function PersonalSidebarSections({
               onChangeVisible={(sectionId, visible) =>
                 change(sectionId, { visible })
               }
+              action={
+                onCreatePage ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
+                        aria-label={t("sidebar.newPage")}
+                        disabled={createPagePending}
+                        onClick={onCreatePage}
+                      >
+                        <IconPlus className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
+                  </Tooltip>
+                ) : null
+              }
             >
               {sections.files.expanded ? renderFiles() : null}
             </PersonalSection>
@@ -236,7 +270,7 @@ export function PersonalSidebarSections({
                   ) : recent.data?.entries.length ? (
                     <nav
                       aria-label={labels.recent}
-                      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+                      className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
                     >
                       {recent.data.entries
                         .slice(0, limits.recent)
@@ -245,6 +279,10 @@ export function PersonalSidebarSections({
                             key={contentRecentTargetKey(entry.target)}
                             to={contentRecentHref(entry.target)}
                             icon={entry.icon}
+                            active={
+                              !!activeDocumentId &&
+                              entry.target.documentId === activeDocumentId
+                            }
                             onClick={onNavigate}
                             title={
                               entry.viewName
@@ -272,7 +310,10 @@ export function PersonalSidebarSections({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="grid min-h-[38px] w-full grid-cols-[2.375rem_minmax(0,1fr)] items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        sidebarShowMoreClassName,
+                        "grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]",
+                      )}
                       onClick={() =>
                         setLimits((current) => ({
                           ...current,
@@ -282,9 +323,9 @@ export function PersonalSidebarSections({
                     >
                       <IconChevronDown
                         aria-hidden="true"
-                        className="size-3.5 justify-self-center"
+                        className="col-start-2 size-3.5 justify-self-center"
                       />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 truncate ps-1.5">
                         {t("sidebar.showMore")}
                       </span>
                     </Button>
@@ -292,16 +333,19 @@ export function PersonalSidebarSections({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="grid min-h-[38px] w-full grid-cols-[2.375rem_minmax(0,1fr)] items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        sidebarShowMoreClassName,
+                        "grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]",
+                      )}
                       onClick={() =>
                         setLimits((current) => ({ ...current, [id]: 5 }))
                       }
                     >
                       <IconChevronDown
                         aria-hidden="true"
-                        className="size-3.5 rotate-180 justify-self-center"
+                        className="col-start-2 size-3.5 rotate-180 justify-self-center"
                       />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 truncate ps-1.5">
                         {t("sidebar.showLess")}
                       </span>
                     </Button>
@@ -326,6 +370,7 @@ function PersonalSection({
   sections,
   labels,
   onChangeVisible,
+  action,
   children,
 }: {
   id: ContentSidebarSectionId;
@@ -337,6 +382,8 @@ function PersonalSection({
   sections: ContentSidebarSections;
   labels: Record<ContentSidebarSectionId, string>;
   onChangeVisible: (id: "pinned" | "recent", visible: boolean) => void;
+  /** An optional header action shown before the section menu. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -353,9 +400,9 @@ function PersonalSection({
       ref={reorder.setNodeRef}
       style={reorder.style}
       data-sidebar-reorder-item-id={reorder.itemId}
-      className="mb-2 min-w-0 px-2"
+      className="mb-4 min-w-0 px-2"
     >
-      <div className="grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1">
+      <div className="group/section-header grid h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
         {onToggle && (
           <button
             type="button"
@@ -365,7 +412,7 @@ function PersonalSection({
             onPointerDown={pointerDragListener}
             onClick={onToggle}
             className={cn(
-              "group/toggle grid min-w-0 touch-none select-none grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+              "group/toggle grid min-w-0 touch-none select-none grid-cols-[1.75rem_minmax(0,1fr)] items-center rounded text-start text-xs font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
               reorder.isDragging && "cursor-grabbing",
             )}
           >
@@ -383,54 +430,63 @@ function PersonalSection({
             <span className="min-w-0 flex-1 truncate">{label}</span>
           </button>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
-              aria-label={t("sidebar.customizeSidebar")}
-            >
-              <IconDots className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={reorder.siblingIndex === 0}
-                onSelect={reorder.moveUp}
-              >
-                {reorderLabels.moveUp}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={reorder.siblingIndex === reorder.siblings.length - 1}
-                onSelect={reorder.moveDown}
-              >
-                {reorderLabels.moveDown}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            {/* Every section menu carries the visibility toggles, so a hidden
-                section stays restorable from the sections that remain. */}
-            <DropdownMenuGroup>
-              {(["pinned", "recent"] as const).map((sectionId) => (
-                <DropdownMenuCheckboxItem
-                  key={sectionId}
-                  checked={sections[sectionId].visible}
-                  onCheckedChange={(visible) =>
-                    onChangeVisible(sectionId, visible)
-                  }
+        <div className="flex items-center gap-0.5">
+          {action}
+          {/* The section menu stays quiet until the header is hovered or
+              focused; devices without hover always show it. */}
+          <div className="flex has-[[data-state=open]]:opacity-100 group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100 [@media(hover:hover)]:opacity-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground"
+                  aria-label={t("sidebar.customizeSidebar")}
                 >
-                  {labels[sectionId]}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                  <IconDots className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link to={seeAllHref}>{t("sidebar.seeAll")}</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    disabled={reorder.siblingIndex === 0}
+                    onSelect={reorder.moveUp}
+                  >
+                    {reorderLabels.moveUp}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={
+                      reorder.siblingIndex === reorder.siblings.length - 1
+                    }
+                    onSelect={reorder.moveDown}
+                  >
+                    {reorderLabels.moveDown}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                {/* Every section menu carries the visibility toggles, so a hidden
+                section stays restorable from the sections that remain. */}
+                <DropdownMenuGroup>
+                  {(["pinned", "recent"] as const).map((sectionId) => (
+                    <DropdownMenuCheckboxItem
+                      key={sectionId}
+                      checked={sections[sectionId].visible}
+                      onCheckedChange={(visible) =>
+                        onChangeVisible(sectionId, visible)
+                      }
+                    >
+                      {labels[sectionId]}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
       </div>
       {children}
     </section>

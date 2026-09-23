@@ -1559,6 +1559,8 @@ const overrides = {
     addWorkspace: "新增工作區",
     addChild: "新增子項目",
     addChildTo: "新增子項目至 {{title}}",
+    collapseItem: "收合 {{title}}",
+    expandItem: "展開 {{title}}",
     addSubPage: "新增子頁面",
     collapse: "折疊側邊欄",
     resize: "調整側邊欄寬度",

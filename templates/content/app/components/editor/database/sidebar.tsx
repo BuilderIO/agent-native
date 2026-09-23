@@ -24,10 +24,22 @@ import {
   IconPin,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
-import { SidebarNavigationRow } from "@/components/sidebar/SidebarNavigationRow";
+import {
+  SidebarNavigationRow,
+  SidebarRowIcon,
+  revealActiveSidebarRow,
+  sidebarRowClassName,
+  sidebarShowMoreClassName,
+} from "@/components/sidebar/SidebarNavigationRow";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -148,7 +160,7 @@ export function PagedContentFilesSidebarView({
   return (
     <nav
       aria-label={navigationLabel}
-      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+      className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
       data-paged-files-navigation
     >
       <PagedContentFilesBranch
@@ -290,7 +302,10 @@ function PagedContentFilesBranch({
           navigationItem.documentId,
         );
         return (
-          <div key={navigationItem.membershipId} className="min-w-0">
+          <div
+            key={navigationItem.membershipId}
+            className="grid min-w-0 gap-0.5"
+          >
             <DatabaseSidebarRow
               item={item}
               openPagesIn="full_page"
@@ -333,15 +348,17 @@ function PagedContentFilesBranch({
             type="button"
             size="sm"
             variant="ghost"
-            className="grid min-h-[38px] w-full items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className={sidebarShowMoreClassName}
             style={{
-              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false) + 28}px minmax(0, 1fr)`,
+              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false)}px 1.75rem minmax(0, 1fr)`,
             }}
             onClick={() => setNextPageVisible(true)}
           >
-            <span className="col-start-2 truncate">
-              {t("sidebar.showMore")}
-            </span>
+            <IconChevronDown
+              aria-hidden="true"
+              className="col-start-2 size-3.5 justify-self-center"
+            />
+            <span className="truncate ps-1.5">{t("sidebar.showMore")}</span>
           </Button>
         )
       ) : null}
@@ -703,7 +720,7 @@ export function DatabaseSidebarView({
       node.item.document.id,
     );
     return (
-      <div key={node.item.id} className="min-w-0">
+      <div key={node.item.id} className="grid min-w-0 gap-0.5">
         <SidebarDatabaseRow
           item={node.item}
           openPagesIn={openPagesIn}
@@ -724,7 +741,7 @@ export function DatabaseSidebarView({
           manualReorder={manualReorder}
         />
         {open && node.children.length > 0 ? (
-          <div>
+          <div className="grid gap-0.5">
             {node.children.map((child) => renderTreeNode(child, depth + 1))}
           </div>
         ) : null}
@@ -770,7 +787,7 @@ export function DatabaseSidebarView({
   const navigation = (
     <nav
       aria-label={navigationLabel}
-      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+      className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
     >
       {grouped
         ? groups.map((group) => {
@@ -1022,17 +1039,26 @@ function DatabaseSidebarRow({
   }
 
   const title = item.document.title || untitledLabel;
+  const expandLabel = expanded
+    ? t("sidebar.collapseItem", { title })
+    : t("sidebar.expandItem", { title });
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (active) revealActiveSidebarRow(rowRef.current);
+  }, [active]);
 
   if (item.document.source?.kind === "folder") {
     return (
       <div className="group relative min-w-0">
+        <SidebarDepthGuides depth={depth} />
         <button
           type="button"
-          className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded pe-1.5 text-start text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(sidebarRowClassName(), "w-full text-start")}
           style={{
             paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
           }}
-          aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
+          title={title}
+          aria-label={expandLabel}
           aria-expanded={expanded}
           onClick={() => onToggleExpanded?.(!expanded)}
           onPointerUp={(event) => event.currentTarget.blur()}
@@ -1040,40 +1066,47 @@ function DatabaseSidebarRow({
           <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
             <IconChevronRight
               className={cn(
-                "size-3.5 transition-transform",
+                "size-3.5 transition-transform rtl:-scale-x-100",
                 expanded && "rotate-90",
               )}
             />
           </span>
-          {expanded ? (
-            <IconFolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
+          <SidebarRowIcon
+            icon={
+              expanded ? (
+                <IconFolderOpen className="size-4 text-muted-foreground" />
+              ) : (
+                <IconFolder className="size-4 text-muted-foreground" />
+              )
+            }
+          />
           <span className="min-w-0 flex-1 truncate">{title}</span>
         </button>
       </div>
     );
   }
 
+  const hasRowActions = hasMenuActions || canCreateChild;
+
   return (
     <>
-      <div className="group relative min-w-0">
+      <div ref={rowRef} className="group relative min-w-0">
+        <SidebarDepthGuides depth={depth} />
         {hasChildren ? (
           <button
             type="button"
-            className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={{
               insetInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
             }}
-            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
+            aria-label={expandLabel}
             aria-expanded={expanded}
             onPointerUp={(event) => event.currentTarget.blur()}
             onClick={() => onToggleExpanded?.(!expanded)}
           >
             <IconChevronRight
               className={cn(
-                "size-3.5 transition-transform",
+                "size-3.5 transition-transform rtl:-scale-x-100",
                 expanded && "rotate-90",
               )}
             />
@@ -1083,35 +1116,40 @@ function DatabaseSidebarRow({
           to={`/page/${item.document.id}`}
           icon={item.document.icon}
           hideIconOnHover={hasChildren}
+          active={active}
+          title={title}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
           data-sidebar-reorder-item-id={reorder?.controls.itemId}
           role="link"
           className={cn(
+            // The action overlay covers the row's end; keep the row's hover
+            // fill while the pointer is over those buttons.
+            !active && "group-hover:bg-sidebar-accent/60",
             reorder && "touch-none cursor-pointer select-none",
             reorder?.controls.isDragging && "cursor-grabbing",
-            active && "font-semibold text-foreground",
           )}
           style={{
             paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
           }}
           onClick={handleClick}
           onPointerUp={(event) => event.currentTarget.blur()}
-          aria-current={active ? "page" : undefined}
         >
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
-              (hasMenuActions || canCreateChild) &&
-                "group-hover:pe-12 group-focus-within:pe-12",
+              // Fade the title under the actions instead of re-truncating it,
+              // so the text never shifts under the pointer.
+              hasRowActions &&
+                "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)] group-focus-within:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
             )}
           >
             {title}
           </span>
         </SidebarNavigationRow>
 
-        {(hasMenuActions || canCreateChild) && (
-          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        {hasRowActions && (
+          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1227,6 +1265,26 @@ export function databaseSidebarRootItems(
 
 export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {
   return depth * 18;
+}
+
+/** Vertical guides under each ancestor's icon column, so nesting stays traceable. */
+function SidebarDepthGuides({ depth }: { depth: number }) {
+  if (depth <= 0) return null;
+  return (
+    <>
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          key={level}
+          aria-hidden="true"
+          data-sidebar-depth-guide
+          className="pointer-events-none absolute -top-px -bottom-px w-px bg-border"
+          style={{
+            insetInlineStart: `${databaseSidebarRowIndent(level, false) + 14}px`,
+          }}
+        />
+      ))}
+    </>
+  );
 }
 
 export function databaseSidebarItemTree(

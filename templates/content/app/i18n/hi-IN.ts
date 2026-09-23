@@ -835,6 +835,8 @@ const rawLiterals = {
     contentSpace: "Content स्पेस",
     addChild: "चाइल्ड जोड़ें",
     addChildTo: "{{title}} में चाइल्ड जोड़ें",
+    collapseItem: "{{title}} संक्षिप्त करें",
+    expandItem: "{{title}} का विस्तार करें",
     database: "संग्रह",
     databasePermanentlyDeleted: "संग्रह स्थायी रूप से हटाया गया",
     databaseRestored: "संग्रह बहाल किया गया",

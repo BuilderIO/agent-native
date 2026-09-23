@@ -850,6 +850,8 @@ const rawLiterals = {
     contentSpace: "Content スペース",
     addChild: "子項目を追加",
     addChildTo: "{{title}} に子項目を追加",
+    collapseItem: "{{title}} を折りたたむ",
+    expandItem: "{{title}} を展開",
     database: "コレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",
     databaseRestored: "コレクションを復元しました",

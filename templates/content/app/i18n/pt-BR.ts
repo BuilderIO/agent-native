@@ -867,6 +867,8 @@ const rawLiterals = {
     contentSpace: "Espaço do Content",
     addChild: "Adicionar filho",
     addChildTo: "Adicionar filho a {{title}}",
+    collapseItem: "Recolher {{title}}",
+    expandItem: "Expandir {{title}}",
     database: "Coleção",
     databasePermanentlyDeleted: "Coleção excluída permanentemente",
     databaseRestored: "Coleção restaurada",

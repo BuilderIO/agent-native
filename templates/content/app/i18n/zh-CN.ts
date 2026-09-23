@@ -901,6 +901,8 @@ const rawLiterals = {
     contentSpace: "Content 空间",
     addChild: "新增子项",
     addChildTo: "新增子项至 {{title}}",
+    collapseItem: "收起 {{title}}",
+    expandItem: "展开 {{title}}",
     completeStepsAboveFirst: "请先完成上面的步骤",
     connectWorkspace: "连接工作区",
     connected: "已连接",

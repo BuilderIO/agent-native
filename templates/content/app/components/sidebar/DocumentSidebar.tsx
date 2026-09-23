@@ -65,9 +65,11 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
@@ -148,8 +150,10 @@ import {
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
+import { sidebarRowClassName } from "./SidebarNavigationRow";
 import {
-  WorkspaceSourceMenu,
+  WorkspaceSourceMenuItems,
+  useWorkspaceCreation,
   type CreatedWorkspace,
 } from "./WorkspaceSourceMenu";
 
@@ -655,7 +659,11 @@ function WorkspaceSidebarItem({
           <button
             type="button"
             aria-expanded={expanded}
-            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
+            aria-label={
+              expanded
+                ? t("sidebar.collapseItem", { title: space.name })
+                : t("sidebar.expandItem", { title: space.name })
+            }
             className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
             onClick={onToggleExpanded}
           >
@@ -1291,6 +1299,9 @@ export function DocumentSidebar({
       }),
     [handleSelectContentSpace],
   );
+  const workspaceCreation = useWorkspaceCreation({
+    onCreated: handleWorkspaceCreated,
+  });
   useEffect(() => {
     if (!selectedSpace || lastSyncedSpaceIdRef.current === selectedSpace.id)
       return;
@@ -1366,8 +1377,6 @@ export function DocumentSidebar({
     },
     [localFileMode, queryClient],
   );
-  const settingsActive = location.pathname.startsWith("/settings");
-
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (!onResize || width === undefined) return;
@@ -2042,23 +2051,6 @@ export function DocumentSidebar({
       </Tooltip>
     ) : null;
 
-  const renderSettingsNavButton = () => (
-    <Link
-      to="/settings"
-      className={cn(
-        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs",
-        settingsActive
-          ? "bg-primary/10 font-medium text-primary"
-          : "text-primary hover:bg-accent/60",
-      )}
-    >
-      <IconSettings className="size-4 shrink-0 text-primary" />
-      <span className="min-w-0 flex-1 truncate text-start text-primary">
-        {t("navigation.settings")}
-      </span>
-    </Link>
-  );
-
   const collapseButton = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2102,26 +2094,26 @@ export function DocumentSidebar({
     <Button
       ref={searchTriggerRef}
       type="button"
-      variant="outline"
-      className="grid h-9 w-full grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center bg-background p-0 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
+      variant="ghost"
+      className="grid h-8 w-full grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-0 rounded p-0 pe-2 text-sm font-normal text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
       onClick={handleOpenSearch}
     >
-      <IconSearch size={15} className="justify-self-center" />
+      <IconSearch className="size-4 justify-self-center" />
       <span className="min-w-0 truncate ps-1.5 text-start">
         {t("sidebar.search")}
       </span>
-      <kbd className="justify-self-center font-sans text-[11px] font-normal text-muted-foreground">
+      <kbd className="font-sans text-[11px] font-normal text-muted-foreground/70">
         {isMac ? "⌘ K" : "Ctrl K"}
       </kbd>
     </Button>
   );
   const contentSpaceSelector = selectedSpace ? (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2">
+    <div className="min-w-0 ps-3 pe-2 pt-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0"
+            className="grid h-8 w-full min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0 hover:bg-sidebar-accent/60"
             aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
           >
             <span className="truncate ps-2 text-start">
@@ -2156,18 +2148,14 @@ export function DocumentSidebar({
               </Tooltip>
             ))}
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <WorkspaceSourceMenuItems
+              onNewWorkspace={workspaceCreation.openDialog}
+            />
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <WorkspaceSourceMenu onCreated={handleWorkspaceCreated}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          aria-label={t("sidebar.addWorkspace")}
-        >
-          <IconPlus className="size-4" />
-        </Button>
-      </WorkspaceSourceMenu>
     </div>
   ) : null;
   const feedbackButton = (
@@ -2284,18 +2272,20 @@ export function DocumentSidebar({
   );
 
   const renderTrashSection = () => {
+    const trashActive = location.pathname.startsWith("/trash");
+    // Lifecycle destinations sit in their own fixed group below the scrolling
+    // navigation, so Trash never hides beneath a long Files tree.
     return (
-      <div className="mt-3 px-2 pt-2">
+      <div className="shrink-0 border-t border-border/70 px-2 py-2">
         <Link
           to="/trash"
-          className={cn(
-            "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-            location.pathname.startsWith("/trash") &&
-              "bg-accent/60 text-foreground",
-          )}
+          aria-current={trashActive ? "page" : undefined}
+          className={cn(sidebarRowClassName(trashActive), "ms-1")}
           onClick={onNavigate}
         >
-          <IconTrash size={15} />
+          <span className="flex size-7 shrink-0 items-center justify-center">
+            <IconTrash className="size-4 text-muted-foreground" />
+          </span>
           <span className="truncate">{t("sidebar.trash")}</span>
         </Link>
       </div>
@@ -2582,7 +2572,10 @@ export function DocumentSidebar({
               spaceId={selectedSpace.id}
               pinnedCount={favoritesData?.items.length ?? 0}
               renderFiles={renderWorkspaceNavigation}
+              activeDocumentId={activeDocumentId}
               onNavigate={onNavigate}
+              onCreatePage={() => void handleCreatePageInSpace(selectedSpace)}
+              createPagePending={createDocument.isPending}
               reorderLabels={sidebarReorderLabels}
               seeAllHrefs={{
                 pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
@@ -2675,13 +2668,10 @@ export function DocumentSidebar({
               }}
             />
           ) : null}
-          {renderTrashSection()}
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 border-t border-border/70 px-2 pt-3">
-        <div className="space-y-0.5">{renderSettingsNavButton()}</div>
-      </div>
+      {renderTrashSection()}
 
       <div className="shrink-0">
         <ExtensionSlot
@@ -2724,6 +2714,8 @@ export function DocumentSidebar({
           </>
         }
       />
+
+      {workspaceCreation.dialog}
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

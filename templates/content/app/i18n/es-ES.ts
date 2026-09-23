@@ -1080,6 +1080,8 @@ const rawLiterals = {
     contentSpace: "Espacio de Content",
     addChild: "Agregar hijo",
     addChildTo: "Agregar hijo a {{title}}",
+    collapseItem: "Contraer {{title}}",
+    expandItem: "Expandir {{title}}",
     completeStepsAboveFirst: "Completa primero los pasos anteriores",
     connectWorkspace: "Conectar espacio",
     connected: "Conectado",

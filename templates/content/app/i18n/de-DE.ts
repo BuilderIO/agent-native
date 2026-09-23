@@ -875,6 +875,8 @@ const rawLiterals = {
     contentSpace: "Content-Bereich",
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
+    collapseItem: "{{title}} einklappen",
+    expandItem: "{{title}} erweitern",
     database: "Sammlung",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
     databaseRestored: "Sammlung wiederhergestellt",

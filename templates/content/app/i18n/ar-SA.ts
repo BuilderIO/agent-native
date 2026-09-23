@@ -836,6 +836,8 @@ const rawLiterals = {
     contentSpace: "مساحة Content",
     addChild: "إضافة عنصر فرعي",
     addChildTo: "إضافة عنصر فرعي إلى {{title}}",
+    collapseItem: "طي {{title}}",
+    expandItem: "توسيع {{title}}",
     database: "المجموعة",
     databasePermanentlyDeleted: "تم حذف المجموعة نهائيًا",
     databaseRestored: "تمت استعادة المجموعة",

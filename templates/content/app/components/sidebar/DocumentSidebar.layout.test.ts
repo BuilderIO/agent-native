@@ -331,9 +331,16 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("<OrgSwitcher");
     expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
     expect(sidebar).toContain("<AppSidebarFooter");
-    expect(sidebar).toContain('t("sidebar.addWorkspace")');
-    expect(sidebar).toContain("<WorkspaceSourceMenu");
-    expect(sidebar).toContain("onCreated={handleWorkspaceCreated}");
+    // Workspace sources live in the space switcher, so the only header `+`
+    // left in the expanded sidebar creates a page.
+    expect(sidebar).toContain("<WorkspaceSourceMenuItems");
+    expect(sidebar).toContain("onNewWorkspace={workspaceCreation.openDialog}");
+    expect(sidebar).toContain("onCreated: handleWorkspaceCreated");
+    expect(sidebar).toContain("{workspaceCreation.dialog}");
+    expect(sidebar).not.toContain('aria-label={t("sidebar.addWorkspace")}');
+    expect(sidebar).toContain(
+      "onCreatePage={() => void handleCreatePageInSpace(selectedSpace)}",
+    );
     expect(sidebar).toContain("scroll={false}");
   });
 
@@ -387,9 +394,11 @@ describe("document sidebar layout", () => {
     const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
     const reorder = readSidebarSource("./sidebar-reorder.tsx");
 
+    // Revealed actions fade the title's end instead of re-truncating it.
     expect(databaseSidebar).toContain(
-      '"group-hover:pe-12 group-focus-within:pe-12"',
+      "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
     );
+    expect(databaseSidebar).not.toContain("group-hover:pe-12");
     expect(databaseSidebar).not.toContain(
       '(hasMenuActions || canCreateChild) && "pe-12"',
     );
@@ -400,7 +409,11 @@ describe("document sidebar layout", () => {
       '"touch-none cursor-pointer select-none"',
     );
     expect(databaseSidebar).toContain(
-      'className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"',
+      'className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"',
+    );
+    // Nested rows keep the same 2px rhythm as roots.
+    expect(databaseSidebar).toMatch(
+      /key=\{navigationItem\.membershipId\}\s+className="grid min-w-0 gap-0\.5"/,
     );
     expect(databaseSidebar).toContain(
       "pointer-events-none absolute end-0 top-1/2",
@@ -485,7 +498,7 @@ describe("document sidebar layout", () => {
     expect(sections).not.toContain("IconGripVertical");
     expect(sections).toContain("onPointerDown={pointerDragListener}");
     expect(sections).toContain("onClick={onToggle}");
-    expect(sections).toContain("grid-cols-[minmax(0,1fr)_1.75rem]");
+    expect(sections).toContain("grid-cols-[minmax(0,1fr)_auto]");
     expect(sections).toContain("grid-cols-[1.75rem_minmax(0,1fr)]");
     expect(sections).not.toContain("{...reorder.listeners}");
     expect(sections).toContain("data-sidebar-reorder-item-id={reorder.itemId}");
@@ -494,9 +507,10 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("group-focus-visible/toggle:opacity-100");
     expect(sections).toContain("<SidebarNavigationRow");
     expect(sections).toContain("renderPinned(limits.pinned)");
-    expect(sections).toContain("grid-cols-[2.375rem_minmax(0,1fr)]");
-    expect(sections).toContain("min-h-[38px]");
-    expect(sections).toContain("hover:bg-transparent");
+    // Show more / less share the row height and the rows' icon column.
+    expect(sections).toContain("sidebarShowMoreClassName");
+    expect(sections).toContain("grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]");
+    expect(sections).not.toContain("min-h-[38px]");
     expect(sections).toContain("text-muted-foreground");
     expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
     expect(sidebar).toContain("favoritesData?.items ?? []");
@@ -519,14 +533,56 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 
+  it("marks the current page with one filled row style everywhere", () => {
+    const row = readSidebarSource("./SidebarNavigationRow.tsx");
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(row).toContain(
+      '"bg-sidebar-accent font-medium text-sidebar-accent-foreground"',
+    );
+    expect(row).toContain('aria-current={active ? "page" : undefined}');
+    expect(row).not.toContain("text-foreground/85");
+    expect(sections).toContain("entry.target.documentId === activeDocumentId");
+    expect(databaseSidebar).toContain("active={active}");
+    expect(databaseSidebar).toContain("revealActiveSidebarRow(rowRef.current)");
+    expect(databaseSidebar).not.toContain('active && "font-semibold');
+    expect(sidebar).toContain("sidebarRowClassName(trashActive)");
+  });
+
+  it("keeps Trash in a fixed group and Settings in the footer only", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const expandedBranch = sidebar.slice(
+      sidebar.lastIndexOf("<AppSidebarHeader"),
+    );
+
+    expect(expandedBranch.indexOf("</ScrollArea>")).toBeLessThan(
+      expandedBranch.indexOf("{renderTrashSection()}"),
+    );
+    expect(sidebar).not.toContain("renderSettingsNavButton");
+    expect(expandedBranch.match(/to="\/settings"/g)).toHaveLength(1);
+  });
+
+  it("names tree toggles after the item instead of the sidebar", () => {
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(databaseSidebar).toContain('t("sidebar.expandItem", { title })');
+    expect(databaseSidebar).toContain('t("sidebar.collapseItem", { title })');
+    expect(databaseSidebar).not.toContain('t("sidebar.expand")} ${title}');
+    expect(sidebar).toContain('t("sidebar.expandItem", { title: space.name })');
+    expect(databaseSidebar).toContain("<SidebarDepthGuides depth={depth} />");
+  });
+
   it("aligns the expanded sidebar controls to one trailing grid", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
-    expect(sidebar).toContain(
-      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2",
-    );
-    expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_1.75rem]");
+    expect(sidebar).toContain('className="min-w-0 ps-3 pe-2 pt-2"');
+    // Search is a quiet row whose icon and label line up with the tree rows.
+    expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_auto]");
+    expect(sidebar).not.toContain('variant="outline"');
     expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
     expect(sidebar).toContain("max-w-[calc(100vw-1rem)]");
     expect(sidebar).toContain('className="min-w-0 flex-1 truncate"');
