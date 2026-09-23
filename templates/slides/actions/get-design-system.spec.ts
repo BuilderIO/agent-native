@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn(() => "access-filter");
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
@@ -17,6 +18,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: (...args: Parameters<typeof mockAccessFilter>) =>
+    mockAccessFilter(...args),
   resolveAccess: (...args: Parameters<typeof mockResolveAccess>) =>
     mockResolveAccess(...args),
 }));
@@ -29,11 +32,8 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
   schema: {
-    designSystems: {
-      id: "designSystems.id",
-      data: "designSystems.data",
-      ownerEmail: "designSystems.ownerEmail",
-    },
+    designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
+    designSystemShares: {},
   },
 }));
 
@@ -45,7 +45,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
-        ownerEmail: "owner@example.test",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
@@ -117,15 +117,16 @@ describe("get-design-system", () => {
     expect(mockWhere).toHaveBeenCalledWith({
       type: "and",
       conditions: [
-        { type: "eq", column: "designSystems.id", value: "builder-ds-1" },
+        "access-filter",
+        { type: "eq", column: "id", value: "builder-ds-1" },
         {
           type: "eq",
-          column: "designSystems.ownerEmail",
-          value: "owner@example.test",
+          column: "ownerEmail",
+          value: "owner@example.com",
         },
         {
           type: "eq",
-          column: "designSystems.data",
+          column: "data",
           value: JSON.stringify({
             source: "builder",
             builderDesignSystemId: "ds-1",
