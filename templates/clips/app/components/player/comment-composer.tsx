@@ -63,10 +63,16 @@ export function useAutoResizeCommentTextarea(
 
   useLayoutEffect(() => {
     const element = textareaRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => resizeCommentTextarea(element));
-    observer.observe(element);
-    return () => observer.disconnect();
+    if (!element) return;
+    const resize = () => resizeCommentTextarea(element);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    observer?.observe(element);
+    window.addEventListener("resize", resize);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
   }, [rows, textareaRef]);
 }
 

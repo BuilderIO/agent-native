@@ -541,6 +541,45 @@ describe("CommentsPanel reply composer", () => {
     expect(composer?.style.overflowY).toBe("hidden");
   });
 
+  it("recalculates the comment textarea cap after a viewport resize", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    const heightDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerHeight",
+    );
+    const originalHeight = window.innerHeight;
+
+    try {
+      Object.defineProperty(composer, "scrollHeight", {
+        configurable: true,
+        value: Math.round(originalHeight * 0.4) + 64,
+      });
+      act(() => {
+        if (composer) setTextareaValue(composer, "A long comment");
+      });
+      expect(composer?.style.height).toBe(
+        `${Math.round(originalHeight * 0.4)}px`,
+      );
+
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 400,
+      });
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(composer?.style.height).toBe("160px");
+      expect(composer?.style.overflowY).toBe("auto");
+    } finally {
+      if (heightDescriptor) {
+        Object.defineProperty(window, "innerHeight", heightDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "innerHeight");
+      }
+    }
+  });
+
   it("regrows comment textareas when their width changes wrapping", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
