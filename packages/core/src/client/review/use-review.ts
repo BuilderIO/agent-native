@@ -276,6 +276,7 @@ interface OptimisticQueryState {
   queryKey: readonly unknown[];
   resource: ReviewResource;
   base: unknown;
+  rendered: unknown;
   operations: Map<string, OptimisticOperation>;
 }
 
@@ -301,8 +302,18 @@ export class ReviewOptimisticCache {
   private readonly queries = new Map<string, OptimisticQueryState>();
   private readonly resourceOperations = new Map<string, Set<string>>();
   private nextOperation = 0;
+  private rendering = false;
 
-  constructor(private readonly queryClient: QueryClient) {}
+  constructor(private readonly queryClient: QueryClient) {
+    queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated") return;
+      const state = this.queries.get(event.query.queryHash);
+      if (!state || this.rendering || event.query.state.data === state.rendered)
+        return;
+      state.base = event.query.state.data;
+      this.render(state);
+    });
+  }
 
   begin(mutation: ReviewOptimisticMutation): ReviewOptimisticMutationContext {
     const operationId = `review-optimistic-${++this.nextOperation}`;
@@ -324,6 +335,7 @@ export class ReviewOptimisticCache {
         queryKey: query.queryKey,
         resource: mutation.resource,
         base: query.state.data,
+        rendered: query.state.data,
         operations: new Map<string, OptimisticOperation>(),
       };
       state.operations.set(operationId, {
@@ -405,7 +417,14 @@ export class ReviewOptimisticCache {
       (current, operation) => operation.transform(current, params),
       state.base,
     );
-    this.queryClient.setQueryData(state.queryKey, data);
+    state.rendered = data;
+    this.rendering = true;
+    try {
+      this.queryClient.setQueryData(state.queryKey, data);
+      state.rendered = this.queryClient.getQueryData(state.queryKey);
+    } finally {
+      this.rendering = false;
+    }
   }
 }
 
@@ -583,6 +602,23 @@ function replaceComment(
   );
 }
 
+function insertOptimisticComment(
+  comments: ReviewComment[],
+  comment: ReviewComment,
+  params: unknown,
+) {
+  if (comments.some((item) => item.id === comment.id)) return comments;
+  const query = params as ListReviewCommentsParams | undefined;
+  const limit = query?.limit ?? 200;
+  if (comment.parentCommentId) return [...comments, comment];
+  const roots = comments.filter((item) => item.parentCommentId === null);
+  if (!query?.newestFirst && roots.length >= limit) return comments;
+  const next = [...comments, comment];
+  if (!query?.newestFirst || roots.length < limit) return next;
+  const oldestThreadId = roots[0]?.threadId;
+  return next.filter((item) => item.threadId !== oldestThreadId);
+}
+
 function updateSuggestions(
   data: unknown,
   transform: (suggestions: ResourceSuggestion[]) => ResourceSuggestion[],
@@ -716,7 +752,9 @@ export function useCreateReviewComment() {
         resource: input,
         transform: (data, params) =>
           matchesCommentQuery(params, comment)
-            ? updateComments(data, (comments) => [...comments, comment])
+            ? updateComments(data, (comments) =>
+                insertOptimisticComment(comments, comment, params),
+              )
             : data,
         onSuccess: (result) => (data) =>
           updateComments(data, (comments) =>
@@ -743,7 +781,7 @@ export function useReplyReviewComment() {
             if (!parent) return comments;
             const reply = optimisticComment(input, id, parent);
             return matchesCommentQuery(params, reply)
-              ? [...comments, reply]
+              ? insertOptimisticComment(comments, reply, params)
               : comments;
           }),
         onSuccess: (result) => (data) =>

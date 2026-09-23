@@ -152,6 +152,44 @@ describe("ReviewOptimisticCache", () => {
     ).toBe("Newest draft");
   });
 
+  it("rebases a pending change on a fresh query result", () => {
+    const queryClient = createQueryClient();
+    const queryKey = ["action", "list-review-comments", resource] as const;
+    queryClient.setQueryData(
+      queryKey,
+      commentsResult([comment("comment-1", "Original")]),
+    );
+    const cache = new ReviewOptimisticCache(queryClient);
+    const context = cache.begin({
+      action: "list-review-comments",
+      resource,
+      transform: (data) => replaceCommentBody(data, "Pending"),
+    });
+
+    queryClient.setQueryData(
+      queryKey,
+      commentsResult([
+        comment("comment-1", "Server update"),
+        comment("comment-2", "New comment"),
+      ]),
+    );
+    expect(
+      queryClient.getQueryData<ListReviewCommentsResult>(queryKey)?.comments,
+    ).toMatchObject([
+      { id: "comment-1", body: "Pending" },
+      { id: "comment-2", body: "Pending" },
+    ]);
+
+    cache.fail(context);
+    cache.settle(context);
+    expect(
+      queryClient.getQueryData<ListReviewCommentsResult>(queryKey)?.comments,
+    ).toMatchObject([
+      { id: "comment-1", body: "Server update" },
+      { id: "comment-2", body: "New comment" },
+    ]);
+  });
+
   it("preserves a newer suggestion decision when an older decision fails late", () => {
     const queryClient = createQueryClient();
     const queryKey = ["action", "list-resource-suggestions", resource] as const;

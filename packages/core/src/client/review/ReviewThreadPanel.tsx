@@ -263,6 +263,7 @@ export function ReviewThreadPanel({
   const draftRef = useRef("");
   const draftMentionsRef = useRef<ReviewMention[]>([]);
   const draftGenerationRef = useRef(0);
+  const createRetryRef = useRef<{ key: string; id: string } | null>(null);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const replyingThreadIdRef = useRef<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -272,6 +273,9 @@ export function ReviewThreadPanel({
   >({});
   const replyMentionsRef = useRef<Record<string, ReviewMention[]>>({});
   const replyGenerationsRef = useRef<Record<string, number>>({});
+  const replyRetriesRef = useRef<Record<string, { key: string; id: string }>>(
+    {},
+  );
   const [editCandidate, setEditCandidate] = useState<ReviewComment | null>(
     null,
   );
@@ -395,6 +399,18 @@ export function ReviewThreadPanel({
     if (!body) return;
     const submittedDraft = draft;
     const submittedMentions = [...draftMentions];
+    const retryKey = JSON.stringify({
+      body,
+      mentions: submittedMentions,
+      resolutionTarget,
+      targetId: composerTargetId === undefined ? targetId : composerTargetId,
+      anchor: composerAnchor,
+      metadata: composerMetadata,
+    });
+    const operationId =
+      createRetryRef.current?.key === retryKey
+        ? createRetryRef.current.id
+        : globalThis.crypto.randomUUID();
     const generation = draftGenerationRef.current;
     draftRef.current = "";
     draftMentionsRef.current = [];
@@ -410,8 +426,9 @@ export function ReviewThreadPanel({
         body,
         ...(submittedMentions.length ? { mentions: submittedMentions } : {}),
         resolutionTarget: showComposerTargetPicker ? resolutionTarget : "human",
-        clientOperationId: globalThis.crypto.randomUUID(),
+        clientOperationId: operationId,
       });
+      createRetryRef.current = null;
       onCommentCreated?.(comment);
     } catch {
       if (
@@ -420,6 +437,7 @@ export function ReviewThreadPanel({
       ) {
         return;
       }
+      createRetryRef.current = { key: retryKey, id: operationId };
       draftRef.current = submittedDraft;
       draftMentionsRef.current = submittedMentions;
       setDraft(submittedDraft);
@@ -501,6 +519,10 @@ export function ReviewThreadPanel({
     const body = submittedDraft.trim();
     if (!body) return;
     const submittedMentions = [...(replyMentionsRef.current[comment.id] ?? [])];
+    const retryKey = JSON.stringify({ body, mentions: submittedMentions });
+    const retry = replyRetriesRef.current[comment.id];
+    const operationId =
+      retry?.key === retryKey ? retry.id : globalThis.crypto.randomUUID();
     const generation = replyGenerationsRef.current[comment.id] ?? 0;
     replyDraftsRef.current = {
       ...replyDraftsRef.current,
@@ -521,8 +543,9 @@ export function ReviewThreadPanel({
         commentId: comment.id,
         body,
         ...(submittedMentions.length ? { mentions: submittedMentions } : {}),
-        clientOperationId: globalThis.crypto.randomUUID(),
+        clientOperationId: operationId,
       });
+      delete replyRetriesRef.current[comment.id];
     } catch {
       if (
         (replyGenerationsRef.current[comment.id] ?? 0) !== generation ||
@@ -530,6 +553,7 @@ export function ReviewThreadPanel({
       ) {
         return;
       }
+      replyRetriesRef.current[comment.id] = { key: retryKey, id: operationId };
       replyDraftsRef.current = {
         ...replyDraftsRef.current,
         [comment.id]: submittedDraft,

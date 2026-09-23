@@ -161,8 +161,9 @@ function isAmbiguousCommentCreateError(error: unknown) {
     timedOut === true ||
     (typeof status === "number"
       ? status < 400 || status === 408 || status >= 500
-      : error.message.startsWith("Action add-comment failed:") ||
-        error.name === "AbortError")
+      : /^Action (?:add-comment|reply-review-comment) failed:/.test(
+          error.message,
+        ) || error.name === "AbortError")
   );
 }
 
@@ -1146,7 +1147,9 @@ export function CommentsSidebar({
       });
       replyDrafts.finishSubmission(clientOperationId);
     } catch (error) {
-      replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
+      if (!isAmbiguousCommentCreateError(error)) {
+        replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
+      }
       replyDrafts.finishSubmission(clientOperationId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
@@ -2172,6 +2175,10 @@ function SuggestionThreadView({
     includeResolved: true,
   });
   const reply = useReplyReviewComment();
+  const uncertainReply = useRef<{
+    payload: string;
+    operationId: string;
+  } | null>(null);
   const expanded = expandRequested;
   const { text: draft, mentions } = replyDrafts.get(suggestion.threadId);
   const root = comments.data?.comments.find(
@@ -2256,7 +2263,21 @@ function SuggestionThreadView({
         onHeightChange={onHeightChange}
         onSubmitReply={() => {
           if (!canReply || !root || !draft.trim() || reply.isPending) return;
-          const clientOperationId = crypto.randomUUID();
+          const replyMentions = mentions
+            .filter((mention) => draft.includes(`@${mention.name}`))
+            .map((mention) => ({
+              email: mention.email,
+              label: mention.name,
+            }));
+          const payload = JSON.stringify({
+            commentId: root.id,
+            body: draft.trim(),
+            mentions: replyMentions,
+          });
+          const clientOperationId =
+            uncertainReply.current?.payload === payload
+              ? uncertainReply.current.operationId
+              : crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
           reply.mutate(
             {
@@ -2265,15 +2286,16 @@ function SuggestionThreadView({
               commentId: root.id,
               clientOperationId,
               body: draft.trim(),
-              mentions: mentions
-                .filter((mention) => draft.includes(`@${mention.name}`))
-                .map((mention) => ({
-                  email: mention.email,
-                  label: mention.name,
-                })),
+              mentions: replyMentions,
             },
             {
-              onError: () => {
+              onSuccess: () => {
+                uncertainReply.current = null;
+              },
+              onError: (error) => {
+                uncertainReply.current = isAmbiguousCommentCreateError(error)
+                  ? { payload, operationId: clientOperationId }
+                  : null;
                 replyDrafts.restoreSubmittedDraft(
                   suggestion.threadId,
                   clientOperationId,

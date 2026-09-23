@@ -341,6 +341,36 @@ describe("review actions", () => {
       replayed: true,
       notified: null,
     });
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          commentId: root.id,
+          body: "Retry this reply",
+          resolutionTarget: "agent",
+          clientOperationId: replyOperationId,
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow("submission ID conflicts");
+    await pglite.query(
+      "UPDATE agent_review_comments SET reply_route_target = 'legacy' WHERE id = $1",
+      [reply.id],
+    );
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          commentId: root.id,
+          body: "Retry this reply",
+          resolutionTarget: "human",
+          clientOperationId: replyOperationId,
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow("submission ID conflicts");
     expect(notifyReviewComment).toHaveBeenCalledTimes(2);
 
     const comments = await queryReviewComments({

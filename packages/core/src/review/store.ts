@@ -1,5 +1,9 @@
 import { getDbExec, type DbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
   ReviewActorKind,
@@ -34,6 +38,7 @@ export interface InsertReviewCommentInput {
   authorName?: string | null;
   createdBy?: ReviewActorKind;
   resolutionTarget?: ReviewResolutionTarget | null;
+  replyRouteTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   ownerEmail?: string | null;
   orgId?: string | null;
@@ -111,6 +116,7 @@ export async function ensureReviewTables(): Promise<void> {
       -- guard:allow-identity-column - immutable review creator snapshot
       created_by TEXT NOT NULL DEFAULT 'human',
       resolution_target TEXT,
+      reply_route_target TEXT DEFAULT 'legacy',
       mentions_json TEXT,
       owner_email TEXT,
       org_id TEXT,
@@ -176,6 +182,11 @@ export async function ensureReviewTables(): Promise<void> {
 
       {
         await ensureTableExists("agent_review_comments", createCommentsSql);
+        await ensureColumnExists(
+          "agent_review_comments",
+          "reply_route_target",
+          "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS reply_route_target TEXT DEFAULT 'legacy'",
+        );
         await ensureTableExists("agent_review_statuses", createStatusesSql);
         await ensureTableExists(
           "agent_review_comment_reactions",
@@ -452,7 +463,13 @@ export async function insertReviewReplyIdempotently(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
-    const result = await insertReviewCommentIdempotentlyWithClient(input, tx);
+    const result = await insertReviewCommentIdempotentlyWithClient(
+      { ...input, replyRouteTarget: routeTarget },
+      tx,
+    );
+    if (result.replayed) {
+      await assertMatchingReplyRouteTarget(tx, input.id, routeTarget);
+    }
     if (result.replayed || !routeTarget) return result;
     const routedCount = await routeReviewThreadWithClient(
       tx,
@@ -465,7 +482,13 @@ export async function insertReviewReplyIdempotently(
   };
   if (client.transaction) return client.transaction(insertAndRoute);
 
-  const result = await insertReviewCommentIdempotentlyWithClient(input, client);
+  const result = await insertReviewCommentIdempotentlyWithClient(
+    { ...input, replyRouteTarget: routeTarget },
+    client,
+  );
+  if (result.replayed) {
+    await assertMatchingReplyRouteTarget(client, input.id, routeTarget);
+  }
   if (result.replayed || !routeTarget) return result;
   try {
     const routedCount = await routeReviewThreadWithClient(
@@ -483,6 +506,22 @@ export async function insertReviewReplyIdempotently(
       args: [input.id, resource.resourceType, resource.resourceId],
     });
     throw error;
+  }
+}
+
+async function assertMatchingReplyRouteTarget(
+  client: DbExec,
+  commentId: string,
+  routeTarget: ReviewResolutionTarget | null,
+): Promise<void> {
+  const result = await client.execute({
+    sql: `SELECT reply_route_target FROM agent_review_comments WHERE id = ?`,
+    args: [commentId],
+  });
+  if (result.rows?.[0]?.reply_route_target !== routeTarget) {
+    throw new Error(
+      "Review comment submission ID conflicts with another submission",
+    );
   }
 }
 
@@ -552,6 +591,7 @@ async function writeReviewCommentWithClient(
       author_name,
       created_by,
       resolution_target,
+      reply_route_target,
       mentions_json,
       owner_email,
       org_id,
@@ -564,7 +604,7 @@ async function writeReviewCommentWithClient(
       created_at,
       updated_at,
       metadata_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${onConflictDoNothing ? " ON CONFLICT (id) DO NOTHING" : ""}`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${onConflictDoNothing ? " ON CONFLICT (id) DO NOTHING" : ""}`,
     args: [
       comment.id,
       comment.resourceType,
@@ -580,6 +620,7 @@ async function writeReviewCommentWithClient(
       comment.authorName,
       comment.createdBy,
       comment.resolutionTarget,
+      input.replyRouteTarget ?? null,
       stringifyOptionalJson(comment.mentions),
       comment.ownerEmail,
       comment.orgId,

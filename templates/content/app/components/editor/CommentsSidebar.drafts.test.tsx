@@ -1548,6 +1548,19 @@ it("keeps decided suggestion history readable and replies only to pending thread
       }),
       expect.any(Object),
     );
+    const firstOperationId = replyMutate.mock.calls[0][0].clientOperationId;
+    const timeout = Object.assign(new Error("Request timed out"), {
+      timedOut: true,
+    });
+    await act(async () => {
+      replyMutate.mock.calls[0][1].onError(timeout);
+      replyMutate.mock.calls[0][1].onSettled();
+    });
+    expect(drafts.get("thread-pending-suggestion").text).toBe("Pending reply");
+    await act(async () => submit?.click());
+    expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
+      firstOperationId,
+    );
   } finally {
     await act(async () => root.unmount());
     container.remove();
