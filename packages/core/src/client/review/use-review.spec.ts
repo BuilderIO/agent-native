@@ -5,6 +5,7 @@ import type { ResourceSuggestion } from "../../review/suggestions/types.js";
 import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
+  replaceOptimisticSuggestion,
   type ListReviewCommentsResult,
 } from "./use-review.js";
 
@@ -84,6 +85,18 @@ function suggestion(id: string, summary: string): ResourceSuggestion {
 }
 
 describe("ReviewOptimisticCache", () => {
+  it("removes the optimistic suggestion when refetch already returned its server record", () => {
+    const optimistic = suggestion("optimistic-1", "Proposal");
+    const saved = suggestion("saved-1", "Proposal");
+
+    expect(
+      replaceOptimisticSuggestion([saved, optimistic], optimistic.id, saved),
+    ).toEqual([saved]);
+    expect(
+      replaceOptimisticSuggestion([optimistic], optimistic.id, saved),
+    ).toEqual([saved]);
+  });
+
   it("keeps a delayed created comment visible and swaps it for the server record", () => {
     const queryClient = createQueryClient();
     const queryKey = ["action", "list-review-comments", resource] as const;

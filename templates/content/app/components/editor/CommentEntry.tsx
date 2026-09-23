@@ -169,12 +169,14 @@ export function CommentEntry({
   currentUserEmail,
   canComment,
   members,
+  onCreatedCommentConfirmed,
 }: {
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
   members: MentionMember[];
+  onCreatedCommentConfirmed?: (operationId: string) => void;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -213,6 +215,9 @@ export function CommentEntry({
       );
       if (result === "confirmed" && submitted) {
         sourceDraft.clearIfUnchanged(submitted);
+      }
+      if (result === "confirmed") {
+        onCreatedCommentConfirmed?.(comment.mutation.operationId);
       }
       setCheckedUnresolvedOperationId(
         result === "unresolved" ? comment.mutation.operationId : null,

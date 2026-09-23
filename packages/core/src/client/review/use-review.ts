@@ -675,6 +675,18 @@ function optimisticSuggestion(
   };
 }
 
+export function replaceOptimisticSuggestion(
+  suggestions: ResourceSuggestion[],
+  optimisticId: string,
+  result: ResourceSuggestion,
+) {
+  const hasServerRecord = suggestions.some((item) => item.id === result.id);
+  if (hasServerRecord) {
+    return suggestions.filter((item) => item.id !== optimisticId);
+  }
+  return suggestions.map((item) => (item.id === optimisticId ? result : item));
+}
+
 function optimisticId(prefix: string) {
   return `${prefix}-${globalThis.crypto.randomUUID()}`;
 }
@@ -950,8 +962,10 @@ export function useCreateResourceSuggestion() {
           : data,
       onSuccess: (result) => (data) =>
         updateSuggestions(data, (suggestions) =>
-          suggestions.map((item) =>
-            item.id === id ? (result as ResourceSuggestion) : item,
+          replaceOptimisticSuggestion(
+            suggestions,
+            id,
+            result as ResourceSuggestion,
           ),
         ),
     };

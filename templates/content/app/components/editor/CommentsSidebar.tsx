@@ -1433,6 +1433,15 @@ export function CommentsSidebar({
           currentUserEmail={currentUserEmail}
           canComment={canComment}
           members={members}
+          onCreatedCommentConfirmed={(operationId) => {
+            if (
+              pendingHandoff?.operationId === operationId &&
+              pendingCommentRef.current?.id === pendingHandoff.id
+            ) {
+              setPendingHandoff(null);
+              onPendingDone?.(pendingHandoff.id);
+            }
+          }}
         />
       )}
       threadActions={

@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 
-import { act, useState } from "react";
+import { act, useState, type Dispatch, type SetStateAction } from "react";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 
 import { CommentDraftProvider } from "./comment-drafts";
@@ -30,9 +30,10 @@ import {
   type PendingCommentSelection,
 } from "./CommentsSidebar";
 
-const { createComment, notifyError } = vi.hoisted(() => ({
+const { createComment, notifyError, reconcile } = vi.hoisted(() => ({
   createComment: vi.fn(),
   notifyError: vi.fn(),
+  reconcile: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateComment: () => ({
+    reconcileAmbiguous: reconcile,
     mutateAsync: (payload: unknown) =>
       new Promise((resolve, reject) =>
         createComment(payload, { onSuccess: resolve, onError: reject }),
@@ -388,7 +390,7 @@ describe("new comment responsive draft", () => {
   });
 
   it("hands the root composer to its optimistic thread while the save is deferred", async () => {
-    let setThreads!: (threads: CommentThread[]) => void;
+    let setThreads!: Dispatch<SetStateAction<CommentThread[]>>;
     function HandoffOwner() {
       const [threads, updateThreads] = useState<CommentThread[]>([]);
       const pending = usePendingCommentDraft("document-one");
@@ -465,6 +467,32 @@ describe("new comment responsive draft", () => {
     expect(
       container.querySelector("[data-thread-card]")?.textContent,
     ).toContain("Optimistic root comment");
+
+    await act(async () => {
+      createComment.mock.calls[0]![1].onError(
+        Object.assign(new Error("Request timed out"), { timedOut: true }),
+      );
+      setThreads((current) =>
+        current.map((thread) => ({
+          ...thread,
+          comments: thread.comments.map((comment) => ({
+            ...comment,
+            mutation: comment.mutation && {
+              ...comment.mutation,
+              status: "error" as const,
+              ambiguous: true,
+            },
+          })),
+        })),
+      );
+    });
+    reconcile.mockResolvedValueOnce("confirmed");
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "comments.checkSaved")!
+        .click(),
+    );
+    expect(owner.pendingComment).toBeNull();
   });
 
   it("does not refocus or replace a native selection on text-only owner updates", async () => {
