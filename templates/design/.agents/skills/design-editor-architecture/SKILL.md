@@ -172,8 +172,8 @@ never had layer rows, a `data-smart-selection` attribute nobody built, a port
 (`9340`) nothing serves, and a Frame tool that grew a Frame/Screen split. So
 before changing product code, establish which side is wrong:
 
-- **Does the control exist?** `grep` the label and the i18n key. A label that
-  lives only in `i18n-data.ts` is rendered nowhere.
+- **Does the control exist?** `grep` the label and the i18n key. A translation
+  is rendered only when the active catalog loads its locale file.
 - **Does the gate allow it?** Read the condition, not the intent —
   `frameToolDraws === "screen"`, `canRenderAuthenticatedShare`,
   `responsiveInteractActive`. A test that skips the gate is the broken one.

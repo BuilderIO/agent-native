@@ -407,7 +407,9 @@ import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "@/components/editor/FigmaLinkComposerBubble";
-import PromptPopover from "@/components/editor/PromptDialog";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -5045,6 +5047,7 @@ function DesignEditor() {
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
+      if (open) preloadPromptComposer();
       setShowPrompt(open);
       if (open) {
         setPromptDesignSystemId(design?.designSystemId ?? undefined);
@@ -5058,6 +5061,7 @@ function DesignEditor() {
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && (!canEditDesign || !tweaksEnabled)) return;
+      if (open) preloadPromptComposer();
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
@@ -5069,6 +5073,7 @@ function DesignEditor() {
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
       if (!canEditDesign || !tweaksEnabled) return;
+      preloadPromptComposer();
       tweakPromptAnchorRef.current = anchor;
       setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);

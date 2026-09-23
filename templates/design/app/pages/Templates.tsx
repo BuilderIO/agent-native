@@ -23,7 +23,9 @@ import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
-import PromptPopover from "@/components/editor/PromptDialog";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
@@ -187,6 +189,7 @@ export default function Templates() {
         ? template.designSystemId
         : resolveDefaultDesignSystemId(),
     );
+    preloadPromptComposer();
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
@@ -202,6 +205,7 @@ export default function Templates() {
     template: DesignTemplateSummary,
     element: HTMLElement,
   ) => {
+    preloadPromptComposer();
     anchorElRef.current = element;
     handledTemplateIdRef.current = template.id;
     setSelectedTemplateParam(template.id);
