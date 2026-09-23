@@ -15,8 +15,10 @@ import {
   actionErrorMessage,
   callAction,
   callActionWithRetry,
+  computePageHidden,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
+  guardActionQueryRefetchInterval,
   serializeActionQueryParams,
   shouldRetryActionQueryForError,
   tryCallActionKeepalive,
@@ -198,6 +200,148 @@ describe("callAction", () => {
         startup_db_connect_total_ms: 30,
         response_bytes: 11,
       }),
+    );
+  });
+
+  it("reports cold-start boot/init timing and response_bytes only when the server sent them", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          { ok: true },
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Server-Timing": "app;dur=120, boot;dur=2400, init;dur=900",
+              // No Content-Length header on this response.
+            },
+          },
+        ),
+      ),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        server_boot_ms: 2400,
+        server_init_ms: 900,
+        cold_start: true,
+        // Number(null) is 0 — an absent header must read as "unknown", not
+        // as a real zero-byte body.
+        response_bytes: undefined,
+        timeout_ms: 60_000,
+      }),
+    );
+  });
+
+  it("reports cold_start:false on a warm server-timing header, not just absence of boot", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          { ok: true },
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Server-Timing": "app;dur=45",
+            },
+          },
+        ),
+      ),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ cold_start: false }),
+    );
+  });
+
+  it("leaves cold_start absent for a shared-cacheable response's origin-only Server-Timing, instead of guessing warm", async () => {
+    // A CDN-cacheable response gets one `origin` snapshot entry and never the
+    // `app` phase a live response reports (see http-response-telemetry.ts's
+    // isSharedCacheable branch). Keying cold_start on "any Server-Timing
+    // entry present" read this as a confident `false`; it has to stay
+    // undefined instead, since this response never reported boot state at all.
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          { ok: true },
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Server-Timing": 'origin;dur=8,desc="2026-01-01T00:00:00.000Z"',
+            },
+          },
+        ),
+      ),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ cold_start: undefined }),
+    );
+  });
+
+  it("leaves cold_start absent when no Server-Timing header ever arrived", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ ok: true }, { status: 200, headers: {} }),
+        ),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ cold_start: undefined }),
+    );
+  });
+
+  it("passes a custom timeoutMs through to timeout_ms", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ ok: true }, { status: 200 })),
+    );
+
+    await callAction("list-plans", {}, { method: "GET", timeoutMs: 10_000 });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ timeout_ms: 10_000 }),
+    );
+  });
+
+  it("reports page_hidden as undefined with no document to ask (SSR-safe)", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ ok: true }, { status: 200 })),
+    );
+
+    // This spec file runs in the default (Node, no DOM) vitest environment.
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ page_hidden: undefined }),
     );
   });
 
@@ -1020,5 +1164,68 @@ describe("shouldRetryActionQueryForError", () => {
   it("does not retry auth failures", () => {
     expect(shouldRetryActionQueryForError(0, { status: 401 })).toBe(false);
     expect(shouldRetryActionQueryForError(0, { status: 403 })).toBe(false);
+  });
+});
+
+describe("guardActionQueryRefetchInterval", () => {
+  function queryWithError(error: unknown) {
+    return { state: { error } } as any;
+  }
+
+  it("stops polling once the query's last error is a terminal auth failure", () => {
+    const guarded = guardActionQueryRefetchInterval<unknown>(5_000);
+
+    expect(guarded(queryWithError({ status: 401 }))).toBe(false);
+    expect(guarded(queryWithError({ status: 403 }))).toBe(false);
+  });
+
+  it("keeps polling at the caller's interval for a non-auth error or no error", () => {
+    const guarded = guardActionQueryRefetchInterval<unknown>(5_000);
+
+    expect(guarded(queryWithError(undefined))).toBe(5_000);
+    expect(guarded(queryWithError({ status: 500 }))).toBe(5_000);
+  });
+
+  it("still calls a function-form refetchInterval when there is no terminal auth failure", () => {
+    const intervalFn = vi.fn().mockReturnValue(2_000);
+    const guarded = guardActionQueryRefetchInterval<unknown>(intervalFn);
+    const query = queryWithError(undefined);
+
+    expect(guarded(query)).toBe(2_000);
+    expect(intervalFn).toHaveBeenCalledWith(query);
+  });
+
+  it("does not call a function-form refetchInterval on a terminal auth failure", () => {
+    const intervalFn = vi.fn().mockReturnValue(2_000);
+    const guarded = guardActionQueryRefetchInterval<unknown>(intervalFn);
+
+    expect(guarded(queryWithError({ status: 401 }))).toBe(false);
+    expect(intervalFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("computePageHidden", () => {
+  it("is undefined with no document to ask (SSR, no DOM)", () => {
+    expect(computePageHidden(false, 0, 0, undefined)).toBeUndefined();
+  });
+
+  it("is true when the hidden epoch changed during the call", () => {
+    expect(computePageHidden(false, 0, 1, "visible")).toBe(true);
+  });
+
+  it("is true when the document is still hidden at completion", () => {
+    expect(computePageHidden(false, 2, 2, "hidden")).toBe(true);
+  });
+
+  it("is false for a call that stayed visible with no hidden transition", () => {
+    expect(computePageHidden(false, 3, 3, "visible")).toBe(false);
+  });
+
+  it("is true when the call started already hidden even if no transition fires and it is visible again by completion", () => {
+    // The epoch only bumps on a transition INTO hidden. A call that starts in
+    // an already-backgrounded tab (cmd-click, session restore, a hidden
+    // desktop webview) never sees that transition, so `hiddenAtStart` alone
+    // has to carry it.
+    expect(computePageHidden(true, 4, 4, "visible")).toBe(true);
   });
 });

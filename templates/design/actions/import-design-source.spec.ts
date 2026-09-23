@@ -55,6 +55,10 @@ vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: mocks.snapshot,
   snapshotDesignBeforeAgentEditInVersionLock: vi.fn(),
   withDesignVersionLock: (_id: string, work: () => Promise<unknown>) => work(),
+  checkpointSkippedResultField: (result: unknown) =>
+    result && typeof result === "object" && "skipped" in result
+      ? { checkpoint: result }
+      : {},
 }));
 
 vi.mock("../server/db/index.js", async () => {

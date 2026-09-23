@@ -20,6 +20,18 @@ import {
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
+// Sonner's `id` only dedupes a toast while the earlier one is still mounted —
+// once it auto-dismisses, the same id shows again on the next call. Track
+// warned designs ourselves so a design that stays over the checkpoint size
+// threshold gets exactly one "version history unavailable" toast per design,
+// not one on every autosave.
+const warnedVersionHistoryDesigns = new Set<string>();
+
+/** Test-only: this module-level set otherwise leaks a warned designId across specs. */
+export function __clearVersionHistoryWarningsForTests(): void {
+  warnedVersionHistoryDesigns.clear();
+}
+
 export interface SaveFileContentArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   canEditDesignRef: RefObject<boolean>;
@@ -200,6 +212,7 @@ export function runSaveFileContent(
               skippedStaleMirror?: boolean;
               skippedStaleOperation?: boolean;
               versionHash?: string;
+              checkpoint?: { skipped: true; reason: string };
               updatedAt?: unknown;
             }
           | undefined;
@@ -260,6 +273,15 @@ export function runSaveFileContent(
               ),
             };
           });
+          if (
+            resultInfo?.checkpoint?.skipped &&
+            !warnedVersionHistoryDesigns.has(designId)
+          ) {
+            warnedVersionHistoryDesigns.add(designId);
+            toast.warning(t("designEditor.toasts.versionHistoryUnavailable"), {
+              id: `design-version-history-unavailable:${designId}`,
+            });
+          }
           // The pending overlay retires only once the row's updatedAt moves
           // (shouldRetirePendingLocalFileContent), and a read already in
           // flight may carry pre-write bytes; invalidating cancels it. Only a

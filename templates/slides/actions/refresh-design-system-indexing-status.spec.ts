@@ -84,6 +84,7 @@ describe("refresh-design-system-indexing-status", () => {
       id: "ds-1",
       indexingStatus: "ready",
       updated: false,
+      stale: false,
     });
     expect(mockHydrateBuilderDesignSystemReference).not.toHaveBeenCalled();
     expect(testState.updates).toHaveLength(0);
@@ -114,6 +115,7 @@ describe("refresh-design-system-indexing-status", () => {
       id: "ds-1",
       indexingStatus: "ready",
       updated: true,
+      stale: false,
     });
     expect(testState.updates).toHaveLength(1);
     const written = JSON.parse(testState.updates[0].data as string);
@@ -142,6 +144,7 @@ describe("refresh-design-system-indexing-status", () => {
       id: "ds-1",
       indexingStatus: "ready",
       updated: false,
+      stale: false,
     });
     expect(testState.updates).toHaveLength(0);
   });
@@ -151,7 +154,9 @@ describe("refresh-design-system-indexing-status", () => {
       source: "builder",
       builderStatus: "in-progress",
     });
-    mockAssertAccess.mockResolvedValue({ resource: { data: rowData } });
+    mockAssertAccess.mockResolvedValue({
+      resource: { data: rowData, updatedAt: new Date().toISOString() },
+    });
     testState.currentRowData = rowData;
     mockHydrateBuilderDesignSystemReference.mockResolvedValue({
       source: "builder",
@@ -168,8 +173,63 @@ describe("refresh-design-system-indexing-status", () => {
       id: "ds-1",
       indexingStatus: "indexing",
       updated: false,
+      stale: false,
     });
     expect(testState.updates).toHaveLength(0);
+  });
+
+  it("reports stale for a row that has read as unconfirmed 'indexing' for a long time, without writing anything", async () => {
+    const rowData = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+    });
+    const longAgo = new Date(Date.now() - 45 * 60_000).toISOString();
+    mockAssertAccess.mockResolvedValue({
+      resource: { data: rowData, updatedAt: longAgo },
+    });
+    testState.currentRowData = rowData;
+    mockHydrateBuilderDesignSystemReference.mockResolvedValue({
+      source: "builder",
+      builderStatus: "in-progress",
+      completionConfirmed: false,
+      docs: [],
+      tokenValues: {},
+      docCount: 0,
+    });
+
+    const result = await action.run({ id: "ds-1" });
+
+    expect(result).toEqual({
+      id: "ds-1",
+      indexingStatus: "indexing",
+      updated: false,
+      stale: true,
+    });
+    expect(testState.updates).toHaveLength(0);
+  });
+
+  it("falls back to createdAt when a row predates updatedAt being tracked", async () => {
+    const rowData = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+    });
+    const longAgo = new Date(Date.now() - 45 * 60_000).toISOString();
+    mockAssertAccess.mockResolvedValue({
+      resource: { data: rowData, createdAt: longAgo },
+    });
+    testState.currentRowData = rowData;
+    mockHydrateBuilderDesignSystemReference.mockResolvedValue({
+      source: "builder",
+      builderStatus: "in-progress",
+      completionConfirmed: false,
+      docs: [],
+      tokenValues: {},
+      docCount: 0,
+    });
+
+    const result = await action.run({ id: "ds-1" });
+
+    expect(result.stale).toBe(true);
   });
 
   it("does not clobber a concurrent edit made while hydrating", async () => {

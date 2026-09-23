@@ -1121,6 +1121,7 @@ const messages = {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
+      versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       booleanSubtractUnsupported:
         "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",
