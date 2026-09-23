@@ -224,7 +224,9 @@ describe("McpAppRenderer security helpers", () => {
 
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("sandbox")).toBe("");
-    expect(iframe?.srcdoc).toContain("connect-src 'none'");
+    await vi.waitFor(() =>
+      expect(iframe?.srcdoc).toContain("connect-src 'none'"),
+    );
     expect(iframe?.srcdoc).toContain("script-src 'none'");
     expect(iframe?.srcdoc).toContain("navigate-to 'none'");
     expect(iframe?.srcdoc?.indexOf("Content-Security-Policy")).toBeLessThan(
@@ -237,9 +239,9 @@ describe("McpAppRenderer security helpers", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
-  it("places the read-only policy before any replayed markup", () => {
+  it("places the read-only policy before any replayed markup", async () => {
     const parseFromString = vi.spyOn(DOMParser.prototype, "parseFromString");
-    const srcDoc = createReadOnlyMcpAppSrcDoc(
+    const srcDoc = await createReadOnlyMcpAppSrcDoc(
       "<script>window.early = true</script><p>Replay</p>",
     );
 

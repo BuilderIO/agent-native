@@ -7,7 +7,6 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
-import { parseHTML } from "linkedom/worker";
 import {
   useCallback,
   useEffect,
@@ -79,6 +78,10 @@ export function McpAppRenderer({
   );
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [readOnlySnapshot, setReadOnlySnapshot] = useState<{
+    resourceHtml: string;
+    srcDoc: string;
+  } | null>(null);
   const resourceHtml = app.resource ? htmlFromResource(app.resource) : "";
   const uiMeta = useMemo(() => resourceUiMeta(app), [app]);
   const supportedPermissions = useMemo(
@@ -87,16 +90,32 @@ export function McpAppRenderer({
   );
   const appCsp = readOnly ? undefined : uiMeta.csp;
   const csp = buildMcpAppCsp(appCsp);
-  const srcDoc = useMemo(
-    () =>
-      resourceHtml
-        ? readOnly
-          ? createReadOnlyMcpAppSrcDoc(resourceHtml)
-          : injectCsp(resourceHtml, csp)
-        : "",
+  const liveSrcDoc = useMemo(
+    () => (resourceHtml && !readOnly ? injectCsp(resourceHtml, csp) : ""),
     [readOnly, resourceHtml, csp],
   );
+  const srcDoc = readOnly
+    ? readOnlySnapshot?.resourceHtml === resourceHtml
+      ? readOnlySnapshot.srcDoc
+      : ""
+    : liveSrcDoc;
   const externalOpenUrl = useMemo(() => openUrlFromMcpApp(app), [app]);
+
+  useEffect(() => {
+    if (!readOnly || !resourceHtml) return;
+    let active = true;
+    setError(null);
+    void createReadOnlyMcpAppSrcDoc(resourceHtml)
+      .then((srcDoc) => {
+        if (active) setReadOnlySnapshot({ resourceHtml, srcDoc });
+      })
+      .catch(() => {
+        if (active) setError("Failed to initialize MCP App.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [readOnly, resourceHtml]);
 
   // Keep the latest payload/permissions/csp reachable from the bridge effect
   // without making them effect dependencies. The embedded resource identity is
@@ -376,6 +395,14 @@ export function McpAppRenderer({
   if (readOnly) {
     return (
       <div className={cn("agent-mcp-app", className)}>
+        {error && (
+          <div className="agent-mcp-app__error" role="alert">
+            <div className="agent-mcp-app__error-box">
+              <IconAlertTriangle size={15} />
+              <span>{error}</span>
+            </div>
+          </div>
+        )}
         <iframe
           ref={iframeRef}
           title={app.tool?.title ?? app.originalToolName}
@@ -626,14 +653,17 @@ const READ_ONLY_MCP_APP_CSP = [
   "navigate-to 'none'",
 ].join("; ");
 
-export function createReadOnlyMcpAppSrcDoc(html: string): string {
-  const sanitizedHtml = sanitizeReadOnlyMcpAppHtml(html);
+export async function createReadOnlyMcpAppSrcDoc(
+  html: string,
+): Promise<string> {
+  const sanitizedHtml = await sanitizeReadOnlyMcpAppHtml(html);
   const policy = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(READ_ONLY_MCP_APP_CSP)}">`;
   return `<!doctype html><html><head>${policy}</head><body>${sanitizedHtml}</body></html>`;
 }
 
-function sanitizeReadOnlyMcpAppHtml(html: string): string {
+async function sanitizeReadOnlyMcpAppHtml(html: string): Promise<string> {
   // Unlike browser DOMParser, linkedom never starts resource loads while parsing.
+  const { parseHTML } = await import("linkedom/worker");
   const isDocument = /<!doctype\s+html|<html(?:\s|>)/i.test(html);
   const source = isDocument
     ? html

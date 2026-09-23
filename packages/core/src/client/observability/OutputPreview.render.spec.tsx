@@ -64,8 +64,8 @@ describe("OutputPreview saved MCP Apps", () => {
     container.remove();
   });
 
-  it("keeps the saved answer alongside a full read-only MCP App", () => {
-    act(() => {
+  it("keeps the saved answer alongside a full read-only MCP App", async () => {
+    await act(async () => {
       root.render(
         <OutputPreview
           answer="Fallback answer"
@@ -88,9 +88,10 @@ describe("OutputPreview saved MCP Apps", () => {
       );
     });
 
-    expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
-    expect(container.querySelector("iframe")?.style.maxHeight).toBe("420px");
-    expect(container.querySelector("iframe")?.srcdoc).toContain("Saved design");
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("sandbox")).toBe("");
+    expect(iframe?.style.maxHeight).toBe("420px");
+    await vi.waitFor(() => expect(iframe?.srcdoc).toContain("Saved design"));
     expect(
       container.querySelector('[data-preview-kind="text"]')?.textContent,
     ).toBe("Fallback answer");
