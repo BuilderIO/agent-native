@@ -8,7 +8,10 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import type {
   BreakpointDefinition,
   BreakpointSet,
@@ -74,7 +77,8 @@ export default defineAction({
   capabilityScopes: ["visual-edit"],
   run: async ({ designId, label, widthPx, id: providedId }, context) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpointField = checkpointSkippedResultField(checkpoint);
 
     const breakpointId = providedId ?? nanoid();
     const breakpointSetId = nanoid();
@@ -124,6 +128,7 @@ export default defineAction({
     return {
       added,
       breakpointSet: updatedSet,
+      ...checkpointField,
     };
   },
 });

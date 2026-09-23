@@ -17,7 +17,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -275,7 +278,8 @@ export default defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpointField = checkpointSkippedResultField(checkpoint);
 
     const db = getDb();
     const requestedFileId = fileId?.trim();
@@ -545,6 +549,7 @@ export default defineAction({
             reuseLabels: creativeContext.reuseLabels,
           }
         : {}),
+      ...checkpointField,
     };
   },
 });

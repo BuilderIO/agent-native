@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
@@ -140,6 +141,28 @@ const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
  * in the request is indistinguishable from a key never asked for other than
  * by looking it up, matching `getSetting`'s null-for-missing contract.
  */
+// Isolates one key's corrupt/legacy JSON from every other key in the same
+// batch: a single bad row must not fail callers that fan a whole registry
+// (e.g. feature flags) through one getSettings() call the way it would have
+// failed only that one key under the old per-key getSetting() path. Captured
+// loudly (not silently) and treated like a missing value so downstream
+// normalizers — which already default an absent key — see one consistent
+// "nothing usable here" case instead of a second, uncaught one.
+function parseSettingValue(
+  key: string,
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    captureError(error, {
+      tags: { source: "settings", op: "getSettings" },
+      extra: { key },
+    });
+    return null;
+  }
+}
+
 export async function getSettings(
   keys: readonly string[],
   options?: StoreReadOptions,
@@ -153,7 +176,7 @@ export async function getSettings(
   for (const key of uniqueKeys) {
     if (!options?.bypassCache && cache?.has(key)) {
       const cached = cache.get(key);
-      result.set(key, cached == null ? null : JSON.parse(cached));
+      result.set(key, cached == null ? null : parseSettingValue(key, cached));
     } else {
       misses.push(key);
     }
@@ -178,7 +201,7 @@ export async function getSettings(
   for (const key of misses) {
     const raw = rawByKey.get(key) ?? null;
     if (!options?.bypassCache) cache?.set(key, raw);
-    result.set(key, raw == null ? null : JSON.parse(raw));
+    result.set(key, raw == null ? null : parseSettingValue(key, raw));
   }
   return result;
 }

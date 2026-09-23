@@ -207,20 +207,29 @@ export async function getUserProfiles(
   }
 
   const missingEmails = uniqueEmails.filter((email) => !profiles.has(email));
-  if (batchLookupSucceeded) {
+  if (batchLookupSucceeded && storedProfiles) {
     // The roster batch succeeded, so these emails genuinely have no auth
     // user. Reuse the settings batch already fetched above instead of one
-    // getStoredUserProfile call per missing email; if that batch itself
-    // failed there is nothing to fall back to for a non-auth email, so it
-    // stays absent from the result — the same outcome a DB-down per-email
-    // read would have produced.
-    if (storedProfiles) {
-      for (const email of missingEmails) {
-        profiles.set(
-          email,
-          storedProfileFrom(email, storedProfiles.get(email) ?? null),
-        );
-      }
+    // getStoredUserProfile call per missing email.
+    for (const email of missingEmails) {
+      profiles.set(
+        email,
+        storedProfileFrom(email, storedProfiles.get(email) ?? null),
+      );
+    }
+  } else if (batchLookupSucceeded) {
+    // The settings batch itself failed (storedProfiles stayed null): these
+    // stored-only emails still deserve the same per-email retry the pre-batch
+    // code gave every missing email, so a transient blip on just that batch
+    // call doesn't drop them from the result the way the comment above used
+    // to assume it safely could.
+    const results = await Promise.allSettled(
+      missingEmails.map(
+        async (email) => [email, await getStoredUserProfile(email)] as const,
+      ),
+    );
+    for (const result of results) {
+      if (result.status === "fulfilled") profiles.set(...result.value);
     }
   } else {
     const results = await Promise.allSettled(

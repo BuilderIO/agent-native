@@ -8,7 +8,10 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -61,7 +64,8 @@ export default defineAction({
   }),
   run: async ({ designId, selections, expectedSelectionsHash }, context) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context);
+    const checkpointField = checkpointSkippedResultField(checkpoint);
 
     const readSelections = (data: DesignDataRecord) =>
       data.tweakSelections &&
@@ -108,6 +112,7 @@ export default defineAction({
       appliedTweaks: readSelections(persistedData),
       selectionsHash: tweakSelectionsHash(readSelections(persistedData)),
       deepLink: designDeepLink(designId),
+      ...checkpointField,
     };
   },
   link: ({ result }) => {
