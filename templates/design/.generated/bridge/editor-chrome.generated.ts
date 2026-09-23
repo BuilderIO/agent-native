@@ -2306,6 +2306,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return root;
     }
+    function pastedSvgShapeForHit(hit, svgRoot) {
+      if (!svgRoot.getAttribute || svgRoot.getAttribute("data-an-primitive") !== "pasted-svg") {
+        return null;
+      }
+      var target = hit;
+      while (target && target !== svgRoot) {
+        var tag = (target.tagName || "").toLowerCase();
+        if (tag === "path" || tag === "polygon" || tag === "polyline" || tag === "ellipse" || tag === "circle" || tag === "rect" || tag === "line" || tag === "use") {
+          return target;
+        }
+        target = target.parentElement;
+      }
+      return null;
+    }
     function isBoardRootMarqueeSurface(el) {
       if (!designCanvasBoardSurface || !el) return false;
       if (isDocumentRootElement(el)) return true;
@@ -2503,7 +2517,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
-      if (svgRoot) return svgRoot;
+      if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
       var target = unwrapTextOverlay(hit);
       var textPrimitive = nativeTextPrimitiveForHit(target);
       if (textPrimitive) target = textPrimitive;
@@ -2553,7 +2567,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
-      var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+      var svgRoot = outermostSvgAncestor(hit);
+      var raw = svgRoot && pastedSvgShapeForHit(hit, svgRoot) || svgRoot || unwrapTextOverlay(hit);
       raw = nativeTextPrimitiveForHit(raw) || raw;
       if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
         return null;
@@ -3768,6 +3783,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "backgroundImage",
       "backgroundColor",
       "color",
+      "objectFit",
       "fill",
       "borderRadius",
       "borderTopLeftRadius",
@@ -17422,6 +17438,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "measurement-modifier-release") {
+        hideMeasurements();
+        lastHoverInfoPostedEl = hoveredEl;
+        window.parent.postMessage(
+          {
+            type: "element-hover",
+            payload: hoveredEl ? getLightElementInfo(hoveredEl) : null
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type === "agent-native:editor-chrome-ready-probe") {
         sendEditorChromeReady();
         return;

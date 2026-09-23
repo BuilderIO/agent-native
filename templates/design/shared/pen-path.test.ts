@@ -15,6 +15,7 @@ import {
   movePenAnchor,
   movePenHandle,
   parsePenNodes,
+  resumePenPathAtEnd,
   scalePenPathToGeometry,
   serializePenNodes,
   serializePenPath,
@@ -197,6 +198,27 @@ describe("pen path helpers", () => {
     const reopened = appendPenNode(closed, createCornerNode({ x: 20, y: 20 }));
     expect(reopened.closed).toBe(false);
     expect(reopened.nodes).toHaveLength(3);
+  });
+
+  it("resumes an open path at its terminal anchor without adding a duplicate", () => {
+    const path: PenPath = {
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 40, y: 20 }),
+      ],
+      closed: false,
+    };
+    const resumed = resumePenPathAtEnd(path, { x: 41, y: 20 }, 4);
+    expect(resumed).toEqual(path);
+    expect(resumed).not.toBe(path);
+    expect(
+      appendPenNode(resumed, createCornerNode({ x: 80, y: 20 })).nodes,
+    ).toHaveLength(3);
+    expect(path.nodes).toHaveLength(2);
+    expect(resumePenPathAtEnd(path, { x: 80, y: 20 }, 4)).toBeNull();
+    expect(
+      resumePenPathAtEnd(closePenPath(path), { x: 40, y: 20 }, 4),
+    ).toBeNull();
   });
 
   it("isPenCloseTarget still hit-tests the first anchor once the path is already closed", () => {

@@ -1609,6 +1609,22 @@ test("K scales Screen contents and history as one root Frame edit", async ({
     await page.mouse.move(startX, startY);
     await page.mouse.down();
     await page.mouse.move(startX + 24, startY + 24, { steps: 4 });
+    await expect
+      .poll(async () => {
+        const diagnostics = await readScaleDiagnostics();
+        const fontSize = await layout.evaluate((element) =>
+          Number.parseFloat(
+            getComputedStyle(element.querySelector("#copy")!).fontSize,
+          ),
+        );
+        return Boolean(
+          diagnostics.cardBounds &&
+          beforeCardBounds &&
+          diagnostics.cardBounds.width > beforeCardBounds.width &&
+          fontSize > contentBefore.text.fontSize,
+        );
+      })
+      .toBe(true);
     await page.mouse.up();
     await expect
       .poll(async () => (await readScreenState()).frame?.width)

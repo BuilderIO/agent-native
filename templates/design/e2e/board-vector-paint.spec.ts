@@ -129,6 +129,32 @@ async function boardVectorPaint(page: Page) {
   });
 }
 
+async function boardVectorStrokeGradient(page: Page) {
+  return page.evaluate(() => {
+    for (const iframe of Array.from(document.querySelectorAll("iframe"))) {
+      const doc = (iframe as HTMLIFrameElement).contentDocument;
+      const svg = doc?.querySelector<SVGElement>(
+        'svg[data-agent-native-node-id="draft-pen-board-1"]',
+      );
+      const path = svg?.querySelector("path");
+      if (!svg || !path) continue;
+      const stroke = path.style.stroke || path.getAttribute("stroke") || "";
+      const gradientIds = Array.from(
+        svg.querySelectorAll<SVGGradientElement>(
+          "defs[data-an-vector-stroke-gradient] linearGradient, defs[data-an-vector-stroke-gradient] radialGradient",
+        ),
+      ).map((gradient) => gradient.id);
+      return {
+        gradientCount: svg.querySelectorAll(
+          "defs[data-an-vector-stroke-gradient]",
+        ).length,
+        referencesGradient: gradientIds.some((id) => stroke.includes(id)),
+      };
+    }
+    return null;
+  });
+}
+
 async function persistedBoardVectorPaint(
   request: APIRequestContext,
   designId: string,
@@ -185,7 +211,8 @@ async function selectLayerRow(page: Page, name: string) {
     .first();
   await expect(button).toBeVisible({ timeout: 20_000 });
   await button.click({ force: true });
-  await page.waitForTimeout(1200);
+  const row = button.locator('xpath=ancestor::*[@role="treeitem"][1]');
+  await expect(row).toHaveAttribute("aria-selected", "true");
 }
 
 function inspectorSection(page: Page, title: RegExp) {
@@ -209,7 +236,9 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
         timeout: 40_000,
       })
       .toBeGreaterThan(1);
-    await page.waitForTimeout(3500);
+    await expect
+      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+      .not.toBeNull();
 
     await selectLayerRow(page, "Vector");
 
@@ -263,7 +292,9 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
         timeout: 40_000,
       })
       .toBeGreaterThan(1);
-    await page.waitForTimeout(3500);
+    await expect
+      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+      .not.toBeNull();
     await selectLayerRow(page, "Vector");
 
     const before = await boardVectorPaint(page);
@@ -366,6 +397,98 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
     expect(sourceAfterRedo?.stroke).toMatch(
       /218\s+218\s+218|218,\s*218,\s*218/i,
     );
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
+  page,
+  request,
+}, testInfo) => {
+  const { designId, boardFileId } = await createDesign(request);
+  try {
+    await page.goto(appPath(`/design/${designId}?view=overview&zoom=200`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect
+      .poll(async () => page.locator("[data-screen-shell]").count(), {
+        timeout: 40_000,
+      })
+      .toBeGreaterThan(1);
+    await expect
+      .poll(() => boardVectorPaint(page), { timeout: 40_000 })
+      .not.toBeNull();
+    await selectLayerRow(page, "Vector");
+
+    const strokeSection = inspectorSection(page, /^Stroke$/i);
+    await expect(strokeSection).toBeVisible();
+    await strokeSection
+      .getByRole("button", { name: "Add stroke" })
+      .first()
+      .click();
+    await strokeSection
+      .getByRole("button", { name: "Open color picker" })
+      .click();
+    await page.getByRole("button", { name: "Linear", exact: true }).click();
+
+    await expect
+      .poll(() => boardVectorStrokeGradient(page))
+      .toMatchObject({ gradientCount: 1, referencesGradient: true });
+    await expect
+      .poll(async () => {
+        const source = await persistedBoardVectorPaint(
+          request,
+          designId,
+          boardFileId,
+        );
+        return source;
+      })
+      .toContain("data-an-vector-stroke-gradient");
+
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+z" : "Control+z",
+    );
+    await expect
+      .poll(() => boardVectorStrokeGradient(page))
+      .toMatchObject({ gradientCount: 0, referencesGradient: false });
+    await expect
+      .poll(async () => {
+        const source = await persistedBoardVectorPaint(
+          request,
+          designId,
+          boardFileId,
+        );
+        return source;
+      })
+      .not.toContain("data-an-vector-stroke-gradient");
+
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z",
+    );
+    await expect
+      .poll(() => boardVectorStrokeGradient(page))
+      .toMatchObject({ gradientCount: 1, referencesGradient: true });
+    await page.reload();
+    await expect
+      .poll(() => boardVectorStrokeGradient(page))
+      .toMatchObject({ gradientCount: 1, referencesGradient: true });
+    await expect
+      .poll(async () => {
+        const source = await persistedBoardVectorPaint(
+          request,
+          designId,
+          boardFileId,
+        );
+        return source;
+      })
+      .toContain("data-an-vector-stroke-gradient");
+    await page.screenshot({
+      path: testInfo.outputPath("vector-stroke-gradient.png"),
+    });
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

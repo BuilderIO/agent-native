@@ -50,13 +50,13 @@ async function createDesign(page: Page) {
       },
     ],
   });
-  return designId;
+  return { designId, screenId: fileId };
 }
 
 test("pasted SVG is an editable sized layer and image fit mode writes object-fit", async ({
   page,
 }, testInfo) => {
-  const designId = await createDesign(page);
+  const { designId, screenId } = await createDesign(page);
   try {
     await gotoEditor(page, designId);
     await page.getByRole("tab", { name: "Design", exact: true }).click();
@@ -70,35 +70,39 @@ test("pasted SVG is an editable sized layer and image fit mode writes object-fit
     await page.getByRole("option", { name: "Crop", exact: true }).click();
     await expect
       .poll(() =>
-        designFrame(page)
+        designFrame(page, screenId)
           .locator('[data-agent-native-node-id="fit-target"]')
           .evaluate((node) => (node as HTMLElement).style.objectFit),
       )
       .toBe("cover");
-    const savedScreenResponse = await page.request.get(
-      appPath(
-        `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
-      ),
-    );
-    expect(savedScreenResponse.ok()).toBe(true);
-    const savedScreen = await savedScreenResponse.json();
-    expect(savedScreen.content).toContain("object-fit: cover");
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(
+          appPath(
+            `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
+          ),
+        );
+        if (!response.ok()) return "";
+        const source = await response.json();
+        return typeof source.content === "string" ? source.content : "";
+      })
+      .toContain("object-fit: cover");
     await page.reload();
     await expect
       .poll(() =>
-        designFrame(page)
+        designFrame(page, screenId)
           .locator('[data-agent-native-node-id="fit-target"]')
           .evaluate((node) => (node as HTMLElement).style.objectFit),
       )
       .toBe("cover");
 
-    const pasteWasPrevented = await designFrame(page)
+    const pasteWasPrevented = await designFrame(page, screenId)
       .locator("body")
       .evaluate((body) => {
         const transfer = new DataTransfer();
         transfer.setData(
           "text/plain",
-          '<svg width="17" height="9" viewBox="0 0 17 9"><path d="M0 0L17 9"/></svg>',
+          '<svg width="80" height="40" viewBox="0 0 80 40" fill="#111111"><defs><linearGradient id="unused"><stop offset="0" stop-color="red"/></linearGradient></defs><g id="grouped-art"><path d="M0 0h30v30z" fill="#f97316"/><circle cx="60" cy="20" r="15" fill="#16a34a"/></g></svg>',
         );
         const event = new ClipboardEvent("paste", {
           bubbles: true,
@@ -110,25 +114,35 @@ test("pasted SVG is an editable sized layer and image fit mode writes object-fit
       });
     expect(pasteWasPrevented).toBe(true);
     await expect(
-      designFrame(page).locator(
+      designFrame(page, screenId).locator(
         'svg[data-agent-native-layer-name="Pasted SVG"]',
       ),
-    ).toHaveAttribute("width", "17");
+    ).toHaveAttribute("width", "80");
     await expect(
-      designFrame(page).locator(
+      designFrame(page, screenId).locator(
         'svg[data-agent-native-layer-name="Pasted SVG"]',
       ),
-    ).toHaveAttribute("height", "9");
+    ).toHaveAttribute("height", "40");
     await expect(
-      designFrame(page).locator(
+      designFrame(page, screenId).locator(
         'svg[data-agent-native-layer-name="Pasted SVG"]',
       ),
     ).toHaveAttribute("data-an-primitive", "pasted-svg");
     await expect(
-      designFrame(page).locator(
+      designFrame(page, screenId).locator(
         'svg[data-agent-native-layer-name="Pasted SVG"] path',
       ),
-    ).toHaveAttribute("d", "M0 0L17 9");
+    ).toHaveAttribute("d", "M0 0h30v30z");
+    await expect(
+      designFrame(page, screenId).locator(
+        'svg[data-agent-native-layer-name="Pasted SVG"] > defs',
+      ),
+    ).toHaveCount(1);
+    await expect(
+      designFrame(page, screenId).locator(
+        'svg[data-agent-native-layer-name="Pasted SVG"] g > circle',
+      ),
+    ).toHaveCount(1);
     await cdpScreenshot(page, testInfo.outputPath("pasted-svg-live.png"));
     await expect
       .poll(async () => {
@@ -143,28 +157,71 @@ test("pasted SVG is an editable sized layer and image fit mode writes object-fit
       })
       .toContain('data-agent-native-layer-name="Pasted SVG"');
 
-    const pastedRow = page
+    const editablePath = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] g > path',
+    );
+    const siblingShape = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] g > circle',
+    );
+    await page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Pasted SVG", exact: true })
+      .click();
+    const selectionColors = page
+      .locator("section")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Selection colors",
+          exact: true,
+        }),
+      })
+      .first();
+    const showSelectionColors = selectionColors.getByRole("button", {
+      name: "Show selection colors",
+    });
+    if (await showSelectionColors.count()) await showSelectionColors.click();
+    const sourceColor = selectionColors.locator('button[aria-label="#f97316"]');
+    await expect(sourceColor).toBeVisible();
+    await sourceColor.click();
+    const selectionHexInput = page.getByRole("textbox", {
+      name: "Hex",
+      exact: true,
+    });
+    await selectionHexInput.fill("8B5CF6");
+    await selectionHexInput.press("Enter");
+    await expect(editablePath).toHaveCSS("fill", "rgb(139, 92, 246)");
+    await expect(siblingShape).toHaveCSS("fill", "rgb(22, 163, 74)");
+
+    const pastedSvgRow = page
+      .getByRole("tree", { name: "Layers" })
       .getByRole("treeitem")
       .filter({ hasText: "Pasted SVG" })
       .first();
-    await expect(pastedRow).toBeVisible();
-    await pastedRow.locator("[data-layer-row-button]").click();
+    await pastedSvgRow.getByRole("button", { name: "Expand layer" }).click();
+    const groupRow = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem", { level: 3 })
+      .first();
+    await expect(groupRow).toBeVisible();
+    await groupRow.getByRole("button", { name: "Expand layer" }).click();
+    const pathRow = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem", { level: 4 })
+      .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) });
+    await expect(pathRow).toBeVisible();
+    await pathRow.click();
     const fillSection = page
       .getByRole("heading", { name: "Fill", exact: true })
       .locator("xpath=ancestor::section");
     await expect(fillSection).toBeVisible();
-    await fillSection.getByRole("button", { name: "Add fill" }).click();
     await fillSection
       .getByRole("button", { name: "Open color picker" })
       .click();
     const hexInput = page.getByRole("textbox", { name: "Hex", exact: true });
     await hexInput.fill("3B82F6");
     await hexInput.press("Enter");
-    await expect(
-      designFrame(page).locator(
-        'svg[data-agent-native-layer-name="Pasted SVG"] path',
-      ),
-    ).toHaveCSS("fill", "rgb(59, 130, 246)");
+    await expect(editablePath).toHaveCSS("fill", "rgb(59, 130, 246)");
+    await expect(siblingShape).toHaveCSS("fill", "rgb(22, 163, 74)");
     await expect
       .poll(async () => {
         const response = await page.request.get(
@@ -179,15 +236,16 @@ test("pasted SVG is an editable sized layer and image fit mode writes object-fit
       .toMatch(/<path[^>]*style="[^\"]*fill:\s*#3b82f6/i);
     await page.reload();
     await expect(
-      designFrame(page).locator(
+      designFrame(page, screenId).locator(
         'svg[data-agent-native-layer-name="Pasted SVG"] path',
       ),
-    ).toHaveAttribute("d", "M0 0L17 9");
+    ).toHaveAttribute("d", "M0 0h30v30z");
     await expect(
-      designFrame(page).locator(
+      designFrame(page, screenId).locator(
         'svg[data-agent-native-layer-name="Pasted SVG"] path',
       ),
     ).toHaveCSS("fill", "rgb(59, 130, 246)");
+    await expect(siblingShape).toHaveCSS("fill", "rgb(22, 163, 74)");
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

@@ -467,9 +467,80 @@ export function FillProperties({
     );
   };
 
+  const addFill = () => {
+    if (onAddFill) {
+      const added = onAddFill();
+      if (added === "base") {
+        setOpenFillPickerKey(fillStashKey + ":base");
+      } else if (added === "layer") {
+        const key = nextLayerKey();
+        pendingConvertedLayerRef.current = {
+          elementKey: fillStashKey,
+          key,
+          index: 0,
+          previousLayerCount: backgroundLayers.length,
+        };
+        setOpenFillPickerKey(fillStashKey + ":" + key);
+      }
+      return;
+    }
+    if (fillIsMixed) {
+      const replacement: Record<string, string> = isTextFillElement
+        ? {
+            color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
+            backgroundImage: "none",
+            backgroundClip: "border-box",
+          }
+        : {
+            color: "#000000", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
+            backgroundColor: "#ffffff", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
+            backgroundImage: "none",
+          };
+      commitStylePatch(replacement, onStyleChange, onStylesChange);
+      return;
+    }
+    if (isTextFillElement) {
+      onStyleChange(
+        "color",
+        cssColorOrFallback(
+          styles.color,
+          "#000000", // guard:allow-raw-color — restores a concrete authored text fill.
+        ),
+      );
+      return;
+    }
+    if (isVectorFillElement) {
+      onStyleChange(
+        "fill",
+        cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+      );
+      return;
+    }
+    const addFillPatch = addFillLayerPatch({
+      backgroundColor: styles.backgroundColor,
+      backgroundLayers,
+      backgroundSizeLayers,
+      backgroundRepeatLayers,
+      backgroundPositionLayers,
+    });
+    if (addFillPatch.backgroundImage !== undefined) {
+      layerKeysRef.current.keys = [
+        nextLayerKey(),
+        ...layerKeysRef.current.keys,
+      ];
+    }
+    commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
+  };
+
   return (
     <PanelSection
       title={t("editPanel.sections.fill")}
+      onEmptyTitleClick={
+        !hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed)
+          ? addFill
+          : undefined
+      }
+      emptyTitleActionLabel={t("editPanel.labels.addFill")}
       actions={
         <>
           {/* design color-styles affordance (grid icon) to the left of "+".
@@ -484,70 +555,7 @@ export function FillProperties({
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
             <SectionIconButton
               label={t("editPanel.labels.addFill")}
-              onClick={() => {
-                if (onAddFill) {
-                  const added = onAddFill();
-                  if (added === "base") {
-                    setOpenFillPickerKey(fillStashKey + ":base");
-                  } else if (added === "layer") {
-                    const key = nextLayerKey();
-                    pendingConvertedLayerRef.current = {
-                      elementKey: fillStashKey,
-                      key,
-                      index: 0,
-                      previousLayerCount: backgroundLayers.length,
-                    };
-                    setOpenFillPickerKey(fillStashKey + ":" + key);
-                  }
-                  return;
-                }
-                if (fillIsMixed) {
-                  const replacement: Record<string, string> = isTextFillElement
-                    ? {
-                        color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
-                        backgroundImage: "none",
-                        backgroundClip: "border-box",
-                      }
-                    : {
-                        color: "#000000", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
-                        backgroundColor: "#ffffff", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
-                        backgroundImage: "none",
-                      };
-                  commitStylePatch(replacement, onStyleChange, onStylesChange);
-                  return;
-                }
-                if (isTextFillElement) {
-                  onStyleChange(
-                    "color",
-                    cssColorOrFallback(
-                      styles.color,
-                      "#000000", // guard:allow-raw-color — restores a concrete authored text fill.
-                    ),
-                  );
-                  return;
-                }
-                if (isVectorFillElement) {
-                  onStyleChange(
-                    "fill",
-                    cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
-                  );
-                  return;
-                }
-                const addFillPatch = addFillLayerPatch({
-                  backgroundColor: styles.backgroundColor,
-                  backgroundLayers,
-                  backgroundSizeLayers,
-                  backgroundRepeatLayers,
-                  backgroundPositionLayers,
-                });
-                if (addFillPatch.backgroundImage !== undefined) {
-                  layerKeysRef.current.keys = [
-                    nextLayerKey(),
-                    ...layerKeysRef.current.keys,
-                  ];
-                }
-                commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
-              }}
+              onClick={addFill}
             >
               <IconPlus className="size-3.5" />
             </SectionIconButton>

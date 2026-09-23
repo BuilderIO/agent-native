@@ -762,6 +762,132 @@ describe("applyVisualEdit vector paint", () => {
     expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
   });
 
+  it("materializes vector linear gradients as SVG paint servers and reads them back", () => {
+    const value =
+      "linear-gradient(45deg, rgba(255, 0, 0, 0.5) 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(gradient.content).toContain(
+      'style="stroke: url(#pen-1-stroke-gradient)"',
+    );
+    expect(gradient.content).toContain(
+      'stop-color="rgb(255, 0, 0)" stop-opacity="0.5"',
+    );
+    expect(gradient.content).toContain(`--an-vector-stroke-gradient: ${value}`);
+    expect(
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-stroke-gradient"],
+    ).toBe(value);
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).toContain('cx="40" cy="30" r="50"');
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-stroke-gradient");
+    expect(solid.content).not.toContain("--an-vector-stroke-gradient");
+    expect(solid.content).toContain('style="stroke: #00ff00"');
+  });
+
+  it("preserves CSS corner direction and interpolates omitted stop positions", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value:
+        "linear-gradient(to top right, #000000 0%, #ff0000, #00ff00 80%, #0000ff, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('x1="0" y1="60" x2="80" y2="0"');
+    expect(gradient.content).toContain('offset="40%"');
+    expect(gradient.content).toContain('offset="80%"');
+    expect(gradient.content).toContain('offset="90%"');
+  });
+
+  it("keeps an off-center radial gradient's farthest-corner geometry", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at right top, #000000 0%, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('cx="80" cy="0" r="100"');
+  });
+
+  it("refuses unsupported Oklab stroke interpolation without changing source", () => {
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(45deg in oklab, red 0%, blue 100%)",
+    });
+
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(html);
+  });
+
+  it("does not mistake diamond or angular picker gradients for radial strokes", () => {
+    for (const value of [
+      "radial-gradient(ellipse closest-side at center, red 0%, blue 100%)",
+      "conic-gradient(from 90deg at center, red 0%, blue 100%)",
+    ]) {
+      const result = applyVisualEdit(html, {
+        kind: "style",
+        target: { nodeId: "pen-1" },
+        property: "stroke",
+        value,
+      });
+      expect(result.result.status).toBe("unsupported");
+      expect(result.content).toBe(html);
+    }
+  });
+
+  it("preserves vector opacity and authored SVG ids when adding a gradient", () => {
+    const styled = html
+      .replace("height:60px", "height:60px;opacity:0.7")
+      .replace('stroke="none"/>', 'stroke="none" stroke-opacity="0.4"/>')
+      .replace(
+        "</body>",
+        '<svg><defs><linearGradient id="pen-1-stroke-gradient"/></defs></svg></body>',
+      );
+    const result = applyVisualEdit(styled, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toContain('id="pen-1-stroke-gradient-2"');
+    expect(result.content).toContain('id="pen-1-stroke-gradient"');
+    expect(result.content).toContain("opacity:0.7");
+    expect(result.content).toContain('stroke-opacity="0.4"');
+  });
+
   it("persists inside and outside vector strokes with logical weight", () => {
     const overflowHidden = html.replace(
       'style="position:absolute;',
@@ -4003,6 +4129,8 @@ describe("style edit property normalization for fill layers", () => {
   const html = `<button id="cta">Buy</button>`;
 
   it.each([
+    ["object-fit", "contain"],
+    ["objectFit", "cover"],
     ["background-size", "cover"],
     ["backgroundSize", "cover"],
     ["background-repeat", "no-repeat"],

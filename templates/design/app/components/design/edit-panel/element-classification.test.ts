@@ -153,6 +153,28 @@ describe("isTextElement — B5-12 nested board text regression", () => {
   });
 });
 
+describe("isVectorShapeElement — pasted SVG descendants", () => {
+  it("uses SVG fill controls for drawable path and shape elements", () => {
+    for (const tagName of [
+      "path",
+      "polygon",
+      "polyline",
+      "ellipse",
+      "circle",
+      "rect",
+      "line",
+      "use",
+    ]) {
+      expect(isVectorShapeElement(makeElement({ tagName }))).toBe(true);
+    }
+  });
+
+  it("keeps unmarked SVG containers and other elements out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+    expect(isVectorShapeElement(makeElement({ tagName: "div" }))).toBe(false);
+  });
+});
+
 describe("componentNameForElementInfo", () => {
   it("uses React source provenance when the DOM payload has no explicit component name", () => {
     expect(

@@ -776,6 +776,76 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
   }
 });
 
+test("mouse-dragged text range commits style and survives reload", async ({
+  page,
+}) => {
+  const designId = await createHtmlDesign(
+    page,
+    "Mouse text range commit",
+    `<!doctype html><html><head><meta charset="utf-8" /></head><body style="margin:0;background:#fff"><h1 data-agent-native-node-id="mouse-range-heading" style="margin:80px;font-family:Arial,sans-serif;font-size:32px;font-weight:400;line-height:120%">E2E Hero Heading</h1></body></html>`,
+  );
+  try {
+    await gotoEditor(page, designId);
+    await selectByText(page, "E2E Hero Heading");
+    await page.keyboard.press("Enter");
+
+    const heading = designFrame(page).locator("h1").first();
+    await expect(heading).toHaveAttribute("contenteditable", "true");
+    const points = await textToolRangePointerPoints(heading);
+    await page.mouse.move(points.startX, points.y);
+    await page.mouse.down();
+    await page.mouse.move(points.endX, points.y, { steps: 6 });
+    await page.mouse.up();
+
+    await expect
+      .poll(() =>
+        heading.evaluate((element) => {
+          const selection = element.ownerDocument.getSelection();
+          const range = selection?.rangeCount
+            ? selection.getRangeAt(0).getBoundingClientRect()
+            : null;
+          return {
+            text: selection?.toString() ?? "",
+            collapsed: selection?.isCollapsed ?? true,
+            visible: Boolean(range && range.width > 0 && range.height > 0),
+          };
+        }),
+      )
+      .toEqual({ text: "E2E", collapsed: false, visible: true });
+
+    const lineHeight = page.locator('input[aria-label="Line height" i]');
+    await expect(lineHeight).toHaveValue("120%");
+    await lineHeight.fill("20%");
+    await lineHeight.press("Enter");
+
+    await expect
+      .poll(() =>
+        heading.evaluate(() => window.getSelection()?.toString() ?? ""),
+      )
+      .toBe("E2E");
+    await expect
+      .poll(
+        async () =>
+          (await savedHeadingRangeStyles(page, designId)).rangeLineHeight,
+      )
+      .toBe("20%");
+
+    await page.reload();
+    const reloadedHeading = designFrame(page).locator("h1").first();
+    await expect(
+      reloadedHeading.locator("span").filter({ hasText: "E2E" }),
+    ).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await savedHeadingRangeStyles(page, designId)).rangeLineHeight,
+      )
+      .toBe("20%");
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
 test("Auto ArrowUp uses the selected nested range's normal line-height", async ({
   page,
 }) => {
@@ -817,7 +887,7 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
           });
           probe.textContent = source.textContent || "Hg";
           body.append(probe);
-          const height = probe.offsetHeight;
+          const height = probe.getBoundingClientRect().height;
           probe.remove();
           return height;
         };
@@ -852,20 +922,21 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
     const lineHeight = typography.locator('input[aria-label="Line height" i]');
     await expect(lineHeight).toHaveValue("Auto");
     await lineHeight.press("ArrowUp");
-    await expect(lineHeight).toHaveValue(`${normalLineHeights.range + 1}px`);
+    const nextRangeLineHeight = `${normalLineHeights.range + 1}px`;
+    await expect(lineHeight).toHaveValue(nextRangeLineHeight);
     await expect
       .poll(() => headingRangeStyles(page))
       .toMatchObject({
         headingSize: "24px",
         rangeSize: "16px",
         headingLineHeight: "normal",
-        rangeLineHeight: `${normalLineHeights.range + 1}px`,
+        rangeLineHeight: nextRangeLineHeight,
       });
     await expect
       .poll(() => savedHeadingRangeStyles(page, designId))
       .toMatchObject({
         headingLineHeight: "normal",
-        rangeLineHeight: `${normalLineHeights.range + 1}px`,
+        rangeLineHeight: nextRangeLineHeight,
       });
     await lineHeight.press("Enter");
     await expect
@@ -879,7 +950,7 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
       .toBe(true);
     await expect(await sizeInput(page)).toHaveValue("16px");
     await expect(typography.getByRole("combobox")).toContainText("Bold");
-    await expect(lineHeight).toHaveValue(`${normalLineHeights.range + 1}px`);
+    await expect(lineHeight).toHaveValue(nextRangeLineHeight);
     await page.keyboard.press("ArrowRight");
     await expect(await sizeInput(page)).toHaveValue("24px");
     await expect(typography.getByRole("combobox")).toContainText("Regular");

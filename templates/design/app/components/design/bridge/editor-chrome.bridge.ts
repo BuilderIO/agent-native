@@ -2187,6 +2187,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return root;
   }
 
+  function pastedSvgShapeForHit(
+    hit: Element,
+    svgRoot: Element,
+  ): Element | null {
+    if (
+      !svgRoot.getAttribute ||
+      svgRoot.getAttribute("data-an-primitive") !== "pasted-svg"
+    ) {
+      return null;
+    }
+    var target: Element | null = hit;
+    while (target && target !== svgRoot) {
+      var tag = (target.tagName || "").toLowerCase();
+      if (
+        tag === "path" ||
+        tag === "polygon" ||
+        tag === "polyline" ||
+        tag === "ellipse" ||
+        tag === "circle" ||
+        tag === "rect" ||
+        tag === "line" ||
+        tag === "use"
+      ) {
+        return target;
+      }
+      target = target.parentElement;
+    }
+    return null;
+  }
+
   function isBoardRootMarqueeSurface(el: Element | null): boolean {
     if (!designCanvasBoardSurface || !el) return false;
     if (isDocumentRootElement(el)) return true;
@@ -2489,7 +2519,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // for a horizontal line, and only the outermost <svg> carries the id and a
     // layout box.
     var svgRoot = outermostSvgAncestor(hit);
-    if (svgRoot) return svgRoot;
+    if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
     var textPrimitive = nativeTextPrimitiveForHit(target);
     if (textPrimitive) target = textPrimitive;
@@ -2606,7 +2636,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // data-agent-native-group-wrapper marker as a Group, so that promotion
     // would resolve straight back to selectedEl and click-through would
     // never descend into a selected Frame's children.
-    var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+    var svgRoot = outermostSvgAncestor(hit);
+    var raw =
+      (svgRoot && pastedSvgShapeForHit(hit, svgRoot)) ||
+      svgRoot ||
+      unwrapTextOverlay(hit);
     raw = nativeTextPrimitiveForHit(raw) || raw;
     if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
       return null;
@@ -4255,6 +4289,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "backgroundImage",
     "backgroundColor",
     "color",
+    "objectFit",
     "fill",
     "borderRadius",
     "borderTopLeftRadius",
@@ -24643,6 +24678,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.type === "measurement-modifier-release") {
+      hideMeasurements();
+      lastHoverInfoPostedEl = hoveredEl;
+      (window.parent as Window).postMessage(
+        {
+          type: "element-hover",
+          payload: hoveredEl ? getLightElementInfo(hoveredEl) : null,
+        },
+        "*",
+      );
+      return;
+    }
     // The child can finish booting before the parent installs its one-shot
     // ready listener. Let the parent ask again after the iframe load event;
     // this is idempotent and also survives a document remount.

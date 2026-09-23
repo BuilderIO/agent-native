@@ -86,6 +86,11 @@ import { vectorEndpointInspectorIdentity } from "./vector-endpoint-inspector";
  * tab that would silently discard its write.
  */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
+const VECTOR_STROKE_PAINT_TYPES: DesignPaintType[] = [
+  "solid",
+  "linear",
+  "radial",
+];
 
 // guard:allow-raw-color — authored strokes need a concrete CSS color fallback.
 const DEFAULT_STROKE_COLOR = "#000000";
@@ -952,10 +957,13 @@ function VectorStrokeProperties({
   const t = useT();
   const styles = element.computedStyles;
   const stroke = styles.stroke || "none";
+  const strokeGradient = styles["--an-vector-stroke-gradient"];
   const width = styles.strokeWidth || "0px";
   const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
   const strokeExists = vectorStrokeExists(stroke);
-  const visible = vectorStrokeIsVisible(stroke, width);
+  const visible = strokeGradient
+    ? cssLengthNumber(width) > 0 && stroke !== "transparent"
+    : vectorStrokeIsVisible(stroke, width);
   const canAlignStroke =
     element.vectorStrokeCanAlign ??
     styles["--an-vector-stroke-can-align"] === "true";
@@ -1011,9 +1019,20 @@ function VectorStrokeProperties({
             <InspectorGridCell span={20}>
               <ColorInput
                 label=""
-                value={cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)}
+                value={
+                  strokeGradient ||
+                  cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)
+                }
                 onChange={(value, meta) => onStyleChange("stroke", value, meta)}
-                supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+                supportsLayeredFills
+                backgroundImage={strokeGradient}
+                onBackgroundImageChange={(value) =>
+                  onStyleChange("stroke", value)
+                }
+                onSolidToGradientChange={(patch) =>
+                  onStyleChange("stroke", patch.backgroundImage)
+                }
+                supportedPaintTypes={VECTOR_STROKE_PAINT_TYPES}
               />
             </InspectorGridCell>
             <InspectorGridCell span={4} className="flex justify-center">
@@ -1024,6 +1043,13 @@ function VectorStrokeProperties({
                     : t("editPanel.labels.showLayer")
                 }
                 onClick={() => {
+                  if (strokeGradient) {
+                    onStyleChange(
+                      "stroke",
+                      visible ? "transparent" : strokeGradient,
+                    );
+                    return;
+                  }
                   const parsed = parseCssColor(stroke);
                   if (visible) {
                     onStyleChange(

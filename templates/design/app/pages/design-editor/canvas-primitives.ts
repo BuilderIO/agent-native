@@ -56,6 +56,7 @@ export function createPrimitiveInsertFromSpec(
       geometry,
       points: penPath.nodes.map((node) => node.point),
       pathData: serializePenPath(penPath),
+      penPath,
     };
   }
 
@@ -86,13 +87,9 @@ export function createPrimitiveInsertFromSpec(
  * `Z` for a closed path (whose preceding segment is the wrap-around from the
  * last node back to the first, not a new node).
  *
- * This exists because `CanvasPrimitiveInsert` (MultiScreenCanvas.tsx) only
- * carries the already-flattened `pathData` string across the overview
- * commit boundary, not the richer `DraftPrimitive.penPath` MultiScreenCanvas
- * keeps internally — so committing a pen path drawn in OVERVIEW mode has no
- * other source for the structured node/handle data `data-an-pen-nodes`
- * needs. Single-screen pen placement (`createPrimitiveInsertFromSpec` above)
- * builds its `PenPath` directly and never needs this reverse parse.
+ * This remains the fallback for inserts that only carry flattened `pathData`.
+ * New overview and single-screen Pen inserts also carry `penPath` directly,
+ * preserving the full node/handle model across the commit boundary.
  *
  * Returns `null` for anything that doesn't match the expected grammar
  * (empty/malformed `d`) rather than throwing, so a call site can always fall

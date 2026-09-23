@@ -604,7 +604,6 @@ describe("board surface pointer capture", () => {
       }),
     );
   });
-
 });
 
 describe("global canvas pan gestures", () => {

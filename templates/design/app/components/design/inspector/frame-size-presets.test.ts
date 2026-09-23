@@ -13,8 +13,13 @@ describe("frame size presets", () => {
     }
   });
 
-  it("puts Desktop first so it is the default-expanded group", () => {
+  it("puts Desktop first as the default-visible preset", () => {
     expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.key).toBe("desktop");
+    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.presets[0]).toEqual({
+      name: "Desktop",
+      width: 1440,
+      height: 1024,
+    });
   });
 
   it("has no duplicate category keys", () => {

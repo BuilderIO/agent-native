@@ -316,6 +316,7 @@ export function draftPrimitiveToInsert(
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,
+    penPath: scaledPenPath,
     text: draft.text,
     fill: draft.fill,
     stroke: draft.stroke,

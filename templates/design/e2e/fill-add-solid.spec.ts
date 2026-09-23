@@ -17,6 +17,16 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+const EMPTY_FILL_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Empty fill section</title></head>
+  <body style="margin:0">
+    <main data-agent-native-node-id="empty-fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="empty-fill-shape" data-agent-native-layer-name="Unfilled shape" style="position:absolute;left:64px;top:64px;width:320px;height:180px"></div>
+    </main>
+  </body>
+</html>`;
+
 async function postAction(
   request: APIRequestContext,
   baseURL: string,
@@ -125,6 +135,65 @@ test("Add fill creates a Solid row and keeps existing fill layers aligned", asyn
   }
 });
 
+test("clicking an empty Fill heading adds the first fill", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  if (!baseURL) throw new Error("Playwright baseURL is not configured");
+  const created = await postAction(request, baseURL, "create-design", {
+    title: `Empty fill heading ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    await postAction(request, baseURL, "create-file", {
+      designId,
+      filename: "index.html",
+      content: EMPTY_FILL_FIXTURE,
+      fileType: "html",
+    });
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Unfilled shape", exact: true })
+      .first()
+      .click();
+
+    const fill = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
+      .first();
+    const fillHeading = fill.getByRole("heading", {
+      name: "Fill",
+      exact: true,
+    });
+    await expect(fill.getByRole("button", { name: "Add fill" })).toHaveCount(2);
+    await fillHeading.getByRole("button", { name: "Add fill" }).click();
+
+    const shape = page
+      .locator("iframe[data-design-preview-iframe]")
+      .last()
+      .contentFrame()
+      .locator('[data-agent-native-node-id="empty-fill-shape"]');
+    await expect
+      .poll(() =>
+        shape.evaluate((node) => getComputedStyle(node).backgroundColor),
+      )
+      .toBe("rgb(255, 255, 255)");
+    await expect(
+      fill.locator('[data-inspector-layout="paint-row"]'),
+    ).toBeVisible();
+  } finally {
+    await postAction(request, baseURL, "delete-design", { id: designId });
+  }
+});
+
 test("clicking an empty Stroke heading adds the first stroke", async ({
   page,
   request,
@@ -173,6 +242,9 @@ test("clicking an empty Stroke heading adds the first stroke", async ({
     await expect
       .poll(() => target.evaluate((node) => getComputedStyle(node).borderWidth))
       .toBe("1px");
+    await expect(
+      stroke.locator('[data-inspector-layout="paint-row"]'),
+    ).toHaveCount(1);
     await expect(stroke.locator("h3 button")).toHaveCount(0);
     await cdpScreenshot(
       page,

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesignFile } from "../types";
 import {
-  replacePastedImageSource,
+  getOverviewCanvasCenter,
+  replacePastedMediaSource,
   runPastedImageFiles,
   type PastedImageFilesArgs,
 } from "./pasted-image-files";
@@ -17,7 +18,7 @@ function ref<T>(current: T): RefObject<T> {
 function args(
   applyLocalContentUpdate: PastedImageFilesArgs["applyLocalContentUpdate"],
   replacePreviewContent: PastedImageFilesArgs["replacePreviewContent"],
-  uploadImageFileForHtml: PastedImageFilesArgs["uploadImageFileForHtml"],
+  uploadMediaFileForHtml: PastedImageFilesArgs["uploadMediaFileForHtml"],
   getFreshActiveContent: () => string = () => "<main></main>",
   getFreshActivePreviewContent: PastedImageFilesArgs["getFreshActivePreviewContent"] = () =>
     null,
@@ -39,7 +40,7 @@ function args(
     replacePreviewContent,
     selectInsertedLayers: vi.fn(),
     t: (key) => key,
-    uploadImageFileForHtml,
+    uploadMediaFileForHtml,
     viewModeRef: ref("single"),
     zoom: 100,
   };
@@ -58,6 +59,7 @@ describe("runPastedImageFiles", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    document.body.innerHTML = "";
   });
 
   it("inserts at the copied image's intrinsic size before replacing its URL", async () => {
@@ -237,14 +239,69 @@ describe("runPastedImageFiles", () => {
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(previewContent).toBe("<main></main>");
   });
+
+  it("inserts video at its intrinsic size and replaces the blob URL", async () => {
+    const createObjectURL = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:preview-video");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    const nativeCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName) => {
+      const element = nativeCreateElement(tagName);
+      if (tagName.toLowerCase() === "video") {
+        Object.defineProperty(element, "videoWidth", { value: 640 });
+        Object.defineProperty(element, "videoHeight", { value: 360 });
+        (element as unknown as HTMLVideoElement).load = () => {
+          queueMicrotask(() =>
+            element.dispatchEvent(new Event("loadedmetadata")),
+          );
+        };
+      }
+      return element;
+    });
+    const videoFile = new File(["video"], "prototype.mp4", {
+      type: "video/mp4",
+    });
+    let currentContent = "<main></main>";
+    const replacePreviewContent = vi.fn((content: string) => {
+      currentContent = content;
+    });
+    const applyLocalContentUpdate = vi.fn((content: string) => {
+      currentContent = content;
+    });
+
+    runPastedImageFiles(
+      args(
+        applyLocalContentUpdate,
+        replacePreviewContent,
+        vi.fn(async () => "https://cdn.example/prototype.mp4"),
+        () => currentContent,
+      ),
+      [videoFile],
+      { fileId: "screen-1", point: { x: 15, y: 25 } },
+    );
+
+    await vi.waitFor(() =>
+      expect(applyLocalContentUpdate).toHaveBeenCalledOnce(),
+    );
+    expect(createObjectURL).toHaveBeenCalledWith(videoFile);
+    expect(replacePreviewContent.mock.calls[0]?.[0]).toContain(
+      '<video src="blob:preview-video"',
+    );
+    expect(currentContent).toContain('src="https://cdn.example/prototype.mp4"');
+    expect(currentContent).toContain("width: 640px");
+    expect(currentContent).toContain("height: 360px");
+    expect(currentContent).not.toContain("blob:preview-video");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-video");
+  });
 });
 
-describe("replacePastedImageSource", () => {
+describe("replacePastedMediaSource", () => {
   it("changes only the image source for the inserted node", () => {
     const content =
       '<main><img data-agent-native-node-id="image-1" src="blob:preview" /></main>';
 
-    const replaced = replacePastedImageSource(
+    const replaced = replacePastedMediaSource(
       content,
       "image-1",
       "https://cdn.example/image.png",
@@ -252,5 +309,115 @@ describe("replacePastedImageSource", () => {
 
     expect(replaced).toContain('src="https://cdn.example/image.png"');
     expect(replaced).not.toContain("blob:preview");
+  });
+
+  it("changes or removes only the video with the matching node id", () => {
+    const content =
+      '<main><video data-agent-native-node-id="video-1" src="blob:one"></video><video data-agent-native-node-id="video-2" src="blob:two"></video></main>';
+
+    const replaced = replacePastedMediaSource(
+      content,
+      "video-1",
+      "https://cdn.example/video.mp4",
+    );
+    expect(replaced).toContain('src="https://cdn.example/video.mp4"');
+    expect(replaced).toContain('src="blob:two"');
+
+    const removed = replacePastedMediaSource(replaced, "video-2", null);
+    expect(removed).toContain('src="https://cdn.example/video.mp4"');
+    expect(removed).not.toContain('src="blob:two"');
+  });
+});
+
+describe("overview paste placement", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("maps the viewport center through overview pan and zoom before targeting a Screen", async () => {
+    class MatrixStub {
+      a: number;
+      e: number;
+      f: number;
+
+      constructor(transform?: string) {
+        const values = /^matrix\(([^)]+)\)$/
+          .exec(transform ?? "")?.[1]
+          ?.split(/\s*,\s*/)
+          .map(Number) ?? [1, 0, 0, 1, 0, 0];
+        this.a = values[0] ?? 1;
+        this.e = values[4] ?? 0;
+        this.f = values[5] ?? 0;
+      }
+    }
+    vi.stubGlobal("DOMMatrixReadOnly", MatrixStub);
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 160, height: 90, close: vi.fn() })),
+    );
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:overview-paste");
+
+    const container = document.createElement("div");
+    const world = document.createElement("div");
+    world.setAttribute("data-multi-screen-canvas-world", "");
+    world.style.transform = "matrix(2, 0, 0, 2, -680, -480)";
+    container.append(world);
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      left: 50,
+      top: 70,
+      right: 850,
+      bottom: 670,
+      width: 800,
+      height: 600,
+      x: 50,
+      y: 70,
+      toJSON: () => ({}),
+    } as DOMRect);
+    document.body.append(container);
+
+    expect(getOverviewCanvasCenter(container)).toEqual({ x: 300, y: 150 });
+
+    const applyLocalContentUpdate = vi.fn();
+    const selectInsertedLayers = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      vi.fn(),
+      vi.fn(async () => "https://cdn.example/photo.png"),
+    );
+    pasteArgs.canvasContainerRef = ref(container);
+    pasteArgs.boardFileId = "board-1";
+    pasteArgs.viewModeRef = ref("overview");
+    pasteArgs.overviewScreens = [
+      {
+        id: "screen-1",
+        filename: "screen.html",
+        content: "<main></main>",
+        updatedAt: "",
+        heightPinned: false,
+        width: 1000,
+        height: 1000,
+      },
+    ];
+    pasteArgs.canvasFrameGeometryById = {
+      "screen-1": { x: 200, y: 50, width: 1000, height: 1000 },
+    };
+    pasteArgs.selectInsertedLayers = selectInsertedLayers;
+    pasteArgs.getScreenContent = () => "<main></main>";
+
+    expect(runPastedImageFiles(pasteArgs, [file])).toBe(true);
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+
+    const insertedContent = applyLocalContentUpdate.mock.calls[0]?.[0];
+    const insertedImage = new DOMParser()
+      .parseFromString(insertedContent ?? "", "text/html")
+      .querySelector<HTMLImageElement>('img[alt="photo.png"]');
+    expect(selectInsertedLayers).toHaveBeenCalledWith(
+      "screen-1",
+      expect.any(String),
+      expect.any(Array),
+    );
+    expect(insertedImage?.style.left).toBe("100px");
+    expect(insertedImage?.style.top).toBe("100px");
   });
 });

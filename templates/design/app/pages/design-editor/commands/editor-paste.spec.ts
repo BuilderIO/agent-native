@@ -11,6 +11,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
+import { parsePastedSvg } from "./pasted-svg";
 
 const FIGMA_HTML =
   '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
@@ -150,6 +151,22 @@ describe("runEditorPaste", () => {
 
     expect(h.svgs).toEqual([source]);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("leaves malformed SVG-looking clipboard HTML to native paste", () => {
+    const h = harness();
+    const malformedSvg = '<svg width="17" height="9"><path d="M0 0"></svg>';
+    const handlePastedSvg = vi.fn(
+      (source: string) => parsePastedSvg(source) !== null,
+    );
+    h.args.handlePastedSvg = handlePastedSvg;
+    const event = pasteEvent({ "text/html": malformedSvg });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(malformedSvg);
+    expect(event.defaultPrevented).toBe(false);
+    expect(h.pasted).toBe(0);
   });
 
   it("says why a Figma link paste produced no screen", () => {

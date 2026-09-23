@@ -43,6 +43,7 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "backgroundImage",
   "backgroundColor",
   "color",
+  "objectFit",
   "fill",
   "borderRadius",
   "borderTopLeftRadius",

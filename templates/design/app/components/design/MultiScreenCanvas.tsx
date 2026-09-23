@@ -51,6 +51,7 @@ import {
   isPenCloseTarget,
   movePenAnchor,
   movePenHandle,
+  resumePenPathAtEnd,
   serializePenPath,
   setPenNodeType,
   snapPenAnchorPoint,
@@ -601,6 +602,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectedScreenIds,
   exportPreviewScreenId = null,
   selectedElementScreenId = null,
+  selectedPenPathNodeId,
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
   fullViewScreenIds,
@@ -646,6 +648,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onScreenContentNaturalHeightChange,
   onCreatePrimitive,
   onPrimitiveCreated,
+  onUpdatePenPath,
   onPrimitiveReparent,
   onCreateScreenFrame,
   frameToolDraws = "frame",
@@ -835,6 +838,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     useState<DraftCreationPreview | null>(null);
   const [activePenPath, setActivePenPath] = useState<PenPath | null>(null);
   const activePenPathRef = useRef<PenPath | null>(activePenPath);
+  const continuationPenPathRef = useRef<{
+    frameId: string;
+    nodeId: string;
+    path: PenPath;
+  } | null>(null);
   const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
     null,
   );
@@ -5860,9 +5868,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       options?: {
         nextTool?: "move" | "pen";
         reparentTargetIdentity?: ScreenProjectionNodeIdentity;
+        updateNodeId?: string;
       },
     ): PersistedDraftPrimitive | null => {
-      const targetFrame = getTargetFrameForDraft(draft, preferredFrameId);
+      const targetFrame =
+        options?.updateNodeId && preferredFrameId === boardFileId
+          ? undefined
+          : getTargetFrameForDraft(draft, preferredFrameId);
+      if (
+        options?.updateNodeId &&
+        preferredFrameId &&
+        targetFrame?.id !== preferredFrameId &&
+        preferredFrameId !== boardFileId
+      ) {
+        return null;
+      }
 
       // When the draft center is outside ALL frames (and screens.length > 1),
       // getTargetFrameForDraft returns undefined.  Route to onBoardDrawPrimitive
@@ -5878,22 +5898,39 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             width: 1,
             height: 1,
           });
+          if (options?.updateNodeId) {
+            const updated = Boolean(
+              boardFileId &&
+              boardPrimitive.penPath &&
+              onUpdatePenPath?.(
+                boardFileId,
+                options.updateNodeId,
+                boardPrimitive.penPath,
+              ),
+            );
+            return updated
+              ? { frameId: boardFileId!, nodeId: options.updateNodeId }
+              : null;
+          }
           // Return the board file id so the caller can run the same selection
           // and text-edit activation path used by regular screen primitives.
-          return persistBoardDraftPrimitive({
+          const persisted = persistBoardDraftPrimitive({
             boardFileId,
             draftId: draft.id,
             primitive: boardPrimitive,
             handler,
             options,
           });
+          return persisted
+            ? {
+                ...persisted,
+                sourceNodeId: boardPrimitive.nodeId ?? draft.id,
+              }
+            : null;
         }
         return null;
       }
 
-      if (!onCreatePrimitive) {
-        return null;
-      }
       const targetScreen = screens.find(
         (screen) => screen.id === targetFrame.id,
       );
@@ -5926,7 +5963,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         targetFrame.geometry,
         measuredMetadata,
       );
-      const persisted = onCreatePrimitive(
+      if (options?.updateNodeId) {
+        const updated = Boolean(
+          localPrimitive.penPath &&
+          onUpdatePenPath?.(
+            targetFrame.id,
+            options.updateNodeId,
+            localPrimitive.penPath,
+          ),
+        );
+        return updated
+          ? { frameId: targetFrame.id, nodeId: options.updateNodeId }
+          : null;
+      }
+      const persisted = onCreatePrimitive?.(
         targetFrame.id,
         localPrimitive,
         options?.reparentTargetIdentity
@@ -5945,6 +5995,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       return {
         frameId: targetFrame.id,
         nodeId: persistedNodeId ?? draft.id,
+        sourceNodeId: localPrimitive.nodeId ?? draft.id,
         ...(typeof persisted === "object"
           ? {
               preparedTargetNodeId: persisted.preparedTargetNodeId,
@@ -5959,6 +6010,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       getTargetFrameForDraft,
       metadataById,
       onCreatePrimitive,
+      onUpdatePenPath,
       screens,
     ],
   );
@@ -5968,7 +6020,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       nextDraft: DraftPrimitive,
       preferredFrameId?: string,
       options?: { nextTool?: "move" | "pen" },
-    ) => {
+    ): PersistedDraftPrimitive | null => {
       const persisted = persistDraftPrimitive(
         nextDraft,
         preferredFrameId,
@@ -5992,12 +6044,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             nextTool: options?.nextTool,
           });
         }
-        return;
+        return persisted;
       }
 
       updateDraftPrimitives((current) => [...current, nextDraft]);
       updateSelectedIds(() => []);
       updateSelectedDraftIds(() => [nextDraft.id]);
+      return null;
     },
     [
       persistDraftPrimitive,
@@ -6063,20 +6116,46 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, []);
 
   const finishPenPath = useCallback(
-    (path = activePenPathRef.current) => {
+    (
+      path = activePenPathRef.current,
+      options?: { continueAfterCommit?: boolean },
+    ) => {
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
       clearActivePenPath();
       if (!path || path.nodes.length < 2) return;
 
-      commitDraftPrimitive(
-        createPenDraftPrimitive(path, {
-          stroke: toolProps?.stroke,
-          strokeWidth: toolProps?.strokeWidth,
-        }),
-        undefined,
-        { nextTool: "pen" },
-      );
+      const draft = createPenDraftPrimitive(path, {
+        stroke: toolProps?.stroke,
+        strokeWidth: toolProps?.strokeWidth,
+      });
+      const continuation = continuationPenPathRef.current;
+      if (continuation) {
+        const persisted = persistDraftPrimitive(draft, continuation.frameId, {
+          updateNodeId: continuation.nodeId,
+        });
+        if (!persisted) {
+          activePenPathRef.current = path;
+          setActivePenPath(path);
+          return;
+        }
+        continuationPenPathRef.current =
+          path.closed || !options?.continueAfterCommit
+            ? null
+            : { ...continuation, path: clonePenPath(path) };
+      } else {
+        const persisted = commitDraftPrimitive(draft, undefined, {
+          nextTool: "pen",
+        });
+        continuationPenPathRef.current =
+          persisted && !path.closed && options?.continueAfterCommit
+            ? {
+                frameId: persisted.frameId,
+                nodeId: persisted.sourceNodeId ?? persisted.nodeId,
+                path: clonePenPath(path),
+              }
+            : null;
+      }
       // Keep the Pen tool armed after Enter/Escape/closing a path, matching
       // Figma. The parent selection callback also receives nextTool="pen",
       // but board primitives intentionally bypass that generic callback and
@@ -6084,7 +6163,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // frame. Drive the controlled tool explicitly at the commit boundary.
       onActiveToolChange?.("pen");
     },
-    [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
+    [
+      clearActivePenPath,
+      commitDraftPrimitive,
+      onActiveToolChange,
+      persistDraftPrimitive,
+      toolProps,
+    ],
   );
 
   const undoActivePenPathSegment = useCallback(() => {
@@ -6183,10 +6268,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       suppressNextPick.current = true;
 
-      const pathBefore = activePenPathRef.current?.closed
+      let pathBefore = activePenPathRef.current?.closed
         ? null
         : activePenPathRef.current;
       const rawPoint = getCanvasPoint(e.clientX, e.clientY);
+      if (!pathBefore && continuationPenPathRef.current) {
+        const continuation = continuationPenPathRef.current;
+        const resumed =
+          !selectedPenPathNodeId ||
+          selectedPenPathNodeId === continuation.nodeId
+            ? resumePenPathAtEnd(
+                continuation.path,
+                rawPoint,
+                PEN_CLOSE_HIT_RADIUS_SCREEN_PX / (zoomRef.current / 100),
+              )
+            : null;
+        if (resumed) {
+          suppressNextPick.current = true;
+          activePenPathRef.current = resumed;
+          setActivePenPath(resumed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+          return;
+        }
+        continuationPenPathRef.current = null;
+      }
       const closing = Boolean(
         pathBefore &&
         isPenCloseTarget(
@@ -6336,6 +6443,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       getPenAnchorPoint,
       installDragListeners,
       onActiveToolChange,
+      selectedPenPathNodeId,
     ],
   );
 
@@ -9947,7 +10055,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        finishPenPath(path);
+        finishPenPath(path, { continueAfterCommit: true });
         return;
       }
 
@@ -9985,7 +10093,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // progress. Figma commits it instead — finishPenPath already discards
     // for a sub-2-node path (P16), so this only ever loses genuinely empty
     // in-progress state.
-    if (tool !== "pen") finishPenPath();
+    if (tool !== "pen") {
+      finishPenPath();
+      if (!activePenPathRef.current) continuationPenPathRef.current = null;
+    }
   }, [activeTool, finishPenPath, localActiveTool]);
 
   // Cmd+D / Ctrl+D: duplicate every selected frame (not just the first) with
@@ -10085,13 +10196,36 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // reading the distance label) rather than leaving it frozen on screen
   // until the next mousemove recomputes it.
   useEffect(() => {
+    const releaseAltMeasurements = () => {
+      setAltHoverMeasurement(null);
+      surfaceRef.current
+        ?.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )
+        .forEach((iframe) => {
+          iframe.contentWindow?.postMessage(
+            { type: "measurement-modifier-release" },
+            "*",
+          );
+        });
+    };
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key !== "Alt") return;
-      setAltHoverMeasurement(null);
+      releaseAltMeasurements();
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") releaseAltMeasurements();
+    };
+    const surface = surfaceRef.current;
     window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", releaseAltMeasurements);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    surface?.addEventListener("blur", releaseAltMeasurements, true);
     return () => {
       window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", releaseAltMeasurements);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      surface?.removeEventListener("blur", releaseAltMeasurements, true);
     };
   }, [setAltHoverMeasurement]);
 

@@ -96,6 +96,22 @@ export function appendPenNode(path: PenPath | null, node: PenNode): PenPath {
   };
 }
 
+export function resumePenPathAtEnd(
+  path: PenPath,
+  point: PenPoint,
+  hitRadius: number,
+): PenPath | null {
+  if (path.closed || path.nodes.length < 2) return null;
+  const end = path.nodes[path.nodes.length - 1];
+  if (
+    !end ||
+    Math.hypot(end.point.x - point.x, end.point.y - point.y) > hitRadius
+  ) {
+    return null;
+  }
+  return clonePenPath(path);
+}
+
 export function clonePenPath(path: PenPath): PenPath {
   return {
     nodes: path.nodes.map(clonePenNode),

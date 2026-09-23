@@ -17,6 +17,14 @@ import {
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
 import {
+  buildLinearGradientDef,
+  buildRadialGradientDef,
+  parseComputedLinearGradient,
+  parseComputedRadialGradient,
+  resolveRadialGradientGeometry,
+  type FigmaSvgColorStop,
+} from "./figma-svg-scene";
+import {
   ensureGroupRuntime,
   MEASURED_FLOW_GROUP_ATTR,
 } from "./group-runtime.js";
@@ -143,6 +151,7 @@ export type VisualStyleProperty =
   | "font-weight"
   | "font-family"
   | "font-style"
+  | "object-fit"
   | "letter-spacing"
   | "word-spacing"
   | "line-height"
@@ -946,6 +955,7 @@ const STYLE_PROPERTIES = [
   "grid-auto-rows",
   "box-sizing",
   "aspect-ratio",
+  "object-fit",
   "isolation",
   "z-index",
 ] as const satisfies readonly VisualStyleProperty[];
@@ -1005,6 +1015,17 @@ const NON_VISUAL_TAGS = new Set([
   "track",
   "title",
   "noscript",
+]);
+
+const SVG_RESOURCE_TAGS = new Set([
+  "clippath",
+  "defs",
+  "filter",
+  "lineargradient",
+  "mask",
+  "pattern",
+  "radialgradient",
+  "stop",
 ]);
 
 // Parsed and descended into, but not a layer of its own: a `<template>`
@@ -3179,6 +3200,7 @@ function hasSvgAncestor(
   element: ParsedElement,
   elements: ParsedElement[],
 ): boolean {
+  let insideSvgResource = SVG_RESOURCE_TAGS.has(element.tag);
   const isBooleanOperand =
     element.tag === "svg" &&
     attributeValue(element, "data-an-primitive") === "boolean-operand";
@@ -3187,7 +3209,11 @@ function hasSvgAncestor(
   while (parentIndex !== undefined) {
     const parent = elements[parentIndex];
     if (!parent) break;
+    if (SVG_RESOURCE_TAGS.has(parent.tag)) insideSvgResource = true;
     if (parent.tag === "svg") {
+      if (attributeValue(parent, "data-an-primitive") === "pasted-svg") {
+        return insideSvgResource;
+      }
       if (
         isBooleanOperand &&
         attributeValue(parent, "data-an-primitive") === "boolean"
@@ -4405,6 +4431,8 @@ const VECTOR_PAINT_PROPERTIES = [
 ] as const;
 
 const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
+const VECTOR_STROKE_GRADIENT_PROPERTY = "--an-vector-stroke-gradient";
+const VECTOR_STROKE_GRADIENT_MARKER = "data-an-vector-stroke-gradient";
 const VECTOR_STROKE_OVERLAY = "data-an-vector-stroke-overlay";
 const VECTOR_STROKE_LOGICAL_WIDTH = "data-an-vector-logical-width";
 const VECTOR_STROKE_GENERATED_DEFS = "data-an-vector-stroke-defs";
@@ -4903,6 +4931,23 @@ function withVectorPaintStyle(
   elements: ParsedElement[],
   style: Record<string, string>,
 ): Record<string, string> {
+  if (
+    element.tag === "path" ||
+    element.tag === "polygon" ||
+    element.tag === "polyline" ||
+    element.tag === "ellipse" ||
+    element.tag === "circle" ||
+    element.tag === "rect" ||
+    element.tag === "line" ||
+    element.tag === "use"
+  ) {
+    const merged = { ...style };
+    for (const property of VECTOR_PAINT_PROPERTIES) {
+      const value = style[property] ?? attributeValue(element, property);
+      if (value) merged[property] = value;
+    }
+    return merged;
+  }
   const child = vectorShapeChild(element, elements);
   if (!child) return style;
   const kind = attributeValue(element, "data-an-primitive");
@@ -4986,7 +5031,9 @@ const VECTOR_WRAPPER_BOX_PAINT = new Set([
 ]);
 
 function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
-  const style = attributeValue(wrapper, "style");
+  const current = parseHtmlElements(html)[wrapper.index];
+  if (!current || current.start !== wrapper.start) return html;
+  const style = attributeValue(current, "style");
   if (!style) return html;
   const kept = parseStyleDeclarations(style);
   removeStyleDeclarations(kept, [...VECTOR_WRAPPER_BOX_PAINT]);
@@ -4994,7 +5041,7 @@ function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
   if (next === style) return html;
   // Safe against the child edit that just ran: the wrapper's open tag, and so
   // its style attribute offsets, precede every child byte.
-  return replaceOrInsertAttribute(html, wrapper, "style", next);
+  return replaceOrInsertAttribute(html, current, "style", next);
 }
 
 function vectorPaintChild(
@@ -5018,6 +5065,369 @@ function vectorPaintChild(
     );
   }
   return vectorShapeChild(parsed, elements);
+}
+
+function splitGradientArguments(value: string): string[] | null {
+  const body = value.slice(value.indexOf("(") + 1, -1);
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (character === "," && depth === 0) {
+      parts.push(body.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(body.slice(start).trim());
+  return parts.every(Boolean) ? parts : null;
+}
+
+function vectorStrokeGradientStops(value: string): FigmaSvgColorStop[] | null {
+  const normalized = value.trim();
+  const gradient = normalizeVectorStrokeGradient(normalized);
+  const parts = gradient ? splitGradientArguments(gradient.value) : null;
+  if (!gradient || !parts || parts.length < 2) return null;
+  if (gradient.kind === "radial") {
+    if (/^ellipse\s+closest-side\b/i.test(parts[0] ?? "")) return null;
+    return parseComputedRadialGradient(gradient.value)?.stops ?? null;
+  }
+
+  const first = parts[0] ?? "";
+  const hasHeader =
+    /^(?:to\s+(?:left|right|top|bottom)(?:\s+(?:left|right|top|bottom))?|[-+]?\d*\.?\d+deg)$/i.test(
+      first,
+    );
+  const stopParts = hasHeader ? parts.slice(1) : parts;
+  if (stopParts.length < 2) return null;
+  // Use the shared CSS stop parser so omitted positions interpolate between
+  // their explicit neighbours exactly as CSS does.
+  return (
+    parseComputedLinearGradient(
+      `linear-gradient(180deg, ${stopParts.join(", ")})`,
+    )?.stops ?? null
+  );
+}
+
+function vectorGradientBox(wrapper: ParsedElement) {
+  const style = parseStyle(attributeValue(wrapper, "style"));
+  const dimension = (value: string | null | undefined) => {
+    const match = value
+      ?.trim()
+      .match(/^([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:px)?$/i);
+    const parsed = match ? Number(match[1]) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+  const cssWidth =
+    dimension(style.width) ?? dimension(attributeValue(wrapper, "width"));
+  const cssHeight =
+    dimension(style.height) ?? dimension(attributeValue(wrapper, "height"));
+  if (!cssWidth || !cssHeight) return null;
+
+  const rawViewBox = attributeValue(wrapper, "viewBox");
+  const viewBox = rawViewBox
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (
+    viewBox?.length === 4 &&
+    viewBox.every(Number.isFinite) &&
+    viewBox[2]! > 0 &&
+    viewBox[3]! > 0
+  ) {
+    const scaleX = viewBox[2]! / cssWidth;
+    const scaleY = viewBox[3]! / cssHeight;
+    if (Math.abs(scaleX - scaleY) > Math.max(scaleX, scaleY) * 0.001)
+      return null;
+    return {
+      x: viewBox[0]!,
+      y: viewBox[1]!,
+      width: viewBox[2]!,
+      height: viewBox[3]!,
+      cssWidth,
+      cssHeight,
+      scale: (scaleX + scaleY) / 2,
+    };
+  }
+  if (rawViewBox) return null;
+  return {
+    x: 0,
+    y: 0,
+    width: cssWidth,
+    height: cssHeight,
+    cssWidth,
+    cssHeight,
+    scale: 1,
+  };
+}
+
+function vectorStrokeGradientStopsForSvg(
+  stops: FigmaSvgColorStop[],
+): FigmaSvgColorStop[] | null {
+  if (
+    stops.some((stop) => {
+      return (
+        !parseCssColorExtended(stop.color) ||
+        !Number.isFinite(stop.offset) ||
+        stop.offset < 0 ||
+        stop.offset > 1
+      );
+    })
+  ) {
+    return null;
+  }
+  return stops;
+}
+
+function vectorLinearGradientAngle(
+  value: string,
+  width: number,
+  height: number,
+): number | null {
+  const first =
+    splitGradientArguments(value)?.[0]
+      ?.replace(/\bin\s+srgb\b/i, "")
+      .trim()
+      .toLowerCase() ?? "";
+  if (!first) return 180;
+  const sides = first.match(
+    /^to\s+(top|bottom|left|right)(?:\s+(top|bottom|left|right))?$/,
+  );
+  if (sides) {
+    const vertical = [sides[1], sides[2]].find(
+      (side) => side === "top" || side === "bottom",
+    );
+    const horizontal = [sides[1], sides[2]].find(
+      (side) => side === "left" || side === "right",
+    );
+    if (sides[2] && (!vertical || !horizontal)) return null;
+    if (!sides[2] && vertical && horizontal) return null;
+    if (vertical && horizontal) {
+      const dx = (horizontal === "right" ? 1 : -1) * width;
+      const dy = (vertical === "top" ? -1 : 1) * height;
+      return ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+    }
+    if (first === "to top") return 0;
+    if (first === "to right") return 90;
+    if (first === "to bottom") return 180;
+    if (first === "to left") return 270;
+  }
+  const angle = first.match(/^([-+]?(?:\d+(?:\.\d*)?|\.\d+))(?:deg)?$/);
+  if (angle) return Number(angle[1]);
+  const firstStop = first.replace(/\s+[-+]?(?:\d+(?:\.\d*)?|\.\d+)%$/, "");
+  return parseCssColorExtended(firstStop) ? 180 : null;
+}
+
+function normalizeVectorStrokeGradient(value: string) {
+  const match = value.trim().match(/^(linear|radial)-gradient\((.*)\)$/is);
+  const parts = match ? splitGradientArguments(value.trim()) : null;
+  if (!match || !parts || parts.length < 2) return null;
+  const kind = match[1]!.toLowerCase();
+  const first = parts[0] ?? "";
+  const interpolation = first.match(/\bin\s+([a-z][a-z0-9-]*)\b/i);
+  if (interpolation && interpolation[1]?.toLowerCase() !== "srgb") {
+    return null;
+  }
+  const header = first.replace(/\bin\s+srgb\b/i, "").trim();
+  const normalizedParts = header ? [header, ...parts.slice(1)] : parts.slice(1);
+  return normalizedParts.length >= 2
+    ? { kind, value: `${kind}-gradient(${normalizedParts.join(", ")})` }
+    : null;
+}
+
+function vectorStrokeGradientId(
+  wrapper: ParsedElement,
+  elements: ParsedElement[],
+): string {
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const baseId = `${nodeId || `vector-${wrapper.index}`}-stroke-gradient`;
+  const existingIds = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (!existingIds.has(baseId)) return baseId;
+  let suffix = 2;
+  while (existingIds.has(`${baseId}-${suffix}`)) suffix += 1;
+  return `${baseId}-${suffix}`;
+}
+
+function removeVectorStrokeGradientMarkup(
+  html: string,
+  wrapper: ParsedElement,
+): string {
+  const elements = parseHtmlElements(html);
+  const current = elements[wrapper.index];
+  if (!current || current.start !== wrapper.start) return html;
+  const spans = current.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement =>
+      Boolean(
+        child &&
+        child.tag === "defs" &&
+        getAttribute(child, VECTOR_STROKE_GRADIENT_MARKER) !== undefined,
+      ),
+    )
+    .map((child) => ({ start: child.start, end: child.end }));
+  let result = html;
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
+  }
+  return result;
+}
+
+function applyVectorStrokeGradient(
+  html: string,
+  shape: ParsedElement,
+  value: string,
+): string | PatchResultStatus {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper =
+    currentShape?.parentIndex === undefined
+      ? undefined
+      : elements[currentShape.parentIndex];
+  const gradient = normalizeVectorStrokeGradient(value);
+  const stops = gradient ? vectorStrokeGradientStops(gradient.value) : null;
+  const svgStops = stops ? vectorStrokeGradientStopsForSvg(stops) : null;
+  if (
+    !currentShape ||
+    currentShape.start !== shape.start ||
+    !wrapper ||
+    wrapper.tag !== "svg" ||
+    !gradient ||
+    !svgStops
+  ) {
+    return "unsupported";
+  }
+  const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
+  const kind = attributeValue(wrapper, "data-an-primitive");
+  if (!nodeId || (!kind && !vectorShapeChild(wrapper, elements))) {
+    return "unsupported";
+  }
+  let content = removeVectorStrokeGradientMarkup(html, wrapper);
+  const refreshed = parseHtmlElements(content);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const target = nextWrapper
+    ? (vectorStrokeOverlay(nextWrapper, refreshed) ??
+      vectorShapeChild(nextWrapper, refreshed))
+    : null;
+  if (!nextWrapper || !target) return "unsupported";
+  const id = vectorStrokeGradientId(nextWrapper, refreshed);
+  const box = vectorGradientBox(nextWrapper);
+  if (!box) return "unsupported";
+  let gradientMarkup: string | null = null;
+  if (gradient.kind === "linear") {
+    const angle = vectorLinearGradientAngle(
+      gradient.value,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    if (angle === null) return "unsupported";
+    gradientMarkup = buildLinearGradientDef(
+      escapeHtmlAttribute(id),
+      angle,
+      svgStops,
+      {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      },
+    );
+  } else {
+    const radial = parseComputedRadialGradient(gradient.value);
+    if (!radial) return "unsupported";
+    const geometry = resolveRadialGradientGeometry(
+      radial,
+      box.cssWidth,
+      box.cssHeight,
+    );
+    const cx = box.x + geometry.cx * box.scale;
+    const cy = box.y + geometry.cy * box.scale;
+    const rx = geometry.rx * box.scale;
+    const ry = geometry.ry * box.scale;
+    gradientMarkup =
+      Math.abs(rx - ry) < 0.01
+        ? buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            r: rx,
+          })
+        : buildRadialGradientDef(escapeHtmlAttribute(id), svgStops, {
+            cx,
+            cy,
+            rx,
+            ry,
+          });
+  }
+  if (!gradientMarkup) return "unsupported";
+  const defs = `<defs ${VECTOR_STROKE_GRADIENT_MARKER}="">${gradientMarkup}</defs>`;
+  content = `${content.slice(0, nextWrapper.openEnd)}${defs}${content.slice(nextWrapper.openEnd)}`;
+  const finalElements = parseHtmlElements(content);
+  const finalWrapper = finalElements.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  const finalTarget = finalWrapper
+    ? (vectorStrokeOverlay(finalWrapper, finalElements) ??
+      vectorShapeChild(finalWrapper, finalElements))
+    : null;
+  if (!finalWrapper || !finalTarget) return "unsupported";
+  return patchElementAttributes(content, [
+    {
+      element: finalTarget,
+      attributes: {
+        style: setStyleValue(
+          attributeValue(finalTarget, "style"),
+          "stroke",
+          `url(#${id})`,
+        ),
+      },
+    },
+    {
+      element: finalWrapper,
+      attributes: {
+        style: setStyleValue(
+          attributeValue(finalWrapper, "style"),
+          VECTOR_STROKE_GRADIENT_PROPERTY as VisualStyleProperty,
+          value.trim(),
+        ),
+      },
+    },
+  ]);
+}
+
+function clearVectorStrokeGradientState(
+  html: string,
+  shape: ParsedElement,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentShape = elements[shape.index];
+  const wrapper =
+    currentShape?.parentIndex === undefined
+      ? undefined
+      : elements[currentShape.parentIndex];
+  if (!currentShape || currentShape.start !== shape.start || !wrapper) {
+    return html;
+  }
+  const withoutDefs = removeVectorStrokeGradientMarkup(html, wrapper);
+  const refreshed = parseHtmlElements(withoutDefs);
+  const nextWrapper = refreshed.find(
+    (candidate) => candidate.start === wrapper.start,
+  );
+  if (!nextWrapper) return withoutDefs;
+  const style = parseStyle(attributeValue(nextWrapper, "style"));
+  delete style[VECTOR_STROKE_GRADIENT_PROPERTY];
+  const nextStyle = serializeStyleDeclarations(
+    Object.entries(style).map(([property, value]) => ({ property, value })),
+  );
+  return nextStyle
+    ? replaceOrInsertAttribute(withoutDefs, nextWrapper, "style", nextStyle)
+    : removeAttributeFromHtml(withoutDefs, nextWrapper, "style");
 }
 
 type StyleEditTargetRoute =
@@ -5199,6 +5609,18 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (property === "stroke") {
+    const gradient = applyVectorStrokeGradient(html, element, value);
+    if (gradient !== "unsupported") {
+      return {
+        content: gradient,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+    if (/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value)) {
+      return "unsupported";
+    }
+  }
   if (isVectorEndpointProperty(property)) {
     const content = applyVectorEndpointEdit(html, element, property, value);
     if (content === "unsupported") return content;
@@ -5244,6 +5666,9 @@ function applyStyleEdit(
     storedValue,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {
+    content = clearVectorStrokeGradientState(content, element);
+  }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
     if (!current) return "unsupported";
@@ -5346,6 +5771,9 @@ function applyStyleRemoveEdit(
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
   if (route.kind === "vector-paint") {
+    if (property === "stroke") {
+      content = clearVectorStrokeGradientState(content, styleElement);
+    }
     content = clearVectorWrapperPaint(content, element);
   }
   return {

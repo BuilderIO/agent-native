@@ -2,7 +2,11 @@
 
 import { applyVisualEdit } from "@shared/code-layer";
 import {
+  appendPenNode,
+  closePenPath,
   createCornerNode,
+  parsePenNodes,
+  resumePenPathAtEnd,
   translatePenPath,
   type PenPath,
 } from "@shared/pen-path";
@@ -177,6 +181,75 @@ describe("nested Pen path commits", () => {
       });
       expect(penPathScreenContentOffset(svg)).toBeNull();
     }
+  });
+});
+
+describe("continuing a committed open Pen path", () => {
+  it("appends and closes in place while persisting the path nodes and fill", () => {
+    const path: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 40, y: 0 }),
+      ],
+    };
+    const continued = appendPenNode(
+      resumePenPathAtEnd(path, { x: 40, y: 0 }, 8)!,
+      createCornerNode({ x: 40, y: 30 }),
+    );
+    const html = `<!doctype html><svg data-agent-native-node-id="pen-continue" data-an-primitive="path"
+      viewBox="0 0 40 30" style="position:absolute;left:0px;top:0px;width:40px;height:30px">
+      <path d="M 0 0 L 40 0" fill="none" stroke="#000000" stroke-width="1" />
+    </svg>`;
+
+    const extended = writeBackVectorEditedPenPath(
+      html,
+      "pen-continue",
+      continued,
+    );
+    expect(extended).not.toBeNull();
+    const extendedDocument = new DOMParser().parseFromString(
+      extended!,
+      "text/html",
+    );
+    const extendedSvg = extendedDocument.querySelector("svg");
+    expect(
+      extendedDocument.querySelectorAll(
+        '[data-agent-native-node-id="pen-continue"]',
+      ),
+    ).toHaveLength(1);
+    expect(extendedSvg?.querySelector("path")?.getAttribute("d")).toBe(
+      "M 0 0 L 40 0 L 40 30",
+    );
+    expect(extendedSvg?.getAttribute("data-an-pen-nodes")).not.toBeNull();
+    expect(
+      parsePenNodes(extendedSvg?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(continued);
+    expect(extendedSvg?.querySelector("path")?.getAttribute("fill")).toBe(
+      "none",
+    );
+
+    const closed = writeBackVectorEditedPenPath(
+      extended!,
+      "pen-continue",
+      closePenPath(continued),
+    );
+    expect(closed).not.toBeNull();
+    const closedSvg = new DOMParser()
+      .parseFromString(closed!, "text/html")
+      .querySelector("svg");
+    expect(closedSvg?.getAttribute("data-agent-native-node-id")).toBe(
+      "pen-continue",
+    );
+    expect(closedSvg?.querySelector("path")?.getAttribute("d")).toBe(
+      "M 0 0 L 40 0 L 40 30 L 0 0 Z",
+    );
+    expect(closedSvg?.querySelector("path")?.getAttribute("fill")).toBe(
+      "rgb(218 218 218)",
+    );
+    expect(
+      parsePenNodes(closedSvg?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(closePenPath(continued));
   });
 });
 
