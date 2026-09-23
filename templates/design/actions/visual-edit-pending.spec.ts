@@ -1,0 +1,184 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => {
+  const selectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  selectChain.from.mockReturnValue(selectChain);
+  selectChain.where.mockReturnValue(selectChain);
+
+  const insertChain = {
+    values: vi.fn(),
+    onConflictDoUpdate: vi.fn(),
+  };
+  insertChain.values.mockReturnValue(insertChain);
+  insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
+
+  return {
+    designVisualEditPending: {
+      designId: "pending.designId",
+      pendingEditCount: "pending.pendingEditCount",
+      status: "pending.status",
+      prompt: "pending.prompt",
+      updatedAt: "pending.updatedAt",
+    },
+    designs: {},
+    getDb: vi.fn(() => ({
+      insert: vi.fn(() => insertChain),
+      select: vi.fn(() => selectChain),
+    })),
+    insertChain,
+    isSameOrigin: vi.fn(),
+    resolveAccess: vi.fn(),
+    selectChain,
+  };
+});
+
+vi.mock("@agent-native/core/action", () => ({
+  defineAction: (config: unknown) => config,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: mocks.resolveAccess,
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: vi.fn((left, right) => ({ left, right })),
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: mocks.getDb,
+  schema: {
+    designVisualEditPending: mocks.designVisualEditPending,
+    designs: mocks.designs,
+  },
+}));
+
+vi.mock("./visual-edit-browser-request.js", () => ({
+  isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
+}));
+
+import getPendingAction from "./get-visual-edit-pending.js";
+import publishPendingAction from "./publish-visual-edit-pending.js";
+
+const design = {
+  id: "design_public",
+  ownerEmail: "owner@example.com",
+  orgId: null,
+  visibility: "public",
+};
+
+describe("visual-edit pending handoff", () => {
+  beforeEach(() => {
+    mocks.isSameOrigin.mockReset();
+    mocks.resolveAccess.mockReset();
+    mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: design });
+    mocks.selectChain.limit.mockReset();
+    mocks.insertChain.values.mockClear();
+    mocks.insertChain.onConflictDoUpdate.mockClear();
+  });
+
+  it("exposes a durable read tool while keeping publication browser-only", () => {
+    expect(getPendingAction.mcpTool).toBe(true);
+    expect(getPendingAction.publicAgent).toMatchObject({
+      expose: true,
+      readOnly: true,
+      requiresAuth: false,
+      title: "Pull visual edits from Design",
+    });
+    expect(publishPendingAction).toMatchObject({
+      agentTool: false,
+      mcpTool: false,
+      requiresAuth: false,
+      capabilityScopes: ["visual-edit"],
+    });
+  });
+
+  it("rejects publication that did not come from the Design page", async () => {
+    mocks.isSameOrigin.mockReturnValue(false);
+
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", pending: null },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).rejects.toThrow(/same-origin Design page/);
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("upserts a public viewer handoff without exposing bridge credentials", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    const prompt = "Change the title in Clips at src/Library.tsx:42.";
+
+    const result = await publishPendingAction.run(
+      {
+        designId: "design_public",
+        pending: {
+          designId: "design_public",
+          pendingEditCount: 2,
+          status: "ready",
+          prompt,
+        },
+      },
+      { caller: "frontend", requestHeaders: new Headers() },
+    );
+
+    expect(result).toMatchObject({
+      designId: "design_public",
+      pendingEditCount: 2,
+      status: "ready",
+    });
+    expect(mocks.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_public",
+        pendingEditCount: 2,
+        status: "ready",
+        prompt,
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        visibility: "public",
+      }),
+    );
+    expect(mocks.insertChain.onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "pending.designId",
+        set: expect.objectContaining({ prompt, pendingEditCount: 2 }),
+      }),
+    );
+  });
+
+  it("returns an empty result until the page publishes a ready handoff", async () => {
+    mocks.selectChain.limit.mockResolvedValueOnce([]);
+    await expect(
+      getPendingAction.run({ designId: "design_public" }),
+    ).resolves.toMatchObject({
+      designId: "design_public",
+      pendingEditCount: 0,
+      status: "empty",
+      prompt: "",
+    });
+
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      {
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: "Move the CTA to the right.",
+        updatedAt: "2026-09-23T12:00:00.000Z",
+      },
+    ]);
+    await expect(
+      getPendingAction.run({ designId: "design_public" }),
+    ).resolves.toMatchObject({
+      designId: "design_public",
+      pendingEditCount: 1,
+      status: "ready",
+      prompt: "Move the CTA to the right.",
+    });
+    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_public");
+  });
+});

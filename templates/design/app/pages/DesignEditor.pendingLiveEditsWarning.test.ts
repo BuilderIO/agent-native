@@ -86,4 +86,13 @@ describe("DesignEditor pending live edits", () => {
     expect(source).toContain("handleCopyPendingVisualStylePrompt");
     expect(source).toContain("publicVisualEdit");
   });
+
+  it("publishes the handoff for agents that do not have the Design tab", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('callAction("publish-visual-edit-pending"');
+    expect(source).toContain("pendingVisualStylePrompt");
+  });
 });

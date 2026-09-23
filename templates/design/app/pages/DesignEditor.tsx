@@ -19389,15 +19389,15 @@ function DesignEditor() {
     ],
   );
   useEffect(() => {
-    if (!id || !activeScreenBridgeUrl || !activeScreenPreviewToken) return;
-    const body =
+    if (!id) return;
+    const pending =
       pendingVisualEditCount > 0
         ? {
             designId: id,
             pending: {
               designId: id,
               pendingEditCount: pendingVisualEditCount,
-              status: "ready",
+              status: "ready" as const,
               prompt: pendingVisualStylePrompt,
             },
           }
@@ -19405,6 +19405,12 @@ function DesignEditor() {
             designId: id,
             pending: null,
           };
+    void callAction("publish-visual-edit-pending", pending).catch(() => {
+      // A stale Design build may not know this action yet; the bridge remains
+      // the local-session fallback until the page reloads on the new build.
+    });
+
+    if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
     void fetch(
       `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
       {
@@ -19413,7 +19419,7 @@ function DesignEditor() {
           "content-type": "application/json",
           "x-design-preview-token": activeScreenPreviewToken,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(pending),
       },
     ).catch(() => {
       // The bridge is optional for static screens and may be offline while a

@@ -30,9 +30,9 @@ export function createVisualEditWebMcpActions(args: {
   return [
     defineClientAction<Record<string, never>, VisualEditPromptResult>({
       name: "get-visual-edit-prompt",
-      title: "Get visual edit prompt", // i18n-ignore stable WebMCP tool title
+      title: "Pull visual edits from Design", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
-        "Return the latest precise instructions for applying pending visual edits from this Design canvas to the connected app source.",
+        "KEY HANDOFF: Pull the latest precise instructions for applying pending visual edits from this Design canvas to the connected app source. Use this before asking the user to copy or paste anything.",
       schema: {
         type: "object",
         properties: {},

@@ -426,6 +426,20 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
       name: "design-access-request-notification-claim",
       sql: `ALTER TABLE design_access_requests ADD COLUMN IF NOT EXISTS notification_claimed_at TEXT`,
     },
+    {
+      version: 30,
+      name: "design-visual-edit-pending-handoff",
+      sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_pending (
+    design_id TEXT PRIMARY KEY,
+    pending_edit_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'empty',
+    prompt TEXT NOT NULL DEFAULT '',
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT
+  )`,
+    },
   ],
   { table: "design_migrations" },
 );

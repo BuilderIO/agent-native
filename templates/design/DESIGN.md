@@ -69,7 +69,10 @@ Current bridge operations:
 `select`, route listing, capture, and scoped visual-edit source controls are
 available now. Local file reads/writes remain behind the bridge permission model
 and LLM-backed instructions are returned by the page-local
-`get-visual-edit-prompt` WebMCP tool rather than persisted in the bridge.
+`get-visual-edit-pending` is the hosted MCP handoff for coding agents without
+the Design tab; browser-capable hosts can use the equivalent page-local
+`get-visual-edit-prompt` tool. Pending edits are also mirrored to the local
+bridge for CLI fallback.
 
 ## Code-Layer Editing
 
