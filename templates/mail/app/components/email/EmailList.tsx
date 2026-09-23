@@ -146,7 +146,7 @@ interface EmailListProps {
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
-  jevConfigured?: boolean;
+  showPrioritySort?: boolean;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
 }
@@ -468,7 +468,7 @@ export function EmailList({
   onArchived,
   onDraftOpen,
   onNavigateThread,
-  jevConfigured = false,
+  showPrioritySort = false,
   sortMode = "newest",
   onSortModeChange,
 }: EmailListProps) {
@@ -486,7 +486,7 @@ export function EmailList({
   const searchQuery = searchParams.get("q") ?? undefined;
   const labelParam = searchParams.get("label");
   const currentSortMode: MailSortMode =
-    jevConfigured && view === "inbox" && !searchQuery && !labelParam
+    showPrioritySort && view === "inbox" && !searchQuery && !labelParam
       ? sortMode
       : "newest";
   const routeSearchSuffix = searchParams.toString()
@@ -1933,7 +1933,7 @@ export function EmailList({
           </SelectTrigger>
           <SelectContent align="end">
             <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
-            {jevConfigured && (
+            {showPrioritySort && (
               <SelectItem value="priority">
                 {t("mail.sort.priority")}
               </SelectItem>
@@ -1944,7 +1944,7 @@ export function EmailList({
     [
       isPriorityPending,
       labelParam,
-      jevConfigured,
+      showPrioritySort,
       currentSortMode,
       onSortModeChange,
       searchQuery,

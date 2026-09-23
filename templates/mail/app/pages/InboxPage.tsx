@@ -362,6 +362,8 @@ export function InboxPage() {
     },
   );
   const jevConfigured = jevAvailability.data?.configured === true;
+  const showPrioritySort =
+    jevConfigured || (jevAvailability.isError && sortMode === "priority");
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -491,11 +493,17 @@ export function InboxPage() {
       Math.ceil(AI_PRIORITY_MAX_EMAILS / INBOX_PAGE_SIZE) - 1,
     );
     setInboxExtraPageCount(
-      jevConfigured && isInboxView && sortMode === "priority"
+      showPrioritySort && isInboxView && sortMode === "priority"
         ? priorityExtraPages
         : 0,
     );
-  }, [activeAccounts, isInboxView, jevConfigured, resolvedInboxTab, sortMode]);
+  }, [
+    activeAccounts,
+    isInboxView,
+    showPrioritySort,
+    resolvedInboxTab,
+    sortMode,
+  ]);
   const inboxExtraOffsets = useMemo(
     () =>
       Array.from(
@@ -851,7 +859,7 @@ export function InboxPage() {
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
-      sort: sortMode === "priority" && jevConfigured ? sortMode : undefined,
+      sort: sortMode === "priority" && showPrioritySort ? sortMode : undefined,
     });
   }, [
     view,
@@ -866,7 +874,7 @@ export function InboxPage() {
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,
-    jevConfigured,
+    showPrioritySort,
     jevAvailability.isError,
     sortMode,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1149,7 +1157,7 @@ export function InboxPage() {
             isFetchingNextPage={isFetchingNextPage}
             isFetchNextPageError={isFetchNextPageError}
             sortMode={sortMode}
-            jevConfigured={jevConfigured}
+            showPrioritySort={showPrioritySort}
             onSortModeChange={setSortMode}
           />
         )}

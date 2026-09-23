@@ -195,14 +195,14 @@ function Harness({
   accountErrors,
   hasNextPage,
   isFetchingNextPage,
-  jevConfigured,
+  showPrioritySort,
 }: {
   emails?: typeof messages;
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
-  jevConfigured?: boolean;
+  showPrioritySort?: boolean;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -221,7 +221,7 @@ function Harness({
         accountErrors={accountErrors}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
-        jevConfigured={jevConfigured}
+        showPrioritySort={showPrioritySort}
       />
     </>
   );
@@ -258,14 +258,14 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("hides Priority sort when Jev is unavailable", () => {
     mocks.view = "inbox";
-    render(<Harness jevConfigured={false} />);
+    render(<Harness showPrioritySort={false} />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
   });
 
   it("shows Priority sort when Jev is configured", () => {
     mocks.view = "inbox";
-    render(<Harness jevConfigured />);
+    render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
   });
