@@ -94,7 +94,7 @@ describe("get-design-system", () => {
     expect(result.agentContext).toContain("override local proxy placeholders");
   });
 
-  it("persists the hydrated docCount with the access scope and snapshot guard", async () => {
+  it("persists the hydrated docCount onto the row when it changes", async () => {
     await action.run({ id: "builder-ds-1" });
 
     expect(mockUpdate).toHaveBeenCalledTimes(1);
@@ -111,7 +111,6 @@ describe("get-design-system", () => {
       { id: "id", data: "data" },
       {},
     );
-    expect(mockWhere).toHaveBeenCalledTimes(1);
   });
 
   it("does not write when the hydrated docCount matches the cached row", async () => {

@@ -1248,6 +1248,7 @@ const messages = {
     startBlankCanvasHint: "使用畫框、形狀與文字自行繪製。",
     designSystem: "Design系統",
     noDesignSystem: "沒有設計系統",
+    designSystemIndexing: "正在索引…",
     newDesignSystem: "新",
     addAttachment: "新增",
     removeAttachment: "刪除{{name}}",

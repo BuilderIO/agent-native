@@ -826,10 +826,6 @@ const messages = {
     continue: "Continue",
     continueToGenerate: "Continue to generate",
     designSystem: "Design system",
-    designSystemIndexing: "Indexing…",
-    designSystemUnavailable: "Unavailable",
-    designSystemIndexingNotice:
-      "This design system is still indexing. Choose another one or wait for indexing to finish before continuing.",
     referenceDeck: "Reference deck",
     referenceDeckPlaceholder: "Match the style of an existing deck",
     referenceDeckNone: "Skip",

@@ -70,6 +70,13 @@ function ChatModelsProbe({
           .map((group) => `${group.engine}:${group.configured}`)
           .join(",")}
       </span>
+      <span data-testid={`${id}-ollama-models`}>
+        {(
+          models.availableModels.find(
+            (group) => group.engine === "ai-sdk:ollama",
+          )?.models ?? []
+        ).join(",")}
+      </span>
     </div>
   );
 }
@@ -188,6 +195,57 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-selected-model"]')
         ?.textContent,
     ).toBe("");
+  });
+
+  it("replaces the static Ollama suggestion list with the server's installed models", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:ollama",
+          label: "Ollama",
+          supportedModels: ["llama3.1", "llama3.2", "mistral", "codestral"],
+          requiredEnvVars: [],
+        },
+      ],
+      // Ollama needs no API key, so it's only rendered by default once it's
+      // the active engine — matches how a real setup that already ran a
+      // conversation on Ollama would look.
+      current: { engine: "ai-sdk:ollama", model: "llama3.1" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) return Response.json([]);
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        if (url.includes("ollama-models")) {
+          return Response.json({
+            ok: true,
+            models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+          });
+        }
+        return new Response("{}");
+      }),
+    );
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="ollama-live-models" />);
+    });
+    // The engine catalog resolves first and renders the static suggestions;
+    // give the follow-up Ollama /api/tags fetch's microtask chain a few more
+    // turns to resolve and re-render with the live list.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-ollama-models"]')
+        ?.textContent,
+    ).toBe("qwen3.8-code-131k:latest,mistral:latest");
   });
 
   it("keeps the last model readiness when status refresh is unavailable", async () => {

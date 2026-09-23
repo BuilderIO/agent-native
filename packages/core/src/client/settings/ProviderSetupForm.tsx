@@ -7,12 +7,14 @@ import {
   IconKey,
   IconLoader2,
   IconRoute,
+  IconSearch,
   IconServer2,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import {
   deleteAgentEnginePersonalProviderSettings,
+  fetchOllamaModels,
   getAgentEngineProviderKeyStatus,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
@@ -56,9 +58,7 @@ export function AgentProviderSetupForm({
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [endpoint, setEndpoint] = useState("");
-  const [endpointOpen, setEndpointOpen] = useState(
-    initialProvider === "ollama",
-  );
+  const [endpointOpen, setEndpointOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removingPersonalKey, setRemovingPersonalKey] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -66,6 +66,11 @@ export function AgentProviderSetupForm({
   const [providerKeyStatus, setProviderKeyStatus] =
     useState<AgentEngineProviderKeyStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(
+    null,
+  );
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
   const active = getAgentProviderOption(provider);
 
   const refreshProviderKeyStatus = async () => {
@@ -111,10 +116,54 @@ export function AgentProviderSetupForm({
     setModel(active.defaultModel);
     setApiKey("");
     setEndpoint("");
-    setEndpointOpen(provider === "ollama");
+    setEndpointOpen(false);
     setError(null);
     setSaved(false);
+    setOllamaModels(null);
+    setOllamaModelsError(null);
   }, [active.defaultModel, provider]);
+
+  // Ask the Ollama server itself which models it has pulled, instead of only
+  // offering the static suggestion list. Triggered explicitly by the "Find
+  // models" button rather than on every keystroke, so the request always
+  // uses the address the user actually meant to check.
+  const handleFindOllamaModels = () => {
+    setOllamaModelsLoading(true);
+    setOllamaModelsError(null);
+    const typedEndpoint = endpoint.trim();
+    void fetchOllamaModels(typedEndpoint || undefined)
+      .then(async (models) => {
+        setOllamaModels(models);
+        setOllamaModelsError(null);
+        // A successful check is the only signal this address actually works.
+        // Persist it as soon as it's confirmed — other surfaces that read
+        // the saved Ollama endpoint (like the chat composer's model picker)
+        // have no address field of their own, so without this they keep
+        // falling back to the http://localhost:11434 default until the main
+        // "Use Ollama" button below is also clicked.
+        if (typedEndpoint && active.endpointKey) {
+          try {
+            await saveAgentEngineProviderSettings({
+              provider,
+              key: active.endpointKey,
+              baseUrl: typedEndpoint,
+            });
+            void refreshProviderKeyStatus();
+          } catch {
+            // coercion-ok: the connectivity check itself still succeeded and
+            // the found models are shown; the address just wasn't persisted
+            // (e.g. a dropped session). The main submit button below retries
+            // the save, so this is never reported to the user as a clean
+            // success — it's a silent retry opportunity, not a lost error.
+          }
+        }
+      })
+      .catch((err) => {
+        setOllamaModels(null);
+        setOllamaModelsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setOllamaModelsLoading(false));
+  };
 
   const handleProviderChange = (nextProvider: AgentProviderId) => {
     setProvider(nextProvider);
@@ -193,6 +242,7 @@ export function AgentProviderSetupForm({
   // newly released provider models usable before the catalog is refreshed.
   const modelInputVisible = Boolean(active.key) || active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
+  const isOllama = provider === "ollama";
 
   return (
     <form
@@ -350,6 +400,54 @@ export function AgentProviderSetupForm({
           </div>
         )}
 
+        {isOllama && endpointVisible ? (
+          <div className="space-y-1.5">
+            <span
+              className={cn(
+                "font-medium text-foreground",
+                isPage ? "text-xs" : "text-[11px]",
+              )}
+            >
+              {t("agentPanel.endpointUrl", { defaultValue: "Endpoint URL" })}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                value={endpoint}
+                disabled={saving}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder={active.endpointPlaceholder}
+                onChange={(event) => {
+                  setEndpoint(event.target.value);
+                  setOllamaModels(null);
+                  setOllamaModelsError(null);
+                }}
+                className={cn(
+                  "min-w-0 flex-1 rounded-md border border-input bg-background text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background placeholder:text-muted-foreground/50",
+                  isPage ? "h-10 px-3 text-sm" : "h-8 px-2.5 text-[12px]",
+                )}
+              />
+              <button
+                type="button"
+                disabled={saving || ollamaModelsLoading}
+                onClick={handleFindOllamaModels}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-input bg-background font-medium text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
+                  isPage ? "h-10 px-3 text-xs" : "h-8 px-2.5 text-[11px]",
+                )}
+              >
+                {ollamaModelsLoading ? (
+                  <IconLoader2 size={13} className="animate-spin" />
+                ) : (
+                  <IconSearch size={13} />
+                )}
+                {t("agentPanel.findModels", { defaultValue: "Find models" })}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {modelInputVisible ? (
           <label className="block space-y-1.5">
             <span
@@ -363,7 +461,7 @@ export function AgentProviderSetupForm({
             <input
               type="text"
               value={model}
-              list={`agent-provider-models-${provider}`}
+              list={isOllama ? undefined : `agent-provider-models-${provider}`}
               disabled={saving}
               spellCheck={false}
               autoComplete="off"
@@ -374,26 +472,76 @@ export function AgentProviderSetupForm({
                 isPage ? "h-10 px-3 text-sm" : "h-8 px-2.5 text-[12px]",
               )}
             />
-            <datalist id={`agent-provider-models-${provider}`}>
-              {active.supportedModels.map((modelOption) => (
-                <option key={modelOption} value={modelOption} />
-              ))}
-            </datalist>
+            {isOllama ? null : (
+              <datalist id={`agent-provider-models-${provider}`}>
+                {active.supportedModels.map((modelOption) => (
+                  <option key={modelOption} value={modelOption} />
+                ))}
+              </datalist>
+            )}
+            {isOllama ? (
+              <div className="space-y-1.5">
+                {ollamaModels && ollamaModels.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {ollamaModels.map((modelOption) => (
+                      <button
+                        key={modelOption}
+                        type="button"
+                        disabled={saving}
+                        onClick={() => setModel(modelOption)}
+                        aria-pressed={model === modelOption}
+                        className={cn(
+                          "rounded-md border px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                          model === modelOption
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-background text-foreground hover:bg-accent/40",
+                        )}
+                      >
+                        {modelOption}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  {ollamaModelsLoading
+                    ? t("agentPanel.ollamaModelsChecking", {
+                        defaultValue: "Checking installed models…",
+                      })
+                    : ollamaModels && ollamaModels.length > 0
+                      ? t("agentPanel.ollamaModelsFound", {
+                          count: ollamaModels.length,
+                        })
+                      : ollamaModels
+                        ? t("agentPanel.ollamaModelsNone", {
+                            defaultValue:
+                              "Connected, but no models are pulled yet — run `ollama pull llama3.1`.",
+                          })
+                        : ollamaModelsError
+                          ? t("agentPanel.ollamaModelsError", {
+                              error: ollamaModelsError,
+                              defaultValue: `${ollamaModelsError} Showing example model names below.`,
+                            })
+                          : t("agentPanel.ollamaModelsPrompt", {
+                              defaultValue:
+                                'Click "Find models" above to list what your Ollama server actually has installed.',
+                            })}
+                </p>
+              </div>
+            ) : null}
           </label>
         ) : null}
 
-        {endpointVisible ? (
+        {!isOllama && endpointVisible ? (
           <div className="border-t border-border/70 pt-2">
             <button
               type="button"
               onClick={() => setEndpointOpen((open) => !open)}
               className="flex w-full items-center justify-between gap-2 text-start text-[11px] font-medium text-foreground"
               aria-expanded={endpointOpen}
-              title={
-                provider === "ollama"
-                  ? "Defaults to Ollama at http://localhost:11434."
-                  : "Use for LiteLLM or another OpenAI-compatible gateway."
-              }
+              title={t("agentPanel.compatibleEndpointHint", {
+                defaultValue:
+                  "Use this for LiteLLM or another OpenAI-compatible gateway.",
+              })}
             >
               <span className="inline-flex items-center gap-1.5">
                 <IconChevronDown
