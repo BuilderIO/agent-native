@@ -1210,9 +1210,13 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
  * needs reconnect) reports "not configured" rather than falling through to a
  * key-based credential that could belong to a different Builder identity.
  */
-export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
-  const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+export async function resolveBuilderGatewayAuth(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderGatewayAuth | null> {
+  const ownerEmail = identity?.userEmail?.trim() || getRequestUserEmail();
+  // undefined resolves the owner's org; null deliberately pins the lookup to Personal.
+  const orgId =
+    identity === undefined ? (getRequestOrgId() ?? null) : identity.orgId;
   if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
     try {
       const session = await getBuilderOAuthSession(
