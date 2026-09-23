@@ -83,6 +83,29 @@ describe("ObservabilityDashboard human review", () => {
           ],
           instructionUpdate: null,
         },
+        {
+          runId: "run-2",
+          threadId: null,
+          ask: "Make a slide from the campaign results",
+          answer: "Campaign response increased 24%.",
+          model: "test-model",
+          createdAt: Date.now() - 1,
+          feedback: [],
+          instructionUpdate: null,
+          inlineApp: {
+            serverId: "slides",
+            toolName: "render",
+            originalToolName: "render",
+            resourceUri: "ui://slides/render",
+            toolInput: {},
+            toolResult: {},
+            resource: {
+              uri: "ui://slides/render",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<html><body>Saved slide preview</body></html>",
+            },
+          },
+        },
       ],
     });
     mockSubmitFeedback.mockImplementation((_input, callbacks) =>
@@ -101,7 +124,7 @@ describe("ObservabilityDashboard human review", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows output inline with compact, accessible thumbs controls", async () => {
+  it("shows compact review thumbnails, then full output and thumbs feedback on demand", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -118,22 +141,130 @@ describe("ObservabilityDashboard human review", () => {
     expect(reviewTab).toBeTruthy();
     await act(async () => reviewTab?.click());
 
-    expect(container.textContent).toContain("Design a compact analytics view");
-    expect(container.textContent).toContain("Sessions grew 18% this week.");
-    expect(container.textContent).toContain("Keep the chart inline.");
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(2);
+    expect(container.querySelector("iframe")).toBeNull();
     expect(
-      container
+      container.querySelector('[data-preview-kind="text"]'),
+    ).not.toBeNull();
+    const reviewRow = container.querySelector<HTMLButtonElement>(
+      '[data-review-run-id="run-1"]',
+    );
+    expect(reviewRow?.textContent).toContain("Design a compact analytics view");
+    expect(reviewRow?.textContent).not.toContain("Keep the chart inline.");
+
+    await act(async () => reviewRow?.click());
+
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Design a compact analytics view");
+    expect(dialog?.textContent).toContain("Sessions grew 18% this week.");
+    expect(dialog?.textContent).toContain("Keep the chart inline.");
+    expect(
+      dialog
         .querySelector('[aria-label="Thumbs down"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
     expect(
-      container
+      dialog
         .querySelector('[aria-label="Thumbs up"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("false");
-    expect(container.textContent).not.toContain("Review output");
-    expect(container.textContent).not.toContain("Preview output");
-    expect(container.textContent).not.toContain("What was asked");
-    expect(container.textContent).not.toContain("What the agent answered");
+    await act(async () =>
+      dialog?.querySelector('[aria-label="Thumbs up"]')?.click(),
+    );
+    expect(mockSubmitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-1", feedbackType: "thumbs_up" }),
+      expect.any(Object),
+    );
+  });
+
+  it("keeps notes scoped to their review and allows instruction drafts without a thread", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+
+    let dialog = document.body.querySelector('[role="dialog"]');
+    await act(async () =>
+      dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
+    );
+    const feedbackInput = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="What should change or stay the same?"]',
+    );
+    expect(feedbackInput).not.toBeNull();
+    await act(async () => {
+      if (!feedbackInput) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(feedbackInput, "Only for the first review");
+      feedbackInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () =>
+      dialog?.querySelector('[aria-label="Close"]')?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
+        ?.click(),
+    );
+
+    dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.querySelector("iframe")).not.toBeNull();
+    await act(async () =>
+      dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
+    );
+    const secondFeedbackInput =
+      document.body.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="What should change or stay the same?"]',
+    );
+    expect(secondFeedbackInput?.value).toBe("");
+    await act(async () =>
+      dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
+    );
+    await act(async () =>
+      dialog?.querySelector('[aria-label="Draft instruction"]')?.click(),
+    );
+    const instructionInput = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Write the instruction change for a human to review."]',
+    );
+    expect(instructionInput).not.toBeNull();
+    await act(async () => {
+      if (!instructionInput) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(instructionInput, "Keep the slide title concise");
+      instructionInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const saveButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Save draft update"));
+    await act(async () => saveButton?.click());
+    expect(mockSaveInstructionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-2",
+        threadId: null,
+        instruction: "Keep the slide title concise",
+      }),
+      expect.any(Object),
+    );
   });
 });

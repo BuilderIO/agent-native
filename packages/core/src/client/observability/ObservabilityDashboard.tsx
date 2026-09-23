@@ -21,6 +21,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -710,11 +716,15 @@ function ReviewTab({ days }: { days: number }) {
   const feedbackMutation = useSubmitFeedback();
   const instructionMutation = useSaveInstructionUpdate();
   const queryClient = useQueryClient();
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [openPopover, setOpenPopover] = useState<{
     runId: string;
     kind: "feedback" | "instruction";
   } | null>(null);
-  const [feedbackNote, setFeedbackNote] = useState("");
+  const [feedbackNote, setFeedbackNote] = useState<{
+    runId: string;
+    value: string;
+  } | null>(null);
   const [instruction, setInstruction] = useState("");
   const [target, setTarget] = useState<"agent" | "developer" | "skill">(
     "agent",
@@ -746,17 +756,20 @@ function ReviewTab({ days }: { days: number }) {
   };
 
   const saveNote = (runId: string, threadId: string | null) => {
-    if (!feedbackNote.trim()) return;
+    const note = feedbackNote?.runId === runId ? feedbackNote.value.trim() : "";
+    if (!note) return;
     feedbackMutation.mutate(
       {
         runId,
         threadId: threadId ?? undefined,
         feedbackType: "text",
-        value: feedbackNote.trim(),
+        value: note,
       },
       {
         onSuccess: () => {
-          setFeedbackNote("");
+          setFeedbackNote((current) =>
+            current?.runId === runId ? null : current,
+          );
           setOpenPopover(null);
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-observability-reviews"],
@@ -767,7 +780,7 @@ function ReviewTab({ days }: { days: number }) {
   };
 
   const saveInstruction = (runId: string, threadId: string | null) => {
-    if (!threadId || !instruction.trim()) return;
+    if (!instruction.trim()) return;
     instructionMutation.mutate(
       {
         runId,
@@ -788,42 +801,101 @@ function ReviewTab({ days }: { days: number }) {
     );
   };
 
-  return (
-    <div className="divide-y divide-border">
-      {reviews.map((review) => {
-        const latestVote = review.feedback.find(
-          (entry) =>
-            entry.feedbackType === "thumbs_up" ||
-            entry.feedbackType === "thumbs_down",
-        );
-        const latestNote = review.feedback.find(
-          (entry) => entry.feedbackType === "text",
-        );
-        const feedbackOpen =
-          openPopover?.runId === review.runId &&
-          openPopover.kind === "feedback";
-        const instructionOpen =
-          openPopover?.runId === review.runId &&
-          openPopover.kind === "instruction";
+  const selectedReview = reviews.find(
+    (review) => review.runId === selectedRunId,
+  );
+  const selectedVote = selectedReview?.feedback.find(
+    (entry) =>
+      entry.feedbackType === "thumbs_up" ||
+      entry.feedbackType === "thumbs_down",
+  );
+  const selectedNote = selectedReview?.feedback.find(
+    (entry) => entry.feedbackType === "text",
+  );
+  const feedbackOpen =
+    selectedReview !== undefined &&
+    openPopover?.runId === selectedReview.runId &&
+    openPopover.kind === "feedback";
+  const instructionOpen =
+    selectedReview !== undefined &&
+    openPopover?.runId === selectedReview.runId &&
+    openPopover.kind === "instruction";
 
-        return (
-          <article key={review.runId} className="py-5 first:pt-0">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <p className="min-w-0 whitespace-pre-wrap break-words text-sm font-medium text-foreground">
-                {review.ask || "-"}
-              </p>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {review.model} · {timeAgo(review.createdAt)}
-              </span>
-            </div>
-            <div className="mt-3 min-w-0">
+  return (
+    <>
+      <div className="divide-y divide-border">
+        {reviews.map((review) => (
+          <button
+            key={review.runId}
+            type="button"
+            data-review-run-id={review.runId}
+            onClick={() => setSelectedRunId(review.runId)}
+            className="group flex w-full min-w-0 items-center gap-3 py-3 text-left first:pt-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
               <OutputPreview
                 answer={review.answer}
                 inlineApp={review.inlineApp}
                 previewLabel={t("observability.reviewPreview")}
+                compact
               />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-2 break-words text-sm font-medium text-foreground">
+                {review.ask || "-"}
+              </span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {review.model} · {timeAgo(review.createdAt)}
+              </span>
+            </span>
+            <IconChevronRight
+              size={16}
+              className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+            />
+          </button>
+        ))}
+      </div>
+
+      <Dialog
+        open={Boolean(selectedReview)}
+        onOpenChange={(open) => {
+          if (open) return;
+          setSelectedRunId(null);
+          setOpenPopover(null);
+          setInstruction("");
+          setTarget("agent");
+        }}
+      >
+        {selectedReview && (
+          <DialogContent
+            aria-describedby={undefined}
+            className="flex max-h-[min(90dvh,900px)] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0"
+          >
+            <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
+              <DialogTitle className="line-clamp-2 break-words text-left">
+                {selectedReview.ask || t("observability.reviewPreview")}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+              <div className="mb-3 truncate text-xs text-muted-foreground">
+                {selectedReview.model} · {timeAgo(selectedReview.createdAt)}
+              </div>
+              <div className="min-w-0 max-w-full overflow-hidden">
+                <OutputPreview
+                  answer={selectedReview.answer}
+                  inlineApp={selectedReview.inlineApp}
+                  maxAppHeight={420}
+                  previewLabel={t("observability.reviewPreview")}
+                />
+              </div>
+              {selectedNote?.value && (
+                <p className="mt-4 flex items-start gap-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                  <IconMessageCircle size={14} className="mt-0.5 shrink-0" />
+                  {selectedNote.value}
+                </p>
+              )}
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1 border-t border-border px-4 py-3 sm:px-5">
               <div
                 role="group"
                 aria-label={t("observability.reviewFeedback")}
@@ -832,15 +904,19 @@ function ReviewTab({ days }: { days: number }) {
                 <button
                   type="button"
                   aria-label={t("observability.thumbsUp")}
-                  aria-pressed={latestVote?.feedbackType === "thumbs_up"}
+                  aria-pressed={selectedVote?.feedbackType === "thumbs_up"}
                   title={t("observability.thumbsUp")}
                   disabled={feedbackMutation.isPending}
                   onClick={() =>
-                    saveFeedback(review.runId, review.threadId, "thumbs_up")
+                    saveFeedback(
+                      selectedReview.runId,
+                      selectedReview.threadId,
+                      "thumbs_up",
+                    )
                   }
                   className={cn(
                     "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
-                    latestVote?.feedbackType === "thumbs_up" &&
+                    selectedVote?.feedbackType === "thumbs_up" &&
                       "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
                   )}
                 >
@@ -849,15 +925,19 @@ function ReviewTab({ days }: { days: number }) {
                 <button
                   type="button"
                   aria-label={t("observability.thumbsDown")}
-                  aria-pressed={latestVote?.feedbackType === "thumbs_down"}
+                  aria-pressed={selectedVote?.feedbackType === "thumbs_down"}
                   title={t("observability.thumbsDown")}
                   disabled={feedbackMutation.isPending}
                   onClick={() =>
-                    saveFeedback(review.runId, review.threadId, "thumbs_down")
+                    saveFeedback(
+                      selectedReview.runId,
+                      selectedReview.threadId,
+                      "thumbs_down",
+                    )
                   }
                   className={cn(
                     "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
-                    latestVote?.feedbackType === "thumbs_down" &&
+                    selectedVote?.feedbackType === "thumbs_down" &&
                       "bg-rose-500/10 text-rose-600 dark:text-rose-400",
                   )}
                 >
@@ -866,11 +946,24 @@ function ReviewTab({ days }: { days: number }) {
               </div>
               <Popover
                 open={feedbackOpen}
-                onOpenChange={(open) =>
-                  setOpenPopover(
-                    open ? { runId: review.runId, kind: "feedback" } : null,
-                  )
-                }
+                onOpenChange={(open) => {
+                  if (open) {
+                    setFeedbackNote((current) =>
+                      current?.runId === selectedReview.runId
+                        ? current
+                        : { runId: selectedReview.runId, value: "" },
+                    );
+                  }
+                  setOpenPopover((current) => {
+                    if (open) {
+                      return { runId: selectedReview.runId, kind: "feedback" };
+                    }
+                    return current?.runId === selectedReview.runId &&
+                      current.kind === "feedback"
+                      ? null
+                      : current;
+                  });
+                }}
               >
                 <PopoverTrigger asChild>
                   <button
@@ -892,8 +985,17 @@ function ReviewTab({ days }: { days: number }) {
                       {t("observability.feedbackNote")}
                     </span>
                     <textarea
-                      value={feedbackNote}
-                      onChange={(event) => setFeedbackNote(event.target.value)}
+                      value={
+                        feedbackNote?.runId === selectedReview.runId
+                          ? feedbackNote.value
+                          : ""
+                      }
+                      onChange={(event) =>
+                        setFeedbackNote({
+                          runId: selectedReview.runId,
+                          value: event.target.value,
+                        })
+                      }
                       rows={3}
                       className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                       placeholder={t("observability.feedbackPlaceholder")}
@@ -901,9 +1003,13 @@ function ReviewTab({ days }: { days: number }) {
                   </label>
                   <button
                     type="button"
-                    onClick={() => saveNote(review.runId, review.threadId)}
+                    onClick={() =>
+                      saveNote(selectedReview.runId, selectedReview.threadId)
+                    }
                     disabled={
-                      !feedbackNote.trim() || feedbackMutation.isPending
+                      !(feedbackNote?.runId === selectedReview.runId
+                        ? feedbackNote.value.trim()
+                        : "") || feedbackMutation.isPending
                     }
                     className="mt-2 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
                   >
@@ -915,9 +1021,18 @@ function ReviewTab({ days }: { days: number }) {
                 open={instructionOpen}
                 onOpenChange={(open) => {
                   if (open) setInstruction("");
-                  setOpenPopover(
-                    open ? { runId: review.runId, kind: "instruction" } : null,
-                  );
+                  setOpenPopover((current) => {
+                    if (open) {
+                      return {
+                        runId: selectedReview.runId,
+                        kind: "instruction",
+                      };
+                    }
+                    return current?.runId === selectedReview.runId &&
+                      current.kind === "instruction"
+                      ? null
+                      : current;
+                  });
                 }}
               >
                 <PopoverTrigger asChild>
@@ -925,8 +1040,7 @@ function ReviewTab({ days }: { days: number }) {
                     type="button"
                     aria-label={t("observability.draftInstruction")}
                     title={t("observability.draftInstruction")}
-                    disabled={!review.threadId}
-                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <IconPencil size={16} />
                   </button>
@@ -970,7 +1084,10 @@ function ReviewTab({ days }: { days: number }) {
                   <button
                     type="button"
                     onClick={() =>
-                      saveInstruction(review.runId, review.threadId)
+                      saveInstruction(
+                        selectedReview.runId,
+                        selectedReview.threadId,
+                      )
                     }
                     disabled={
                       !instruction.trim() || instructionMutation.isPending
@@ -982,16 +1099,10 @@ function ReviewTab({ days }: { days: number }) {
                 </PopoverContent>
               </Popover>
             </div>
-            {latestNote?.value && (
-              <p className="mt-2 flex items-start gap-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">
-                <IconMessageCircle size={14} className="mt-0.5 shrink-0" />
-                {latestNote.value}
-              </p>
-            )}
-          </article>
-        );
-      })}
-    </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
   );
 }
 

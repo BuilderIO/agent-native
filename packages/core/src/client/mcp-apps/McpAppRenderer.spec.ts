@@ -207,6 +207,9 @@ describe("McpAppRenderer security helpers", () => {
       resourceHtml: "<!doctype html><html><body>Saved app</body></html>",
       openUrl: "https://plan.agent-native.com/plans/plan-123",
     });
+    payload.resource!._meta = {
+      ui: { csp: { resourceDomains: ["https://untrusted-cdn.example.com"] } },
+    };
 
     await act(async () => {
       root.render(
@@ -220,6 +223,7 @@ describe("McpAppRenderer security helpers", () => {
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe?.srcdoc).toContain("connect-src 'none'");
+    expect(iframe?.srcdoc).not.toContain("untrusted-cdn.example.com");
     expect(container.querySelector("button")).toBeNull();
   });
 });

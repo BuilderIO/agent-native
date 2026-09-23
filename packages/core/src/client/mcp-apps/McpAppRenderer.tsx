@@ -37,6 +37,7 @@ const useBrowserLayoutEffect =
 export interface McpAppRendererProps {
   app: AgentMcpAppPayload;
   className?: string;
+  maxHeight?: number;
   readOnly?: boolean;
 }
 
@@ -62,13 +63,19 @@ type McpAppModelContext = {
 export function McpAppRenderer({
   app,
   className,
+  maxHeight,
   readOnly = false,
 }: McpAppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const desiredHeightRef = useRef(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const modelContextRef = useRef<McpAppModelContext | null>(null);
   const readyRef = useRef(false);
-  const [height, setHeight] = useState(DEFAULT_MCP_APP_IFRAME_HEIGHT);
+  const [height, setHeight] = useState(() =>
+    clampMcpAppHeight(
+      DEFAULT_MCP_APP_IFRAME_HEIGHT,
+      maxVisibleMcpAppHeight(null, maxHeight),
+    ),
+  );
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const resourceHtml = app.resource ? htmlFromResource(app.resource) : "";
@@ -77,9 +84,7 @@ export function McpAppRenderer({
     () => (readOnly ? {} : supportedMcpAppPermissions(uiMeta.permissions)),
     [readOnly, uiMeta.permissions],
   );
-  const appCsp = readOnly
-    ? { resourceDomains: uiMeta.csp?.resourceDomains }
-    : uiMeta.csp;
+  const appCsp = readOnly ? undefined : uiMeta.csp;
   const csp = buildMcpAppCsp(appCsp);
   const srcDoc = useMemo(
     () => (resourceHtml ? injectCsp(resourceHtml, csp) : ""),
@@ -109,14 +114,14 @@ export function McpAppRenderer({
     setHeight(
       clampMcpAppHeight(
         DEFAULT_MCP_APP_IFRAME_HEIGHT,
-        availableMcpAppHeight(iframeRef.current),
+        maxVisibleMcpAppHeight(iframeRef.current, maxHeight),
       ),
     );
     readyRef.current = false;
     setReady(false);
     setError(null);
     modelContextRef.current = null;
-  }, [srcDoc]);
+  }, [maxHeight, srcDoc]);
 
   const markReady = useCallback(() => {
     readyRef.current = true;
@@ -130,21 +135,24 @@ export function McpAppRenderer({
     setError("MCP App iframe failed to load.");
   }, []);
 
-  const applyHeight = useCallback((desiredHeight?: number) => {
-    if (
-      typeof desiredHeight === "number" &&
-      Number.isFinite(desiredHeight) &&
-      desiredHeight > 0
-    ) {
-      desiredHeightRef.current = desiredHeight;
-    }
-    setHeight(
-      clampMcpAppHeight(
-        desiredHeightRef.current,
-        availableMcpAppHeight(iframeRef.current),
-      ),
-    );
-  }, []);
+  const applyHeight = useCallback(
+    (desiredHeight?: number) => {
+      if (
+        typeof desiredHeight === "number" &&
+        Number.isFinite(desiredHeight) &&
+        desiredHeight > 0
+      ) {
+        desiredHeightRef.current = desiredHeight;
+      }
+      setHeight(
+        clampMcpAppHeight(
+          desiredHeightRef.current,
+          maxVisibleMcpAppHeight(iframeRef.current, maxHeight),
+        ),
+      );
+    },
+    [maxHeight],
+  );
 
   useEffect(() => {
     let frame = 0;
@@ -221,7 +229,7 @@ export function McpAppRenderer({
       {
         hostContext: buildHostContext(
           currentApp,
-          availableMcpAppHeight(iframe),
+          maxVisibleMcpAppHeight(iframe, maxHeight),
         ) as any,
       },
     );
@@ -336,7 +344,7 @@ export function McpAppRenderer({
     // The embedded resource identity is captured by `srcDoc`; `app`,
     // `supportedPermissions`, and `uiMeta.csp` are read via refs so a
     // new-but-equal `app` object reference does not tear down a live bridge.
-  }, [applyHeight, markReady, readOnly, srcDoc]);
+  }, [applyHeight, markReady, maxHeight, readOnly, srcDoc]);
 
   if (!resourceHtml) {
     return (
@@ -397,7 +405,10 @@ export function McpAppRenderer({
         srcDoc={srcDoc}
         sandbox={readOnly ? "allow-scripts" : SANDBOX_FLAGS}
         allow={buildAllowAttribute(supportedPermissions)}
-        style={{ height }}
+        style={{
+          height,
+          ...(finitePositiveNumber(maxHeight) ? { maxHeight } : {}),
+        }}
         onError={handleIframeError}
       />
     </div>
@@ -775,6 +786,15 @@ export function availableMcpAppHeight(
     ? Math.max(VIEWPORT_MARGIN, rect.top)
     : VIEWPORT_MARGIN;
   return Math.max(1, Math.floor(viewportHeight - top - VIEWPORT_MARGIN));
+}
+
+function maxVisibleMcpAppHeight(
+  element: HTMLElement | null | undefined,
+  maxHeight: number | undefined,
+): number {
+  const available = availableMcpAppHeight(element);
+  const maximum = finitePositiveNumber(maxHeight);
+  return maximum === null ? available : Math.min(available, maximum);
 }
 
 export function clampMcpAppHeight(

@@ -64,11 +64,12 @@ describe("OutputPreview saved MCP Apps", () => {
     container.remove();
   });
 
-  it("renders a saved MCP App inline in read-only mode", () => {
+  it("keeps the saved answer alongside a full read-only MCP App", () => {
     act(() => {
       root.render(
         <OutputPreview
           answer="Fallback answer"
+          maxAppHeight={420}
           previewLabel="Agent output"
           inlineApp={{
             serverId: "design",
@@ -90,7 +91,72 @@ describe("OutputPreview saved MCP Apps", () => {
     expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe(
       "allow-scripts",
     );
+    expect(container.querySelector("iframe")?.style.maxHeight).toBe("420px");
     expect(container.querySelector("iframe")?.srcdoc).toContain("Saved design");
-    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
+    expect(
+      container.querySelector('[data-preview-kind="text"]')?.textContent,
+    ).toBe("Fallback answer");
+  });
+
+  it("shows an app thumbnail without mounting its iframe", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer=""
+          compact
+          previewLabel="Agent output"
+          inlineApp={{
+            serverId: "design",
+            toolName: "render",
+            originalToolName: "render",
+            resourceUri: "ui://design",
+            toolInput: {},
+            toolResult: {},
+            resource: {
+              uri: "ui://design",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<html><body>Saved design</body></html>",
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-preview-kind="app-thumbnail"]'),
+    ).not.toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("shows the saved app rather than duplicating its structured payload", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer={JSON.stringify({
+            type: "design",
+            title: "A story in three slides",
+            summary: "Signal, evidence, next step.",
+          })}
+          previewLabel="Agent output"
+          inlineApp={{
+            serverId: "slides",
+            toolName: "render",
+            originalToolName: "render",
+            resourceUri: "ui://slides/render",
+            toolInput: {},
+            toolResult: {},
+            resource: {
+              uri: "ui://slides/render",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<html><body>Rendered slides</body></html>",
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.querySelector("iframe")).not.toBeNull();
+    expect(container.textContent).not.toContain("A story in three slides");
+    expect(container.querySelector('[data-preview-kind="design"]')).toBeNull();
   });
 });
