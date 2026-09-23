@@ -63,6 +63,7 @@ export function FactoryAutomationFields({
   sourcePicker,
   startFrom,
   modelControl,
+  effortControl,
   showName = true,
   showSource = true,
   showDestination = true,
@@ -85,6 +86,7 @@ export function FactoryAutomationFields({
   sourcePicker?: ReactNode;
   startFrom?: ReactNode;
   modelControl?: ReactNode;
+  effortControl?: ReactNode;
   showName?: boolean;
   showSource?: boolean;
   showDestination?: boolean;
@@ -118,7 +120,8 @@ export function FactoryAutomationFields({
       showSchedule ||
       showLimits ||
       showEnabled ||
-      Boolean(modelControl));
+      Boolean(modelControl) ||
+      Boolean(effortControl));
   const showInstructions =
     Boolean(form.source) &&
     (showGuardrails || showSkillAlignment || showPrompt);
@@ -580,6 +583,7 @@ export function FactoryAutomationFields({
             </>
           ) : null}
           {modelControl}
+          {effortControl}
           {showEnabled ? (
             <SettingsRow
               label={t("factoryRoute.automationEnabledLabel")}

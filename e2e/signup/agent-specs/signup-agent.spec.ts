@@ -34,7 +34,7 @@ async function waitForPostLinkState(
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (
-      (await page.locator('[data-onboarding-screen="intro"]:visible').count()) >
+      (await page.locator('[data-onboarding-screen="role"]:visible').count()) >
       0
     ) {
       return "onboarding";
@@ -59,19 +59,18 @@ async function waitForPostLinkState(
 }
 
 async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
-  const intro = page.locator('[data-onboarding-screen="intro"]');
-  if (!(await intro.isVisible().catch(() => false))) return false;
+  const role = page.locator('[data-testid="first-run-role"]');
+  if (!(await role.isVisible().catch(() => false))) return false;
 
-  await intro.getByRole("button", { name: "Continue", exact: true }).click();
-  const ownKeys = page.locator('[data-testid="first-run-use-own-keys"]');
-  await expect(ownKeys).toBeVisible();
-  await ownKeys.click();
+  await role.getByRole("button", { name: /skip for now/i }).click();
 
-  const manualContinue = page.getByRole("button", {
-    name: /^Continue(?: to tools)?$/,
-  });
-  await expect(manualContinue).toBeVisible();
-  await manualContinue.click();
+  // "Configure manually" now completes onboarding and redirects straight to
+  // Settings from the merged choice screen — there is no separate tools step
+  // on this path.
+  const skipManual = page.locator(
+    '[data-testid="first-run-open-key-settings"]',
+  );
+  await expect(skipManual).toBeVisible();
 
   const completionResponse = page.waitForResponse((response) => {
     const request = response.request();
@@ -82,26 +81,7 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
     );
   });
 
-  const toolsFooter = page.locator('[data-testid="onboarding-tools-footer"]');
-  if (await toolsFooter.isVisible().catch(() => false)) {
-    await toolsFooter.getByRole("button", { name: /skip for now/i }).click();
-  }
-
-  const role = page.locator('[data-testid="first-run-role"]');
-  if (await role.isVisible().catch(() => false)) {
-    await role.getByRole("button", { name: /skip for now/i }).click();
-  }
-
-  // Slides adds one app-owned screen after the shared flow. Skipping it keeps
-  // the review focused on signup/session behavior instead of generating data.
-  const appExtensionSkip = page.getByRole("button", {
-    name: "Skip",
-    exact: true,
-  });
-  if ((await appExtensionSkip.count()) > 0) {
-    await expect(appExtensionSkip).toBeVisible();
-    await appExtensionSkip.click();
-  }
+  await skipManual.click();
 
   const completion = await completionResponse;
   expect(completion.ok()).toBe(true);

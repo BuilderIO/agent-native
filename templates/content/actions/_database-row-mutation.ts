@@ -7,6 +7,11 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import type {
   ContentDatabaseMutationContract,
   ContentDatabaseRowMutationReceipt,
@@ -993,6 +998,7 @@ async function createInsideTransaction(
   },
 ) {
   const now = new Date().toISOString();
+  const actor = requireDocumentRequestActor();
   const documentId = args.documentId ?? nanoid();
   const itemId = args.itemId ?? nanoid();
   const [maxDoc] = await tx
@@ -1029,6 +1035,7 @@ async function createInsideTransaction(
     isFavorite: 0,
     hideFromSearch: context.databaseDocument.hideFromSearch ?? 0,
     visibility: context.databaseDocument.visibility ?? "private",
+    ...documentCreationAttribution(actor),
     createdAt: now,
     updatedAt: now,
   });
@@ -1098,6 +1105,7 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
+  const actor = requireDocumentRequestActor();
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1160,7 +1168,11 @@ async function updateInsideTransaction(
           ).toISOString();
     const [updatedDocument] = await tx
       .update(schema.documents)
-      .set({ title: args.title!.trim(), updatedAt: nextUpdatedAt })
+      .set({
+        title: args.title!.trim(),
+        updatedAt: nextUpdatedAt,
+        ...documentEditAttribution(actor),
+      })
       .where(
         and(
           eq(schema.documents.id, args.documentId),

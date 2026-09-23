@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.182.1",
+  "version": "0.185.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -135,6 +135,7 @@
     "./client/collab": "./dist/client/collab/index.js",
     "./client/composer": "./dist/client/composer/index.js",
     "./client/conversation": "./dist/client/conversation/index.js",
+    "./client/design-system-tier-limit": "./dist/client/design-system-tier-limit.js",
     "./client/dev-overlay": "./dist/client/dev-overlay/index.js",
     "./client/editor": "./dist/client/tombstone/editor.js",
     "./client/rich-markdown-editor": "./dist/client/tombstone/rich-markdown-editor.js",
@@ -180,6 +181,8 @@
     "./client/clipboard": "./dist/client/clipboard.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",
+    "./observability/actions/list-observability-reviews": "./dist/observability/actions/list-observability-reviews.js",
+    "./observability/actions/save-observability-instruction-update": "./dist/observability/actions/save-observability-instruction-update.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
@@ -242,6 +245,8 @@
     "./agent/context-xray/actions/context-restore": "./dist/agent/context-xray/actions/context-restore.js",
     "./agent/context-xray/actions/context-report": "./dist/agent/context-xray/actions/context-report.js",
     "./agent/actions/set-tool-approval-policy": "./dist/agent/actions/set-tool-approval-policy.js",
+    "./agent/actions/get-chatgpt-subscription-status": "./dist/agent/actions/get-chatgpt-subscription-status.js",
+    "./agent/actions/disconnect-chatgpt-subscription": "./dist/agent/actions/disconnect-chatgpt-subscription.js",
     "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",

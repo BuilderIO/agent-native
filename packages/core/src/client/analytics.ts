@@ -63,18 +63,21 @@ export type {
   SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
-  SessionReplayContext,
-  SessionReplayLinkOptions,
   SessionReplayUrlMatcher,
 } from "./session-replay.js";
 export {
   getSessionReplayContext,
   getSessionReplayUrl,
-} from "./session-replay.js";
+} from "./session-replay-context.js";
+export type {
+  SessionReplayContext,
+  SessionReplayLinkOptions,
+} from "./session-replay-context.js";
 
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
+    __AGENT_NATIVE_GA_GTAG__?: (...args: any[]) => void;
     /** Set by synthetic E2E contexts before the first app script runs. */
     __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: string;
     __AGENT_NATIVE_CONFIG__?: {
@@ -2262,8 +2265,10 @@ function emitBrowserTrackingEvent(
 ): void {
   const { gtagProperties = props, sendGtag = true } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
-  if (sendGtag)
-    window.gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+  if (sendGtag) {
+    const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
+    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+  }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);
   } else if (_amplitudeApiKey) {

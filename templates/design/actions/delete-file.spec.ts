@@ -230,8 +230,18 @@ describe("delete-file", () => {
     mocks.txSelectChain.from.mockReturnValue(mocks.txSelectChain);
     mocks.txSelectChain.where.mockReturnValue(mocks.txSelectChain);
     mocks.txSelectChain.for.mockResolvedValue([
-      { id: "file-a", filename: "a.html", fileType: "html" },
-      { id: "file-b", filename: "b.html", fileType: "html" },
+      {
+        id: "file-a",
+        filename: "a.html",
+        fileType: "html",
+        content: "<main>Keep</main>",
+      },
+      {
+        id: "file-b",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete</main>",
+      },
     ]);
     mocks.txShareSelectChain.for.mockResolvedValue([]);
     mocks.txMemberSelectChain.for.mockResolvedValue([]);
@@ -531,8 +541,8 @@ describe("delete-file", () => {
     mocks.txSelectChain.for.mockImplementation(async () => {
       events.push("files");
       return [
-        { id: "file-a", filename: "a.html", fileType: "html" },
-        { id: "file-b", filename: "b.html", fileType: "html" },
+        { id: "file-a", filename: "a.html", fileType: "html", content: "" },
+        { id: "file-b", filename: "b.html", fileType: "html", content: "" },
       ];
     });
     mocks.txDeleteChain.where.mockImplementation(async () => {

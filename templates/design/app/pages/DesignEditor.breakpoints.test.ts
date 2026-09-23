@@ -655,7 +655,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(editor).toContain("handleOverviewFrameAction(screenId)");
   });
 
-  it("enters responsive Interact immediately from overview", () => {
+  it("enters Interact in place for an overview screen", () => {
     const modeHandler = commandSource("mode-change.ts");
     expect(modeHandler).toContain("resolveModeChangeView({");
     expect(modeHandler).toContain('if (routing === "enter-single-interact")');
@@ -666,9 +666,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(modeHandler).toContain('if (routing === "enter-overview")');
     expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
-    // Two-view model: the infinite canvas is the editing view, so returning
-    // to overview always drops Interact. Annotate is a tool overlay on that
-    // same canvas, not a third view, so it survives the trip.
+    expect(source).toContain("setOverviewInteractScreenId((current)");
+    expect(source).toContain("interactScreenId={overviewInteractScreenId}");
+    // Two-view model: the infinite canvas is the editing view. Per-screen
+    // Interact is an in-place bridge mode, so the iframe stays mounted.
     expect(source).toContain(
       'currentMode === "annotate" ? "annotate" : "edit"',
     );
@@ -680,9 +681,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    expect(frameAction).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
+    expect(frameAction).toContain("setOverviewInteractScreenId((current)");
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

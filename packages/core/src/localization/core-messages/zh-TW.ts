@@ -35,14 +35,16 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "選擇你的角色",
   "onboarding.customizeRole": "讓我們為你客製化。",
   "onboarding.roleQuestion": "哪一項最符合你的角色？",
-  "onboarding.roleProduct": "產品",
-  "onboarding.roleDesign": "設計",
+  "onboarding.roleHelperText": "這有助於我們個人化你的體驗",
+  "onboarding.roleProduct": "產品經理",
+  "onboarding.roleDesign": "設計師",
   "onboarding.roleDeveloper": "開發",
   "onboarding.roleMarketing": "行銷",
   "onboarding.roleSales": "銷售",
   "onboarding.roleOps": "營運",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "其他",
+  "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderActivateCredits": "啟用 Builder.io 免費額度",
@@ -57,9 +59,9 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "我們會按一下自動為您建立 Builder.io 帳戶。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
-  "onboarding.builderConsentPrefix": "繼續即表示您同意 Builder.io 的",
-  "onboarding.builderTerms": "條款",
-  "onboarding.builderPrivacy": "隱私權",
+  "onboarding.builderConsentPrefix": "建立 Builder.io 帳戶即表示您同意我們的",
+  "onboarding.builderTerms": "服務條款",
+  "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
@@ -72,9 +74,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI 點數已準備就緒。雲端程式碼編輯需要在背景代理程式設定中設定 Builder 專案。",
   "onboarding.openBackgroundAgentSettings": "開啟背景代理程式設定",
-  "onboarding.capability.llm.keySummary": "連線 AI 提供者或本機模型",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.capability.llm.keySummary": "連線您自己的 AI 模型",
+  "onboarding.capability.fileStorage.keySummary": "檔案上傳與儲存",
   "onboarding.fileStorage.title": "選擇檔案儲存空間",
   "onboarding.fileStorage.description":
     "選擇 Builder 託管儲存空間，或為自己的相容 S3 儲存桶使用自訂儲存金鑰。",
@@ -82,12 +83,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "設定具有穩定公開 URL 的相容 S3 儲存桶。",
   "onboarding.capability.voiceInput.label": "語音輸入",
-  "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
+  "onboarding.capability.voiceInput.keySummary": "語音輸入",
   "onboarding.capability.voiceInput.why":
     "語音輸入會將口述要求轉換為文字；隨時都可以使用鍵盤輸入。",
   "onboarding.capability.embeddings.label": "嵌入向量",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini、Cohere 或 Voyage 金鑰",
+  "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
@@ -125,6 +125,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "目前使用的是共用金鑰。",
   "agentPanel.useOrganizationKey": "改用組織金鑰",
   "agentPanel.keyStatusUnavailable": "無法取得金鑰狀態。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "允許此網站的彈出視窗，然後再試一次。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 訂閱",
+  "agentPanel.chatgptSubscriptionDescription":
+    "透過你的 ChatGPT 訂閱使用實驗性 Codex。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "已連線",
+  "agentPanel.chatgptSubscriptionConnecting": "正在連線…",
+  "agentPanel.chatgptSubscriptionReconnect": "重新連線",
+  "agentPanel.chatgptSubscriptionConnect": "連線 ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "在聊天中使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "中斷連線",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已經在與 {{agent}} 聊天。可以直接請它操作此應用程式。",
@@ -146,6 +158,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "載入中...",
   "common.no": "否",
   "common.retry": "重試",
+  "common.chunkLoadFailed": "無法載入。請重試。",
   "common.save": "儲存",
   "agents.hostedAgent": "託管代理",
   "agents.provider": "提供者",

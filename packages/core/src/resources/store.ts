@@ -10,11 +10,14 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
   deleteLocalWorkspaceResource,
+  deleteLocalWorkspaceResourceIfCurrent,
   isLocalWorkspaceResourceId,
   isLocalWorkspaceResourcesEnabled,
   listLocalWorkspaceResources,
   localWorkspaceResourcePathFromId,
   readLocalWorkspaceResource,
+  writeLocalWorkspaceResourceIfAbsentAtPath,
+  writeLocalWorkspaceResourceIfCurrent,
   writeLocalWorkspaceResource,
   type LocalWorkspaceResourceFile,
   type LocalWorkspaceResourceMeta,
@@ -33,6 +36,7 @@ import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
 const ORGANIZATION_OWNER_PREFIX = "__organization__:";
+const WORKSPACE_ORGANIZATION_OWNER_PREFIX = `${WORKSPACE_OWNER}:`;
 
 /**
  * Encode an organization id into the existing resource owner key. This keeps
@@ -63,6 +67,70 @@ export function organizationIdFromResourceOwner(owner: string): string | null {
 export function sharedResourceOwner(orgId?: string | null): string {
   const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
   return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
+}
+
+/**
+ * Active organization's workspace-default owner, with the bare workspace owner
+ * as the solo fallback. Dispatch materializes each organization's "All apps"
+ * resources here so two organizations in one database never collide on a
+ * path. The organization owner is nested under the workspace sentinel rather
+ * than reused outright: `organizationResourceOwner` already names the
+ * organization/app override layer, and one owner cannot be both layers of the
+ * same effective-context stack.
+ */
+export function workspaceResourceOwner(orgId?: string | null): string {
+  const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
+  return activeOrgId
+    ? `${WORKSPACE_ORGANIZATION_OWNER_PREFIX}${organizationResourceOwner(activeOrgId)}`
+    : WORKSPACE_OWNER;
+}
+
+export function isWorkspaceResourceOwner(owner: string): boolean {
+  return (
+    owner === WORKSPACE_OWNER ||
+    owner.startsWith(WORKSPACE_ORGANIZATION_OWNER_PREFIX)
+  );
+}
+
+/** Local File Mode has one repo-backed workspace, represented by this owner. */
+function isBareWorkspaceResourceOwner(owner: string): boolean {
+  return owner === WORKSPACE_OWNER;
+}
+
+export function organizationIdFromWorkspaceResourceOwner(
+  owner: string,
+): string | null {
+  if (!owner.startsWith(WORKSPACE_ORGANIZATION_OWNER_PREFIX)) return null;
+  return organizationIdFromResourceOwner(
+    owner.slice(WORKSPACE_ORGANIZATION_OWNER_PREFIX.length),
+  );
+}
+
+function isOrganizationWorkspaceResourceVisibleToOrganization(
+  owner: string,
+  orgId: string | null,
+): boolean {
+  if (!owner.startsWith(WORKSPACE_ORGANIZATION_OWNER_PREFIX)) return true;
+  const ownerOrgId = organizationIdFromWorkspaceResourceOwner(owner);
+  return ownerOrgId !== null && ownerOrgId === orgId;
+}
+
+/**
+ * Owners a workspace read consults, most specific first. A bare
+ * `WORKSPACE_OWNER` read follows the active organization the same way
+ * `sharedResourceOwner` does; an organization-encoded owner is used as given.
+ * Rows written before workspace defaults were organization-scoped live under
+ * the bare owner and stay readable as the inherited fallback, mirroring the
+ * legacy `__shared__` rule.
+ */
+function workspaceReadOwners(owner: string, orgId?: string | null): string[] {
+  const resolved =
+    owner === WORKSPACE_OWNER
+      ? workspaceResourceOwner(resourceOrganizationId(orgId))
+      : owner;
+  return resolved === WORKSPACE_OWNER
+    ? [resolved]
+    : [resolved, WORKSPACE_OWNER];
 }
 
 /**
@@ -124,6 +192,76 @@ export function isLegacyOrganizationWorkspaceFile(
 
 function resourceOrganizationId(orgId?: string | null): string | null {
   return orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
+}
+
+function legacyDispatchWorkspaceResourceId(
+  resource: Pick<ResourceMeta, "owner" | "metadata">,
+): string | null {
+  if (resource.owner !== WORKSPACE_OWNER || resource.metadata === null) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resource.metadata);
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  return candidate.source === DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE &&
+    typeof candidate.resourceId === "string" &&
+    candidate.resourceId
+    ? candidate.resourceId
+    : null;
+}
+
+/**
+ * Rows Dispatch materialized before workspace defaults were organization
+ * scoped live under the bare owner and carry only the Dispatch resource id.
+ * Resolve the organization through `workspace_resources`, the way legacy
+ * `__shared__` rows resolve through their metadata, so a pre-upgrade copy is
+ * inherited only by the organization that authored it. Untagged bare rows are
+ * genuine deployment-wide defaults and stay visible everywhere.
+ */
+async function filterLegacyDispatchWorkspaceRows<
+  T extends Pick<ResourceMeta, "owner" | "metadata">,
+>(resources: T[], orgId: string | null): Promise<T[]> {
+  const legacyIds = new Set<string>();
+  for (const resource of resources) {
+    const resourceId = legacyDispatchWorkspaceResourceId(resource);
+    if (resourceId) legacyIds.add(resourceId);
+  }
+  if (legacyIds.size === 0) return resources;
+
+  const ids = [...legacyIds];
+  let rows: Awaited<ReturnType<DbExec["execute"]>>["rows"];
+  try {
+    ({ rows } = await getDbExec().execute({
+      sql: `SELECT id, org_id FROM workspace_resources WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      args: ids,
+    }));
+  } catch (error) {
+    // A tagged row has no safe tenant without Dispatch's tenancy record.
+    // Untagged bare-owner rows remain genuine deployment-wide defaults.
+    if (!isMissingResourceSchemaError(error)) throw error;
+    return resources.filter(
+      (resource) => legacyDispatchWorkspaceResourceId(resource) === null,
+    );
+  }
+  const organizationByResourceId = new Map(
+    rows.map((row) => [String(row.id), nullableString(row.org_id)]),
+  );
+  return resources.filter((resource) => {
+    const resourceId = legacyDispatchWorkspaceResourceId(resource);
+    if (!resourceId) return true;
+    return (
+      organizationByResourceId.has(resourceId) &&
+      organizationByResourceId.get(resourceId) === orgId
+    );
+  });
 }
 
 function escapeLike(value: string): string {
@@ -208,6 +346,23 @@ export interface ResourceConditionalWrite {
   /** Also guards the rare case where two writes share the same millisecond. */
   expectedContent: string;
   mimeType?: string;
+}
+
+export interface ResourceSnapshotWrite {
+  previous: Resource | null;
+  owner: string;
+  path: string;
+  content: string;
+  mimeType?: string;
+  options?: Pick<
+    ResourceWriteOptions,
+    "createdBy" | "metadata" | "requestSource"
+  >;
+}
+
+export interface ResourceSnapshotWriteResult {
+  before: Resource | null;
+  resource: Resource;
 }
 
 export interface ResourceListOptions {
@@ -561,7 +716,7 @@ function requestScopedResourceIdentity(options?: ResourceResolutionOptions): {
   orgId: string | null;
 } {
   const userEmail = options?.userEmail ?? getRequestUserEmail() ?? null;
-  const orgId = options?.orgId ?? getRequestOrgId() ?? null;
+  const orgId = resourceOrganizationId(options?.orgId);
   return { userEmail, orgId };
 }
 
@@ -628,6 +783,28 @@ function localWorkspaceResourceMetadata(
     hash: resource.hash,
     mtimeMs: resource.mtimeMs,
   });
+}
+
+function localWorkspaceResourceMetadataFromResource(
+  resource: Pick<Resource, "metadata">,
+): { absolutePath: string; hash: string } | null {
+  if (!resource.metadata) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resource.metadata);
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  return candidate.source === LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE &&
+    typeof candidate.absolutePath === "string" &&
+    typeof candidate.hash === "string"
+    ? { absolutePath: candidate.absolutePath, hash: candidate.hash }
+    : null;
 }
 
 function localWorkspaceResourceToResource(
@@ -1205,7 +1382,7 @@ async function markSeeded(key: string): Promise<void> {
 export async function ensurePersonalDefaults(owner: string): Promise<void> {
   if (
     owner === SHARED_OWNER ||
-    owner === WORKSPACE_OWNER ||
+    isWorkspaceResourceOwner(owner) ||
     _personalSeeded.has(owner)
   ) {
     return;
@@ -1365,12 +1542,17 @@ export async function resourceGet(
   });
   if (rows.length === 0) return grantedWorkspaceResourceById(id, options);
   const resource = rowToResource(rows[0]);
-  return isLegacySharedResourceVisibleToOrganization(
-    resource,
-    resourceOrganizationId(options?.orgId),
-  )
-    ? resource
-    : null;
+  const orgId = resourceOrganizationId(options?.orgId);
+  if (
+    !isOrganizationWorkspaceResourceVisibleToOrganization(resource.owner, orgId)
+  ) {
+    return null;
+  }
+  if (!isLegacySharedResourceVisibleToOrganization(resource, orgId)) {
+    return null;
+  }
+  const [visible] = await filterLegacyDispatchWorkspaceRows([resource], orgId);
+  return visible ?? null;
 }
 
 export async function resourceGetByPath(
@@ -1379,27 +1561,52 @@ export async function resourceGetByPath(
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
-  if (owner === WORKSPACE_OWNER) {
+  const orgId = resourceOrganizationId(options?.orgId);
+  if (!isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId)) {
+    return null;
+  }
+  const workspace = isWorkspaceResourceOwner(owner);
+  const owners = workspace
+    ? workspaceReadOwners(owner, options?.orgId)
+    : [owner];
+  if (isBareWorkspaceResourceOwner(owners[0])) {
     const local = await localWorkspaceResourceByPath(path);
     if (local) return local;
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
-    args: [owner, path],
+    sql: `SELECT * FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ?`,
+    args: [...owners, path],
   });
-  if (rows.length === 0 && owner === WORKSPACE_OWNER) {
-    return grantedWorkspaceResourceByPath(path, options);
+  const ownerRank = new Map(
+    owners.map((candidate, index) => [candidate, index]),
+  );
+  const resources = await filterLegacyDispatchWorkspaceRows(
+    rows
+      .map(rowToResource)
+      .filter((candidate) =>
+        isLegacySharedResourceVisibleToOrganization(candidate, orgId),
+      )
+      .sort(
+        (a, b) =>
+          (ownerRank.get(a.owner) ?? owners.length) -
+          (ownerRank.get(b.owner) ?? owners.length),
+      ),
+    orgId,
+  );
+  if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
+    if (resources[0]) return resources[0];
+  } else {
+    const organizationResource = resources.find(
+      (resource) => resource.owner === owners[0],
+    );
+    if (organizationResource) return organizationResource;
+    const local = await localWorkspaceResourceByPath(path);
+    if (local) return local;
+    if (resources[0]) return resources[0];
   }
-  if (rows.length === 0) return null;
-  const resource = rowToResource(rows[0]);
-  return isLegacySharedResourceVisibleToOrganization(
-    resource,
-    resourceOrganizationId(options?.orgId),
-  )
-    ? resource
-    : null;
+  return workspace ? grantedWorkspaceResourceByPath(path, options) : null;
 }
 
 export async function resourcePut(
@@ -1411,7 +1618,7 @@ export async function resourcePut(
 ): Promise<Resource> {
   await ensureTable();
   if (
-    owner === WORKSPACE_OWNER &&
+    isBareWorkspaceResourceOwner(owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     const written = await writeLocalWorkspaceResource({ path, content });
@@ -1427,7 +1634,7 @@ export async function resourcePut(
     );
     return resource;
   }
-  if (owner === WORKSPACE_OWNER) {
+  if (isBareWorkspaceResourceOwner(owner)) {
     await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
@@ -1537,12 +1744,12 @@ export async function resourcePutIfAbsent(
 ): Promise<Resource | null> {
   await ensureTable();
   if (
-    owner === WORKSPACE_OWNER &&
+    isBareWorkspaceResourceOwner(owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     return null;
   }
-  if (owner === WORKSPACE_OWNER) {
+  if (isBareWorkspaceResourceOwner(owner)) {
     await assertWritableWorkspaceResourcePath(path);
   }
 
@@ -1620,12 +1827,12 @@ export async function resourcePutIfCurrent(
 ): Promise<Resource | null> {
   await ensureTable();
   if (
-    input.owner === WORKSPACE_OWNER &&
+    isBareWorkspaceResourceOwner(input.owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(input.path))
   ) {
     return null;
   }
-  if (input.owner === WORKSPACE_OWNER) {
+  if (isBareWorkspaceResourceOwner(input.owner)) {
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
@@ -1661,11 +1868,250 @@ export async function resourcePutIfCurrent(
   return resource;
 }
 
+function resourceSnapshotMatch(resource: Resource) {
+  return {
+    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
+    args: [
+      resource.owner,
+      resource.path,
+      resource.id,
+      resource.updatedAt,
+      resource.content,
+      resource.mimeType,
+      resource.size,
+      resource.createdAt,
+      resource.createdBy,
+      resource.visibility,
+      resource.threadId,
+      resource.runId,
+      resource.expiresAt,
+      resource.metadata,
+    ],
+  };
+}
+
+function localWorkspaceResourceSnapshot(resource: Resource) {
+  return isLocalWorkspaceResourceId(resource.id)
+    ? localWorkspaceResourceMetadataFromResource(resource)
+    : null;
+}
+
+export async function resourcePutIfSnapshot(
+  input: ResourceSnapshotWrite,
+): Promise<ResourceSnapshotWriteResult | null> {
+  await ensureTable();
+  let previous = input.previous;
+  if (
+    previous &&
+    (previous.owner !== input.owner || previous.path !== input.path)
+  ) {
+    return null;
+  }
+  const localPrevious = previous
+    ? localWorkspaceResourceSnapshot(previous)
+    : null;
+  const localPath =
+    isBareWorkspaceResourceOwner(input.owner) &&
+    (await shouldHandleWorkspaceResourceAsLocal(input.path));
+  if (localPath && previous && !localPrevious) {
+    // A bare SQL fallback is not the local target. Preserve it for legacy
+    // cleanup, but materialize the requested workspace file only if absent.
+    previous = null;
+  }
+  if (localPath && (!previous || localPrevious)) {
+    const written = previous
+      ? await writeLocalWorkspaceResourceIfCurrent({
+          path: input.path,
+          content: input.content,
+          expectedHash: localPrevious!.hash,
+          expectedAbsolutePath: localPrevious!.absolutePath,
+        })
+      : await (async () => {
+          if (await localWorkspaceResourceByPath(input.path)) return null;
+          return writeLocalWorkspaceResource({
+            path: input.path,
+            content: input.content,
+            ifNotExists: true,
+          });
+        })();
+    if (!written) return null;
+    const resource = localWorkspaceResourceToResource({
+      ...written,
+      content: input.content,
+    });
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      input.options?.requestSource,
+    );
+    return {
+      before: input.previous && localPrevious ? input.previous : null,
+      resource,
+    };
+  }
+  if (isBareWorkspaceResourceOwner(input.owner)) {
+    await assertWritableWorkspaceResourcePath(input.path);
+  }
+
+  if (!previous) {
+    const resource = await resourcePutIfAbsent(
+      input.owner,
+      input.path,
+      input.content,
+      input.mimeType,
+      input.options,
+    );
+    return resource ? { before: null, resource } : null;
+  }
+  const serializedMetadata = serializeMetadata(input.options?.metadata);
+  const metadata =
+    serializedMetadata !== undefined ? serializedMetadata : previous.metadata;
+  const createdBy = normalizeCreatedBy(
+    hasOption(input.options, "createdBy")
+      ? input.options?.createdBy
+      : previous.createdBy,
+  );
+  const client = getDbExec();
+  const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
+  const size = Buffer.byteLength(input.content, "utf8");
+  const mimeType = input.mimeType || "text/markdown";
+  const match = resourceSnapshotMatch(previous);
+  const { rows } = await client.execute({
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?, created_by = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
+    args: [
+      input.content,
+      mimeType,
+      size,
+      updatedAt,
+      createdBy,
+      metadata,
+      ...match.args,
+    ],
+  });
+  if (rows.length !== 1) return null;
+  const resource = rowToResource(rows[0]);
+  emitResourceChange(
+    resource.id,
+    resource.path,
+    resource.owner,
+    input.options?.requestSource,
+  );
+  return { before: previous, resource };
+}
+
+export async function resourceRestoreSnapshotIfCurrent(
+  snapshot: Resource,
+  current: Resource | null,
+): Promise<boolean> {
+  await ensureTable();
+  const snapshotLocal = localWorkspaceResourceSnapshot(snapshot);
+  if (snapshotLocal) {
+    if (current) {
+      const currentLocal = localWorkspaceResourceSnapshot(current);
+      if (
+        !currentLocal ||
+        current.owner !== snapshot.owner ||
+        current.path !== snapshot.path ||
+        currentLocal.absolutePath !== snapshotLocal.absolutePath
+      ) {
+        return false;
+      }
+      const restored = await writeLocalWorkspaceResourceIfCurrent({
+        path: snapshot.path,
+        content: snapshot.content,
+        expectedHash: currentLocal.hash,
+        expectedAbsolutePath: currentLocal.absolutePath,
+      });
+      if (!restored) return false;
+      emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+      return true;
+    }
+    const restored = await writeLocalWorkspaceResourceIfAbsentAtPath({
+      path: snapshot.path,
+      content: snapshot.content,
+      expectedAbsolutePath: snapshotLocal.absolutePath,
+    });
+    if (!restored) return false;
+    emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+    return true;
+  }
+  if (
+    current &&
+    (current.owner !== snapshot.owner || current.path !== snapshot.path)
+  ) {
+    return false;
+  }
+  const client = getDbExec();
+  const restoredAt = Math.max(
+    Date.now(),
+    (current?.updatedAt ?? snapshot.updatedAt) + 1,
+  );
+  if (!current) {
+    const { rows } = await client.execute({
+      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING RETURNING *`,
+      args: [
+        snapshot.id,
+        snapshot.path,
+        snapshot.owner,
+        snapshot.content,
+        snapshot.mimeType,
+        snapshot.size,
+        snapshot.createdAt,
+        restoredAt,
+        snapshot.createdBy,
+        snapshot.visibility,
+        snapshot.threadId,
+        snapshot.runId,
+        snapshot.expiresAt,
+        snapshot.metadata,
+      ],
+    });
+    if (rows.length !== 1) return false;
+    emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+    return true;
+  }
+  const match = resourceSnapshotMatch(current);
+  const { rows } = await client.execute({
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, created_at = ?, updated_at = ?, created_by = ?, visibility = ?, thread_id = ?, run_id = ?, expires_at = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
+    args: [
+      snapshot.content,
+      snapshot.mimeType,
+      snapshot.size,
+      snapshot.createdAt,
+      restoredAt,
+      snapshot.createdBy,
+      snapshot.visibility,
+      snapshot.threadId,
+      snapshot.runId,
+      snapshot.expiresAt,
+      snapshot.metadata,
+      ...match.args,
+    ],
+  });
+  if (rows.length !== 1) return false;
+  emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
+  return true;
+}
+
 export async function resourceDeleteIfCurrent(
   resource: Resource,
 ): Promise<boolean> {
   await ensureTable();
-  if (isLocalWorkspaceResourceId(resource.id)) return false;
+  if (isLocalWorkspaceResourceId(resource.id)) {
+    const resourcePath = localWorkspaceResourcePathFromId(resource.id);
+    const metadata = localWorkspaceResourceMetadataFromResource(resource);
+    if (!resourcePath || !metadata) return false;
+    const deleted = await deleteLocalWorkspaceResourceIfCurrent({
+      path: resourcePath,
+      expectedHash: metadata.hash,
+      expectedAbsolutePath: metadata.absolutePath,
+    });
+    if (deleted) {
+      emitResourceDelete(resource.id, resource.path, resource.owner);
+    }
+    return deleted;
+  }
 
   const client = getDbExec();
   // `updated_at` is a wall-clock millisecond, not a logical version. Compare
@@ -1734,7 +2180,7 @@ export async function resourceDeleteByPath(
 ): Promise<boolean> {
   await ensureTable();
   if (
-    owner === WORKSPACE_OWNER &&
+    isBareWorkspaceResourceOwner(owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(path))
   ) {
     const existing = await localWorkspaceResourceByPath(path);
@@ -1744,7 +2190,7 @@ export async function resourceDeleteByPath(
       return true;
     }
   }
-  if (owner === WORKSPACE_OWNER) {
+  if (isBareWorkspaceResourceOwner(owner)) {
     await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
@@ -1773,60 +2219,62 @@ export async function resourceList(
   options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
   await ensureTable();
+  const orgId = resourceOrganizationId(options?.orgId);
+  if (!isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId)) {
+    return [];
+  }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
   const visibilitySql = scratchFilterSql(options);
-
-  if (pathPrefix) {
-    const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-      args: [owner, prefixLike(pathPrefix)],
-    });
-    const resources = rows
-      .map(rowToMeta)
-      .filter((resource) =>
-        isLegacySharedResourceVisibleToOrganization(
-          resource,
-          resourceOrganizationId(options?.orgId),
+  const workspace = isWorkspaceResourceOwner(owner);
+  const owners = workspace
+    ? workspaceReadOwners(owner, options?.orgId)
+    : [owner];
+  const listOwner = async (candidate: string): Promise<ResourceMeta[]> => {
+    const { rows } = await client.execute(
+      pathPrefix
+        ? {
+            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
+            args: [candidate, prefixLike(pathPrefix)],
+          }
+        : {
+            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
+            args: [candidate],
+          },
+    );
+    return filterLegacyDispatchWorkspaceRows(
+      rows
+        .map(rowToMeta)
+        .filter((resource) =>
+          isLegacySharedResourceVisibleToOrganization(resource, orgId),
         ),
-      );
-    if (owner !== WORKSPACE_OWNER) return resources;
-    const local = await localWorkspaceResourceMetas(pathPrefix);
-    const granted = await grantedWorkspaceResources({
-      pathPrefix,
-      workspaceAppId: options?.workspaceAppId,
-      userEmail: options?.userEmail,
-      orgId: options?.orgId,
-    });
-    return mergeResourceMetas(
-      local,
-      mergeResourceMetas(resources, granted.map(resourceToMeta)),
+      orgId,
     );
-  }
+  };
+  // The organization's own rows win over legacy bare-owner rows at the same
+  // path, so `owners` order is precedence order.
+  const ownerResources = await Promise.all(owners.map(listOwner));
+  const resources = ownerResources.reduce((merged, candidate) =>
+    mergeResourceMetas(merged, candidate),
+  );
+  if (!workspace) return resources;
 
-  const { rows } = await client.execute({
-    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-    args: [owner],
-  });
-  const resources = rows
-    .map(rowToMeta)
-    .filter((resource) =>
-      isLegacySharedResourceVisibleToOrganization(
-        resource,
-        resourceOrganizationId(options?.orgId),
-      ),
-    );
-  if (owner !== WORKSPACE_OWNER) return resources;
-  const local = await localWorkspaceResourceMetas();
+  const local = await localWorkspaceResourceMetas(pathPrefix);
+  const primaryResources = ownerResources[0] ?? [];
+  const inheritedResources = ownerResources[1] ?? [];
+  const workspaceResources = isBareWorkspaceResourceOwner(owners[0])
+    ? mergeResourceMetas(local, resources)
+    : mergeResourceMetas(
+        primaryResources,
+        mergeResourceMetas(local, inheritedResources),
+      );
   const granted = await grantedWorkspaceResources({
+    pathPrefix,
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(
-    local,
-    mergeResourceMetas(resources, granted.map(resourceToMeta)),
-  );
+  return mergeResourceMetas(workspaceResources, granted.map(resourceToMeta));
 }
 
 /**
@@ -1843,15 +2291,21 @@ export async function resourceListContentByOwnersAndPrefixes(
   const uniquePrefixes = [...new Set(pathPrefixes.filter(Boolean))];
   if (uniqueOwners.length === 0 || uniquePrefixes.length === 0) return [];
 
+  const orgId = resourceOrganizationId(options?.orgId);
+  const visibleOwners = uniqueOwners.filter((owner) =>
+    isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId),
+  );
+  if (visibleOwners.length === 0) return [];
+
   const client = getDbExec();
-  const ownerSql = uniqueOwners.map(() => "?").join(", ");
+  const ownerSql = visibleOwners.map(() => "?").join(", ");
   const prefixSql = uniquePrefixes
     .map(() => "path LIKE ? ESCAPE '!'")
     .join(" OR ");
   const query = {
     sql: `SELECT id, path, owner, content, metadata FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
     args: [
-      ...uniqueOwners,
+      ...visibleOwners,
       ...uniquePrefixes.map((prefix) => prefixLike(prefix)),
     ],
   };
@@ -1867,21 +2321,21 @@ export async function resourceListContentByOwnersAndPrefixes(
     ({ rows } = await client.execute(query));
   }
   scheduleExpiredAgentScratchCleanup(client);
-  return rows
-    .map((row) => ({
-      id: String(row.id),
-      path: String(row.path),
-      owner: String(row.owner),
-      content: String(row.content),
-      metadata: nullableString(row.metadata),
-    }))
-    .filter((resource) =>
-      isLegacySharedResourceVisibleToOrganization(
-        resource,
-        resourceOrganizationId(options?.orgId),
+  const visible = await filterLegacyDispatchWorkspaceRows(
+    rows
+      .map((row) => ({
+        id: String(row.id),
+        path: String(row.path),
+        owner: String(row.owner),
+        content: String(row.content),
+        metadata: nullableString(row.metadata),
+      }))
+      .filter((resource) =>
+        isLegacySharedResourceVisibleToOrganization(resource, orgId),
       ),
-    )
-    .map(({ metadata: _metadata, ...resource }) => resource);
+    orgId,
+  );
+  return visible.map(({ metadata: _metadata, ...resource }) => resource);
 }
 
 export async function resourceListAccessible(
@@ -1925,11 +2379,12 @@ export async function resourceEffectiveContext(
   // precedence below is pure JS, so serialising them only bought four round
   // trips of latency. Mirrors `resourceListAccessible`, which already fans out.
   const organizationOwner = sharedResourceOwner(options?.orgId);
+  const workspaceOwner = workspaceResourceOwner(options?.orgId);
   const [workspace, organization, legacyShared, personal] = await Promise.all([
-    resourceGetByPath(WORKSPACE_OWNER, path, { ...options, userEmail }),
+    resourceGetByPath(workspaceOwner, path, { ...options, userEmail }),
     organizationOwner === SHARED_OWNER
       ? Promise.resolve(null)
-      : resourceGetByPath(organizationOwner, path),
+      : resourceGetByPath(organizationOwner, path, { ...options, userEmail }),
     resourceGetByPath(SHARED_OWNER, path, options),
     resourceGetByPath(userEmail, path),
   ]);
@@ -1953,7 +2408,7 @@ export async function resourceEffectiveContext(
     {
       scope: "workspace",
       label: "Workspace default",
-      owner: WORKSPACE_OWNER,
+      owner: workspaceOwner,
       resource: workspace,
       canWrite: workspace ? isLocalWorkspaceResourceId(workspace.id) : false,
     },
@@ -1996,6 +2451,7 @@ export async function resourceEffectiveContext(
  */
 export async function resourceListAllOwners(
   pathPrefix: string,
+  options: { includeShadowedWorkspaceRows?: boolean } = {},
 ): Promise<Resource[]> {
   await ensureTable();
   const client = getDbExec();
@@ -2015,7 +2471,12 @@ export async function resourceListAllOwners(
     ...localResources,
     ...rows
       .map(rowToResource)
-      .filter((resource) => !localPaths.has(resource.path)),
+      .filter(
+        (resource) =>
+          options.includeShadowedWorkspaceRows ||
+          resource.owner !== WORKSPACE_OWNER ||
+          !localPaths.has(resource.path),
+      ),
   ];
 }
 

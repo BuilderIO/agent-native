@@ -16,3 +16,11 @@ A organização define os membros da equipe e o limite do tenant. O workspace ag
 O aplicativo declara as funções e as chaves de permissão no código. Um administrador pode substituir o conjunto de funções de um membro e associar permissões declaradas às funções na página da equipe. Sem substituição, valem os padrões do aplicativo. Convites podem incluir funções de aplicativo. Ser admin de um app não concede administração da organização.
 
 Consulte [Implantações administradas](/docs/administered-deployments) para convites e configuração. Consulte [Escopo de dados](/docs/security#data-scoping) para acesso a dados.
+
+## Grupos de usuários {#user-groups}
+
+Uma organização pode ter grupos reutilizáveis formados por seus membros atuais. Proprietários e administradores gerenciam a associação, e uma pessoa pode fazer parte de vários grupos. Os aplicativos podem usar um grupo para compartilhar um recurso compatível com compartilhamento por grupo ou limitar o acesso a uma conexão do workspace.
+
+Um grupo é uma lista de acesso, não uma equipe subordinada. Ele não tem funções próprias de organização ou aplicativo, limite de dados separado, nem configurações, instruções, contexto, habilidades, memória ou visualização de trabalho específicas da equipe. Ao compartilhar um recurso com um grupo, a mesma função do recurso se aplica a todos os membros atuais. O acesso ainda exige que a pessoa pertença à organização do recurso.
+
+Consulte [Compartilhamento e privacidade → Compartilhamento com grupos](/docs/sharing#group-grants) e [Conexões do workspace](/docs/workspace-connections) para saber mais.

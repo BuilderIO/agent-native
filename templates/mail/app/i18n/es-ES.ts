@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Sincronizando bandeja...",
     },
+    sort: {
+      label: "Ordenar bandeja",
+      newest: "Más recientes",
+      priority: "Prioridad",
+      priorityFailed: "No se pudo ordenar la bandeja.",
+    },
     toolbar: {
       toggleMenu: "Alternar menú",
       menu: "Menu",
@@ -506,6 +512,11 @@ const messages = {
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
       spamMode: "Spam",
       tagMode: "Etiqueta",
+      importantMode: "Importante",
+      importantLabel: "Importante con IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "p. ej., mensajes que necesitan respuesta o tienen una fecha límite",
       ruleAdded: "Regla de IA añadida.",
       instructionHelp: "Usa lenguaje natural",
       tagNamePlaceholder: "Nombre de etiqueta",

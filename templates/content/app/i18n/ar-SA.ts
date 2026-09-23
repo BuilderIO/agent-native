@@ -833,6 +833,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "مساحة Content",
     addChild: "إضافة عنصر فرعي",
     addChildTo: "إضافة عنصر فرعي إلى {{title}}",
     database: "المجموعة",
@@ -871,6 +872,9 @@ const landing = {
   requestedPageUnavailable:
     "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
+  workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
+  workspaceWelcomeUnavailableDescription:
+    "يمكنك عرض مساحة العمل هذه، لكن ليس لديك إذن لإنشاء صفحة الترحيب الخاصة بها.",
 };
 
 const comments = {
@@ -943,6 +947,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "الأخيرة",
+  customizeSidebar: "تخصيص الشريط الجانبي",
+  noRecentVisits: "لا توجد زيارات حديثة",
+  noPinnedItems: "لا توجد عناصر مثبتة",
+  showMore: "عرض المزيد",
+  showLess: "عرض أقل",
+  seeAll: "عرض الكل…",
+  seeAllFiles: "عرض كل الملفات",
   pinned: "مثبتة",
   loadingPinned: "جارٍ تحميل العناصر المثبتة…",
   dragToReorder: "اسحب لإعادة ترتيب {{label}}",

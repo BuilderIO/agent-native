@@ -14,6 +14,7 @@ import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import type {
@@ -87,6 +88,7 @@ import {
   mergePendingLiveNonStyleEdits,
   pendingLiveNonStyleEditsFromUndoStack,
   pendingLiveStructureEditsFromUndoEntry,
+  pendingLiveStructureRedoSourceEdit,
   mergePendingVisualStyleEdits,
   pendingVisualStyleEditsFromUndoStack,
   pendingVisualStyleUndoTargets,
@@ -222,6 +224,12 @@ export interface RedoArgs {
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  replayPendingVisualStyleRuntime?: (
+    edits: readonly PendingVisualStyleEdit[],
+  ) => number | undefined;
+  setPendingVisualStyleBaselineResetRequest?: Dispatch<
+    SetStateAction<number | null>
+  >;
   performDeleteFiles: (
     filesToDelete: DesignFile[],
     options?: {
@@ -324,6 +332,11 @@ export interface RedoArgs {
       (RuntimeStructureInsertRequest & { screenId: string }) | null
     >
   >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
+    >
+  >;
   setRuntimeStructureMoveRequest: Dispatch<
     SetStateAction<(RuntimeStructureMoveRequest & { screenId: string }) | null>
   >;
@@ -411,6 +424,7 @@ export function runRedo({
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
+  replayPendingVisualStyleRuntime,
   performDeleteFiles,
   publishAuthoritativeClipboardMutation,
   queryClient,
@@ -429,10 +443,12 @@ export function runRedo({
   setPendingLayerStateReplayRequest,
   setPendingLiveNonStyleEdits,
   setPendingTextRevertRequest,
+  setPendingVisualStyleBaselineResetRequest,
   setPendingVisualStyleEdits,
   setPendingVisualStyleRevertRequest,
   setOverviewSelectedScreenIds,
   setRuntimeStructureInsertRequest,
+  setRuntimeStructureDeleteRequest,
   setRuntimeStructureMoveRequest,
   setSelectedElement,
   setSelectedLayerIdsState,
@@ -478,13 +494,42 @@ export function runRedo({
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
   const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
   const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+  const redoHistoryKind = redoOrderRef.current[redoOrderRef.current.length - 1];
+  const pendingRedoKind =
+    redoHistoryKind === "pending-style" || redoHistoryKind === "pending-live"
+      ? redoHistoryKind
+      : undefined;
   if (!canEditDesign && !pendingLiveRedo && !pendingNonStyleRedo) return;
+  if (
+    (pendingRedoKind === "pending-style" && !pendingLiveRedo) ||
+    (pendingRedoKind === "pending-live" && !pendingNonStyleRedo)
+  ) {
+    return;
+  }
+  const consumePendingRedoOrder = (kind: "pending-style" | "pending-live") => {
+    if (redoOrderRef.current[redoOrderRef.current.length - 1] !== kind) {
+      return;
+    }
+    redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      kind,
+    ];
+  };
   const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
-    pendingLiveRedo,
-    pendingNonStyleRedo,
+    pendingRedoKind === "pending-style" || redoHistoryKind === undefined
+      ? pendingLiveRedo
+      : undefined,
+    pendingRedoKind === "pending-live" || redoHistoryKind === undefined
+      ? pendingNonStyleRedo
+      : undefined,
   );
   if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "structure") {
-    const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
+    const replayEdits =
+      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
+    const redoSourceEdit =
+      pendingLiveStructureRedoSourceEdit(pendingNonStyleRedo);
+    const redoCommand = pendingStructureRedoCommand(redoSourceEdit);
     // A removal has no bridge echo to wait for: re-issuing the delete under
     // the same requestId is the whole replay, so move the entry back onto
     // the undo stack here instead of arming pendingStructureRedoReplayRef
@@ -508,6 +553,7 @@ export function runRedo({
         ...pendingLiveNonStyleUndoStackRef.current,
         pendingNonStyleRedo,
       ];
+      consumePendingRedoOrder("pending-live");
       const nextPending = mergePendingLiveNonStyleEdits(
         pendingLiveNonStyleEditsFromUndoStack(
           pendingLiveNonStyleUndoStackRef.current,
@@ -521,18 +567,46 @@ export function runRedo({
     if (pendingStructureRedoReplayRef.current) return;
     pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
     if (redoCommand.kind === "insert") {
+      const insertEdit =
+        replayEdits.find((edit) => edit.insertedHtml) ??
+        pendingNonStyleRedo.edit;
+      const pairedDeleteEdit = replayEdits.find(
+        (edit) =>
+          edit.removed === true &&
+          edit.screenId !== insertEdit.screenId &&
+          edit.transactionId === insertEdit.transactionId,
+      );
+      const transactionId = insertEdit.transactionId;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
-        screenId: pendingNonStyleRedo.edit.screenId,
+        transactionId,
+        screenId: insertEdit.screenId,
+        sourceScreenId: pairedDeleteEdit?.screenId,
         html: redoCommand.html,
         replaceAnchor: redoCommand.replaceAnchor,
+        remintCollidingNodeIds: redoCommand.remintCollidingNodeIds,
         anchor: {
-          selector: pendingNonStyleRedo.edit.anchorSelector,
-          sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+          selector: insertEdit.anchorSelector,
+          sourceId: insertEdit.anchorSourceId ?? undefined,
         },
-        placement: pendingNonStyleRedo.edit.placement,
+        placement: insertEdit.placement,
       });
+      if (
+        pairedDeleteEdit &&
+        transactionId &&
+        setRuntimeStructureDeleteRequest
+      ) {
+        setRuntimeStructureDeleteRequest({
+          requestId: `${transactionId}:source:redo-${runtimeStructureInsertRevisionRef.current}`,
+          transactionId,
+          screenId: pairedDeleteEdit.screenId,
+          selector: pairedDeleteEdit.selector,
+          selectorCandidates: [pairedDeleteEdit.selector],
+          waitForInsertTransaction: true,
+          rollbackScreenId: insertEdit.screenId,
+        });
+      }
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
       }
@@ -548,8 +622,6 @@ export function runRedo({
       return;
     }
     runtimeStructureMoveRevisionRef.current += 1;
-    const replayEdits =
-      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
     const firstReplayEdit = replayEdits[0] ?? pendingNonStyleRedo.edit;
     setRuntimeStructureMoveRequest({
       requestId: runtimeStructureMoveRevisionRef.current,
@@ -612,6 +684,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerStateReplayRequest({
       requestId: Date.now() + Math.random(),
@@ -643,6 +716,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerNameReplayRequest({
       requestId: Date.now() + Math.random(),
@@ -675,6 +749,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingTextRevertRequest({
       requestId: Date.now() + Math.random(),
@@ -723,7 +798,10 @@ export function runRedo({
     syncUndoRedoState();
     return;
   }
-  if (pendingLiveRedo) {
+  if (
+    pendingLiveRedo &&
+    (pendingRedoKind === "pending-style" || redoHistoryKind === undefined)
+  ) {
     const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
     pendingVisualStyleRedoStackRef.current = nextRedoStack;
     pendingVisualStyleUndoStackRef.current = [
@@ -736,30 +814,38 @@ export function runRedo({
       ),
     );
     pendingVisualStyleEditsRef.current = nextPending;
-    setPendingVisualStyleRevertRequest({
-      requestId: Date.now() + Math.random(),
-      patches: pendingVisualStyleUndoTargets(pendingLiveRedo).map(
-        ({ edit }) => ({
+    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    const redoneStyleTargets = redoneTargets.filter(
+      ({ edit }) => Object.keys(edit.styles).length > 0,
+    );
+    if (replayPendingVisualStyleRuntime) {
+      const requestId = replayPendingVisualStyleRuntime(
+        redoneStyleTargets.map(({ edit }) => edit),
+      );
+      if (requestId !== undefined) {
+        setPendingVisualStyleBaselineResetRequest?.(requestId);
+      }
+    } else if (redoneStyleTargets.length > 0) {
+      const requestId = Date.now() + Math.random();
+      setPendingVisualStyleRevertRequest({
+        requestId,
+        patches: redoneStyleTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
           sourceId: edit.sourceId,
-          // Redo builds its patch inline rather than through
-          // buildPendingVisualStyleRevertPatches, so it needs the runtime
-          // pair explicitly or it re-applies into the wrong namespace.
           runtimeSelector: edit.runtimeSelector,
           runtimeSourceId: edit.runtimeSourceId,
           routePath: edit.routePath,
           styles: edit.styles,
           interactionState: edit.interactionState,
-        }),
-      ),
-    });
+        })),
+      });
+      setPendingVisualStyleBaselineResetRequest?.(requestId);
+    }
     setPendingVisualStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo's style
-    // branch. Merge the redo's own style values (already applied to the
-    // DOM via setPendingVisualStyleRevertRequest above) into
-    // selectedElement.computedStyles.
-    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    // Keep the inspector cache in sync with the replay request. Runtime
+    // messages are asynchronous, so this is intentionally optimistic just
+    // like the forward live-style path.
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(
@@ -781,6 +867,7 @@ export function runRedo({
         },
       };
     });
+    consumePendingRedoOrder("pending-style");
     syncUndoRedoState();
     return;
   }

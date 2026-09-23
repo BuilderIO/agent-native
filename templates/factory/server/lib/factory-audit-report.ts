@@ -56,6 +56,8 @@ export type FactoryAuditReportItem = {
   dispatchError: string | null;
   clearBug: boolean | null;
   productUx: boolean | null;
+  risk: string | null;
+  confidence: string | null;
   ownerArea: string | null;
   guards: string | null;
   events: FactoryAuditEventRecord[];
@@ -268,6 +270,8 @@ function projectItem(
     dispatchError,
     clearBug: readBooleanDetail(decision?.details, "clearBug"),
     productUx: readBooleanDetail(decision?.details, "productUxImplications"),
+    risk: readStringDetail(decision?.details, "risk"),
+    confidence: readStringDetail(decision?.details, "confidence"),
     ownerArea: readStringDetail(decision?.details, "ownerOwnedArea"),
     guards: readGuardSummary(decision?.details?.guardResults),
     events,

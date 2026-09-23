@@ -56,6 +56,31 @@ describe("extractDocumentColorPalette", () => {
     expect(palette).toHaveLength(3);
   });
 
+  it("re-reads a file whose bytes changed under the same id and length", () => {
+    const red = '<div style="color: #FF0000;"></div>';
+    const green = '<div style="color: #00FF00;"></div>';
+    const other = { id: "file-2", content: '<p style="color: #0000FF;"></p>' };
+    const cache = new Map();
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: red }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#FF0000", "#0000FF"]);
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: green }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#00FF00", "#0000FF"]);
+    expect(extractDocumentColorPalette([other], undefined, cache)).toEqual([
+      "#0000FF",
+    ]);
+    expect([...cache.keys()]).toEqual(["file-2"]);
+  });
+
   it("normalizes different formats of the same color to one deduped entry", () => {
     const palette = extractDocumentColorPalette([
       {

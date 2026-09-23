@@ -7,6 +7,14 @@ import {
 } from "./update-document";
 
 describe("update document", () => {
+  it("rejects favorite changes combined with document fields before mutation", async () => {
+    const action = (await import("./update-document")).default;
+    await expect(
+      action.run({ id: "document", isFavorite: true, title: "Changed" }),
+    ).rejects.toMatchObject({
+      errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+    });
+  });
   it("rejects stale empty body saves but allows a current legitimate clear", () => {
     expect(
       shouldRejectStaleEmptyBodySave({

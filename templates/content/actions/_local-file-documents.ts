@@ -56,6 +56,11 @@ function localOptions(): LocalArtifactOptions {
   };
 }
 
+export async function getContentSourceMode() {
+  const app = await getLocalArtifactApp(localOptions());
+  return app.mode;
+}
+
 function encodeIdPath(filePath: string): string {
   return Buffer.from(filePath, "utf8").toString("base64url");
 }

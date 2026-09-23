@@ -12,6 +12,9 @@ const state = vi.hoisted(() => ({
     baseDocumentUpdatedAt?: string | null;
     loadedContentWasEmpty?: number;
     deferredReason?: "hydration" | "conflict" | null;
+    id?: string;
+    editorSessionId?: string | null;
+    editGeneration?: number | null;
   },
   draftQueryOptions: null as null | { enabled?: boolean } | undefined,
   update: vi.fn(),
@@ -263,6 +266,75 @@ describe("Page draft recovery", () => {
       expectedDraftContent: "Draft body",
       expectedDocumentUpdatedAt: "v1",
     });
+  });
+  it("automatically restores an identified edit when the saved Page still matches its base", async () => {
+    state.draft = {
+      ...state.draft!,
+      id: "draft-id",
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+      baseDocumentUpdatedAt: "v1",
+    };
+    await act(async () => render());
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "page",
+        title: "Draft",
+        content: "Draft body",
+        baseUpdatedAt: "v1",
+        editorSessionId: "tab:page",
+        editorEditGeneration: 4,
+        editorSnapshotTitle: "Draft",
+        editorSnapshotContent: "Draft body",
+      }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("editor.previewDraftRecovery");
+  });
+  it("settles an identified draft already represented by the saved Page", async () => {
+    state.draft = {
+      ...state.draft!,
+      title: page.title,
+      content: page.content,
+      id: "draft-id",
+      editorSessionId: "tab:page",
+      editGeneration: 5,
+      baseDocumentUpdatedAt: "v1",
+    };
+    state.update.mockResolvedValue(page);
+
+    await act(async () => render());
+
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "page",
+        editorSessionId: "tab:page",
+        editorEditGeneration: 5,
+        editorSnapshotTitle: page.title,
+        editorSnapshotContent: page.content,
+      }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
+  });
+  it("automatically keeps a newer saved Page and preserves the displaced draft in history", async () => {
+    state.draft = {
+      ...state.draft!,
+      id: "draft-id",
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+      baseDocumentUpdatedAt: "older-version",
+    };
+    await act(async () => render());
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.resolve).toHaveBeenCalledWith({
+      choice: "use_saved",
+      documentId: "page",
+      expectedDraftVersion: 3,
+      expectedDraftTitle: "Draft",
+      expectedDraftContent: "Draft body",
+      expectedDocumentUpdatedAt: "v1",
+    });
+    expect(container.textContent).not.toContain("editor.previewDraftRecovery");
   });
   it("does not unmount the active editor when a later failed save retains a draft", async () => {
     state.draft = null;

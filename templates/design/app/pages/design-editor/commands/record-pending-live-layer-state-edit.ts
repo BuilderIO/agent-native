@@ -23,6 +23,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  nextPendingLiveEditTimestamp,
   pendingLiveLayerStateUndoRevertValue,
   reactSourceAnchorForPendingEdit,
   resolveOverviewScreenSourceType,
@@ -54,6 +55,10 @@ export interface RecordPendingLiveLayerStateEditArgs {
   pendingLiveNonStyleRedoStackRef: RefObject<PendingLiveNonStyleUndoEntry[]>;
   pendingLiveNonStyleUndoStackRef: RefObject<PendingLiveNonStyleUndoEntry[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setPendingLiveNonStyleEdits: Dispatch<
     SetStateAction<PendingLiveNonStyleEdit[]>
@@ -74,6 +79,7 @@ export function runRecordPendingLiveLayerStateEdit(
     pendingLiveNonStyleRedoStackRef,
     pendingLiveNonStyleUndoStackRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     setPendingLiveNonStyleEdits,
   }: RecordPendingLiveLayerStateEditArgs,
@@ -124,7 +130,7 @@ export function runRecordPendingLiveLayerStateEdit(
     state,
     enabled,
     originalEnabled,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   const revertEnabled = pendingLiveLayerStateUndoRevertValue(
     pendingLiveNonStyleEditsRef.current,
@@ -137,11 +143,15 @@ export function runRecordPendingLiveLayerStateEdit(
   // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
   // stay painted until Apply, so sharing that cap silently drops them from
   // the Apply payload.
+  const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
   appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
     kind: "layer-state",
     edit: nextEdit,
     revertEnabled,
   });
+  if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-live");
+  }
   const nextPending = mergePendingLiveNonStyleEdit(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,
