@@ -181,6 +181,12 @@ const messages = {
     emptyTitle: "अपनी ब्रांड पहचान सेट करें",
     emptyDescription:
       "अपने ब्रांड रंगों, टाइपोग्राफी और लोगो के साथ डिज़ाइन सिस्टम बनाएं। हर नया डेक आपकी विज़ुअल पहचान का पालन करेगा।",
+    tierLimitTitle: "डिज़ाइन सिस्टम की सीमा पूरी हो गई",
+    tierLimitDescription:
+      "आपने अपनी Builder योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपनी Builder Builder योजना अपग्रेड करें।",
+    tierLimitDescriptionWithCount:
+      "आप अपनी Builder {{plan}} योजना में {{max}} में से {{current}} डिज़ाइन सिस्टम का उपयोग कर रहे हैं। नया बनाने के लिए अपग्रेड करें।",
+    tierLimitUpgrade: "योजना अपग्रेड करें",
   },
   editorToolbar: {
     layoutTitle: "शीर्षक",
@@ -742,6 +748,8 @@ const messages = {
     websitePlaceholder: "example.com या Nike",
     add: "जोड़ें",
     githubRepository: "कोड कनेक्ट करें: GitHub रिपॉज़िटरी",
+    codeIndexingEnterpriseOnly:
+      "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
     githubRef: "ब्रांच, टैग या कमिट (वैकल्पिक)",
     githubPaths: "फ़ाइलें या फ़ोल्डर, कॉमा से अलग (वैकल्पिक)",
     codeFiles: "कोड फ़ाइलें कनेक्ट करें",

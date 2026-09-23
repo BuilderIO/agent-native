@@ -1,5 +1,11 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
+  isDesignSystemCodeIndexingAllowed,
+  isDesignSystemTierAtMax,
+  readDesignSystemTierLimitFailure,
+  type DesignSystemTierLimit,
+} from "@agent-native/core/client/design-system-tier-limit";
+import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -20,10 +26,21 @@ import {
   IconExternalLink,
   IconChevronDown,
   IconRefresh,
+  IconLock,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -273,6 +290,17 @@ export function DesignSystemSetup({
 
   const existingSystems = designSystemsData?.designSystems ?? [];
   const [selectedSystemId, setSelectedSystemId] = useState("");
+
+  const { data: tierLimit } = useActionQuery<DesignSystemTierLimit>(
+    "get-design-system-tier-limit",
+    undefined,
+    { enabled: open && !editingId },
+  );
+  const atMax = isDesignSystemTierAtMax(tierLimit);
+  const codeIndexingAllowed = isDesignSystemCodeIndexingAllowed(tierLimit);
+  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (existingDs && editingId) {
@@ -548,6 +576,7 @@ export function DesignSystemSetup({
       !customInstructions.trim();
     if (isGithubOnlySource) {
       setGenerating(true);
+      setTierLimitUpgradeUrl(null);
       try {
         await indexSystemMutation.mutateAsync({
           projectName: companyName.trim() || undefined,
@@ -560,11 +589,19 @@ export function DesignSystemSetup({
         toast.success(t("designSystemSetup.generationStarted"));
         onComplete();
       } catch (error) {
+        const tierFailure = readDesignSystemTierLimitFailure(
+          error,
+          t("designSystemSetup.updateFailed"),
+        );
+        if (tierFailure) {
+          setTierLimitUpgradeUrl(tierFailure.upgradeUrl);
+        }
         toast.error(t("designSystemSetup.updateFailed"), {
           description:
-            error instanceof Error
+            tierFailure?.message ??
+            (error instanceof Error
               ? error.message
-              : t("designSystemSetup.updateFailed"),
+              : t("designSystemSetup.updateFailed")),
         });
       } finally {
         setGenerating(false);
@@ -756,6 +793,50 @@ export function DesignSystemSetup({
     existingDs,
   ]);
 
+  if (!editingId && atMax) {
+    return (
+      <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.tierLimitTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("designSystemSetup.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <a
+                href={
+                  tierLimit?.upgradeUrl ??
+                  "https://builder.io/account/subscription"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystems.tierLimitUpgrade")}
+              </a>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-card border-border">
@@ -919,6 +1000,10 @@ export function DesignSystemSetup({
                           expanded={otherSource === "code"}
                           onClick={() => selectOtherSource("code")}
                           panelId="slides-design-system-code-source"
+                          locked={!codeIndexingAllowed}
+                          lockedMessage={t(
+                            "designSystemSetup.codeIndexingEnterpriseOnly",
+                          )}
                         />
                         <SourceAccordionRow
                           className="rounded-none border-0"
@@ -1308,6 +1393,21 @@ export function DesignSystemSetup({
           )}
         </ScrollArea>
 
+        {tierLimitUpgradeUrl && (
+          <div className="mx-6 mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm text-foreground/80">
+            <span>{t("designSystems.tierLimitTitle")}</span>
+            <a
+              href={tierLimitUpgradeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <IconExternalLink className="w-3.5 h-3.5" />
+              {t("designSystems.tierLimitUpgrade")}
+            </a>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex justify-end gap-3 px-6 pb-6 pt-2 border-t border-border">
           <Button
@@ -1384,6 +1484,8 @@ function SourceAccordionRow({
   onClick,
   panelId,
   className,
+  locked,
+  lockedMessage,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -1392,16 +1494,21 @@ function SourceAccordionRow({
   onClick: () => void;
   panelId: string;
   className?: string;
+  locked?: boolean;
+  lockedMessage?: string;
 }) {
   return (
     <button
       type="button"
       aria-controls={panelId}
       aria-expanded={expanded}
-      onClick={onClick}
+      aria-disabled={locked}
+      title={locked ? lockedMessage : undefined}
+      onClick={locked ? undefined : onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         expanded && "bg-accent/40",
+        locked && "opacity-60 cursor-not-allowed hover:bg-transparent",
         className,
       )}
     >
@@ -1411,15 +1518,19 @@ function SourceAccordionRow({
           {title}
         </span>
         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {description}
+          {locked ? lockedMessage : description}
         </span>
       </span>
-      <IconChevronDown
-        className={cn(
-          "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
-          expanded && "rotate-180",
-        )}
-      />
+      {locked ? (
+        <IconLock className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <IconChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
+            expanded && "rotate-180",
+          )}
+        />
+      )}
     </button>
   );
 }

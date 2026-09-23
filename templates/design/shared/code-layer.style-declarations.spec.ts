@@ -118,6 +118,18 @@ it("diagnoses malformed inline CSS and refuses a write without changing HTML", (
   expect(patch.content).toBe(html);
 });
 
+it("reads an entity-encoded quoted value as valid inline CSS", () => {
+  const html =
+    `<div data-agent-native-node-id="target" ` +
+    `style="font-family: &quot;SF Pro&quot;, sans-serif; color: red">Target</div>`;
+
+  expect(buildCodeLayerProjection(html).diagnostics).toEqual([]);
+  expect(projectedStyle(html)).toEqual({
+    "font-family": `"SF Pro", sans-serif`,
+    color: "red",
+  });
+});
+
 it("diagnoses stylesheet rules inside inline CSS and refuses a write", () => {
   const html =
     `<div data-agent-native-node-id="target" ` +

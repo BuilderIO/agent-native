@@ -39,6 +39,11 @@ describe("McpAccessSettings localization", () => {
         </AgentNativeI18nProvider>,
       );
     });
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "Conecta esta app con Claude, ChatGPT, Cursor, Codex u otro host MCP.",
+      ),
+    );
 
     expect(container.textContent).toContain(
       "Conecta esta app con Claude, ChatGPT, Cursor, Codex u otro host MCP.",

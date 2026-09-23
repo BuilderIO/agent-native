@@ -1,5 +1,9 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import {
+  isDesignSystemTierAtMax,
+  type DesignSystemTierLimit,
+} from "@agent-native/core/client/design-system-tier-limit";
+import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -31,6 +35,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -127,6 +132,19 @@ export default function DesignSystems() {
   const queryClient = useQueryClient();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [tierLimitDialogOpen, setTierLimitDialogOpen] = useState(false);
+  const { data: tierLimit } = useActionQuery<DesignSystemTierLimit>(
+    "get-design-system-tier-limit",
+  );
+  const atMax = isDesignSystemTierAtMax(tierLimit);
+  const handleCreateClick = useCallback(
+    (event: ReactMouseEvent) => {
+      if (!atMax) return;
+      event.preventDefault();
+      setTierLimitDialogOpen(true);
+    },
+    [atMax],
+  );
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
@@ -503,7 +521,7 @@ export default function DesignSystems() {
         </Button>
       ) : null}
       <Button asChild size="sm" className="cursor-pointer">
-        <Link to="/design-systems/setup">
+        <Link to="/design-systems/setup" onClick={handleCreateClick}>
           <IconPlus className="w-3.5 h-3.5" />
           {t("designSystems.actions.new")}
         </Link>
@@ -523,7 +541,7 @@ export default function DesignSystems() {
               retrying={isFetching}
             />
           ) : designSystems.length === 0 ? (
-            <EmptyState />
+            <EmptyState onCreateClick={handleCreateClick} />
           ) : (
             <>
               {isSelectionMode ? (
@@ -585,6 +603,7 @@ export default function DesignSystems() {
                   {/* New design system card */}
                   <Link
                     to="/design-systems/setup"
+                    onClick={handleCreateClick}
                     className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
                   >
                     <div className="aspect-video flex items-center justify-center bg-muted/30">
@@ -838,6 +857,49 @@ export default function DesignSystems() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
             >
               {t("designSystems.actions.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={tierLimitDialogOpen}
+        onOpenChange={setTierLimitDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.tierLimitTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("designSystems.actions.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <a
+                href={
+                  tierLimit?.upgradeUrl ??
+                  "https://builder.io/account/subscription"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystems.tierLimitUpgrade")}
+              </a>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1402,7 +1464,11 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  onCreateClick,
+}: {
+  onCreateClick: (event: ReactMouseEvent) => void;
+}) {
   const t = useT();
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
@@ -1416,7 +1482,7 @@ function EmptyState() {
         {t("designSystems.empty.description")}
       </p>
       <Button asChild className="cursor-pointer">
-        <Link to="/design-systems/setup">
+        <Link to="/design-systems/setup" onClick={onCreateClick}>
           <IconPlus className="w-4 h-4" />
           {t("designSystems.actions.new")}
         </Link>

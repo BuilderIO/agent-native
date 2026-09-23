@@ -4,10 +4,10 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
-import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
+import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 
 const messages = {
-  environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
+  environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
   },
@@ -1776,6 +1776,10 @@ const messages = {
     answer: "What the agent answered",
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
+    reviewPreview: "Preview output",
+    closePreview: "Hide preview",
+    addFeedback: "Add feedback",
+    draftInstruction: "Draft instruction",
     closeReview: "Close",
     notReviewed: "Not reviewed",
     noteSaved: "Note saved",

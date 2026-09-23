@@ -8,8 +8,8 @@ order: 1
 roadmap_status: "in_validation"
 summary: "Pages, Blocks, Collections, Search, history, and recovery form one trustworthy material loop."
 example_workflow: "A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context."
-works_today: "Content already has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. People and agents can perform much of the ordinary creation and editing loop on the same durable objects."
-remains: "Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation."
+works_today: "Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. Page saves and external edits use revision and retry identities, while editor recovery fences delayed stale drafts after confirmed saves."
+remains: "Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation; the new Page recovery contract still needs deployed multi-client validation."
 required_capabilities:
   [
     "content.object.page",
@@ -30,7 +30,7 @@ enhancing_capabilities:
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-22"
 ---
 
 # Feature 1: Durable foundations

@@ -150,6 +150,7 @@ export interface CrossScreenElementDropArgs {
   clearPendingHistory?: () => void;
   syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
@@ -201,6 +202,7 @@ export function runCrossScreenElementDrop(
     clearPendingHistory,
     syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
+    runtimeStructurePendingTransactionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
     setCreatedOverviewLayerSelection,
@@ -388,6 +390,8 @@ export function runCrossScreenElementDrop(
     );
   const targetScreenIsBoard =
     Boolean(boardFileId) && targetScreenId === boardFileId;
+  const sourceScreenIsBoard =
+    Boolean(boardFileId) && sourceScreenId === boardFileId;
   const sourceScreenIsLive =
     Boolean(sourceScreen) &&
     isRunningAppSourceType(
@@ -399,17 +403,37 @@ export function runCrossScreenElementDrop(
     Boolean(canEditLiveScreen?.(sourceScreenId)) &&
     Boolean(canEditLiveScreen?.(targetScreenId));
   const canEditLiveBoardDrop =
+    canEditLiveBoard &&
+    ((sourceScreenIsLive &&
+      targetScreenIsBoard &&
+      Boolean(canEditLiveScreen?.(sourceScreenId))) ||
+      (sourceScreenIsBoard &&
+        targetScreenIsLive &&
+        Boolean(canEditLiveScreen?.(targetScreenId))));
+  const canEditLiveBoardMove =
+    canEditLiveBoard &&
     sourceScreenIsLive &&
     targetScreenIsBoard &&
-    Boolean(canEditLiveScreen?.(sourceScreenId)) &&
-    canEditLiveBoard;
+    Boolean(canEditLiveScreen?.(sourceScreenId));
   if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
     return;
+
+  const beginRuntimeStructureTransaction = () => {
+    if (runtimeStructurePendingTransactionRef?.current) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return null;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (runtimeStructurePendingTransactionRef) {
+      runtimeStructurePendingTransactionRef.current = transactionId;
+    }
+    return transactionId;
+  };
 
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
-  if ((canEditLiveCrossScreen || canEditLiveBoardDrop) && !duplicate) {
+  if ((canEditLiveCrossScreen || canEditLiveBoardMove) && !duplicate) {
     const subjectNodeId =
       sourceNodeId ??
       (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
@@ -475,7 +499,8 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
-    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
@@ -558,9 +583,12 @@ export function runCrossScreenElementDrop(
         });
         return;
       }
+      const transactionId = beginRuntimeStructureTransaction();
+      if (!transactionId) return;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
         screenId: targetScreenId,
         sourceScreenId,
         remintCollidingNodeIds: true,
@@ -762,12 +790,13 @@ export function runCrossScreenElementDrop(
     // Only a board primitive may be reinterpreted as an insert; a real
     // screen's element dropped into a live app is a move, and inserting it
     // would leave a duplicate behind in its own screen.
-    sourceScreenIsBoard: Boolean(boardFileId) && sourceScreenId === boardFileId,
+    sourceScreenIsBoard,
     targetScreenIsLive,
   });
   if (crossScreenExecutionMode === "screen-bridge-insert") {
     const boardContent = getScreenContent(sourceScreenId);
-    if (!boardContent) return;
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+    if (!boardContent && !sourceHtml) return;
     const boardProjection = buildCodeLayerProjection(boardContent, {
       source: { kind: "design-file", fileId: sourceScreenId },
     });
@@ -776,9 +805,13 @@ export function runCrossScreenElementDrop(
       sourceSelector,
       sourceNodeId,
     );
+    // A live layer dragged onto the canvas is present in the board iframe's
+    // transient DOM, but it is intentionally not persisted into the board
+    // document. Prefer the id and outerHTML captured from that iframe. The
+    // stored board projection remains the fallback for ordinary board
+    // primitives that were already in the document.
     const subjectNodeId =
-      subjectNode?.dataAttributes["data-agent-native-node-id"];
-    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+      sourceNodeId ?? subjectNode?.dataAttributes["data-agent-native-node-id"];
     const validatedSourceHtmlSnapshot =
       subjectNodeId && sourceHtml
         ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
@@ -834,9 +867,12 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
       screenId: targetScreenId,
       sourceScreenId,
       remintCollidingNodeIds: true,

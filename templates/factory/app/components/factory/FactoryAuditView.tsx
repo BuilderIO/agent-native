@@ -9,6 +9,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconExternalLink,
+  IconMessageCircle,
   IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -21,6 +22,7 @@ import {
   writeAuditFilterParam,
 } from "@/components/factory/audit-filters";
 import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
+import { Pill, type PillTone } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -406,31 +408,10 @@ export function FactoryAuditView({
             <AuditSkeleton rows={4} />
           ) : runs.length === 0 ? null : (
             <Card>
-              <CardHeader className="px-4 py-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="break-words text-base [overflow-wrap:anywhere]">
-                      {selectedRun && automationLabel(selectedRun)}
-                    </CardTitle>
-                    {selectedRun && (
-                      <div className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                        {formatAuditAge(
-                          selectedRun.startedAt,
-                          t("triage.relativeNow"),
-                        )}
-                        <span aria-hidden="true"> · </span>
-                        {formatRunHeadline(selectedRun.counts, t)}
-                      </div>
-                    )}
-                  </div>
-                  {selectedRun && (
-                    <AuditStatus status={runHeadlineStatus(selectedRun)} />
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="p-4">
                 {selectedRun && (
                   <AuditRunDetail
+                    key={selectedRun.id}
                     run={selectedRun}
                     factoryId={factoryId}
                     builderSlackUserId={builderSlackUserId}
@@ -455,32 +436,56 @@ function AuditRunDetail({
   builderSlackUserId: string | null;
 }) {
   const t = useT();
+  const [filterKey, setFilterKey] = useState<AuditItemFilterKey | null>(null);
   const inbox = run.inbox ?? [];
   const work = run.work ?? run.items ?? [];
   const actions = run.actions ?? [];
   const items = run.items ?? [];
+  const allItems = dedupeAuditItems([...inbox, ...work, ...actions, ...items]);
+  // `item.listedStatus` can be null both for items never listed this run and
+  // for legacy `list-triage-items` events that recorded no per-item status --
+  // those two cases are indistinguishable from the field alone. `work` is
+  // built from the same `listed` map run.counts.listed counts, so membership
+  // in it is the reliable "was this item examined" signal.
+  const listedItemIds = new Set(work.map((item) => item.itemId));
+  const filteredItems = filterAuditItems(allItems, filterKey, listedItemIds);
   const trace = run.trace ?? [];
   const failedItems = uniqueFailedItems([...actions, ...items]);
+  const duration = formatAuditDuration(run.startedAt, run.finishedAt);
+  const added = run.counts.added ?? run.counts.newlyObserved ?? 0;
+  const listed = run.counts.listed ?? run.counts.scanned ?? 0;
+
+  function toggleFilter(key: AuditItemFilterKey) {
+    setFilterKey((current) => (current === key ? null : key));
+  }
 
   return (
     <>
-      {run.promptVersion || run.executionPromptHash ? (
-        <p className="text-xs text-muted-foreground">
-          {run.promptVersion
-            ? t("factoryRoute.auditRunPromptVersion", {
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <AuditStatus status={runHeadlineStatus(run)} />
+        <span aria-hidden="true">·</span>
+        <span>
+          {t("factoryRoute.auditRunBegan", {
+            age: formatAuditAge(run.startedAt, t("triage.relativeNow")),
+          })}
+        </span>
+        {run.promptVersion ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>
+              {t("factoryRoute.auditRunPromptVersion", {
                 version: run.promptVersion,
-              })
-            : null}
-          {run.promptVersion && run.executionPromptHash ? (
-            <span aria-hidden="true"> · </span>
-          ) : null}
-          {run.executionPromptHash
-            ? t("factoryRoute.auditRunPromptHash", {
-                hash: run.executionPromptHash.slice(0, 8),
-              })
-            : null}
-        </p>
-      ) : null}
+              })}
+            </span>
+          </>
+        ) : null}
+        {duration ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{t("factoryRoute.auditRunDuration", { duration })}</span>
+          </>
+        ) : null}
+      </div>
 
       {run.threadId ? (
         <Button variant="outline" size="sm" asChild>
@@ -500,10 +505,46 @@ function AuditRunDetail({
               requestAgentChatThreadOpen({ threadId: run.threadId! });
             }}
           >
+            <IconMessageCircle className="size-4" />
             {t("factoryRoute.auditOpenThread")}
           </a>
         </Button>
       ) : null}
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <AuditFilterChip
+          active={filterKey === "added"}
+          onClick={() => toggleFilter("added")}
+        >
+          {t("factoryRoute.auditAdded", { count: added })}
+        </AuditFilterChip>
+        <AuditFilterChip
+          active={filterKey === "examined"}
+          onClick={() => toggleFilter("examined")}
+        >
+          {t("factoryRoute.auditExamined", { count: listed })}
+        </AuditFilterChip>
+        <AuditFilterChip
+          active={filterKey === "failed"}
+          onClick={() => toggleFilter("failed")}
+        >
+          {t("factoryRoute.auditFailed", { count: run.counts.failed })}
+        </AuditFilterChip>
+        <AuditFilterChip
+          active={filterKey === "started"}
+          onClick={() => toggleFilter("started")}
+        >
+          {t("factoryRoute.auditStartedCount", {
+            count: run.counts.dispatched,
+          })}
+        </AuditFilterChip>
+        <AuditFilterChip
+          active={filterKey === "skipped"}
+          onClick={() => toggleFilter("skipped")}
+        >
+          {t("factoryRoute.auditSkipped", { count: run.counts.held })}
+        </AuditFilterChip>
+      </div>
 
       {(run.error || failedItems.length > 0) && (
         <div className="mt-4 rounded-md bg-destructive/5 p-3 text-sm">
@@ -532,52 +573,29 @@ function AuditRunDetail({
         </div>
       )}
 
-      {inbox.length === 0 && work.length === 0 && actions.length === 0 ? (
+      {allItems.length === 0 ? (
         <p className="mt-5 rounded-md bg-muted/20 p-4 text-sm text-muted-foreground">
           {t("factoryRoute.auditNoEvents")}
         </p>
+      ) : filteredItems.length === 0 ? (
+        <p className="mt-5 rounded-md bg-muted/20 p-4 text-sm text-muted-foreground">
+          {t("factoryRoute.auditNoItemsMatchFilter")}
+        </p>
       ) : (
-        <>
-          <AuditSection
-            title={t("factoryRoute.auditSectionInbox")}
-            count={run.counts?.added ?? inbox.length}
-          >
-            {inbox.map((item) => (
-              <AuditItemRow
-                key={`inbox-${item.itemId}`}
-                item={item}
-                factoryId={factoryId}
-                builderSlackUserId={builderSlackUserId}
-              />
-            ))}
-          </AuditSection>
-          <AuditSection
-            title={t("factoryRoute.auditSectionWork")}
-            count={run.counts?.listed ?? work.length}
-          >
-            {work.map((item) => (
-              <AuditItemRow
-                key={`work-${item.itemId}`}
-                item={item}
-                factoryId={factoryId}
-                builderSlackUserId={builderSlackUserId}
-              />
-            ))}
-          </AuditSection>
-          <AuditSection
-            title={t("factoryRoute.auditSectionActions")}
-            count={actions.length}
-          >
-            {actions.map((item) => (
-              <AuditItemRow
-                key={`action-${item.itemId}`}
-                item={item}
-                factoryId={factoryId}
-                builderSlackUserId={builderSlackUserId}
-              />
-            ))}
-          </AuditSection>
-        </>
+        <AuditSection
+          title={t("factoryRoute.auditSectionItems")}
+          count={filteredItems.length}
+        >
+          {filteredItems.map((item) => (
+            <AuditItemRow
+              key={item.itemId}
+              item={item}
+              factoryId={factoryId}
+              builderSlackUserId={builderSlackUserId}
+              listedItemIds={listedItemIds}
+            />
+          ))}
+        </AuditSection>
       )}
 
       {trace.length > 0 && (
@@ -609,14 +627,17 @@ function AuditItemRow({
   item,
   factoryId,
   builderSlackUserId,
+  listedItemIds,
 }: {
   item: FactoryAuditItem;
   factoryId: string;
   builderSlackUserId: string | null;
+  listedItemIds: Set<string>;
 }) {
   const t = useT();
   const sourceLink = resolveAuditSourceLink(item);
   const pullRequestLabel = auditPullRequestLabel(item);
+  const hint = formatItemRowHint(item, t, listedItemIds);
 
   return (
     <details className="group overflow-hidden rounded-lg border border-border bg-muted/20">
@@ -638,14 +659,24 @@ function AuditItemRow({
               />
             </span>
           </p>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {formatItemRowHint(item, t)}
-          </p>
+          {hint ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {hint}
+            </p>
+          ) : null}
         </div>
         <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">
           {formatAuditSource(item.source)}
         </span>
-        <AuditStatus status={item.status} compact />
+        <div className="flex shrink-0 items-center gap-1.5">
+          {item.firstSeenThisRun ? (
+            <Pill value={t("factoryRoute.auditNewThisRun")} tone="progress" />
+          ) : null}
+          <Pill
+            value={formatItemOutcome(item.outcome, t)}
+            tone={outcomeTone(item.outcome)}
+          />
+        </div>
         <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="bg-muted/20 px-4 pb-4 pt-3">
@@ -928,6 +959,66 @@ function AuditStatus({
   );
 }
 
+type AuditItemFilterKey =
+  | "added"
+  | "examined"
+  | "failed"
+  | "started"
+  | "skipped";
+
+const AUDIT_ITEM_FILTER_PREDICATES: Record<
+  AuditItemFilterKey,
+  (item: FactoryAuditItem, listedItemIds: Set<string>) => boolean
+> = {
+  added: (item) => Boolean(item.firstSeenThisRun),
+  // Matches run.counts.listed: items this run actually listed/scanned, not
+  // just ones that showed up via the inbox or a stored decision. Membership
+  // in the listed set, not `listedStatus` truthiness -- a legacy event can
+  // list an item with no per-item status, which looks identical to "never
+  // listed" if you only check the field.
+  examined: (item, listedItemIds) => listedItemIds.has(item.itemId),
+  failed: (item) => item.outcome === "failed",
+  started: (item) => item.outcome === "dispatched",
+  skipped: (item) => item.outcome === "held",
+};
+
+// No filter key means show everything; otherwise narrow to items matching
+// that one predicate. Only one filter can be active at a time.
+function filterAuditItems(
+  items: FactoryAuditItem[],
+  filterKey: AuditItemFilterKey | null,
+  listedItemIds: Set<string>,
+): FactoryAuditItem[] {
+  if (!filterKey) return items;
+  const matchesFilter = AUDIT_ITEM_FILTER_PREDICATES[filterKey];
+  return items.filter((item) => matchesFilter(item, listedItemIds));
+}
+
+function AuditFilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`inline-flex items-center rounded-md border px-2 py-1 text-xs transition-colors ${
+        active
+          ? "border-primary/40 bg-primary/10 text-foreground"
+          : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function AuditFilterSelect({
   id,
   label,
@@ -1009,29 +1100,24 @@ function runHeadlineStatus(run: FactoryAuditRun): string {
   return run.status;
 }
 
+// Always the same four fields, in the same order, regardless of value --
+// so every row in the run list has the same shape and lines up when scanning
+// down the sidebar. Held/skipped is deliberately left out of this compact
+// summary; it's still visible in the detail view's chip row and its own
+// section there.
 function formatRunHeadline(
   counts: FactoryAuditCounts | undefined,
   t: ReturnType<typeof useT>,
 ): string {
   if (!counts) return "";
   const added = counts.added ?? counts.newlyObserved ?? 0;
-  const listed = counts.listed ?? counts.scanned ?? 0;
-  const parts = [
+  const examined = counts.listed ?? counts.scanned ?? 0;
+  return [
     t("factoryRoute.auditAdded", { count: added }),
-    t("factoryRoute.auditListed", { count: listed }),
-  ];
-  if (counts.failed > 0) {
-    parts.push(t("factoryRoute.auditFailed", { count: counts.failed }));
-  }
-  if (counts.dispatched > 0) {
-    parts.push(
-      t("factoryRoute.auditStartedCount", { count: counts.dispatched }),
-    );
-  }
-  if (counts.held > 0) {
-    parts.push(t("factoryRoute.auditSkipped", { count: counts.held }));
-  }
-  return parts.join(" · ");
+    t("factoryRoute.auditExamined", { count: examined }),
+    t("factoryRoute.auditFailed", { count: counts.failed }),
+    t("factoryRoute.auditStartedCount", { count: counts.dispatched }),
+  ].join(" · ");
 }
 
 function formatItemOutcome(
@@ -1045,26 +1131,45 @@ function formatItemOutcome(
   return t("factoryRoute.auditOutcomeInspected");
 }
 
+// Outcome and "new this run" are rendered as colored pills on the row now;
+// this only carries the facts that aren't covered by those pills.
 function formatItemRowHint(
   item: FactoryAuditItem,
   t: ReturnType<typeof useT>,
+  listedItemIds: Set<string>,
 ): string {
-  const parts = [formatItemOutcome(item.outcome, t)];
+  const parts: string[] = [];
   if (item.gitHubTerminal === "merged") {
     parts.push(t("factoryRoute.auditMergedOnGitHub"));
   } else if (item.gitHubTerminal === "closed") {
     parts.push(t("factoryRoute.auditClosedOnGitHub"));
   } else if (item.gitHubTerminal === "draft") {
     parts.push(t("factoryRoute.auditDraftOnGitHub"));
-  } else if (item.firstSeenThisRun) {
-    parts.push(t("factoryRoute.auditNewThisRun"));
-  } else if (item.listedStatus || item.builderAlreadyStarted) {
+  } else if (
+    !item.firstSeenThisRun &&
+    (listedItemIds.has(item.itemId) || item.builderAlreadyStarted)
+  ) {
     parts.push(t("factoryRoute.auditSeenBefore"));
   }
   if (item.builderAlreadyStarted && item.outcome === "left") {
     parts.push(t("factoryRoute.auditAlreadyStarted"));
   }
   return parts.join(" · ");
+}
+
+function outcomeTone(outcome: FactoryAuditItem["outcome"]): PillTone {
+  switch (outcome) {
+    case "dispatched":
+      return "success";
+    case "held":
+      return "warning";
+    case "failed":
+      return "danger";
+    case "inspected":
+      return "info";
+    default:
+      return "muted";
+  }
 }
 
 function formatAuditSource(source: string | null): string {
@@ -1205,6 +1310,50 @@ function formatAuditAge(value: string | number, nowLabel: string) {
   const elapsedMonths = Math.floor(elapsedDays / 30);
   if (elapsedMonths < 12) return `${elapsedMonths}mo`;
   return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+/** How long a completed run took, not how long ago it started. Returns null
+ * while the run has no finishedAt yet (still running, or never finished). */
+function formatAuditDuration(
+  startedAt: string | number,
+  finishedAt: string | number | null,
+): string | null {
+  if (finishedAt == null) return null;
+  const start = new Date(startedAt).getTime();
+  const end = new Date(finishedAt).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  const elapsedSeconds = Math.max(0, Math.round((end - start) / 1_000));
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  if (minutes < 60)
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainderMinutes = minutes % 60;
+  return remainderMinutes > 0 ? `${hours}h ${remainderMinutes}m` : `${hours}h`;
+}
+
+// Inbox/work/actions overlap by design (an item can be newly observed and
+// dispatched in the same run) -- collapse to one row per item, newest first,
+// so the detail view shows each item's full outcome once instead of once per
+// section it happens to qualify for.
+function dedupeAuditItems(items: FactoryAuditItem[]): FactoryAuditItem[] {
+  const byId = new Map<string, FactoryAuditItem>();
+  for (const item of items) {
+    byId.set(item.itemId, item);
+  }
+  return [...byId.values()].sort(
+    (a, b) => latestEventTime(b) - latestEventTime(a),
+  );
+}
+
+function latestEventTime(item: FactoryAuditItem): number {
+  let latest = 0;
+  for (const event of item.events) {
+    const time = new Date(event.createdAt).getTime();
+    if (!Number.isNaN(time) && time > latest) latest = time;
+  }
+  return latest;
 }
 
 function uniqueFailedItems(items: FactoryAuditItem[]): FactoryAuditItem[] {

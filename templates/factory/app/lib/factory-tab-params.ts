@@ -9,8 +9,7 @@ export type WorkspaceTab =
   | "audit"
   | "history";
 
-/** Selection survives tab switches so Automations does not fall back to row 0. */
-const SHARED_RETAINED_PARAMS = ["factoryId", "automationId"] as const;
+const SHARED_RETAINED_PARAMS = ["factoryId"] as const;
 
 const TAB_OWNED_PARAMS: Record<WorkspaceTab, readonly string[]> = {
   overview: [],

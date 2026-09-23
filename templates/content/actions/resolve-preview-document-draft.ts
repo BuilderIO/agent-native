@@ -9,6 +9,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  lockPreviewDocumentDraftSettlement,
+  settlePreviewDocumentDraft,
+} from "./_preview-document-draft-settlement.js";
 import createDocument from "./create-document.js";
 import updateDocument, {
   type DocumentUpdateConflictResponse,
@@ -31,6 +35,8 @@ const durableClaimPayload = z.object({
   baseDocumentUpdatedAt: z.string().nullable(),
   loadedContentWasEmpty: z.number().int(),
   deferredReason: z.string().nullable(),
+  editorSessionId: z.string().nullable().optional(),
+  editGeneration: z.number().int().nullable().optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 });
@@ -202,6 +208,12 @@ export default defineAction({
     );
     const claimExactDraft = async () => {
       return db.transaction(async (tx) => {
+        const [currentDocument] = await tx
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
         const [draft] = await tx
           .select()
           .from(schema.documentPreviewDrafts)
@@ -237,12 +249,6 @@ export default defineAction({
           if (payload.status === "resolved") {
             return { status: "resolved" as const };
           }
-          const [currentDocument] = await tx
-            .select()
-            .from(schema.documents)
-            .where(eq(schema.documents.id, args.documentId))
-            .for("update")
-            .limit(1);
           const expectedUpdatedAt =
             payload.expectedDocumentUpdatedAt ?? args.expectedDocumentUpdatedAt;
           if (
@@ -272,6 +278,8 @@ export default defineAction({
               baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
               loadedContentWasEmpty: payload.loadedContentWasEmpty,
               deferredReason: payload.deferredReason,
+              editorSessionId: payload.editorSessionId ?? null,
+              editGeneration: payload.editGeneration ?? null,
               version: args.expectedDraftVersion,
               createdAt: payload.createdAt,
               updatedAt: payload.updatedAt,
@@ -279,12 +287,6 @@ export default defineAction({
             acquired: false,
           };
         }
-        const [currentDocument] = await tx
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, args.documentId))
-          .for("update")
-          .limit(1);
         if (
           !currentDocument ||
           currentDocument.updatedAt !== args.expectedDocumentUpdatedAt
@@ -313,6 +315,8 @@ export default defineAction({
               baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
               loadedContentWasEmpty: draft.loadedContentWasEmpty,
               deferredReason: draft.deferredReason,
+              editorSessionId: draft.editorSessionId,
+              editGeneration: draft.editGeneration,
               createdAt: draft.createdAt,
               updatedAt: draft.updatedAt,
             }),
@@ -541,11 +545,28 @@ export default defineAction({
         if (payload.status === "resolved") return;
         if (payload.processingToken !== processingToken)
           conflict("This recovery choice is already being applied.");
+        const resolvedAt = new Date().toISOString();
+        if (
+          payload.editorSessionId !== null &&
+          payload.editorSessionId !== undefined &&
+          payload.editGeneration !== null &&
+          payload.editGeneration !== undefined
+        ) {
+          await settlePreviewDocumentDraft({
+            db: tx,
+            ownerEmail: userEmail,
+            orgId,
+            documentId: args.documentId,
+            editorSessionId: payload.editorSessionId,
+            editGeneration: payload.editGeneration,
+            now: resolvedAt,
+          });
+        }
         const resolved = await tx
           .update(schema.documentVersions)
           .set({
             chatContext: JSON.stringify({ ...payload, status: "resolved" }),
-            updatedAt: new Date().toISOString(),
+            updatedAt: resolvedAt,
           })
           .where(
             and(
@@ -578,6 +599,32 @@ export default defineAction({
           payload.processingToken !== processingToken
         )
           return;
+        if (draft.editorSessionId !== null && draft.editGeneration !== null) {
+          const settledGeneration = await lockPreviewDocumentDraftSettlement({
+            db: tx,
+            ownerEmail: userEmail,
+            orgId,
+            documentId: args.documentId,
+            editorSessionId: draft.editorSessionId,
+            now: new Date().toISOString(),
+          });
+          if (
+            settledGeneration !== null &&
+            draft.editGeneration <= settledGeneration
+          ) {
+            await tx
+              .update(schema.documentVersions)
+              .set({
+                chatContext: JSON.stringify({
+                  ...payload,
+                  status: "resolved",
+                }),
+                updatedAt: new Date().toISOString(),
+              })
+              .where(eq(schema.documentVersions.id, claimId));
+            return;
+          }
+        }
         const restored = await tx
           .insert(schema.documentPreviewDrafts)
           .values(draft)
@@ -654,6 +701,10 @@ export default defineAction({
             loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
             loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
             historySessionId: `draft-recovery:${draft.id}`,
+            editorSessionId: draft.editorSessionId ?? undefined,
+            editorEditGeneration: draft.editGeneration ?? undefined,
+            editorSnapshotTitle: draft.title,
+            editorSnapshotContent: draft.content,
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },

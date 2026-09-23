@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-22
+
+### Fixed
+
+- Mail keeps cached messages visible when an account refresh fails
+
 ## 2026-09-19
 
 ### Fixed

@@ -179,6 +179,12 @@ const messages = {
     emptyTitle: "设置你的品牌标识",
     emptyDescription:
       "使用你的品牌颜色、字体和徽标创建设计系统。每个新演示文稿都会遵循你的视觉标识。",
+    tierLimitTitle: "已达到设计系统数量上限",
+    tierLimitDescription:
+      "您已达到当前 Builder 套餐的设计系统数量上限。升级 Builder 套餐以创建更多。",
+    tierLimitDescriptionWithCount:
+      "您在 Builder {{plan}} 套餐中已使用 {{current}}/{{max}} 个设计系统。升级 Builder 套餐以创建更多。",
+    tierLimitUpgrade: "升级套餐",
   },
   editorToolbar: {
     layoutTitle: "标题",
@@ -731,6 +737,7 @@ const messages = {
     websitePlaceholder: "example.com 或 Nike",
     add: "添加",
     githubRepository: "连接代码：GitHub 仓库",
+    codeIndexingEnterpriseOnly: "代码和仓库索引需要 Builder 企业版套餐",
     githubRef: "分支、标签或提交（可选）",
     githubPaths: "文件或文件夹，以逗号分隔（可选）",
     codeFiles: "连接代码文件",

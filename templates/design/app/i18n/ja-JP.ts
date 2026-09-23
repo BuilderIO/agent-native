@@ -160,6 +160,20 @@ const messages = {
       saveFailed: "レビューステータスを更新できませんでした",
     },
   },
+  designSystems: {
+    ...messagesByLocale["ja-JP"].designSystems,
+    tierLimitTitle: "デザインシステムの上限に達しました",
+    tierLimitDescription:
+      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
+    tierLimitDescriptionWithCount:
+      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
+    tierLimitUpgrade: "プランをアップグレード",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["ja-JP"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
+  },
 };
 
 export default messages;

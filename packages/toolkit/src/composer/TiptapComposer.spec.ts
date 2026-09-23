@@ -128,6 +128,8 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
     expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
     expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
+    expect(compactComposerModelName("gpt-6-sol")).toBe("GPT-6 Sol");
+    expect(compactComposerModelName("openai/gpt-6-luna")).toBe("GPT-6 Luna");
     expect(compactComposerModelName("openai/gpt-6-astra")).toBe("Astra");
     expect(compactComposerModelName("openai/gpt-6-astra-pro")).toBe(
       "Astra Pro",
@@ -139,6 +141,9 @@ describe("createTiptapComposerExtensions", () => {
       "Qwen 3.8 Max",
     );
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
+    expect(compactComposerModelName("anthropic/claude-opus-5.5")).toBe(
+      "Opus 5.5",
+    );
     expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
@@ -1602,9 +1607,12 @@ describe("composerModelCostTier", () => {
     expect(composerModelCostTier("gpt-5-6-luna")).toBe(1);
     expect(composerModelCostTier("gpt-5.6-terra")).toBe(2);
     expect(composerModelCostTier("openai/gpt-5.6-sol")).toBe(3);
+    expect(composerModelCostTier("gpt-6-luna")).toBe(1);
+    expect(composerModelCostTier("openai/gpt-6-sol")).toBe(3);
     expect(composerModelCostTier("claude-haiku-4-5")).toBe(1);
     expect(composerModelCostTier("claude-sonnet-5")).toBe(2);
     expect(composerModelCostTier("anthropic/claude-opus-4.8")).toBe(3);
+    expect(composerModelCostTier("claude-opus-5-5")).toBe(3);
     expect(composerModelCostTier("claude-fable-5")).toBe(3);
     expect(composerModelCostTier("gemini-3-1-flash-lite")).toBe(1);
     expect(composerModelCostTier("gemini-3-1-pro")).toBe(3);

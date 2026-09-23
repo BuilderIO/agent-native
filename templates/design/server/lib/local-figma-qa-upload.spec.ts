@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createLocalFigmaQaPrivateBlobProvider,
   createLocalFigmaQaUploadProvider,
   isLocalFigmaQaUploadEnabled,
   localFigmaQaAssetMimeType,
@@ -115,5 +116,28 @@ describe("local Figma QA upload provider", () => {
     expect(
       localFigmaQaAssetPath("qa@example.test", "../private.png"),
     ).toBeNull();
+  });
+
+  it("round-trips private blobs and refuses ids outside its store", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "design-figma-qa-"));
+    roots.push(rootDir);
+    const provider = createLocalFigmaQaPrivateBlobProvider({
+      rootDir,
+      enabled: () => true,
+    });
+    const data = new TextEncoder().encode('{"files":[]}');
+
+    const handle = await provider.put({ data, mimeType: "application/json" });
+    expect((await provider.read(handle)).data).toEqual(data);
+    await provider.delete(handle);
+    await expect(provider.read(handle)).rejects.toThrow();
+    await expect(
+      provider.read({ ...handle, id: "../../etc/passwd" }),
+    ).rejects.toThrow(/invalid/i);
+    expect(
+      createLocalFigmaQaPrivateBlobProvider({
+        enabled: () => false,
+      }).isConfigured(),
+    ).toBe(false);
   });
 });

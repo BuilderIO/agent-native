@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   getBoardSurfaceContentBounds,
   getBoardSurfaceHtml,
+  hasBoardRuntimeSurfaceContent,
+  shouldMountBoardSurface,
   shouldRenderOverviewReviewCanvas,
   shouldRenderEmptyBoardReviewCanvas,
 } from "./board-surface-html";
@@ -18,6 +20,82 @@ describe("board surface rendering", () => {
     expect(getBoardSurfaceHtml(authored)).toBe(authored);
   });
 
+  it("keeps a runtime board mounted through its insert acknowledgement", () => {
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: true,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: "board-1",
+        boardFileId: "board-1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasPendingRuntimeRollback: false,
+        runtimeContentBoardId: "board-1",
+        boardFileId: "board-2",
+      }),
+    ).toBe(false);
+    expect(
+      shouldMountBoardSurface({
+        hasAuthoredContent: false,
+        crossScreenDragActive: false,
+        hasPendingRuntimeInsert: false,
+        hasPendingRuntimeRollback: true,
+        runtimeContentBoardId: null,
+        boardFileId: "board-1",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not carry runtime board content across board identities", () => {
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-a",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: ["move-a"],
+      }),
+    ).toBe(true);
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-b",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: ["move-a"],
+      }),
+    ).toBe(false);
+    expect(
+      hasBoardRuntimeSurfaceContent({
+        boardFileId: "board-a",
+        runtimeBoardFileId: "board-a",
+        runtimeRequestKeys: [],
+      }),
+    ).toBe(false);
+  });
   it("uses the viewport for a normal-flow app stored as the only board file", () => {
     const appDocument = `<!doctype html><html><body data-agent-native-node-id="body">
       <div data-agent-native-node-id="app" class="app">

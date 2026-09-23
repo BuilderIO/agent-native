@@ -332,6 +332,7 @@ export default function Index() {
     loading,
     loadError,
     reloadDecks,
+    catchUpStaleDeckList,
   } = useDecks();
   const {
     designSystems,
@@ -470,6 +471,12 @@ export default function Index() {
     const result = forgetRecentReference(kind);
     if (result.readable) setRecentReferences(result.items);
   }, []);
+
+  // Refreshes cards for decks that changed while a different deck was open
+  // (see `catchUpStaleDeckList`'s own comment in DeckContext).
+  useEffect(() => {
+    catchUpStaleDeckList();
+  }, [catchUpStaleDeckList]);
 
   useEffect(() => {
     const result = readRecentReferences();

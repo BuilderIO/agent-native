@@ -1,7 +1,10 @@
 import {
   buildCodeLayerProjection,
   ensureCodeLayerNodeIdsInHtml,
+  hasCanonicalCodeLayerNodeIds,
   mapCodeLayerSourceOffsetThroughEdits,
+  type CodeLayerProjection,
+  type CodeLayerSource,
   type CodeLayerSourceEdit,
   type CodeLayerNode,
 } from "@shared/code-layer";
@@ -22,12 +25,15 @@ export interface CanonicalSourceContentResult {
 const CANONICAL_SOURCE_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_NODES = 32_768;
+const CANONICAL_SOURCE_CACHE_MAX_ENTRIES = 4096;
 const canonicalSourceTextEncoder = new TextEncoder();
 const canonicalSourceCache = new Map<
   string,
   {
     content: string;
     result: CanonicalSourceContentResult;
+    /** Projection of `result.content`, built for the caller's source. */
+    projection?: CodeLayerProjection;
     retainedBytes: number;
     retainedNodes: number;
   }
@@ -71,14 +77,66 @@ export function mapSourceNodeIds(
   return result;
 }
 
+/** The code-layer source the editor projects a design file with. */
+export function designFileCodeLayerSource(
+  designId: string | undefined,
+  fileId: string,
+  filename: string | undefined,
+  kind: "design-file" | "inline-html" = "design-file",
+): CodeLayerSource {
+  return {
+    kind,
+    ...(designId ? { designId } : {}),
+    fileId,
+    ...(filename ? { filename } : {}),
+  };
+}
+
+function sameCodeLayerSource(a: CodeLayerSource, b: CodeLayerSource) {
+  const aRecord = a as unknown as Record<string, unknown>;
+  const bRecord = b as unknown as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  return (
+    aKeys.length === Object.keys(bRecord).length &&
+    aKeys.every((key) => aRecord[key] === bRecord[key])
+  );
+}
+
+/**
+ * The projection prepareCanonicalSourceContent already built for these exact
+ * prepared bytes, when it was built for `source`. Opening a design prepares
+ * every screen, so the Layers model reuses these instead of parsing each
+ * screen a second time.
+ */
+export function preparedSourceProjection(
+  fileId: string,
+  content: string,
+  source: CodeLayerSource,
+): CodeLayerProjection | undefined {
+  const cached = canonicalSourceCache.get(fileId);
+  if (!cached?.projection || cached.result.content !== content) {
+    return undefined;
+  }
+  return sameCodeLayerSource(cached.projection.source, source)
+    ? cached.projection
+    : undefined;
+}
+
 /**
  * Prepare persisted HTML bytes for code-layer source publication. This is
  * deliberately identity-only: it must not wrap text or inspect runtime DOM,
  * and it leaves URL-backed screens and non-HTML source files untouched.
+ * Node ids depend only on the source's fileId, so `source` (default: the bare
+ * design-file source) changes nothing but the projection kept for
+ * preparedSourceProjection.
  */
 export function prepareCanonicalSourceContent(
   content: string,
-  options: { fileId: string; fileType?: string | null },
+  options: {
+    fileId: string;
+    fileType?: string | null;
+    source?: CodeLayerSource;
+  },
 ): CanonicalSourceContentResult {
   const fileType = (options.fileType ?? "html").trim().toLowerCase();
   if (fileType !== "html" || !content.trim() || isStandaloneHttpUrl(content)) {
@@ -93,7 +151,33 @@ export function prepareCanonicalSourceContent(
   }
   if (cached) removeCanonicalSourceCacheEntry(options.fileId);
 
-  const source = { kind: "design-file" as const, fileId: options.fileId };
+  const source = options.source ?? {
+    kind: "design-file" as const,
+    fileId: options.fileId,
+  };
+  if (source.fileId !== options.fileId) {
+    throw new Error("Canonical source projection must name the same file.");
+  }
+  if (hasCanonicalCodeLayerNodeIds(content)) {
+    let nodeIdMap: Map<string, string> | undefined;
+    const result: CanonicalSourceContentResult = {
+      content,
+      changed: false,
+      // Opening a design prepares every screen and edits almost none, so the
+      // projection behind this identity map is built only when read.
+      get nodeIdMap() {
+        nodeIdMap ??= new Map(
+          buildCodeLayerProjection(content, { source }).nodes.map((node) => [
+            node.id,
+            node.id,
+          ]),
+        );
+        return nodeIdMap;
+      },
+    };
+    cacheCanonicalSource(options.fileId, content, result);
+    return result;
+  }
   const before = buildCodeLayerProjection(content, { source });
   const edits: CodeLayerSourceEdit[] = [];
   const prepared = ensureCodeLayerNodeIdsInHtml(content, {
@@ -121,36 +205,54 @@ export function prepareCanonicalSourceContent(
       ? mapSourceNodeIds(before.nodes, after.nodes, edits)
       : new Map(before.nodes.map((node) => [node.id, node.id])),
   };
+  cacheCanonicalSource(options.fileId, content, result, after);
+  return result;
+}
+
+function cacheCanonicalSource(
+  fileId: string,
+  content: string,
+  result: CanonicalSourceContentResult,
+  projection?: CodeLayerProjection,
+): void {
   const contentBytes = canonicalSourceTextEncoder.encode(content).byteLength;
-  const retainedBytes =
-    contentBytes +
-    (result.content === content
-      ? contentBytes
-      : canonicalSourceTextEncoder.encode(result.content).byteLength);
-  const retainedNodes = result.nodeIdMap.size;
+  const changedBytes = result.changed
+    ? contentBytes +
+      canonicalSourceTextEncoder.encode(result.content).byteLength
+    : 0;
+  const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
   if (
-    retainedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
+    Math.max(contentBytes, changedBytes) <=
+      CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
     retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES
   ) {
-    removeCanonicalSourceCacheEntry(options.fileId);
-    canonicalSourceCache.set(options.fileId, {
+    removeCanonicalSourceCacheEntry(fileId);
+    canonicalSourceCache.set(fileId, {
       content,
       result,
-      retainedBytes,
+      ...(projection ? { projection } : {}),
+      // Unchanged content is the caller's own file string, so while its
+      // design is open the entry retains a reference, not bytes. Charging its
+      // bytes let a large design overflow the cap, and each in-order prepare
+      // pass over its screens then evicted the entry the next lookup needed.
+      retainedBytes: changedBytes,
       retainedNodes,
     });
-    canonicalSourceCacheBytes += retainedBytes;
+    canonicalSourceCacheBytes += changedBytes;
     canonicalSourceCacheNodes += retainedNodes;
   }
+  // ponytail: a closed design's unchanged entries keep their strings until
+  // newer entries evict them by count; prune by live file ids if heap
+  // profiles show it.
   while (
     canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
-    canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES
+    canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES ||
+    canonicalSourceCache.size > CANONICAL_SOURCE_CACHE_MAX_ENTRIES
   ) {
     const oldest = canonicalSourceCache.keys().next();
     if (oldest.done) break;
     removeCanonicalSourceCacheEntry(oldest.value);
   }
-  return result;
 }
 
 export function resolveSourceBaseForPublication(args: {
