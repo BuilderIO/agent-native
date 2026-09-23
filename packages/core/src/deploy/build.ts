@@ -425,10 +425,43 @@ function cloudflareBindingsInitScript(): string {
 }`;
 }
 
+/**
+ * Global-scope key Module's timer shim (see `cloudflareModuleTimerShimPrefix`
+ * in `buildWithNitro`'s post-build patch) uses to stash the real
+ * `setInterval` before neutering it. Cloudflare Workers loads each server
+ * chunk as its own ES module, so a chunk's own top-level `var` can't be read
+ * back from `worker.mjs` — the original has to be captured on `globalThis`
+ * instead, and only once, since `worker.mjs` always loads (and shims) first.
+ */
+const CF_MODULE_ORIG_SET_INTERVAL_KEY = "__cfModuleOrigSetInterval";
+const CF_MODULE_TIMER_SHIM_MARKER = "__cf_module_timer_shim__";
+
+function cloudflareModuleTimerRestoreScript(): string {
+  return `function __cfRestoreModuleTimers() {
+  if (typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY} !== "undefined") {
+    globalThis.setInterval = globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY};
+  }
+}`;
+}
+
+/**
+ * Prepended (in `buildWithNitro`'s post-build patch) to every server chunk
+ * that calls `setInterval` at module scope — Cloudflare Workers disallows
+ * timer creation outside a request/handler context. Neuters the call and,
+ * the first time any chunk runs this, stashes the real `setInterval` on
+ * `globalThis` for `__cfRestoreModuleTimers` (see
+ * `cloudflareModuleTimerRestoreScript`) to hand back once a handler runs.
+ */
+function cloudflareModuleTimerShimPrefix(): string {
+  return (
+    `/* ${CF_MODULE_TIMER_SHIM_MARKER} */` +
+    `if(typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}==="undefined"){globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}=globalThis.setInterval;}` +
+    `globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};`
+  );
+}
+
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
-
-export * from "./index.mjs";
 
 async function loadHandler() {
   handler ??= (await import("./index.mjs")).default;
@@ -437,32 +470,40 @@ async function loadHandler() {
 
 ${cloudflareBindingsInitScript()}
 
+${cloudflareModuleTimerRestoreScript()}
+
 export default {
   async fetch(request, env, ctx) {
     if (typeof ctx?.waitUntil === "function") {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
     initializeBindings(env);
+    __cfRestoreModuleTimers();
     return (await loadHandler()).fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
     initializeBindings(env);
+    __cfRestoreModuleTimers();
     return (await loadHandler()).scheduled?.(controller, env, ctx);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
+    __cfRestoreModuleTimers();
     return (await loadHandler()).email?.(message, env, ctx);
   },
   async queue(batch, env, ctx) {
     initializeBindings(env);
+    __cfRestoreModuleTimers();
     return (await loadHandler()).queue?.(batch, env, ctx);
   },
   async tail(traces, env, ctx) {
     initializeBindings(env);
+    __cfRestoreModuleTimers();
     return (await loadHandler()).tail?.(traces, env, ctx);
   },
   async trace(traces, env, ctx) {
     initializeBindings(env);
+    __cfRestoreModuleTimers();
     return (await loadHandler()).trace?.(traces, env, ctx);
   },
 };
@@ -4769,6 +4810,89 @@ function walkServerJavaScriptFiles(
   }
 }
 
+const CF_MODULE_NODE_BUILTINS = [
+  "fs",
+  "path",
+  "os",
+  "crypto",
+  "http",
+  "https",
+  "stream",
+  "url",
+  "util",
+  "events",
+  "buffer",
+  "console",
+  "querystring",
+  "zlib",
+  "net",
+  "tls",
+  "assert",
+  "timers",
+  "child_process",
+  "module",
+  "process",
+  "worker_threads",
+  "string_decoder",
+  "diagnostics_channel",
+  "async_hooks",
+  "perf_hooks",
+  "inspector",
+  "vm",
+];
+
+/**
+ * Post-build patches for `cloudflare_module` server output. Recurses (via
+ * `walkServerJavaScriptFiles`) because esbuild/Nitro can emit a dependency at
+ * a nested path (e.g. `_libs/@agent-native/core.mjs`) — a flat `readdirSync`
+ * silently skips it, leaving its module-scope `setInterval` call unpatched,
+ * which Cloudflare rejects with error 10021.
+ */
+export function patchCloudflareModuleServerOutput(serverDir: string): void {
+  if (!fs.existsSync(serverDir)) return;
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    let code = fs.readFileSync(filePath, "utf-8");
+    let changed = false;
+
+    // 1. Rewrite bare Node.js imports to node: prefixed.
+    // CF Workers requires the node: prefix for built-in modules.
+    for (const mod of CF_MODULE_NODE_BUILTINS) {
+      // Match: from"fs" or from "fs" (but not from"node:fs")
+      const re = new RegExp(`from\\s*["']${mod}["']`, "g");
+      if (re.test(code)) {
+        code = code.replace(re, `from"node:${mod}"`);
+        changed = true;
+      }
+    }
+
+    // 2. Patch import.meta.url for createRequire().
+    // React Router's server build uses createRequire(import.meta.url)
+    // but import.meta.url is undefined on CF Workers.
+    if (code.includes("import.meta.url")) {
+      code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
+      changed = true;
+    }
+
+    // 3. Patch setInterval/setTimeout at global scope.
+    // CF Workers disallows timers in global scope. Shim every matching
+    // chunk; only worker.mjs restores the real function, from inside its
+    // own handlers (baked into generateCloudflareModuleWorkerEntry), never
+    // via an immediate per-chunk restore — a chunk loaded ahead of
+    // worker.mjs's handlers running would otherwise leave setInterval
+    // neutered for the rest of the request.
+    if (
+      code.includes("setInterval") &&
+      !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+    ) {
+      code = cloudflareModuleTimerShimPrefix() + code;
+      changed = true;
+    }
+
+    if (changed) fs.writeFileSync(filePath, code);
+  });
+}
+
 /**
  * Nitro receives the React Router SSR build as prebuilt chunks, so its normal
  * dependency resolver cannot reliably fold the preserved bare `yjs` imports
@@ -6586,88 +6710,9 @@ export default bundle;
   // Cloudflare-specific post-build patches
   if (preset.startsWith("cloudflare")) {
     const serverDir2 = nitro.options.output.serverDir;
-    const scanDirs = [serverDir2];
-    if (serverDir2) {
-      const chunksDir = path.join(serverDir2, "_chunks");
-      const libsDir = path.join(serverDir2, "_libs");
-      if (fs.existsSync(chunksDir)) scanDirs.push(chunksDir);
-      if (fs.existsSync(libsDir)) scanDirs.push(libsDir);
-    }
 
-    for (const scanDir of scanDirs) {
-      if (!scanDir || !fs.existsSync(scanDir)) continue;
-      for (const file of fs.readdirSync(scanDir)) {
-        if (!file.endsWith(".mjs") && !file.endsWith(".js")) continue;
-        const filePath = path.join(scanDir, file);
-        let code = fs.readFileSync(filePath, "utf-8");
-        let changed = false;
-
-        // 1. Rewrite bare Node.js imports to node: prefixed.
-        // CF Workers requires the node: prefix for built-in modules.
-        const NODE_BUILTINS = [
-          "fs",
-          "path",
-          "os",
-          "crypto",
-          "http",
-          "https",
-          "stream",
-          "url",
-          "util",
-          "events",
-          "buffer",
-          "console",
-          "querystring",
-          "zlib",
-          "net",
-          "tls",
-          "assert",
-          "timers",
-          "child_process",
-          "module",
-          "process",
-          "worker_threads",
-          "string_decoder",
-          "diagnostics_channel",
-          "async_hooks",
-          "perf_hooks",
-          "inspector",
-          "vm",
-        ];
-        for (const mod of NODE_BUILTINS) {
-          // Match: from"fs" or from "fs" (but not from"node:fs")
-          const re = new RegExp(`from\\s*["']${mod}["']`, "g");
-          if (re.test(code)) {
-            code = code.replace(re, `from"node:${mod}"`);
-            changed = true;
-          }
-        }
-
-        // 2. Patch import.meta.url for createRequire().
-        // React Router's server build uses createRequire(import.meta.url)
-        // but import.meta.url is undefined on CF Workers.
-        if (code.includes("import.meta.url")) {
-          code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
-          changed = true;
-        }
-
-        // 3. Patch setInterval/setTimeout at global scope.
-        // CF Workers disallows timers in global scope.
-        if (code.includes("setInterval") && !code.includes("__timer_shim__")) {
-          const shim =
-            "/* __timer_shim__ */" +
-            "var __origSetInterval=globalThis.setInterval;" +
-            "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};";
-          const restore =
-            ";(function(){if(typeof __origSetInterval!=='undefined')globalThis.setInterval=__origSetInterval})();";
-          code = shim + code + "\n" + restore;
-          changed = true;
-        }
-
-        if (changed) fs.writeFileSync(filePath, code);
-      }
-    }
-    // 3. Create stub modules in _libs/ for native deps that Nitro's rolldown
+    if (serverDir2) patchCloudflareModuleServerOutput(serverDir2);
+    // Create stub modules in _libs/ for native deps that Nitro's rolldown
     // bundler references but can't resolve on CF Workers, and rewrite
     // bare imports to point to the stub files.
     const libsDir2 = path.join(

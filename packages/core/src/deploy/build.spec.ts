@@ -55,6 +55,7 @@ import {
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
+  patchCloudflareModuleServerOutput,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
@@ -612,9 +613,9 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
-    expect(entry).toContain('export * from "./index.mjs";');
+    expect(entry).not.toContain("export * from");
     expect(entry).toContain(
-      "initializeBindings(env);\n    return (await loadHandler())",
+      "initializeBindings(env);\n    __cfRestoreModuleTimers();\n    return (await loadHandler())",
     );
     expect(entry).toContain('await import("./index.mjs")');
     expect(entry).toContain(
@@ -654,6 +655,70 @@ describe("Cloudflare module Worker entry", () => {
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+});
+
+describe("patchCloudflareModuleServerOutput", () => {
+  it("recurses into nested dependency paths a flat scan would miss", () => {
+    const serverDir = makeTempDir();
+    const nestedDir = path.join(serverDir, "_libs", "@agent-native");
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const nestedFile = path.join(nestedDir, "core.mjs");
+    fs.writeFileSync(
+      nestedFile,
+      "setInterval(() => cleanup(), 60_000).unref?.();\nexport const cleanup = () => {};",
+    );
+
+    patchCloudflareModuleServerOutput(serverDir);
+
+    const patched = fs.readFileSync(nestedFile, "utf8");
+    expect(patched).toContain("__cf_module_timer_shim__");
+    expect(patched).toContain("globalThis.setInterval=function()");
+    expect(patched.indexOf("globalThis.setInterval=function()")).toBeLessThan(
+      patched.indexOf("setInterval(() => cleanup()"),
+    );
+    // Module chunks never restore themselves — only worker.mjs does, from
+    // inside its handlers — so nothing gets appended after the file's
+    // original tail.
+    expect(patched.trimEnd().endsWith("export const cleanup = () => {};")).toBe(
+      true,
+    );
+  });
+
+  it("is idempotent across repeated patch passes", () => {
+    const serverDir = makeTempDir();
+    const file = path.join(serverDir, "index.mjs");
+    fs.writeFileSync(file, "setInterval(() => {}, 1000);");
+
+    patchCloudflareModuleServerOutput(serverDir);
+    const once = fs.readFileSync(file, "utf8");
+    patchCloudflareModuleServerOutput(serverDir);
+    const twice = fs.readFileSync(file, "utf8");
+
+    expect(twice).toBe(once);
+    expect(once.match(/__cf_module_timer_shim__/g)).toHaveLength(1);
+  });
+
+  it("shares its globalThis capture key with the worker entry's restore helper", () => {
+    const serverDir = makeTempDir();
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "_libs", "core.mjs"),
+      "setInterval(() => {}, 1000);",
+    );
+
+    patchCloudflareModuleServerOutput(serverDir);
+    const shimmed = fs.readFileSync(
+      path.join(serverDir, "_libs", "core.mjs"),
+      "utf8",
+    );
+    const captureKeyMatch = shimmed.match(
+      /globalThis\.(\w+)===["']undefined["']/,
+    );
+    expect(captureKeyMatch).not.toBeNull();
+
+    const entry = generateCloudflareModuleWorkerEntry();
+    expect(entry).toContain(`globalThis.${captureKeyMatch![1]}`);
   });
 });
 
