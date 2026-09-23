@@ -128,7 +128,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {
-    const db = getDb();
+    const db = await getDb();
     const userEmail = getRequestUserEmail();
     const activeOrgId = getRequestOrgId();
     const memberships = userEmail
@@ -320,75 +320,92 @@ export default defineAction({
           },
         )
       : null;
-    const docs = await db
-      .select({
-        id: schema.documents.id,
-        parentId: schema.documents.parentId,
-        title: schema.documents.title,
-        description: schema.documents.description,
-        icon: schema.documents.icon,
-        hideFromSearch: schema.documents.hideFromSearch,
-        updatedAt: schema.documents.updatedAt,
-        sourceKind: schema.documents.sourceKind,
-        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
-        documentType: sql<"page" | "database">`case when ${exists(
-          db
-            .select({ id: schema.contentDatabases.id })
-            .from(schema.contentDatabases)
-            .where(
-              and(
-                eq(schema.contentDatabases.documentId, schema.documents.id),
-                isNull(schema.contentDatabases.deletedAt),
+    const bodyProximity = ranking
+      ? sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`
+      : sql<number>`0`;
+    const page = db.$with("search_page").as(
+      db
+        .select({
+          id: schema.documents.id,
+          parentId: schema.documents.parentId,
+          title: schema.documents.title,
+          description: schema.documents.description,
+          icon: schema.documents.icon,
+          hideFromSearch: schema.documents.hideFromSearch,
+          updatedAt: schema.documents.updatedAt,
+          sourceKind: schema.documents.sourceKind,
+          sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+          documentType: sql<"page" | "database">`case when ${exists(
+            db
+              .select({ id: schema.contentDatabases.id })
+              .from(schema.contentDatabases)
+              .where(
+                and(
+                  eq(schema.contentDatabases.documentId, schema.documents.id),
+                  isNull(schema.contentDatabases.deletedAt),
+                ),
               ),
-            ),
-        )} then 'database' else 'page' end`,
-        totalItems: sql<number>`count(*) over()`,
-      })
-      .from(schema.documents)
-      .where(where)
-      .orderBy(
-        ...(ranking
-          ? [
-              desc(ranking.matchTier),
-              desc(ranking.titleCoverage),
-              desc(ranking.descriptionCoverage),
-              // Phrase coherence is a minor body-only tie-breaker. Bound its
-              // full-body scan so broad searches keep predictable latency;
-              // protected field tiers still rank the complete result set.
-              desc(
-                sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
-              ),
-            ]
-          : []),
-        desc(schema.documents.updatedAt),
-        asc(schema.documents.id),
-      )
-      .limit(args.limit)
-      .offset(args.offset);
-    const previews = docs.length
-      ? await db
-          .select({
-            id: schema.documents.id,
-            contentPreview: matchWindow,
-            snippetNeedle: selectedBodyNeedle
-              ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
-              : sql<string>`''`,
-            contentLength: sql<number>`length(${normalizedContent})`,
-          })
-          .from(schema.documents)
-          .where(
-            and(
-              where,
-              inArray(
-                schema.documents.id,
-                docs.map((doc) => doc.id),
-              ),
-            ),
-          )
-      : [];
-    const previewById = new Map(
-      previews.map((preview) => [preview.id, preview]),
+          )} then 'database' else 'page' end`.as("document_type"),
+          totalItems: sql<number>`count(*) over()`.as("total_items"),
+          matchTier: (ranking?.matchTier ?? sql<number>`0`).as("match_tier"),
+          titleCoverage: (ranking?.titleCoverage ?? sql<number>`0`).as(
+            "title_coverage",
+          ),
+          descriptionCoverage: (
+            ranking?.descriptionCoverage ?? sql<number>`0`
+          ).as("description_coverage"),
+          bodyProximity: bodyProximity.as("body_proximity"),
+        })
+        .from(schema.documents)
+        .where(where)
+        .orderBy(
+          ...(ranking
+            ? [
+                desc(ranking.matchTier),
+                desc(ranking.titleCoverage),
+                desc(ranking.descriptionCoverage),
+                // Phrase coherence is a minor body-only tie-breaker. Bound its
+                // full-body scan so broad searches keep predictable latency;
+                // protected field tiers still rank the complete result set.
+                desc(bodyProximity),
+              ]
+            : []),
+          desc(schema.documents.updatedAt),
+          asc(schema.documents.id),
+        )
+        .limit(args.limit)
+        .offset(args.offset),
     );
+    const docs = await db
+      .with(page)
+      .select({
+        id: page.id,
+        parentId: page.parentId,
+        title: page.title,
+        description: page.description,
+        icon: page.icon,
+        hideFromSearch: page.hideFromSearch,
+        updatedAt: page.updatedAt,
+        sourceKind: page.sourceKind,
+        sourceUpdatedAt: page.sourceUpdatedAt,
+        documentType: page.documentType,
+        totalItems: page.totalItems,
+        contentPreview: matchWindow,
+        snippetNeedle: selectedBodyNeedle
+          ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
+          : sql<string>`''`,
+        contentLength: sql<number>`length(${normalizedContent})`,
+      })
+      .from(page)
+      .innerJoin(schema.documents, eq(schema.documents.id, page.id))
+      .orderBy(
+        desc(page.matchTier),
+        desc(page.titleCoverage),
+        desc(page.descriptionCoverage),
+        desc(page.bodyProximity),
+        desc(page.updatedAt),
+        asc(page.id),
+      );
     const totalItems = docs.length
       ? Number(docs[0]!.totalItems)
       : Number(
@@ -420,7 +437,6 @@ export default defineAction({
 
     return {
       documents: docs.map((doc) => {
-        const preview = previewById.get(doc.id);
         return {
           id: doc.id,
           parentId:
@@ -435,10 +451,10 @@ export default defineAction({
           description: doc.description,
           icon: doc.icon,
           snippet: makeSnippet(
-            preview?.contentPreview ?? "",
-            preview?.snippetNeedle ?? "",
+            doc.contentPreview ?? "",
+            doc.snippetNeedle ?? "",
           ),
-          contentLength: Number(preview?.contentLength) || 0,
+          contentLength: Number(doc.contentLength) || 0,
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           updatedAt: doc.updatedAt,
         };
