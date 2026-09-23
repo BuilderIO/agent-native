@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { parseWorkspaceAppLinks } from "../client/org/workspace-app-links.js";
 import {
   deriveAppIdentity,
   isFirstPartyApp,
   resolveAppHomePath,
 } from "./app-identity.js";
-import { parseWorkspaceAppLinks } from "../client/org/workspace-app-links.js";
 import { getAppConfig, resetAppConfigForTests } from "./store.js";
 
 const base = { packageName: undefined } as Parameters<
