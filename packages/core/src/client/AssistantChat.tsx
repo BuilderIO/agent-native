@@ -2522,45 +2522,48 @@ export function clearChatStorage(tabId?: string) {
  * `lastMessage.status.type` without null-checking, so server-constructed
  * messages missing these fields crash.
  */
-function ensureMessageMetadata(repo: any): any {
+export function ensureMessageMetadata(repo: any): any {
   // Drop duplicate message ids before import — assistant-ui's MessageRepository
   // throws "performOp/link: A message with the same id already exists in the
   // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
   // for the normal no-duplicate case. See dedupeRepoMessagesById.
   repo = dropEmptyAssistantMessages(dedupeRepoMessagesById(repo));
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
-  for (const entry of repo.messages) {
+  // Copy before changing anything. The periodic in-run save passes
+  // `threadRuntime.export()`, whose messages are the live objects assistant-ui
+  // keeps streaming into. Forcing the live assistant message to "complete"
+  // there makes the thread report not-running mid-turn, and settling its
+  // content marks in-flight tool calls as interrupted.
+  const messages = repo.messages.map((entry: any) => {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
     const msg = entry?.message ?? entry;
-    if (!msg) continue;
-    if (!msg.metadata) {
-      msg.metadata = {};
-    }
-    if (msg.role === "assistant") {
+    if (!msg) return entry;
+    const next = { ...msg, metadata: msg.metadata ?? {} };
+    if (next.role === "assistant") {
       const statusType =
-        msg.status && typeof msg.status === "object"
-          ? (msg.status as { type?: unknown }).type
+        next.status && typeof next.status === "object"
+          ? (next.status as { type?: unknown }).type
           : undefined;
       const isTerminal =
         statusType === "complete" || statusType === "incomplete";
       if (!isTerminal) {
         const runError =
-          msg.metadata?.custom?.runError ?? msg.metadata?.runError;
-        msg.status = runError
+          next.metadata?.custom?.runError ?? next.metadata?.runError;
+        next.status = runError
           ? { type: "incomplete", reason: "error" }
           : { type: "complete", reason: "stop" };
       }
-      if (
-        Array.isArray(msg.content) &&
-        (isTerminal ||
-          msg.status?.type === "complete" ||
-          msg.status?.type === "incomplete")
-      ) {
-        settleInterruptedToolCalls(msg.content);
+      if (Array.isArray(next.content)) {
+        // Settling only writes top-level fields of tool-call parts.
+        next.content = next.content.map((part: any) =>
+          part?.type === "tool-call" ? { ...part } : part,
+        );
+        settleInterruptedToolCalls(next.content);
       }
     }
-  }
-  return repo;
+    return entry?.message ? { ...entry, message: next } : next;
+  });
+  return { ...repo, messages };
 }
 
 // Re-export for backwards compatibility

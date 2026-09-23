@@ -57,6 +57,7 @@ import {
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  ensureMessageMetadata,
   shouldSuppressUnauthenticatedDesktopThreadRestore,
   shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
@@ -2387,6 +2388,36 @@ describe("useAutoResumeStatus", () => {
       );
     });
     expect(apiRef.current?.isAutoResuming).toBe(false);
+  });
+});
+
+describe("ensureMessageMetadata", () => {
+  it("does not mutate the live repository the periodic in-run save exports", () => {
+    const liveTool = {
+      type: "tool-call",
+      toolCallId: "tool-1",
+      toolName: "list-records",
+      args: {},
+    };
+    const liveMessage = {
+      id: "a1",
+      role: "assistant",
+      content: [{ type: "text", text: "Looking it up." }, liveTool],
+      status: { type: "running" },
+    };
+    const repo = { messages: [{ parentId: null, message: liveMessage }] };
+
+    const persisted = ensureMessageMetadata(repo);
+    const saved = persisted.messages[0].message;
+
+    // The snapshot is settled for storage...
+    expect(saved.status).toEqual({ type: "complete", reason: "stop" });
+    expect(saved.content[1].outcome).toBe("unknown");
+    // ...but the message assistant-ui is still streaming into is untouched, so
+    // the thread keeps running and the tool result can still land cleanly.
+    expect(liveMessage.status).toEqual({ type: "running" });
+    expect(liveTool).not.toHaveProperty("outcome");
+    expect(liveTool).not.toHaveProperty("result");
   });
 });
 
