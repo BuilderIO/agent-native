@@ -542,11 +542,31 @@ jobs:
           node --experimental-strip-types scripts/check-google-redirect-uris.ts \
             --env all --budget-seconds 300 --allow-legacy-health | tee /tmp/agent-native-google-redirects.log
 
+      - name: Read previous scheduled probe result
+        id: previous-run
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! conclusion="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/monitor-agent-native-sites.yml/runs?per_page=100" \
+            --jq '.workflow_runs | map(select(.event == "schedule" and .status == "completed")) | sort_by(.created_at) | last | .conclusion // "unknown"')"; then
+            echo "::warning::Could not read the previous scheduled probe; paging will fail open and recovery will wait for another clean sample."
+            conclusion=unknown
+          fi
+          [[ -n "$conclusion" ]] || conclusion=unknown
+          echo "conclusion=$conclusion" >>"$GITHUB_OUTPUT"
+
       - name: Page and open a rolling incident
         if: failure()
         shell: bash
         run: |
           set -euo pipefail
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$previous_conclusion" == "success" ]]; then
+            echo "First failing scheduled probe; keeping details in Actions and waiting for another failed sample before paging."
+            exit 0
+          fi
           ISSUE_TITLE="Agent-Native site availability failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
@@ -628,6 +648,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$previous_conclusion" != "success" ]]; then
+            echo "Recovery needs two consecutive green scheduled probes; previous result was ${previous_conclusion:-unknown}."
+            exit 0
+          fi
           ISSUE_TITLE="Agent-Native site availability failing"
           pagerduty_status=0
           if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then

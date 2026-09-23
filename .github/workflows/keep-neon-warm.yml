@@ -21,6 +21,7 @@ on:
 permissions:
   issues: write
   contents: read
+  actions: read
 
 concurrency:
   group: keep-neon-warm
@@ -45,6 +46,21 @@ jobs:
           set -o pipefail
           node scripts/keep-warm.mjs --strict 2>&1 | tee /tmp/keep-warm.log
 
+      - name: Read previous scheduled health result
+        id: previous-run
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! conclusion="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?per_page=100" \
+            --jq '.workflow_runs | map(select(.event == "schedule" and .status == "completed")) | sort_by(.created_at) | last | .conclusion // "unknown"')"; then
+            echo "::warning::Could not read the previous scheduled health audit; paging will fail open and recovery will wait for another clean sample."
+            conclusion=unknown
+          fi
+          [[ -n "$conclusion" ]] || conclusion=unknown
+          echo "conclusion=$conclusion" >>"$GITHUB_OUTPUT"
+
       # One rolling issue, and it means something: open == currently failing.
       #
       # The previous version posted "Scheduled audit failed: <run url>" on every
@@ -57,6 +73,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$previous_conclusion" == "success" ]]; then
+            echo "First failing scheduled audit; keeping details in Actions and waiting for another failed sample before paging."
+            exit 0
+          fi
           ISSUE_TITLE="Production health check failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep -E '^\s*(✗|!) ' /tmp/keep-warm.log || true)"
@@ -122,6 +143,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$previous_conclusion" != "success" ]]; then
+            echo "Recovery needs two consecutive green scheduled audits; previous result was ${previous_conclusion:-unknown}."
+            exit 0
+          fi
           ISSUE_TITLE="Production health check failing"
           pagerduty_status=0
           if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then

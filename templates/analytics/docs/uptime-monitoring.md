@@ -77,9 +77,8 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
   `emailRecipients`; `slack` / `webhook` use the monitor's optional
   delivery-only `slackWebhookUrl` / `webhookUrl` (falling back to workspace
   `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL` when unset).
-- Transient no-response failures, such as network errors or timeouts, and
-  transient latency degradations must fail twice in a row before opening an
-  incident or alerting. Set
+- Transient no-response failures, HTTP 5xx responses, and latency degradations
+  must fail twice in a row before opening an incident or alerting. Set
   `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS=1` to alert on the first
   transient failure, or a higher value (max 10) for stricter confirmation.
 - While an incident is open it will not re-alert. After an incident resolves,
@@ -138,7 +137,7 @@ Environment flags (mirrors the analytics alert job):
 | `UPTIME_MONITOR_SWEEP_LIMIT`                           | max monitors processed per sweep (default 100).                                                  |
 | `UPTIME_MONITOR_RESULT_RETENTION_DAYS`                 | how long check results are kept (default 30).                                                    |
 | `UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS`                   | allow probing private/internal hosts.                                                            |
-| `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS` | consecutive timeout/network/slow-response failures required before alerting (default 2, max 10). |
+| `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS` | consecutive timeout/network/HTTP 5xx/slow-response failures required before alerting (default 2, max 10). |
 | `UPTIME_MONITORS_CRON_SECRET`                          | bearer token for external cron callers of `/api/uptime-monitors/run`.                            |
 
 The monitor tables (`monitors`, `monitor_check_results`, `monitor_incidents`)
