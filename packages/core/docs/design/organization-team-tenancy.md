@@ -54,8 +54,9 @@ another team.
 Members can leave. A lead can relinquish or leave only when another lead
 remains. Removing the sole lead requires a replacement lead first.
 
-Removing an organization member requires a replacement when they are the sole
-team lead. The operation then atomically removes their team memberships and
+Removing an organization member who is the sole lead in one or more teams
+requires a replacement lead in each affected team first; replacements may
+differ. The operation then atomically removes their team memberships and
 revokes team-derived access. Existing organization offboarding safeguards
 remain in effect.
 
@@ -163,15 +164,17 @@ request already accepted.
 
 ### Durable Runs and External Effects
 
-Persist the initiating actor and organization/team scope on durable user runs.
+Durable user runs persist the initiating actor and organization/team scope.
 Revalidate current authority at resume and before each external side effect.
-Stop with an explicit revoked-authority outcome; do not claim to cancel an
-already accepted external effect. Organization- and team-scoped schedules use a
-separately governed, revocable automation identity with current scoped authority
-and grants, not creator authority. Personal creator-run schedules retain creator
-authority. Creator departure alone does not transfer schedule authority. A
-schedule blocked by revoked principal authority requires organization-admin
-review or reassignment.
+
+Organization- and team-scoped schedules use a separately governed, revocable
+automation identity with current scoped authority and grants. Personal
+creator-run schedules retain creator authority; creator departure does not
+transfer schedule authority.
+
+On revoked principal authority, stop with an explicit outcome. A blocked
+schedule requires organization-admin review or reassignment; an already
+accepted external effect cannot be cancelled.
 
 ### Active Team Selection
 
@@ -185,9 +188,10 @@ action requests in a header or body.
 ## Team Archival
 
 Team deletion is archival. Retain a tombstone with its stable identifier and
-history. Reject archival while live team-scoped resources or automations remain.
-An organization admin must explicitly move them where permitted or delete them.
-Historical immutable records do not block archival.
+history. Delete live team context and learning before archival. Other live
+team-scoped resources and automations must move where permitted or be deleted.
+Immutable historical records may remain linked to the archived stable team ID
+and do not block archival.
 
 Archival revokes team-principal grants and team connection-use permissions. It
 disables new team-scoped work. It does not delete inherited organization
@@ -198,25 +202,28 @@ team scope and a valid `teamId`. They cannot be personal or organization
 resources, even if their creator owns them as a human. A family can still have
 separate personal context or learning records.
 
-Team-bound records must be deleted before their team archives. Other
-team-scoped resources can move under the Resource Scope rules.
-
 ## Resource-Family Enablement
 
 Resource families are enabled in phases. This is not a phased ownership model.
 Each enabled family has a complete tenancy contract. Team scope is opt-in per
 family and disabled by default.
 
+Rollout inventory to assess for phased enablement; it does not enable every
+item:
+
 - chats, threads, runs, and artifacts
 - activity, instructions, context, memory, skills and bundles, docs, dashboards,
   and saved artifacts
 - automations and their history
-- visibility to organization-owned MCP connections and integrations
+
+Organization-owned connection visibility is assessed separately from resource
+families and remains governed by its team and app grants.
 
 Before enabling a family, complete its inventory and focused tests. They cover
 every read, list, search, and export path. They cover item and mutation paths,
 sharing paths, and legacy HTTP handlers. They also cover background, agent, and
-automation paths.
+automation paths. Every flow must apply the trusted scope; neither an action
+request nor an application-state value is authority.
 
 The additive migration must be complete and its scope known.
 
@@ -238,19 +245,12 @@ or organization scope.
 Rollback must retain a tenancy-aware build. Older handlers cannot safely
 process team rows.
 
-Every list, item, mutation, sharing, and background flow must apply the trusted
-scope. Neither an action request nor an application-state value is authority.
-
 ## Consequences
 
-- Per-family activation requires an inventory, focused tests, migration
-  completion, and deployment readiness before rollout.
 - Explicit audited moves and share validation add product and operational work,
   but prevent sharing from silently changing ownership.
 - Organization-owned credentials require separate team and app grants, which
   adds revocation coordination but keeps secrets out of team ownership.
-- Rollback must retain tenancy-aware handlers, so an older build cannot process
-  team rows.
 
 ## Deferred Work And Required Follow-ups
 
