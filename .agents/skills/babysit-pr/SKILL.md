@@ -36,6 +36,16 @@ merging, except when the user explicitly invokes `/ship-now`.
 
 ## Setup
 
+Before creating or resuming a heartbeat, query the live PR with
+`gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid`.
+If it is merged or closed, do not create or resume a watcher; if this task
+already owns one, run the stop cleanup below. If the query fails or is
+ambiguous, stay foreground-only until the PR state is known.
+
+If the user asks not to create scheduled tasks, keep this invocation in the
+foreground and do not create or resume a heartbeat. Continue ticking here with
+interruptible waits until a stop condition is reached.
+
 1. Establish a durable self-re-arming tick loop before yielding. Do ONE tick
    (see "Each tick"), then schedule the next one with the host's durable
    wake-up facility using this same `/babysit-pr <number> …` invocation. In
@@ -48,7 +58,10 @@ merging, except when the user explicitly invokes `/ship-now`.
    `notificationPolicy: failed_runs_only`; update that exact task-scoped
    automation on later ticks. The task-scoped name prevents different
    invocations from overwriting the same record, but it does not select one
-   durable babysitter for the PR. First inspect the exact legacy heartbeat. If
+   durable babysitter for the PR. Immediately before any create/resume/update
+   that sets `ACTIVE`, re-query the PR and require `OPEN`; a terminal state or
+   failed query must not schedule the next tick. First inspect the exact legacy
+   heartbeat. If
    it is ACTIVE, leave it untouched, do not claim a lease or create any watcher
    for this PR, and continue this invocation in the foreground. This is a
    terminal foreground-only branch for this invocation, so skip the
@@ -147,6 +160,18 @@ if ! git fetch origin --quiet; then
   echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
   exit 1
 fi
+```
+
+After a successful fetch, renew the PR lease fence before any other work.
+Immediately query the live PR state with
+`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid`.
+If it is merged or closed, skip the rest of the tick and go directly to stop
+cleanup. If the query fails, do not run the branch/review/CI checks or schedule
+another tick until live state is available.
+
+For an open PR, inspect the branch snapshot:
+
+```bash
 git status --short
 git diff --name-only
 if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
@@ -388,7 +413,11 @@ Do not attempt to pause a heartbeat that this invocation never created or
 resumed. If this invocation did create or resume its task-scoped heartbeat,
 retain the PR lease while rereading that exact
 `babysit-pr-<number>-<this task's threadId>` heartbeat and capturing its current
-version, then update it to `PAUSED` and verify the result. If the pause fails,
+version, then update it to `PAUSED` and verify the result. The automation update
+must include the complete persisted definition, changing only `status`; a
+status-only update is rejected. Preserve its exact id, kind, name, prompt,
+cadence, target thread, notification policy, and any other stored fields. If
+the pause fails,
 do not stop: reread the lease and heartbeat, renew the lease when it is still
 ours, and retry the same-owner pause from the fresh version. If the lease has
 moved to another owner, never mutate or release that owner's lease; only pause
