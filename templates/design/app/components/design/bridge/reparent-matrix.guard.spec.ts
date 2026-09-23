@@ -1495,13 +1495,13 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenId: "screen-a",
       }),
     ).toBe("screen-bridge");
-    // A board primitive dropped into a live localhost screen: neither endpoint
-    // is runtimeOnly (the live anchor has no stored layer owner), so without
-    // targetScreenIsLive this resolves to "source-edit" and the move is written
-    // as an HTML document over the destination screen's bridge URL.
+    // A board primitive dropped into a live localhost screen: the live anchor
+    // has no stored layer owner, so without targetScreenIsLive this resolves to
+    // "source-edit" and the move is written as an HTML document over the
+    // destination screen's bridge URL.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: false,
+        subjectRuntimeOnly: true,
         targetRuntimeOnly: false,
         sourceScreenId: "board",
         targetScreenId: "live",
@@ -1509,8 +1509,9 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge-insert");
-    // Only the board may be reinterpreted as an insert — a stored screen's
-    // element moved into a live app would otherwise be silently duplicated.
+    // Only the board may be reinterpreted as an insert. This also covers a
+    // runtime-only node copied from a live screen onto the board: the board is
+    // the source surface, and the destination live DOM must receive the copy.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: false,
