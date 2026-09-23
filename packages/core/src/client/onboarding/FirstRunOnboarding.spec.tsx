@@ -35,6 +35,12 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
+vi.mock("../settings/deferred-builder-connect-popover.js", async () => {
+  const { BuilderConnectPopover } =
+    await import("../settings/BuilderConnectPopover.js");
+  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
+});
+
 describe("FirstRunOnboarding", () => {
   let container: HTMLDivElement;
   let root: Root;

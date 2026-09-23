@@ -28,7 +28,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
@@ -488,7 +488,7 @@ export function FirstRunOnboarding({
                     </div>
                   ))}
                 </div>
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={connectFlow}
                   onConnect={(provisionAccount) =>
                     handleBuilder(provisionAccount)
@@ -510,7 +510,7 @@ export function FirstRunOnboarding({
                     )}
                     <IconArrowRight size={15} />
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
                 {connectFlow.error && !connectFlow.statusResolved && (
                   <p
                     role="status"
