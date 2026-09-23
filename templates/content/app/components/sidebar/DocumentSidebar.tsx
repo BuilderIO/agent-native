@@ -84,6 +84,7 @@ import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
+  invalidateContentDatabaseNavigationQueries,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -108,6 +109,7 @@ import {
   usePermanentlyDeleteDocument,
   useRestoreDocument,
   useTrashedDocuments,
+  useMoveDocument,
   useUpdateDocument,
   documentQueryFilter,
   rollbackOptimisticCreatedDocument,
@@ -150,7 +152,12 @@ import {
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
+import { MovePageDialog, type MovePageTarget } from "./MovePageDialog";
 import { sidebarRowClassName } from "./SidebarNavigationRow";
+import {
+  SidebarPageActionsProvider,
+  type SidebarPageActions,
+} from "./SidebarRowActions";
 import {
   WorkspaceSourceMenuItems,
   useWorkspaceCreation,
@@ -1947,6 +1954,67 @@ export function DocumentSidebar({
     [t, updateDocument],
   );
 
+  const moveDocument = useMoveDocument();
+  const duplicateDocument = useActionMutation("duplicate-database-item", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+  });
+  const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
+  const sidebarPageActions = useMemo<SidebarPageActions>(
+    () => ({
+      renamePage: async (documentId, title) => {
+        try {
+          await updateDocument.mutateAsync({ id: documentId, title });
+        } catch (error) {
+          toast.error(t("sidebar.failedRenamePage"), {
+            description:
+              error instanceof Error ? error.message : t("empty.genericError"),
+          });
+          throw error;
+        }
+      },
+      duplicatePage: (documentId) => {
+        duplicateDocument.mutate(
+          { documentId },
+          {
+            onError: (error) => {
+              toast.error(t("sidebar.failedDuplicatePage"), {
+                description:
+                  error instanceof Error
+                    ? error.message
+                    : t("empty.genericError"),
+              });
+            },
+          },
+        );
+      },
+      movePage: ({ documentId, title }) => setMovingPage({ documentId, title }),
+    }),
+    [duplicateDocument, t, updateDocument],
+  );
+  const handleMovePage = useCallback(
+    (page: MovePageTarget, parentId: string | null) => {
+      moveDocument.mutate(
+        { id: page.documentId, parentId },
+        {
+          onSuccess: () => {
+            // Reveal the Page where it landed.
+            if (parentId) handleDocumentExpandedChange(parentId, true);
+          },
+          onError: (error) => {
+            toast.error(t("sidebar.failedMovePage"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
+    },
+    [handleDocumentExpandedChange, moveDocument, t],
+  );
+
   const handleRestoreDatabase = useCallback(
     async (databaseId: string) => {
       try {
@@ -2565,112 +2633,114 @@ export function DocumentSidebar({
       {contentSpaceSelector}
       <div className="shrink-0 ps-3 pe-2 py-2">{searchButton}</div>
 
-      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
-        <div className="w-full min-w-0 py-2">
-          {selectedSpace ? (
-            <PersonalSidebarSections
-              spaceId={selectedSpace.id}
-              pinnedCount={favoritesData?.items.length ?? 0}
-              renderFiles={renderWorkspaceNavigation}
-              activeDocumentId={activeDocumentId}
-              onNavigate={onNavigate}
-              onCreatePage={() => void handleCreatePageInSpace(selectedSpace)}
-              createPagePending={createDocument.isPending}
-              onToggleFavorite={handleToggleFavorite}
-              reorderLabels={sidebarReorderLabels}
-              seeAllHrefs={{
-                pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                files: `/page/${selectedSpace.filesDocumentId}`,
-              }}
-              renderPinned={(limit) => {
-                const serverOrdered = favoritesOrder.order.mode !== "custom";
-                const renderedItems = (
-                  serverOrdered
-                    ? (favoritesData?.items ?? [])
-                    : contentSidebarOrderedItems(
-                        favoritesData?.items ?? [],
-                        favoritesOrder.order,
-                      )
-                ).slice(0, limit);
-                return favoritesDatabase.isError ||
-                  favoritesPersonalView.isError ? (
-                  <QueryErrorState
-                    compact
-                    onRetry={() => {
-                      void favoritesDatabase.refetch();
-                      void favoritesPersonalView.refetch();
-                    }}
-                  />
-                ) : (
-                  <ContentFilesSidebarView
-                    data={
-                      favoritesData
-                        ? {
-                            ...favoritesData,
-                            items: renderedItems,
-                          }
-                        : undefined
-                    }
-                    overrides={favoritesPersonalView.data?.overrides}
-                    sidebarOrder={favoritesOrder.order}
-                    serverOrdered={serverOrdered}
-                    isLoading={
-                      favoritesDatabase.isLoading ||
-                      favoritesPersonalView.isLoading
-                    }
-                    activeDocumentId={activeDocumentId}
-                    manualReorder={{
-                      labels: sidebarReorderLabels,
-                      onReorder: (itemIds) =>
-                        handlePinnedReorder(
-                          itemIds,
-                          renderedItems.map((item) => item.id),
-                        ),
-                    }}
-                    onOpenItem={(item) => {
-                      const space = contentSpaces.find(
-                        (candidate) =>
-                          candidate.filesDatabaseId ===
-                          item.workspaceFilesDatabaseId,
-                      );
-                      if (!space || selectedSpace?.id === space.id) {
-                        onNavigate?.();
-                        return false;
+      <SidebarPageActionsProvider value={sidebarPageActions}>
+        <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+          <div className="w-full min-w-0 py-2">
+            {selectedSpace ? (
+              <PersonalSidebarSections
+                spaceId={selectedSpace.id}
+                pinnedCount={favoritesData?.items.length ?? 0}
+                renderFiles={renderWorkspaceNavigation}
+                activeDocumentId={activeDocumentId}
+                onNavigate={onNavigate}
+                onCreatePage={() => void handleCreatePageInSpace(selectedSpace)}
+                createPagePending={createDocument.isPending}
+                onToggleFavorite={handleToggleFavorite}
+                reorderLabels={sidebarReorderLabels}
+                seeAllHrefs={{
+                  pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                  recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                  files: `/page/${selectedSpace.filesDocumentId}`,
+                }}
+                renderPinned={(limit) => {
+                  const serverOrdered = favoritesOrder.order.mode !== "custom";
+                  const renderedItems = (
+                    serverOrdered
+                      ? (favoritesData?.items ?? [])
+                      : contentSidebarOrderedItems(
+                          favoritesData?.items ?? [],
+                          favoritesOrder.order,
+                        )
+                  ).slice(0, limit);
+                  return favoritesDatabase.isError ||
+                    favoritesPersonalView.isError ? (
+                    <QueryErrorState
+                      compact
+                      onRetry={() => {
+                        void favoritesDatabase.refetch();
+                        void favoritesPersonalView.refetch();
+                      }}
+                    />
+                  ) : (
+                    <ContentFilesSidebarView
+                      data={
+                        favoritesData
+                          ? {
+                              ...favoritesData,
+                              items: renderedItems,
+                            }
+                          : undefined
                       }
-                      void handleSelectContentSpace(space, item.document.id);
-                      onNavigate?.();
-                      return true;
-                    }}
-                    onCreateChildPage={(item) =>
-                      void handleCreatePage(item.document.id)
-                    }
-                    onCreateChildDatabase={(item) =>
-                      void handleCreateDatabase(item.document.id)
-                    }
-                    onDeleteItem={(item) =>
-                      requestDelete(
-                        item.document.id,
-                        item.document.title || t("sidebar.untitled"),
-                      )
-                    }
-                    onToggleFavorite={(item) =>
-                      handleToggleFavorite(item.document.id, false)
-                    }
-                    scroll={false}
-                    labels={{
-                      noMatchesLabel: t("database.noRowsMatchThisView"),
-                      clearLabel: t("database.clearSearchAndFilters"),
-                      navigationLabel: t("sidebar.pinned"),
-                      untitledLabel: t("sidebar.untitled"),
-                    }}
-                  />
-                );
-              }}
-            />
-          ) : null}
-        </div>
-      </ScrollArea>
+                      overrides={favoritesPersonalView.data?.overrides}
+                      sidebarOrder={favoritesOrder.order}
+                      serverOrdered={serverOrdered}
+                      isLoading={
+                        favoritesDatabase.isLoading ||
+                        favoritesPersonalView.isLoading
+                      }
+                      activeDocumentId={activeDocumentId}
+                      manualReorder={{
+                        labels: sidebarReorderLabels,
+                        onReorder: (itemIds) =>
+                          handlePinnedReorder(
+                            itemIds,
+                            renderedItems.map((item) => item.id),
+                          ),
+                      }}
+                      onOpenItem={(item) => {
+                        const space = contentSpaces.find(
+                          (candidate) =>
+                            candidate.filesDatabaseId ===
+                            item.workspaceFilesDatabaseId,
+                        );
+                        if (!space || selectedSpace?.id === space.id) {
+                          onNavigate?.();
+                          return false;
+                        }
+                        void handleSelectContentSpace(space, item.document.id);
+                        onNavigate?.();
+                        return true;
+                      }}
+                      onCreateChildPage={(item) =>
+                        void handleCreatePage(item.document.id)
+                      }
+                      onCreateChildDatabase={(item) =>
+                        void handleCreateDatabase(item.document.id)
+                      }
+                      onDeleteItem={(item) =>
+                        requestDelete(
+                          item.document.id,
+                          item.document.title || t("sidebar.untitled"),
+                        )
+                      }
+                      onToggleFavorite={(item) =>
+                        handleToggleFavorite(item.document.id, false)
+                      }
+                      scroll={false}
+                      labels={{
+                        noMatchesLabel: t("database.noRowsMatchThisView"),
+                        clearLabel: t("database.clearSearchAndFilters"),
+                        navigationLabel: t("sidebar.pinned"),
+                        untitledLabel: t("sidebar.untitled"),
+                      }}
+                    />
+                  );
+                }}
+              />
+            ) : null}
+          </div>
+        </ScrollArea>
+      </SidebarPageActionsProvider>
 
       {renderTrashSection()}
 
@@ -2717,6 +2787,17 @@ export function DocumentSidebar({
       />
 
       {workspaceCreation.dialog}
+      {selectedSpace ? (
+        <MovePageDialog
+          page={movingPage}
+          spaceId={selectedSpace.id}
+          filesDatabaseId={selectedSpace.filesDatabaseId}
+          onOpenChange={(open) => {
+            if (!open) setMovingPage(null);
+          }}
+          onMove={handleMovePage}
+        />
+      ) : null}
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

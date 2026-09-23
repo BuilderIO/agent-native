@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   contentRecentHref,
@@ -15,7 +16,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconClock,
-  IconClockX,
   IconDots,
   IconFiles,
   IconPin,
@@ -67,16 +67,17 @@ import {
   sidebarShowMoreClassName,
 } from "./SidebarNavigationRow";
 import {
-  SidebarPinMenuItem,
+  SidebarPageMenu,
   SidebarRowActions,
-  SidebarRowMenu,
+  sidebarPageLinks,
   sidebarRowTitleFadeClassName,
 } from "./SidebarRowActions";
 
 /**
  * A Recent destination. Recent is personal history, not hierarchy, so its menu
- * only carries personal actions: pin and forget. Shared mutations such as
- * delete, add child, and reorder stay on Files.
+ * carries only actions that leave the Page unchanged: pin, copy link, open in
+ * a new tab, and forget. Rename, duplicate, move, trash, add child, and
+ * reorder stay with Files and Pinned.
  */
 function RecentSidebarRow({
   entry,
@@ -119,20 +120,19 @@ function RecentSidebarRow({
         </span>
       </SidebarNavigationRow>
       <SidebarRowActions>
-        <SidebarRowMenu label={title}>
-          {onToggleFavorite && pinned !== undefined ? (
-            <SidebarPinMenuItem
-              pinned={pinned}
-              onSelect={() =>
-                onToggleFavorite(entry.target.documentId, !pinned)
-              }
-            />
-          ) : null}
-          <DropdownMenuItem onSelect={() => onRemove(entry.target)}>
-            <IconClockX className="me-2 size-4" />
-            {t("sidebar.removeFromRecent")}
-          </DropdownMenuItem>
-        </SidebarRowMenu>
+        <SidebarPageMenu
+          documentId={entry.target.documentId}
+          title={title}
+          href={appPath(contentRecentHref(entry.target))}
+          shareLink={sidebarPageLinks(entry.target.documentId).shareLink}
+          pinned={pinned}
+          onTogglePin={
+            onToggleFavorite && pinned !== undefined
+              ? () => onToggleFavorite(entry.target.documentId, !pinned)
+              : undefined
+          }
+          onRemoveFromRecent={() => onRemove(entry.target)}
+        />
       </SidebarRowActions>
     </div>
   );

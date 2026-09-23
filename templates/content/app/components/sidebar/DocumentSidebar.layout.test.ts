@@ -562,13 +562,54 @@ describe("document sidebar layout", () => {
     );
 
     expect(recentRow).toContain("<SidebarRowActions>");
-    expect(recentRow).toContain("<SidebarRowMenu label={title}>");
-    expect(recentRow).toContain("<SidebarPinMenuItem");
-    expect(recentRow).toContain('t("sidebar.removeFromRecent")');
-    // Recent is personal history: no shared mutations or hierarchy controls.
-    expect(recentRow).not.toContain("database.delete");
-    expect(recentRow).not.toContain("addChild");
-    expect(recentRow).not.toContain("useSidebarReorderItem");
+    expect(recentRow).toContain("<SidebarPageMenu");
+    expect(recentRow).toContain("onTogglePin=");
+    expect(recentRow).toContain("onRemoveFromRecent=");
+    // Recent is personal history: nothing that changes the Page or tree.
+    for (const shared of [
+      "onRename",
+      "onDuplicate",
+      "onMove=",
+      "onMoveToTrash",
+      "addChild",
+      "useSidebarReorderItem",
+    ]) {
+      expect(recentRow).not.toContain(shared);
+    }
+  });
+
+  it("builds every sidebar Page menu from one component and one order", () => {
+    const rowActions = readSidebarSource("./SidebarRowActions.tsx");
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const menu = rowActions.slice(
+      rowActions.indexOf("export function SidebarPageMenu"),
+    );
+
+    expect(databaseSidebar).toContain("<SidebarPageMenu");
+    expect(databaseSidebar).not.toContain("<SidebarRowMenu");
+    // Pin, then link/open, then page changes, then lifecycle, then activity.
+    const order = [
+      "<SidebarPinMenuItem",
+      't("sidebar.copyLink")',
+      't("sidebar.openInNewTab")',
+      't("sidebar.rename")',
+      't("sidebar.duplicate")',
+      't("sidebar.moveTo")',
+      't("sidebar.removeFromRecent")',
+      't("sidebar.moveToTrash")',
+      "<SidebarPageActivity",
+    ].map((needle) => menu.indexOf(needle));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Rename keeps focus in its input instead of returning to the trigger.
+    expect(menu).toContain("event.preventDefault()");
+    // Local-file Pages mirror disk, so they cannot be renamed, duplicated, or
+    // moved from the sidebar.
+    expect(databaseSidebar).toContain(
+      "canEdit && !isLocalFile && pageActions !== null",
+    );
+    // Reorderable rows (Pinned) stay inside the sidebar so their menu shows.
+    expect(databaseSidebar).toContain('className="relative min-w-0"');
   });
 
   it("keeps Trash in a fixed group and Settings in the footer only", () => {

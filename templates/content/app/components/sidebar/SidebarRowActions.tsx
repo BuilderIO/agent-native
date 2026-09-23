@@ -1,13 +1,35 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { IconDots, IconPin } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  IconArrowForwardUp,
+  IconClockX,
+  IconCopy,
+  IconDots,
+  IconExternalLink,
+  IconLink,
+  IconPencil,
+  IconPin,
+  IconTrash,
+} from "@tabler/icons-react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useRef,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Fade a row's title under its revealed actions instead of re-truncating it,
@@ -38,9 +60,11 @@ export function SidebarRowActions({ children }: { children: ReactNode }) {
 /** A row's "…" menu; each section decides which items it offers. */
 export function SidebarRowMenu({
   label,
+  onCloseAutoFocus,
   children,
 }: {
   label: string;
+  onCloseAutoFocus?: (event: Event) => void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -55,7 +79,11 @@ export function SidebarRowMenu({
           <IconDots size={14} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
+      <DropdownMenuContent
+        align="start"
+        className="w-60"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         {children}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -75,5 +103,218 @@ export function SidebarPinMenuItem({
       <IconPin className="me-2 size-4" strokeWidth={pinned ? 2.2 : 1.7} />
       {pinned ? t("sidebar.unpinFromSidebar") : t("sidebar.pinToSidebar")}
     </DropdownMenuItem>
+  );
+}
+
+/**
+ * Where a sidebar Page opens and what its copied link is. Local-file Pages
+ * are not published, so their link is the in-app URL rather than /p/.
+ */
+export function sidebarPageLinks(
+  documentId: string,
+  { localFile = false }: { localFile?: boolean } = {},
+) {
+  const pagePath = appPath(`/page/${documentId}`);
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  return {
+    href: pagePath,
+    shareLink: `${origin}${localFile ? pagePath : appPath(`/p/${documentId}`)}`,
+  };
+}
+
+/** Page mutations the sidebar row menu can start, owned by DocumentSidebar. */
+export interface SidebarPageActions {
+  renamePage: (documentId: string, title: string) => Promise<void>;
+  duplicatePage: (documentId: string) => void;
+  movePage: (page: {
+    documentId: string;
+    title: string;
+    spaceId: string | null;
+  }) => void;
+}
+
+const SidebarPageActionsContext = createContext<SidebarPageActions | null>(
+  null,
+);
+
+export const SidebarPageActionsProvider = SidebarPageActionsContext.Provider;
+
+export function useSidebarPageActions() {
+  return useContext(SidebarPageActionsContext);
+}
+
+/**
+ * The one sidebar Page menu. Every section renders it and passes only the
+ * actions it allows, so Files, Pinned, and Recent share order, labels, and
+ * behavior. Groups follow Notion's shape: pin; link and open; change the
+ * Page; lifecycle; then who last edited it.
+ */
+export function SidebarPageMenu({
+  documentId,
+  title,
+  href,
+  shareLink,
+  pinned,
+  onTogglePin,
+  onRename,
+  onDuplicate,
+  onMove,
+  onRemoveFromRecent,
+  onMoveToTrash,
+}: {
+  documentId: string;
+  title: string;
+  href: string;
+  shareLink: string;
+  pinned?: boolean;
+  onTogglePin?: () => void;
+  onRename?: () => void;
+  onDuplicate?: () => void;
+  onMove?: () => void;
+  onRemoveFromRecent?: () => void;
+  onMoveToTrash?: () => void;
+}) {
+  const t = useT();
+  // Rename swaps the row for an input. Start it only after the menu has
+  // closed and skip Radix's focus return to the "…" trigger; otherwise the
+  // menu's focus trap steals focus and the blur commits the input at once.
+  const pendingRenameRef = useRef(false);
+
+  async function copyLink() {
+    if (await writeClipboardText(shareLink)) {
+      toast.success(t("editor.toolbar.copiedPageLink"));
+    } else {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+    }
+  }
+
+  const groups: ReactNode[][] = [
+    onTogglePin && pinned !== undefined
+      ? [
+          <SidebarPinMenuItem
+            key="pin"
+            pinned={pinned}
+            onSelect={onTogglePin}
+          />,
+        ]
+      : [],
+    [
+      <DropdownMenuItem key="copy" onSelect={() => void copyLink()}>
+        <IconLink className="me-2 size-4" />
+        {t("sidebar.copyLink")}
+      </DropdownMenuItem>,
+      <DropdownMenuItem key="open" asChild>
+        <a href={href} target="_blank" rel="noopener noreferrer">
+          <IconExternalLink className="me-2 size-4" />
+          {t("sidebar.openInNewTab")}
+        </a>
+      </DropdownMenuItem>,
+    ],
+    [
+      onRename ? (
+        <DropdownMenuItem
+          key="rename"
+          onSelect={() => {
+            pendingRenameRef.current = true;
+          }}
+        >
+          <IconPencil className="me-2 size-4" />
+          {t("sidebar.rename")}
+        </DropdownMenuItem>
+      ) : null,
+      onDuplicate ? (
+        <DropdownMenuItem key="duplicate" onSelect={onDuplicate}>
+          <IconCopy className="me-2 size-4" />
+          {t("sidebar.duplicate")}
+        </DropdownMenuItem>
+      ) : null,
+      onMove ? (
+        <DropdownMenuItem key="move" onSelect={onMove}>
+          <IconArrowForwardUp className="me-2 size-4" />
+          {t("sidebar.moveTo")}
+        </DropdownMenuItem>
+      ) : null,
+    ].filter(Boolean),
+    [
+      onRemoveFromRecent ? (
+        <DropdownMenuItem key="forget" onSelect={onRemoveFromRecent}>
+          <IconClockX className="me-2 size-4" />
+          {t("sidebar.removeFromRecent")}
+        </DropdownMenuItem>
+      ) : null,
+      onMoveToTrash ? (
+        <DropdownMenuItem
+          key="trash"
+          className="text-destructive focus:text-destructive"
+          onSelect={onMoveToTrash}
+        >
+          <IconTrash className="me-2 size-4" />
+          {t("sidebar.moveToTrash")}
+        </DropdownMenuItem>
+      ) : null,
+    ].filter(Boolean),
+  ].filter((group) => group.length > 0);
+
+  return (
+    <SidebarRowMenu
+      label={title}
+      onCloseAutoFocus={(event) => {
+        if (!pendingRenameRef.current) return;
+        pendingRenameRef.current = false;
+        event.preventDefault();
+        onRename?.();
+      }}
+    >
+      {groups.map((group, index) => (
+        <Fragment key={index}>
+          {index > 0 ? <DropdownMenuSeparator /> : null}
+          {group}
+        </Fragment>
+      ))}
+      <DropdownMenuSeparator />
+      <SidebarPageActivity documentId={documentId} />
+    </SidebarRowMenu>
+  );
+}
+
+/**
+ * "Last edited by … · when", read only while the menu is open. It renders a
+ * fixed two-line block so the menu does not jump when the read resolves.
+ */
+function SidebarPageActivity({ documentId }: { documentId: string }) {
+  const t = useT();
+  const { formatDate } = useFormatters();
+  const activity = useActionQuery("get-document-activity", { id: documentId });
+  if (activity.isError) return null;
+  const data = activity.data;
+  const editor = data?.updatedByName ?? data?.updatedBy ?? null;
+  return (
+    <div
+      className="grid gap-0.5 px-2 py-1.5 text-xs text-muted-foreground"
+      data-sidebar-page-activity
+    >
+      {data ? (
+        <>
+          <span className="truncate">
+            {editor
+              ? t("sidebar.lastEditedBy", { name: editor })
+              : t("sidebar.lastEdited")}
+          </span>
+          <span className="tabular-nums">
+            {formatDate(data.updatedAt, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+          </span>
+        </>
+      ) : (
+        <>
+          <Skeleton className="h-3.5 w-3/4" />
+          <Skeleton className="h-3.5 w-1/2" />
+        </>
+      )}
+    </div>
   );
 }

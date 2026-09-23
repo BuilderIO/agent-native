@@ -61,23 +61,27 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
-    label: "Create, delete, move, favorite, list, search, and open pages",
+    label:
+      "Create, rename, duplicate, delete, move, favorite, list, search, and open pages",
     uiEntrypoints: [
       "app/components/sidebar/DocumentSidebar.tsx",
       "app/components/sidebar/DocumentTreeItem.tsx",
+      "app/components/sidebar/SidebarRowActions.tsx",
+      "app/components/sidebar/MovePageDialog.tsx",
       "app/components/editor/DocumentToolbar.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; the shared sidebar row menu renames, duplicates beside the original, moves within the space, trashes, and reads last-edit activity through the same Actions.",
     status: "action-backed",
     actions: [
       "create-document",
       "clone-creative-context-document",
       "delete-document",
       "get-document",
+      "get-document-activity",
       "list-trashed-documents",
       "list-documents",
       "move-document",

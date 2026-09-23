@@ -20,7 +20,6 @@ import {
   IconFolder,
   IconFolderOpen,
   IconPlus,
-  IconTrash,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -39,11 +38,12 @@ import {
   sidebarShowMoreClassName,
 } from "@/components/sidebar/SidebarNavigationRow";
 import {
-  SidebarPinMenuItem,
+  SidebarPageMenu,
   SidebarRowActions,
-  SidebarRowMenu,
+  sidebarPageLinks,
   sidebarRowActionButtonClassName,
   sidebarRowTitleFadeClassName,
+  useSidebarPageActions,
 } from "@/components/sidebar/SidebarRowActions";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,7 +55,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -324,6 +323,7 @@ function PagedContentFilesBranch({
               untitledLabel={props.untitledLabel}
               depth={props.depth}
               hasChildren={navigationItem.hasChildren}
+              isCollection={navigationItem.type === "database"}
               expanded={expanded}
               onToggleExpanded={(open) =>
                 props.onDocumentExpandedChange(navigationItem.documentId, open)
@@ -970,7 +970,13 @@ function ReorderableDatabaseSidebarRow({
 }) {
   const reorder = useSidebarReorderItem(props.item.id);
   return (
-    <div ref={reorder.setNodeRef} style={reorder.style} className="relative">
+    // min-w-0 keeps a long title from widening this grid item past the
+    // sidebar, which would push the row actions out of view.
+    <div
+      ref={reorder.setNodeRef}
+      style={reorder.style}
+      className="relative min-w-0"
+    >
       <SidebarDropIndicator placement={reorder.dropIndicator} />
       <DatabaseSidebarRow
         {...props}
@@ -996,8 +1002,11 @@ function DatabaseSidebarRow({
   expanded = false,
   onToggleExpanded,
   reorder,
+  isCollection = Boolean(item.document.database),
 }: {
   item: ContentDatabaseItem;
+  /** Collection pages cannot be duplicated from the sidebar yet. */
+  isCollection?: boolean;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
@@ -1043,7 +1052,17 @@ function DatabaseSidebarRow({
     onPreview(item);
   }
 
-  const title = item.document.title || untitledLabel;
+  const pageActions = useSidebarPageActions();
+  const [renaming, setRenaming] = useState(false);
+  // Show a committed rename immediately; the refreshed row takes over once
+  // its title matches, and a failed save drops back to the stored title.
+  const [pendingTitle, setPendingTitle] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingTitle !== null && item.document.title === pendingTitle) {
+      setPendingTitle(null);
+    }
+  }, [item.document.title, pendingTitle]);
+  const title = pendingTitle ?? (item.document.title || untitledLabel);
   const expandLabel = expanded
     ? t("sidebar.collapseItem", { title })
     : t("sidebar.expandItem", { title });
@@ -1051,6 +1070,20 @@ function DatabaseSidebarRow({
   useEffect(() => {
     if (active) revealActiveSidebarRow(rowRef.current);
   }, [active]);
+  // Local-file Pages mirror files on disk; renaming, duplicating, or moving
+  // them here would diverge from the folder.
+  const isLocalFile = item.document.source?.mode === "local-files";
+  const canChangePage = canEdit && !isLocalFile && pageActions !== null;
+
+  function commitRename(nextTitle: string) {
+    setRenaming(false);
+    const trimmed = nextTitle.trim();
+    if (!pageActions || !trimmed || trimmed === item.document.title) return;
+    setPendingTitle(trimmed);
+    pageActions
+      .renamePage(item.document.id, trimmed)
+      .catch(() => setPendingTitle(null));
+  }
 
   if (item.document.source?.kind === "folder") {
     return (
@@ -1117,66 +1150,88 @@ function DatabaseSidebarRow({
             />
           </button>
         ) : null}
-        <SidebarNavigationRow
-          to={`/page/${item.document.id}`}
-          icon={item.document.icon}
-          hideIconOnHover={hasChildren}
-          active={active}
-          title={title}
-          {...reorder?.controls.attributes}
-          {...reorder?.controls.listeners}
-          data-sidebar-reorder-item-id={reorder?.controls.itemId}
-          role="link"
-          className={cn(
-            // The action overlay covers the row's end; keep the row's hover
-            // fill while the pointer is over those buttons.
-            !active && "group-hover:bg-sidebar-accent/60",
-            reorder && "touch-none cursor-pointer select-none",
-            reorder?.controls.isDragging && "cursor-grabbing",
-          )}
-          style={{
-            paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
-          }}
-          onClick={handleClick}
-          onPointerUp={(event) => event.currentTarget.blur()}
-        >
-          <span
+        {renaming ? (
+          <SidebarRenameInput
+            initialTitle={item.document.title}
+            icon={item.document.icon}
+            indent={databaseSidebarRowIndent(depth, hasChildren)}
+            label={t("sidebar.pageName")}
+            onCommit={commitRename}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
+          <SidebarNavigationRow
+            to={`/page/${item.document.id}`}
+            icon={item.document.icon}
+            hideIconOnHover={hasChildren}
+            active={active}
+            title={title}
+            {...reorder?.controls.attributes}
+            {...reorder?.controls.listeners}
+            data-sidebar-reorder-item-id={reorder?.controls.itemId}
+            role="link"
             className={cn(
-              "min-w-0 flex-1 truncate",
-              hasRowActions &&
-                sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
+              // The action overlay covers the row's end; keep the row's hover
+              // fill while the pointer is over those buttons.
+              !active && "group-hover:bg-sidebar-accent/60",
+              reorder && "touch-none cursor-pointer select-none",
+              reorder?.controls.isDragging && "cursor-grabbing",
             )}
+            style={{
+              paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
+            }}
+            onClick={handleClick}
+            onPointerUp={(event) => event.currentTarget.blur()}
           >
-            {title}
-          </span>
-        </SidebarNavigationRow>
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate",
+                hasRowActions &&
+                  sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
+              )}
+            >
+              {title}
+            </span>
+          </SidebarNavigationRow>
+        )}
 
-        {hasRowActions && (
+        {hasRowActions && !renaming && (
           <SidebarRowActions>
             {hasMenuActions && (
-              <SidebarRowMenu label={title}>
-                {canFavorite && onToggleFavorite ? (
-                  <SidebarPinMenuItem
-                    pinned={Boolean(item.document.isFavorite)}
-                    onSelect={() => onToggleFavorite(item)}
-                  />
-                ) : null}
-                {canFavorite &&
-                onToggleFavorite &&
-                canManage &&
-                onDeleteItem ? (
-                  <DropdownMenuSeparator />
-                ) : null}
-                {canManage && onDeleteItem ? (
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => onDeleteItem(item)}
-                  >
-                    <IconTrash className="me-2 size-4" />
-                    {t("database.delete")}
-                  </DropdownMenuItem>
-                ) : null}
-              </SidebarRowMenu>
+              <SidebarPageMenu
+                documentId={item.document.id}
+                title={title}
+                {...sidebarPageLinks(item.document.id, {
+                  localFile: isLocalFile,
+                })}
+                pinned={Boolean(item.document.isFavorite)}
+                onTogglePin={
+                  canFavorite && onToggleFavorite
+                    ? () => onToggleFavorite(item)
+                    : undefined
+                }
+                onRename={canChangePage ? () => setRenaming(true) : undefined}
+                onDuplicate={
+                  canChangePage && !isCollection
+                    ? () => pageActions.duplicatePage(item.document.id)
+                    : undefined
+                }
+                onMove={
+                  canChangePage
+                    ? () =>
+                        pageActions.movePage({
+                          documentId: item.document.id,
+                          title,
+                          spaceId: item.document.spaceId ?? null,
+                        })
+                    : undefined
+                }
+                onMoveToTrash={
+                  canManage && onDeleteItem
+                    ? () => onDeleteItem(item)
+                    : undefined
+                }
+              />
             )}
 
             {canCreateChild ? (
@@ -1226,6 +1281,76 @@ function DatabaseSidebarRow({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Inline rename in place of a row. Enter or leaving the field saves; Escape
+ * cancels. It keeps the row's height and icon column so nothing shifts.
+ */
+function SidebarRenameInput({
+  initialTitle,
+  icon,
+  indent,
+  label,
+  onCommit,
+  onCancel,
+}: {
+  initialTitle: string;
+  icon: string | null | undefined;
+  indent: number;
+  label: string;
+  onCommit: (title: string) => void;
+  onCancel: () => void;
+}) {
+  const settledRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  function settle(action: () => void) {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    action();
+  }
+  return (
+    <div
+      className="flex h-7 min-w-0 items-center gap-1.5 rounded bg-sidebar-accent pe-1"
+      style={{ paddingInlineStart: `${indent}px` }}
+    >
+      <span className="flex size-7 shrink-0 items-center justify-center">
+        <SidebarRowIcon
+          icon={
+            icon || <IconFileText className="size-4 text-muted-foreground" />
+          }
+        />
+      </span>
+      <input
+        ref={inputRef}
+        aria-label={label}
+        defaultValue={initialTitle}
+        maxLength={500}
+        className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            const value = event.currentTarget.value;
+            settle(() => onCommit(value));
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            settle(onCancel);
+          }
+        }}
+        onBlur={(event) => {
+          const value = event.currentTarget.value;
+          settle(() => onCommit(value));
+        }}
+      />
+    </div>
   );
 }
 

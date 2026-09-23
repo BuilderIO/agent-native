@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -950,45 +951,51 @@ describe("DatabaseSidebarView", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <DatabaseSidebarView
-              groups={[
-                {
-                  id: "all",
-                  label: "All pages",
-                  items: [
-                    {
-                      ...item("shared", "Shared page"),
-                      document: {
-                        ...item("shared", "Shared page").document,
-                        accessRole: "viewer",
-                        canEdit: false,
-                        canManage: false,
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [
+                      {
+                        ...item("shared", "Shared page"),
+                        document: {
+                          ...item("shared", "Shared page").document,
+                          accessRole: "viewer",
+                          canEdit: false,
+                          canManage: false,
+                        },
                       },
-                    },
-                  ],
-                  property: null,
-                  value: "all",
-                },
-              ]}
-              grouped={false}
-              isLoading={false}
-              hasActiveConstraints={false}
-              openPagesIn="full_page"
-              noMatchesLabel="No rows match this view"
-              clearLabel="Clear"
-              navigationLabel="Database pages"
-              untitledLabel="Untitled"
-              onClearResultConstraints={() => {}}
-              onPreview={() => {}}
-              onCreateChildPage={onCreateChildPage}
-              onCreateChildDatabase={onCreateChildDatabase}
-              onDeleteItem={() => {}}
-              onToggleFavorite={onToggleFavorite}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
+                    ],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+                onCreateChildPage={onCreateChildPage}
+                onCreateChildDatabase={onCreateChildDatabase}
+                onDeleteItem={() => {}}
+                onToggleFavorite={onToggleFavorite}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
     });
 
@@ -1038,8 +1045,12 @@ describe("DatabaseSidebarView", () => {
     const menuItems = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     );
+    // A viewer gets the personal and read-only items only: no rename,
+    // duplicate, move, or trash without edit/manage access.
     expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
       "Pin to sidebar",
+      "Copy link",
+      "Open in new tab",
     ]);
 
     await act(async () => {

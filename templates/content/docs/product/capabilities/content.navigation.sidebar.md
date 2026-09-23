@@ -55,7 +55,9 @@ parentage remain unchanged.
 - Pinned entries are personal References; dynamic sections are access-scoped query results.
 - Personal ordering, expansion, and collapse do not reparent Pages, change Collection membership, or grant shared edit authority.
 - Intentional references may expand; the sidebar is not a general-purpose object renderer.
-- Recent rows share the sidebar row actions but carry only personal actions: pin or unpin the destination, and remove it from Recent. Shared mutations such as delete, add child, and reorder stay with the object's own surface.
+- Every sidebar row opens one Page menu with one order: pin; copy link and open in a new tab; rename, duplicate, and move; remove from Recent or move to Trash; then who last edited the Page and when. Each section offers only the items it allows, and each item still requires the caller's access.
+- Files and Pinned rows may rename, duplicate beside the original, move within the Page's Content space, and move to Trash. Local-file Pages mirror disk and are not renamed, duplicated, or moved from the sidebar.
+- Recent rows carry only actions that leave the Page unchanged: pin or unpin, copy link, open in a new tab, and remove from Recent. Shared mutations such as rename, move, trash, add child, and reorder stay with Files and Pinned.
 - Missing, deleted, inaccessible, stale, and unavailable entries are handled honestly and recoverably.
 
 ## Boundaries and non-goals
@@ -107,6 +109,13 @@ mutation controls. Its row menu offers Pin/Unpin, using the requester's pinned s
 resolved under the same access as the row, and Remove from Recent through the shared
 `remove-content-recent` Action, which forgets only that user's visit.
 
+Files and Pinned rows use the same menu with Rename (inline, through `update-document`),
+Duplicate (`duplicate-database-item`, which now keeps the copy under the original's
+parent and, when named by Page id, uses the Page's own space Files membership rather
+than a Favorites membership), Move to (a same-space picker over `move-document`), and
+Move to Trash. The menu footer reads `get-document-activity` only while open.
+Reorderable rows now stay inside the sidebar width, so Pinned row actions are visible.
+
 Each section's menu opens its complete selected-space collection: scoped personal pins,
 the retained Recent window, or the canonical Files table. Section headers use one grid
 for the toggle/drag surface and menu; pointer dragging works from the icon, label, or
@@ -137,6 +146,11 @@ or recovery contracts.
 3. Exercise keyboard, ARIA navigation, responsive behavior, agent context, and unavailable sources.
 
 ## Open questions
+
+- Moving or duplicating a Page into another Content space is not defined yet. Spaces
+  carry access (personal versus organization ownership and visibility), so the move
+  must decide who owns the Page afterward, whether sharing and visibility change,
+  and what happens to sub-pages before the sidebar offers it.
 
 - The initial catalog is Pinned and Recent alongside selected-space Files navigation.
   Pinned and Recent start visible and expanded, show five entries initially, and allow
