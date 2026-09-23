@@ -111,7 +111,7 @@ export async function getSetting(
   const cache = options?.transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
-    return cached == null ? null : parseSettingValue(key, cached);
+    return cached == null ? null : JSON.parse(cached);
   }
   if (!options?.transaction) await ensureTable();
   const client = options?.transaction ?? getDbExec();
@@ -122,7 +122,7 @@ export async function getSetting(
   });
   const raw = rows.length === 0 ? null : (rows[0].value as string);
   if (!options?.bypassCache) cache?.set(key, raw);
-  return raw == null ? null : parseSettingValue(key, raw);
+  return raw == null ? null : JSON.parse(raw);
 }
 
 // Keeps the IN-list under Postgres's bind-parameter ceiling and out of
@@ -131,23 +131,10 @@ export async function getSetting(
 // than fit in one statement.
 const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
 
-/**
- * Batched read of several settings keys in as few round trips as possible.
- * Serves per-request cache hits directly (same cache as {@link getSetting}),
- * then issues one `key IN (...)` query — chunked above
- * {@link SETTINGS_IN_LIST_CHUNK_SIZE} — for the rest. Every requested key is
- * cached, including a miss as `null`, so a later {@link getSetting} for the
- * same key in this request is free. A key absent from production but present
- * in the request is indistinguishable from a key never asked for other than
- * by looking it up, matching `getSetting`'s null-for-missing contract.
- */
-// Isolates one key's corrupt/legacy JSON from every other key in the same
-// batch: a single bad row must not fail callers that fan a whole registry
-// (e.g. feature flags) through one getSettings() call the way it would have
-// failed only that one key under the old per-key getSetting() path. Captured
-// loudly (not silently) and treated like a missing value so downstream
-// normalizers — which already default an absent key — see one consistent
-// "nothing usable here" case instead of a second, uncaught one.
+// Batch reads only: one corrupt row must not fail every other key in the
+// batch (a whole feature-flag registry reads through one call). The bad key is
+// captured and comes back like a missing one, which is what per-key callers
+// already did with a failed read. Single-key getSetting still throws.
 function parseSettingValue(
   key: string,
   raw: string,
@@ -163,6 +150,16 @@ function parseSettingValue(
   }
 }
 
+/**
+ * Batched read of several settings keys in as few round trips as possible.
+ * Serves per-request cache hits directly (same cache as {@link getSetting}),
+ * then issues one `key IN (...)` query — chunked above
+ * {@link SETTINGS_IN_LIST_CHUNK_SIZE} — for the rest. Every requested key is
+ * cached, including a miss as `null`, so a later {@link getSetting} for the
+ * same key in this request is free. A key absent from production but present
+ * in the request is indistinguishable from a key never asked for other than
+ * by looking it up, matching `getSetting`'s null-for-missing contract.
+ */
 export async function getSettings(
   keys: readonly string[],
   options?: StoreReadOptions,

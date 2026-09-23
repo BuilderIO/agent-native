@@ -58,9 +58,10 @@ import {
   enqueueCaptureInvalidation,
   enqueueBrainOperation,
 } from "./ingest-queue.js";
-import type {
-  BrainAudienceAssignment,
-  BrainSensitivityDecision,
+import {
+  BRAIN_SENSITIVITY_POLICY_VERSION,
+  type BrainAudienceAssignment,
+  type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
@@ -792,7 +793,7 @@ export async function createCapture(values: {
         disposition: "quarantined",
         categories: [],
         confidenceBand: "uncertain",
-        policyVersion: "1",
+        policyVersion: BRAIN_SENSITIVITY_POLICY_VERSION,
         safeSegments: [],
         safeContent: "",
         classifier: "deterministic",
@@ -1306,6 +1307,9 @@ export async function recordBlockedCapture(input: {
       locatorHmac,
       disposition,
       categoriesJson: stableJson(input.decision.categories),
+      decisionScoresJson: input.decision.categoryScores
+        ? stableJson(input.decision.categoryScores)
+        : null,
       confidenceBand: input.decision.confidenceBand,
       policyVersion: input.decision.policyVersion,
       upstreamProvider: input.source.provider,
@@ -1323,6 +1327,9 @@ export async function recordBlockedCapture(input: {
         captureId: input.existing?.id ?? null,
         disposition,
         categoriesJson: stableJson(input.decision.categories),
+        decisionScoresJson: input.decision.categoryScores
+          ? stableJson(input.decision.categoryScores)
+          : null,
         confidenceBand: input.decision.confidenceBand,
         quarantineBlobHandle,
         expiresAt,
