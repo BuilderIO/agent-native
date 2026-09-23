@@ -1840,7 +1840,10 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
+  const appHomePath = resolveAgentNativeAppHomePath(
+    getAgentNativeAppConfig().app,
+    getAgentNativeAppConfig().workspace,
+  );
   const config = {
     appHomePath,
     ...(appUrl ? { appUrl } : {}),
@@ -1900,7 +1903,10 @@ const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^
 function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
-    resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    resolveAgentNativeAppHomePath(
+      getAgentNativeAppConfig().app,
+      getAgentNativeAppConfig().workspace,
+    ),
     getAgentNativeFrameworkRoutePrefix(),
   );
 }

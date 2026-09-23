@@ -110,6 +110,68 @@ describe("deriveAppIdentity", () => {
     ).toBe("/");
   });
 
+  it("follows the workspace manifest home for a root-only workspace app", () => {
+    const appsJson = JSON.stringify([
+      { id: "dispatch", path: "/dispatch", homePath: "/home" },
+      { id: "adoption", path: "/adoption", homePath: "/" },
+    ]);
+    expect(
+      resolveAppHomePath({ ...base, workspaceId: "adoption" }, {
+        appsJson,
+      } as Parameters<typeof resolveAppHomePath>[1]),
+    ).toBe("/");
+    expect(
+      resolveAppHomePath({ ...base, workspaceId: "dispatch" }, {
+        appsJson,
+      } as Parameters<typeof resolveAppHomePath>[1]),
+    ).toBe("/home");
+    // Explicit app config still wins over the manifest.
+    expect(
+      resolveAppHomePath(
+        { ...base, workspaceId: "adoption", homePath: "/inbox" },
+        { appsJson } as Parameters<typeof resolveAppHomePath>[1],
+      ),
+    ).toBe("/inbox");
+  });
+
+  it("falls back to /home when the manifest has no usable entry", () => {
+    const workspace = (appsJson: string) =>
+      ({ appsJson }) as Parameters<typeof resolveAppHomePath>[1];
+    const appsJson = JSON.stringify({
+      apps: [{ id: "adoption", homePath: "/" }],
+    });
+    expect(resolveAppHomePath(base, workspace(appsJson))).toBe("/home");
+    expect(
+      resolveAppHomePath(
+        { ...base, workspaceId: "missing" },
+        workspace(appsJson),
+      ),
+    ).toBe("/home");
+    expect(
+      resolveAppHomePath(
+        { ...base, workspaceId: "adoption" },
+        workspace("not json"),
+      ),
+    ).toBe("/home");
+    expect(
+      resolveAppHomePath(
+        { ...base, workspaceId: "adoption" },
+        workspace(JSON.stringify([{ id: "adoption", homePath: "//evil" }])),
+      ),
+    ).toBe("/home");
+  });
+
+  it("reads the manifest home from resolved workspace env", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "adoption");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "adoption", path: "/adoption", homePath: "/" }]),
+    );
+    resetAppConfigForTests();
+    const config = getAppConfig();
+    expect(resolveAppHomePath(config.app, config.workspace)).toBe("/");
+  });
+
   it("runs on the resolved config, so APP_NAME still wins", () => {
     vi.stubEnv("npm_package_name", "mail");
     vi.stubEnv("APP_NAME", "Acme Mail");
