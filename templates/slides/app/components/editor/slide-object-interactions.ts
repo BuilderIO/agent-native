@@ -727,9 +727,29 @@ function viewportScale(element: Element | null): { x: number; y: number } {
   };
 }
 
-function isInsetSet(element: HTMLElement, side: string): boolean {
-  const value = element.style.getPropertyValue(side);
-  return value !== "" && value !== "auto";
+/**
+ * Which insets anchor an absolute object, whether set inline or by a slide
+ * `<style>` rule. A positioned element resolves every inset to its used px, so
+ * read them while static, where the specified `auto` survives.
+ */
+function readAnchoredInsets(element: HTMLElement) {
+  const position = element.style.getPropertyValue("position");
+  const priority = element.style.getPropertyPriority("position");
+  element.style.setProperty("position", "static", "important");
+  const specified = window.getComputedStyle(element);
+  const isSet = (side: string) => {
+    const value = specified.getPropertyValue(side);
+    return value !== "" && value !== "auto";
+  };
+  const anchors = {
+    left: isSet("left"),
+    right: isSet("right"),
+    top: isSet("top"),
+    bottom: isSet("bottom"),
+  };
+  if (position) element.style.setProperty("position", position, priority);
+  else element.style.removeProperty("position");
+  return anchors;
 }
 
 /**
@@ -738,6 +758,7 @@ function isInsetSet(element: HTMLElement, side: string): boolean {
  * over-constrain them and stretch or jump the box instead.
  */
 function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
+  const anchors = readAnchoredInsets(element);
   const after = element.getBoundingClientRect();
   const scale = viewportScale(element.offsetParent);
   const style = window.getComputedStyle(element);
@@ -750,16 +771,12 @@ function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
   const dx = (after.left - before.left) / scale.x;
   const dy = (after.top - before.top) / scale.y;
   if (dx) {
-    if (isInsetSet(element, "left") || !isInsetSet(element, "right")) {
-      shift("left", -dx);
-    }
-    if (isInsetSet(element, "right")) shift("right", dx);
+    if (anchors.left || !anchors.right) shift("left", -dx);
+    if (anchors.right) shift("right", dx);
   }
   if (dy) {
-    if (isInsetSet(element, "top") || !isInsetSet(element, "bottom")) {
-      shift("top", -dy);
-    }
-    if (isInsetSet(element, "bottom")) shift("bottom", dy);
+    if (anchors.top || !anchors.bottom) shift("top", -dy);
+    if (anchors.bottom) shift("bottom", dy);
   }
 }
 

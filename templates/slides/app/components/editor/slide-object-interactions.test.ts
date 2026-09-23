@@ -367,6 +367,38 @@ describe("slide object interactions", () => {
     box.remove();
   });
 
+  it("detects insets anchored by a slide stylesheet rule", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent =
+      ".corner-badge { position: absolute; right: 24px; bottom: 16px; }";
+    document.head.append(sheet);
+    const box = document.createElement("div");
+    const badge = document.createElement("div");
+    badge.className = "corner-badge";
+    box.append(badge);
+    document.body.append(box);
+    let boxPositioned = false;
+    badge.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 580 : 500,
+        y: boxPositioned ? 330 : 300,
+        width: 40,
+        height: 20,
+      });
+
+    keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(badge.style.right).toBe("104px");
+    expect(badge.style.bottom).toBe("46px");
+    expect(badge.style.left).toBe("");
+    expect(badge.style.position).toBe("");
+    box.remove();
+    sheet.remove();
+  });
+
   it("re-homes an object dropped outside its box and closes the box's slot", () => {
     const layer = document.createElement("div");
     layer.innerHTML = `

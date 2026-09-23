@@ -256,6 +256,42 @@ describe("slide rich text normalization", () => {
     expect(element.style.flexDirection).toBe("column");
   });
 
+  it("keeps a numbered AI bullet list as an ordered list", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<ol><li><p>First</p></li><li><p>Second</p></li></ol>",
+      source,
+    );
+
+    expect(element.querySelectorAll("ol > li")).toHaveLength(2);
+    expect(element.textContent).not.toContain("•");
+  });
+
+  it("flattens a Tab-nested item in a multi-row AI bullet block into marker rows", () => {
+    const element = document.createElement("div");
+    const row = (text: string) =>
+      `<div style="display:flex;gap:10px"><span style="color:#5ec8e5">•</span><span>${text}</span></div>`;
+    const source = row("First") + row("Second");
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul style="--slide-legacy-list:1"><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>First</p><ul><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>Second</p></li></ul></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector("ul")).toBeNull();
+    expect(element.innerHTML).not.toContain("--slide-legacy");
+    const rows = element.querySelectorAll<HTMLElement>(":scope > div");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.textContent).toBe("•Second");
+    expect(rows[1]?.style.paddingLeft).toBe("24px");
+  });
+
   it("keeps the marker on a Tab-indented sub-bullet instead of dropping it (ENG-13998)", () => {
     const element = document.createElement("div");
     const source = '<span style="color:#9aa3ad">—</span><span>Point</span>';

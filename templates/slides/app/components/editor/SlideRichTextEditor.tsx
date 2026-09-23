@@ -657,21 +657,14 @@ function restoreLegacyBulletRowsInContainer(
 
       const currentChild = current.children[currentIndex];
       if (currentChild?.tagName === "UL") {
-        const items = Array.from(currentChild.children).filter(
-          (child): child is HTMLElement => child.tagName === "LI",
+        const rows: HTMLElement[] = [];
+        collectLegacyBulletRows(
+          templates,
+          currentChild as HTMLElement,
+          0,
+          rows,
         );
-        const hasNestedList = items.some((item) =>
-          Array.from(item.children).some(
-            (child) => child.tagName === "UL" || child.tagName === "OL",
-          ),
-        );
-        if (!hasNestedList && items.length > 0) {
-          const rows = items.map((item, index) =>
-            restoreLegacyBulletRow(
-              templates[Math.min(index, templates.length - 1)],
-              item,
-            ),
-          );
+        if (rows.length > 0) {
           currentChild.replaceWith(...rows);
           currentIndex += rows.length;
           continue;
@@ -720,7 +713,7 @@ function restoreLegacyBulletRows(
  * it, matching outline order.
  */
 function collectLegacyBulletRows(
-  template: HTMLElement,
+  templates: HTMLElement[],
   list: HTMLElement,
   depth: number,
   rows: HTMLElement[],
@@ -731,6 +724,7 @@ function collectLegacyBulletRows(
     const nestedList = Array.from(item.children).find(
       (c): c is HTMLElement => c.tagName === "UL" || c.tagName === "OL",
     );
+    const template = templates[Math.min(rows.length, templates.length - 1)]!;
     const row = restoreLegacyBulletRow(template, item, nestedList);
     if (depth > 0) {
       const basePadding = Number.parseFloat(template.style.paddingLeft) || 0;
@@ -738,7 +732,7 @@ function collectLegacyBulletRows(
     }
     rows.push(row);
     if (nestedList)
-      collectLegacyBulletRows(template, nestedList, depth + 1, rows);
+      collectLegacyBulletRows(templates, nestedList, depth + 1, rows);
   }
 }
 
@@ -792,10 +786,18 @@ function restoreLegacyBulletRowContent(
     // that wrapper, the marker silently stops rendering. Expand every item
     // (and any Tab-nested sub-item) back into real marker rows instead of
     // leaking that editor-only markup into saved content.
+    // A numbered list is the user's explicit choice; it persists as a real
+    // <ol> rather than as copies of the source row's bullet glyph.
+    if (
+      currentRoot.tagName === "OL" &&
+      (currentItems.length > 1 || hasNestedList)
+    ) {
+      return currentRoot.outerHTML;
+    }
     if (currentItems.length > 1 || hasNestedList) {
       const rows: HTMLElement[] = [];
       collectLegacyBulletRows(
-        sourceWrapper as HTMLElement,
+        [sourceWrapper as HTMLElement],
         currentRoot,
         0,
         rows,
