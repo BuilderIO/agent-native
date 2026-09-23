@@ -10,7 +10,13 @@ When you first open an app built on the agent-native framework, you'll see a
 to the agent chat: connect an AI engine, optionally point the app at shared
 infrastructure, and add providers only when you need them.
 
-<Diagram id="doc-block-r5rlac" title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done.">
+<Diagram id="doc-block-r5rlac" title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done.
+
+<Callout tone="info">
+
+In a multi-app workspace, set `ONBOARDING_SHARED_COMPLETION` to reuse completed onboarding across apps. If you do not set it, each app tracks onboarding completion separately.
+
+</Callout>">
 
 ```html
 <div class="ob">
@@ -85,8 +91,7 @@ infrastructure, and add providers only when you need them.
 ### How to complete each step
 
 Steps offer one or more **methods** — different ways to satisfy the same
-requirement. The primary path is shown first; secondary paths are kept compact
-behind a picker or disclosure when a step has several equivalent providers.
+requirement. The primary path is shown first. Secondary paths stay behind a picker or disclosure when a step has several equivalent providers. Setup cards show the available setup choices. They do not list every possible key or credential.
 
 - **Connect a service (one click)** — e.g. _Connect Builder_ for the managed
   AI gateway. Click the button, a window opens, you sign in, the window closes,
