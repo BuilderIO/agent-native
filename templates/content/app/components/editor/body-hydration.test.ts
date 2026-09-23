@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   builderBodyHydrationDisplayHydratedCount,
   builderBodyHydrationIsTerminalError,
+  createCollectionStarterIsVisible,
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
-  newDocumentPageChoiceIsDisabled,
   previewBodyHydrationIsPending,
   previewBodyHydrationTerminalError,
   previewBodyHydrationIsTerminalError,
@@ -351,38 +351,50 @@ describe("body hydration editing gates", () => {
     expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
   });
 
-  it("keeps the page choice usable while collaboration connects", () => {
+  it("keeps the collection starter through title and focus changes while the body is empty", () => {
     expect(
-      newDocumentPageChoiceIsDisabled({
+      createCollectionStarterIsVisible({
         canEdit: true,
         bodyHydrationPending: false,
-        databaseCreationPending: false,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        isCollectionItem: false,
+        content: "<empty-block/>",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("disables the page choice for viewers, body hydration, or database conversion", () => {
+  it("hides the collection starter when the page is ineligible or has body content", () => {
     expect(
-      newDocumentPageChoiceIsDisabled({
+      createCollectionStarterIsVisible({
         canEdit: false,
         bodyHydrationPending: false,
-        databaseCreationPending: false,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        isCollectionItem: false,
+        content: "",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
-      newDocumentPageChoiceIsDisabled({
+      createCollectionStarterIsVisible({
         canEdit: true,
         bodyHydrationPending: true,
-        databaseCreationPending: false,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        isCollectionItem: false,
+        content: "",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
-      newDocumentPageChoiceIsDisabled({
+      createCollectionStarterIsVisible({
         canEdit: true,
         bodyHydrationPending: false,
-        databaseCreationPending: true,
+        isLocalFileDocument: false,
+        isDatabasePage: false,
+        isCollectionItem: false,
+        content: "Written body",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("ignores untouched empty preview normalization before it can dirty-save", () => {
