@@ -399,12 +399,27 @@ function isRetryableChunkUploadStatus(status: number): boolean {
 }
 
 function trackClipUploadBlockingFailure(props: Record<string, unknown>): void {
+  const recordingId =
+    typeof props.recordingId === "string" ? props.recordingId : undefined;
+  const uploadAttemptId =
+    typeof props.uploadAttemptId === "string"
+      ? props.uploadAttemptId
+      : undefined;
   try {
     trackEvent("clips_upload_blocking_failure", {
+      ...props,
       app: "clips",
       template: "clips",
       surface: "web_recorder",
-      ...props,
+      output_id: recordingId,
+      output_type: "clip",
+      recording_id: recordingId,
+      recording_attempt_id: recordingId,
+      ...(uploadAttemptId ? { upload_attempt_id: uploadAttemptId } : {}),
+      failure_code:
+        typeof props.failureKind === "string"
+          ? props.failureKind
+          : "upload_failed",
     });
   } catch {
     // Analytics should never change recording behavior.
@@ -2623,6 +2638,7 @@ export class RecorderEngine {
         stage: "chunk_upload",
         failureKind: "no_response",
         recordingId: this.opts.recordingId,
+        uploadAttemptId: this.uploadAttemptId,
         chunkIndex: index,
         isFinal: extra.isFinal === true,
         chunkBytes: blob.size,
@@ -2663,6 +2679,7 @@ export class RecorderEngine {
         stage: "chunk_upload",
         failureKind: "http_error",
         recordingId: this.opts.recordingId,
+        uploadAttemptId: this.uploadAttemptId,
         chunkIndex: index,
         isFinal: extra.isFinal === true,
         httpStatus: res.status,
