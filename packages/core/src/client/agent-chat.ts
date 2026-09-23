@@ -128,6 +128,12 @@ export interface AgentChatMessage {
    * distinguishable from a typed chat message. Omit for ordinary chat.
    */
   usageLabel?: string;
+  /**
+   * Approval keys of paused `needsApproval` calls this send approves. The
+   * server consumes only a matching durable grant, and the message is hidden
+   * as a protocol continuation rather than shown as a new prompt.
+   */
+  approvedToolCalls?: string[];
 }
 
 export interface AgentChatContextItem {
@@ -996,6 +1002,24 @@ export interface ParsedSubmitChat {
   submitMessageId?: string;
   /** See {@link AgentChatMessage.usageLabel}. */
   usageLabel?: string;
+  /** See {@link AgentChatMessage.approvedToolCalls}. */
+  approvedToolCalls?: string[];
+}
+
+const MAX_SUBMIT_APPROVED_TOOL_CALLS = 200;
+
+// Keys are kept verbatim: the server matches them byte-for-byte against the
+// durable grant, so trimming one would make the approval silently miss.
+function parseSubmitChatApprovedToolCalls(
+  value: unknown,
+): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const keys = value
+    .filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    )
+    .slice(0, MAX_SUBMIT_APPROVED_TOOL_CALLS);
+  return keys.length > 0 ? keys : undefined;
 }
 
 function parseSubmitChatAttachments(
@@ -1091,6 +1115,7 @@ export function parseSubmitChatMessage(
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
     usageLabel: nonEmptyString(raw.usageLabel),
+    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
   };
 }
 
@@ -1176,11 +1201,17 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     !localChatTarget &&
     isMcpAppChatBridgeEnabled()
   ) {
-    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
-    // label. Use the normal wrapper transport when either needs to reach the
-    // chat thread — a label silently downgraded to `chat` is exactly the run
-    // the caller named it to be able to find.
-    if (opts.attachments?.length || opts.usageLabel || actionScope) {
+    // MCP host follow-up APIs carry neither attachment descriptors, a usage
+    // label, nor approval keys. Use the normal wrapper transport when any needs
+    // to reach the chat thread — a label silently downgraded to `chat` is
+    // exactly the run the caller named it to be able to find, and a dropped
+    // approval key makes the server ask for approval again.
+    if (
+      opts.attachments?.length ||
+      opts.usageLabel ||
+      actionScope ||
+      opts.approvedToolCalls?.length
+    ) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",

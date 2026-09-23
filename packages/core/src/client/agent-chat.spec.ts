@@ -217,6 +217,39 @@ describe("sendToAgentChat", () => {
     expect(parsed?.usageLabel).toBeUndefined();
   });
 
+  it("carries approvedToolCalls through the postMessage payload and back out", () => {
+    sendToAgentChat({
+      message: "Approved.",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    expect(parsed?.approvedToolCalls).toEqual(["publish-release:{}"]);
+  });
+
+  it("keeps only non-empty string approval keys, capped, and verbatim", () => {
+    const parse = (approvedToolCalls: unknown) =>
+      parseSubmitChatMessage({
+        data: {
+          type: "agentNative.submitChat",
+          data: { message: "Approved.", approvedToolCalls },
+        },
+      } as MessageEvent)?.approvedToolCalls;
+
+    expect(parse(["a:{}", "", "   ", 7, null, { key: "b" }, " c:{} "])).toEqual(
+      ["a:{}", " c:{} "],
+    );
+    expect(
+      parse(Array.from({ length: 250 }, (_, index) => `k${index}`)),
+    ).toHaveLength(200);
+    expect(parse([])).toBeUndefined();
+    expect(parse(["", 1])).toBeUndefined();
+    expect(parse("a:{}")).toBeUndefined();
+    expect(parse(undefined)).toBeUndefined();
+  });
+
   it("includes submitted image data in the postMessage payload", () => {
     sendToAgentChat({
       message: "describe this image",
@@ -585,6 +618,24 @@ describe("sendToAgentChat", () => {
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
     const [payload] = parentPostMessageSpy.mock.calls[0];
     expect(payload.data.usageLabel).toBe("crm:enrich-record");
+  });
+
+  it("uses the wrapper relay when an MCP App send carries approval keys", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    // The host follow-up API has no field for the keys; without them the
+    // server sees a plain message and asks for approval again.
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
   });
 
   it("can force MCP App embeds to use the local app chat", () => {
