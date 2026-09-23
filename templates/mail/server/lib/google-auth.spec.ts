@@ -704,6 +704,7 @@ describe("listGmailMessages", () => {
       internalDate: id === "old-message" ? "1" : "2",
       labelIds: ["INBOX"],
     });
+    invalidateHistoryCacheForAccount(account);
     vi.mocked(gmailGetProfile).mockResolvedValue({ historyId: "10" } as any);
     vi.mocked(gmailBatchGetMessages).mockImplementation(
       async (_token: string, ids: string[]) =>
@@ -718,12 +719,14 @@ describe("listGmailMessages", () => {
     });
 
     let releaseHistory!: (value: unknown) => void;
-    vi.mocked(gmailListHistory).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          releaseHistory = resolve;
-        }) as any,
-    );
+    vi.mocked(gmailListHistory)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseHistory = resolve;
+          }) as any,
+      )
+      .mockResolvedValue({ history: [], historyId: "11" } as any);
     invalidateListCacheForOwner(owner);
     const stale = listGmailMessages(undefined, 3, owner, undefined, {
       mode: "messages",
@@ -739,11 +742,14 @@ describe("listGmailMessages", () => {
       messages: [{ id: "new-message" }],
     });
 
-    releaseHistory({ history: [], historyId: "11" });
-    await expect(stale).resolves.toMatchObject({
-      messages: [{ id: "old-message" }],
+    releaseHistory({
+      history: [],
+      historyId: "11",
+      nextPageToken: "too-many-changes",
     });
+    await expect(stale).resolves.toMatchObject({ messages: [] });
 
+    invalidateListCacheForOwner(owner);
     const afterLateCompletion = await listGmailMessages(
       undefined,
       3,
@@ -754,7 +760,7 @@ describe("listGmailMessages", () => {
     expect(afterLateCompletion.messages).toEqual([
       expect.objectContaining({ id: "new-message" }),
     ]);
-    expect(gmailListMessagesApi).toHaveBeenCalledTimes(2);
+    expect(gmailListMessagesApi).toHaveBeenCalledTimes(3);
   });
 });
 

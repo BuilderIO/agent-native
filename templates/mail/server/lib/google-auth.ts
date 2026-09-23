@@ -1601,7 +1601,11 @@ async function fetchAccountWithHistory(
         };
       }
       // Delta unusable — drop cache and fall through to full hydrate.
-      historyCache.delete(cacheKey);
+      if (
+        (historyInvalidationGenerations.get(accountKey) ?? 0) === generation
+      ) {
+        historyCache.delete(cacheKey);
+      }
     }
 
     const init = await hydrateAccountInbox(
