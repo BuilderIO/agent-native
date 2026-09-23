@@ -1023,6 +1023,34 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     );
   });
 
+  // Pages' worker used to copy bindings into process.env without ever setting
+  // `globalThis.__env__` — the framework's canonical Cloudflare invocation
+  // signal (hasCloudflareRuntime() in db/client.ts). That silently defeated
+  // every runtime check keyed off it, including the hosted-database guard,
+  // on every real Cloudflare Pages deploy.
+  describe("Cloudflare Pages worker entry", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    });
+
+    it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {
+      const source = generateWorkerEntry([], []);
+
+      expect(source).toContain("function initializeBindings(env)");
+      expect(source).toContain("globalThis.__env__ = env;");
+      expect(source).toContain("initializeBindings(env);");
+    });
+
+    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+
+      await worker.fetch(new Request("https://app.test/"), bindings, {});
+
+      expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+    });
+  });
+
   it("guards UI-only actions in generated workers", () => {
     const source = generateWorkerEntry(
       [],

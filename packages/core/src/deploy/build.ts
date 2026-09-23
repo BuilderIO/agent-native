@@ -400,6 +400,31 @@ export function configureAwsLambdaRuntimeOutput(
   configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
+/**
+ * JS source for a generated Cloudflare Worker entry's `initializeBindings(env)`
+ * helper, shared between the Module (`generateCloudflareModuleWorkerEntry`) and
+ * Pages (`generateWorkerEntry`) entries so they cannot drift apart.
+ *
+ * Setting `globalThis.__env__` is not optional decoration: it is the
+ * framework's canonical "this is a real Cloudflare invocation" signal
+ * (`hasCloudflareRuntime()` in db/client.ts, also read by `isNodeRuntime()` /
+ * `isCloudflareRuntime()` in shared/runtime.ts). The Pages entry used to copy
+ * bindings into `process.env` without ever setting `__env__`, which silently
+ * defeated every one of those checks on every Pages deploy — including the
+ * hosted-database guard, which never refused to open PGlite there.
+ */
+function cloudflareBindingsInitScript(): string {
+  return `function initializeBindings(env) {
+  if (!env) return;
+  globalThis.__env__ = env;
+  globalThis.process = globalThis.process || { env: {} };
+  globalThis.process.env = globalThis.process.env || {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") globalThis.process.env[key] = value;
+  }
+}`;
+}
+
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
 
@@ -410,15 +435,7 @@ async function loadHandler() {
   return handler;
 }
 
-function initializeBindings(env) {
-  if (!env) return;
-  globalThis.__env__ = env;
-  globalThis.process = globalThis.process || { env: {} };
-  globalThis.process.env = globalThis.process.env || {};
-  for (const [key, value] of Object.entries(env)) {
-    if (typeof value === "string") globalThis.process.env[key] = value;
-  }
-}
+${cloudflareBindingsInitScript()}
 
 export default {
   async fetch(request, env, ctx) {
@@ -2264,21 +2281,15 @@ ${
   return _handler;
 }
 
+${cloudflareBindingsInitScript()}
+
 export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
-    if (env) {
-      globalThis.process = globalThis.process || { env: {} };
-      globalThis.process.env = globalThis.process.env || {};
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string") {
-          globalThis.process.env[key] = value;
-        }
-      }
-    }
+    initializeBindings(env);
 
     // Try serving static assets first (CF Pages advanced mode).
     // Only attempt this for GET/HEAD — the ASSETS binding is a static file

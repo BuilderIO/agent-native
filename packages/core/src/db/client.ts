@@ -14,6 +14,7 @@ import {
   beginDatabaseOperation,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
+import { isServerRuntimeStarted } from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
@@ -1169,10 +1170,22 @@ export function isProductionServerlessFunctionRuntime(
  * by the AWS Lambda execution environment itself only once a function actually
  * invokes; `NETLIFY_FUNCTION_NAME` and the Vercel function markers are the
  * same kind of invocation-only signal on their platforms.
+ *
+ * Cloudflare is checked first and outside the `NODE_ENV` gate below:
+ * `hasCloudflareRuntime()` (`__cf_env` / `__env__` on `globalThis`) is only
+ * ever set by the generated Worker `fetch` handler on an actual request (see
+ * `generateCloudflareModuleWorkerEntry()` in deploy/build.ts) — it is never
+ * present in the Node process that runs the build, including the Cloudflare
+ * Pages static-shell prerender, which spawns a plain Node subprocess with no
+ * Workers globals. Unlike Netlify/Lambda/Vercel, Cloudflare's own runtime does
+ * not reliably set `NODE_ENV=production`, so gating it on that check the same
+ * way the other three are would make this branch silently never fire.
  */
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (hasCloudflareRuntime()) return true;
+
   if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
     return false;
   }
@@ -1201,6 +1214,38 @@ export class HostedRuntimeLocalDatabaseError extends Error {
         "requests off an ephemeral per-instance file instead of the shared database.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
+  }
+}
+
+/**
+ * Shared refusal for every database opener. `getDbExec()` (via `initClient`)
+ * and `createGetDb()`'s Drizzle opener resolve the same runtime URL and must
+ * refuse the same way — a request that reaches Drizzle first used to skip
+ * this check entirely and open PGlite silently.
+ *
+ * `isMigrationAuthorizedRuntime()` is checked first: release scripts and
+ * durable background workers can be a real hosted function invocation (a
+ * Netlify background function still gets `NETLIFY_FUNCTION_NAME`) and are
+ * still allowed to touch PGlite under `withMigrationRuntime()` — that path is
+ * guarded separately by `assertReleaseMigrationTargetsRemoteDatabase()`.
+ *
+ * `isServerRuntimeStarted()` is additionally gated on `NODE_ENV === "production"`
+ * here, unlike `isHostedFunctionInvocationRuntime()`'s Cloudflare branch:
+ * `getH3App()`'s bootstrap — where the flag is set — also runs for `pnpm dev`,
+ * `NODE_ENV=test` integration suites, and `createAgentNativeEmbeddedPlugin()`
+ * hosts that deliberately pass a `pglite:` `databaseUrl` for a real embedded
+ * install. Only the "real deployed Node/Docker server" case this exists for
+ * has `NODE_ENV=production` on top of that flag.
+ */
+export function assertHostedRuntimeDatabase(): void {
+  if (isMigrationAuthorizedRuntime()) return;
+  const isLiveNodeServer =
+    process.env.NODE_ENV === "production" && isServerRuntimeStarted();
+  if (
+    (isHostedFunctionInvocationRuntime() || isLiveNodeServer) &&
+    isLocalDatabase()
+  ) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 }
 
@@ -2262,9 +2307,7 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 async function initClient(): Promise<void> {
   if (_exec) return;
 
-  if (isHostedFunctionInvocationRuntime() && isLocalDatabase()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
   _exec = await createDbExecInternal({ url }, true);

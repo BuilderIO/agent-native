@@ -475,6 +475,15 @@ describe("initClient hosted-runtime local database guard", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    // markServerRuntimeStarted() is permanent by design (mirrors a real
+    // server's whole-process lifetime) — a test that calls it must undo it
+    // itself, or it silently stays true for every later test in the file.
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
   });
 
   it("throws instead of silently serving a hosted function invocation without a database URL", async () => {
@@ -492,6 +501,109 @@ describe("initClient hosted-runtime local database guard", () => {
     await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
       HostedRuntimeLocalDatabaseError,
     );
+  });
+
+  it("throws on a Cloudflare Worker/Pages invocation without a database URL, even without NODE_ENV=production", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    // Set by the generated Worker fetch handler on a real request
+    // (generateCloudflareModuleWorkerEntry() in deploy/build.ts), never by
+    // the Node process that runs the build.
+    vi.stubGlobal("__cf_env", {});
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("does not treat NETLIFY=true alone as an invocation (netlify build / migrate-production, not a request)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    // Explicitly cleared rather than assumed absent: an earlier, unrelated
+    // describe block in this file restores env via `process.env = snapshot`
+    // instead of `vi.unstubAllEnvs()`, which can leave a stub from a prior
+    // test's `vi.stubEnv` call live here. This test's whole point is "every
+    // real invocation marker is off", so it must not rely on ambient cleanliness.
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+
+    const { isHostedFunctionInvocationRuntime } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+  });
+
+  // Bare Node/Docker has no platform env var for "this is a real invocation"
+  // the way Netlify/Lambda/Vercel/Cloudflare do, so this relies on the
+  // server-runtime marker set by `getH3App()`'s bootstrap instead (see
+  // db/server-runtime.js and server/framework-request-handler.spec.ts).
+  it("throws on a production Node/Docker server (server-runtime marker, no invocation env var) with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("does not throw for the server-runtime marker outside NODE_ENV=production (pnpm dev, test suites, embedded hosts)", async () => {
+    // getH3App() also bootstraps for `pnpm dev`, NODE_ENV=test integration
+    // suites, and createAgentNativeEmbeddedPlugin() hosts that deliberately
+    // pass a pglite: databaseUrl for a real embedded install — none of those
+    // are the "deployed server with a missing DATABASE_URL" bug this guards.
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+  });
+
+  it("does not throw for a migration-authorized runtime, even with the server-runtime marker set on NODE_ENV=production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    markServerRuntimeStarted();
+
+    await withMigrationRuntime(async () => {
+      expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+    });
   });
 });
 
