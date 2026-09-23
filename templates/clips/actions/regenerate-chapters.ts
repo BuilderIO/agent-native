@@ -92,6 +92,8 @@ export default defineAction({
     );
     return {
       queued: true,
+      kind: "regenerate-chapters",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

@@ -146,6 +146,8 @@ export default defineAction({
     );
     return {
       queued: true,
+      kind: "regenerate-summary",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

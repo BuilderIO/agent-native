@@ -65,6 +65,10 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("startAiRequestToast");
     expect(route).toContain("completeAiRequestToast");
     expect(route).toContain("failAiRequestToast");
+    expect(route).toContain(
+      "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
+    );
+    expect(route).toContain("requestedAt: result?.requestedAt ?? null");
     expect(route).toContain("duration: Number.POSITIVE_INFINITY");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
