@@ -183,6 +183,22 @@ async function readDismissedFlag(sessionId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Without a parent cookie domain the shared cookie would be host-only, so no
+ * sibling app could read it. Warn and stay off rather than write a cookie that
+ * silently does nothing.
+ */
+async function resolveSharedCompletionEnabled(): Promise<boolean> {
+  if (!getAppConfig().onboarding.sharedCompletion.enabled) return false;
+  const { sharedFirstPartyCookieDomainAttrs } =
+    await import("../server/auth.js");
+  if (sharedFirstPartyCookieDomainAttrs().domain) return true;
+  console.warn(
+    "[onboarding] ONBOARDING_SHARED_COMPLETION is on but COOKIE_DOMAIN is not set, so sibling apps cannot read the shared cookie. Shared onboarding is disabled.",
+  );
+  return false;
+}
+
 export function createOnboardingPlugin(
   options: OnboardingPluginOptions = {},
 ): NitroPluginDef {
@@ -191,6 +207,7 @@ export function createOnboardingPlugin(
     await awaitBootstrap(nitroApp);
 
     const appProfile = getOnboardingAppProfile(options.appId);
+    const sharedCompletionEnabled = await resolveSharedCompletionEnabled();
 
     if (!options.skipDefaultSteps) {
       registerDefaultOnboardingSteps();
@@ -376,8 +393,6 @@ export function createOnboardingPlugin(
         const userEmail = context.userEmail;
         const { cookieDomainAttrs, crossSiteCookieAttrs } =
           await import("../server/auth.js");
-        const sharedCompletionEnabled =
-          getAppConfig().onboarding.sharedCompletion.enabled;
 
         return withOnboardingRequestContext(context, async () => {
           const completed = await appStateGet(
@@ -391,48 +406,6 @@ export function createOnboardingPlugin(
               path: "/",
             });
             return { firstRun: false };
-          }
-
-          if (sharedCompletionEnabled) {
-            const decoded = decodeSharedOnboardingCookie(
-              getCookie(event, SHARED_ONBOARDING_COOKIE),
-            );
-            if (
-              decoded &&
-              decoded.emailHash === hashOnboardingEmail(userEmail)
-            ) {
-              await appStatePut(
-                context.sessionId,
-                FIRST_RUN_ONBOARDING_COMPLETED_KEY,
-                {
-                  completed: true,
-                  at: new Date().toISOString(),
-                  source: "shared-cookie",
-                },
-                { requestSource: "agent" },
-              );
-              if (decoded.role) {
-                const profile = await getUserProfile(userEmail);
-                if (!profile.onboardingRole) {
-                  await updateUserOnboardingRole(userEmail, decoded.role);
-                }
-              }
-              track(
-                "onboarding_first_run_adopted",
-                {
-                  flow: "first_run",
-                  source: "shared_cookie",
-                  role: decoded.role,
-                },
-                { userId: userEmail },
-              );
-              deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
-                ...crossSiteCookieAttrs(event),
-                ...cookieDomainAttrs(),
-                path: "/",
-              });
-              return { firstRun: false };
-            }
           }
 
           // Signup alone is not enough to qualify. Resolve the real org path
@@ -452,10 +425,54 @@ export function createOnboardingPlugin(
               ...cookieDomainAttrs(),
               path: "/",
             });
+            return { firstRun };
           }
-          return {
-            firstRun,
-          };
+
+          if (sharedCompletionEnabled) {
+            const decoded = decodeSharedOnboardingCookie(
+              getCookie(event, SHARED_ONBOARDING_COOKIE),
+            );
+            if (
+              decoded &&
+              decoded.emailHash === hashOnboardingEmail(userEmail)
+            ) {
+              // The completion marker is written last: once it exists this
+              // route returns early, so anything after it would never retry.
+              if (decoded.role) {
+                const profile = await getUserProfile(userEmail);
+                if (!profile.onboardingRole) {
+                  await updateUserOnboardingRole(userEmail, decoded.role);
+                }
+              }
+              await appStatePut(
+                context.sessionId,
+                FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+                {
+                  completed: true,
+                  at: new Date().toISOString(),
+                  source: "shared-cookie",
+                },
+                { requestSource: "agent" },
+              );
+              track(
+                "onboarding_first_run_adopted",
+                {
+                  flow: "first_run",
+                  source: "shared_cookie",
+                  role: decoded.role,
+                },
+                { userId: userEmail },
+              );
+              deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+                ...crossSiteCookieAttrs(event),
+                ...cookieDomainAttrs(),
+                path: "/",
+              });
+              return { firstRun: false };
+            }
+          }
+
+          return { firstRun };
         });
       }),
     );
@@ -553,9 +570,14 @@ export function createOnboardingPlugin(
           ...cookieDomainAttrs(),
           path: "/",
         });
-        if (getAppConfig().onboarding.sharedCompletion.enabled) {
-          const profile = await getUserProfile(context.userEmail);
-          const role = profile.onboardingRole ?? null;
+        if (sharedCompletionEnabled) {
+          const role = await getUserProfile(context.userEmail).then(
+            (profile) => profile.onboardingRole ?? null,
+            // coercion-ok: the shared cookie is best-effort. A failed profile
+            // read still shares the completion and only drops the role; the
+            // sibling app then leaves its own role unset.
+            () => null,
+          );
           setCookie(
             event,
             SHARED_ONBOARDING_COOKIE,

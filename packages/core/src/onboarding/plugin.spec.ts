@@ -438,7 +438,9 @@ describe("onboarding plugin routes", () => {
     vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
-    appStateGetMock.mockResolvedValue(null);
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
 
     const result = await dispatch(
       nitroApp,
@@ -524,6 +526,111 @@ describe("onboarding plugin routes", () => {
     expect(result.body).toEqual({ firstRun: true });
     expect(appStatePutMock).not.toHaveBeenCalled();
     expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
+  });
+
+  it("does not adopt a shared cookie for a member who is not eligible for first run", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "org-existing",
+      orgName: "Existing workspace",
+      role: "member",
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      {
+        cookie: [
+          `${FIRST_RUN_ONBOARDING_COOKIE}=1`,
+          `${SHARED_ONBOARDING_COOKIE}=${encodeSharedOnboardingCookie({ role: "design", email: "alice@example.com" })}`,
+        ].join("; "),
+      },
+    );
+
+    expect(result.body).toEqual({ firstRun: false });
+    expect(appStatePutMock).not.toHaveBeenCalled();
+    expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("does not mark completion when importing the shared role fails", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    updateUserOnboardingRoleMock.mockRejectedValue(new Error("db down"));
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      {
+        cookie: [
+          `${FIRST_RUN_ONBOARDING_COOKIE}=1`,
+          `${SHARED_ONBOARDING_COOKIE}=${encodeSharedOnboardingCookie({ role: "design", email: "alice@example.com" })}`,
+        ].join("; "),
+      },
+    );
+
+    expect(result.status).toBe(500);
+    expect(appStatePutMock).not.toHaveBeenCalled();
+  });
+
+  it("still shares completion without a role when the profile read fails", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    getUserProfileMock.mockRejectedValue(new Error("db down"));
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+    );
+
+    expect(result.body).toEqual({ ok: true });
+    const sharedCookie = (result.headers.get("set-cookie") ?? "")
+      .split(", ")
+      .find((cookie) => cookie.startsWith(`${SHARED_ONBOARDING_COOKIE}=`));
+    const value = sharedCookie?.split(";")[0]?.split("=")[1];
+    expect(decodeSharedOnboardingCookie(value)).toEqual({
+      role: null,
+      emailHash: hashOnboardingEmail("alice@example.com"),
+    });
+  });
+
+  it("warns and stays off when enabled without a parent cookie domain", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", "");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+    );
+
+    expect(result.body).toEqual({ ok: true });
+    expect(result.headers.get("set-cookie") ?? "").not.toContain(
+      `${SHARED_ONBOARDING_COOKIE}=`,
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("COOKIE_DOMAIN is not set"),
+    );
+    warn.mockRestore();
   });
 
   it("does not read or write the shared cookie when disabled", async () => {
