@@ -8,6 +8,7 @@ export type TablerIconComponent = ComponentType<
 >;
 
 type TablerModule = Record<string, unknown>;
+type ViteImportMeta = ImportMeta & { env: { SSR: boolean; MODE: string } };
 
 export const TABLER_ICON_CATEGORIES = [
   "system",
@@ -65,6 +66,12 @@ let catalogPromise: Promise<TablerModule> | undefined;
 let metadataPromise: Promise<TablerCatalogEntry[]> | undefined;
 
 function loadCatalog() {
+  if (
+    (import.meta as ViteImportMeta).env.SSR &&
+    (import.meta as ViteImportMeta).env.MODE !== "test"
+  ) {
+    throw new Error("Tabler icons are available only in the browser");
+  }
   catalogPromise ??= (
     import("@tabler/icons-react") as Promise<TablerModule>
   ).catch((error) => {
@@ -105,6 +112,12 @@ export async function searchTablerIcons(
 }
 
 export function loadTablerCatalog(): Promise<TablerCatalogEntry[]> {
+  if (
+    (import.meta as ViteImportMeta).env.SSR &&
+    (import.meta as ViteImportMeta).env.MODE !== "test"
+  ) {
+    throw new Error("Tabler catalog is available only in the browser");
+  }
   metadataPromise ??= import("./tabler-catalog-data.js")
     .then(({ default: metadata }) => {
       return metadata

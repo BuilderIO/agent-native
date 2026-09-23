@@ -31,9 +31,17 @@ interface EmojibaseEntry {
   skins?: EmojibaseEntry[];
 }
 
+type ViteImportMeta = ImportMeta & { env: { SSR: boolean; MODE: string } };
+
 let emojiCatalogPromise: Promise<EmojiCatalogEntry[]> | undefined;
 
 export function loadEmojiCatalog(): Promise<EmojiCatalogEntry[]> {
+  if (
+    (import.meta as ViteImportMeta).env.SSR &&
+    (import.meta as ViteImportMeta).env.MODE !== "test"
+  ) {
+    throw new Error("Emoji catalog is available only in the browser");
+  }
   emojiCatalogPromise ??= import("emojibase-data/en/data.json")
     .then((module) => {
       const rows = (module.default ?? module) as EmojibaseEntry[];

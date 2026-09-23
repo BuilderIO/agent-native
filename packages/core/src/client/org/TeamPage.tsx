@@ -1036,7 +1036,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
                     }),
                   }}
                 >
-                  <button
+                  <Button
                     type="button"
                     className="flex size-7 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t("org.workspaceIcon", {
@@ -1053,7 +1053,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
                         <IconUsersGroup className="size-4 text-muted-foreground" />
                       }
                     />
-                  </button>
+                  </Button>
                 </ResourceIconPicker>
               ) : (
                 <ResourceIcon
