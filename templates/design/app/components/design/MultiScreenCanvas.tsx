@@ -13340,7 +13340,11 @@ const Screen = memo(function Screen({
           }}
           aria-label={frameActionLabel}
           title={frameActionLabel}
-          onClick={(event) => onEdit(screen.id, event)}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onEdit(screen.id, event);
+          }}
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();

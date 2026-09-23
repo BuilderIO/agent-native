@@ -3932,6 +3932,11 @@ export function DesignCanvas({
         liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
         setLiveEditSameInstanceStalledError(null);
         flushPendingOneShotMessages();
+        // Re-send every persistent editor mode after the queue is flushed.
+        // This covers a ready handshake that wins the race with the initial
+        // effects, including the bridge's baked-off wheel default.
+        forceSelectionMirrorResyncRef.current = true;
+        replayIframeEditorStateRef.current?.();
         return;
       }
       if (e.data.type === "clear-selection") {
@@ -5013,6 +5018,16 @@ export function DesignCanvas({
       { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
     );
+    iframe.contentWindow?.postMessage({ type: "set-read-only", readOnly }, "*");
+    iframe.contentWindow?.postMessage(
+      {
+        type: "embedded-canvas-gesture-mode",
+        wheelEnabled: isEmbeddedFrame && !interactModeRef.current,
+        spaceKeyForwardingEnabled: interactModeRef.current || readOnly,
+        editingSafetyEnabled: !interactModeRef.current,
+      },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       {
         type: "embedded-canvas-pan-mode",
@@ -5136,6 +5151,7 @@ export function DesignCanvas({
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
+    isEmbeddedFrame,
     lockedSelectors,
     motionTracks,
     motionDefaultEase,
@@ -5145,6 +5161,7 @@ export function DesignCanvas({
     selectedSelectorCandidates,
     selectedSelectorGroups,
     passiveSelectionStyle,
+    readOnly,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,

@@ -24659,6 +24659,11 @@ function DesignEditor() {
         (breakpointWidthPx === undefined
           ? activeBreakpointWidthState === undefined
           : activeBreakpointWidthState === breakpointWidthPx);
+      const screenSelectedLayerGroups =
+        selectedLayerSelectorGroupsByScreen[screen.id] ?? NO_SELECTOR_GROUPS;
+      const screenOwnsSelection =
+        selectedElementScreenId === screen.id ||
+        screenSelectedLayerGroups.length > 0;
       const screenContent = getScreenContent(screen.id);
       const screenSourceType = resolveOverviewScreenSourceType(
         screen,
@@ -24876,13 +24881,13 @@ function DesignEditor() {
           spacePanActive={spacePanActive}
           clearSelectionRequest={overviewClearSelectionRequest}
           registerRuntimeBridge={screenIsActive}
-          selectedSelector={screenIsActive ? selectedCanvasSelector : null}
+          selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}
           selectedSelectorCandidates={
-            screenIsActive ? selectedCanvasSelectorCandidates : NO_SELECTORS
+            screenOwnsSelection
+              ? selectedCanvasSelectorCandidates
+              : NO_SELECTORS
           }
-          selectedSelectorGroups={
-            selectedLayerSelectorGroupsByScreen[screen.id] ?? NO_SELECTOR_GROUPS
-          }
+          selectedSelectorGroups={screenSelectedLayerGroups}
           passiveSelectionStyle={
             screen.breakpointWidths?.length && !screenIsActive
               ? "soft"
@@ -25068,6 +25073,7 @@ function DesignEditor() {
       selectedCanvasSelector,
       selectedCanvasSelectorCandidates,
       selectedLayerSelectorGroupsByScreen,
+      selectedElementScreenId,
       hoveredElementScreenId,
       hoveredCanvasSelector,
       hoveredCanvasSelectorCandidates,
@@ -26984,6 +26990,21 @@ function DesignEditor() {
                       </>
                     }
                   />
+                ) : publicVisualEdit ? (
+                  <div
+                    data-design-public-agent-empty-state
+                    className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center"
+                  >
+                    <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <IconClipboard className="size-5" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">
+                      {t("designEditor.pendingVisualStyles.copyPrompt")}
+                    </p>
+                    <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
+                      {t("designEditor.pendingVisualStyles.agentMessage")}
+                    </p>
+                  </div>
                 ) : (
                   <ReadOnlyEditorPanel
                     title={
@@ -27597,38 +27618,45 @@ function DesignEditor() {
                           className={cn(
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
                             "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
-                            !shellMode && "rounded-r-none",
+                            (!shellMode || !canEditDesign) && "rounded-r-none",
                           )}
                           aria-label={t(
-                            "designEditor.pendingVisualStyles.applyAria",
+                            publicVisualEdit
+                              ? "designEditor.pendingVisualStyles.copyPrompt"
+                              : "designEditor.pendingVisualStyles.applyAria",
                           )}
                           disabled={
                             applyingViaHost ||
                             pendingAgentHandoffBusy ||
                             pendingStructureVerificationBusy
                           }
-                          onClick={handleApplyPendingVisualStylesWithAgent}
+                          onClick={
+                            canEditDesign
+                              ? handleApplyPendingVisualStylesWithAgent
+                              : handleCopyPendingVisualStylePrompt
+                          }
                         >
                           {applyingViaHost ? (
                             <Spinner className="mr-2 h-4 w-4 shrink-0" />
                           ) : null}
                           <span className="truncate">
                             {t(
-                              applyingViaHost
-                                ? "designEditor.pendingVisualStyles.applying"
-                                : pendingStructureVerificationBusy
-                                  ? "designEditor.pendingVisualStyles.verifying"
-                                  : pendingStructureVerificationStatus ===
-                                      "conflict"
-                                    ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                    : "designEditor.pendingVisualStyles.applyDesignUpdates",
+                              publicVisualEdit
+                                ? "designEditor.pendingVisualStyles.copyPrompt"
+                                : applyingViaHost
+                                  ? "designEditor.pendingVisualStyles.applying"
+                                  : pendingStructureVerificationBusy
+                                    ? "designEditor.pendingVisualStyles.verifying"
+                                    : pendingStructureVerificationStatus ===
+                                        "conflict"
+                                      ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                      : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
                           </span>
                         </Button>
-                        {/* The host runs the turn and owns the chat, so copying
-                            the prompt or aborting into interact mode have no
-                            meaning here. */}
-                        {shellMode ? null : (
+                        {/* Public visual-edit viewers cannot start an agent turn,
+                            so keep Copy prompt and Abort available there too. */}
+                        {shellMode && canEditDesign ? null : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button

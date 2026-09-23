@@ -28,6 +28,9 @@ describe("DesignEditor pending live edits", () => {
     expect(toolbar).toContain('"h-9 min-w-0');
     expect(toolbar).toContain('className="h-9 w-8');
     expect(toolbar).not.toContain("h-11");
+    expect(toolbar).toContain("publicVisualEdit");
+    expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
+    expect(toolbar).toContain("shellMode && canEditDesign");
 
     expect(
       enUSMessages.designEditor.pendingVisualStyles.applyDesignUpdates,
@@ -71,5 +74,16 @@ describe("DesignEditor pending live edits", () => {
     expect(menu).toContain("onEscapeKeyDown={(event) =>");
     expect(menu).toContain("event.stopPropagation()");
     expect(menu).toContain("onClick={handleAbortPendingVisualStyles}");
+  });
+
+  it("does not route public visual-edit viewers into the locked agent panel", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("data-design-public-agent-empty-state");
+    expect(source).toContain("canEditDesign");
+    expect(source).toContain("handleCopyPendingVisualStylePrompt");
+    expect(source).toContain("publicVisualEdit");
   });
 });

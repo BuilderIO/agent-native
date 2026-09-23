@@ -103,6 +103,7 @@ import {
 } from "./edit-panel/element-classification";
 import {
   deriveLockedAspectSize,
+  elementIdentityKey,
   interactionStateSelectionKey,
 } from "./edit-panel/element-identity";
 import {
@@ -3236,6 +3237,7 @@ export const EditPanel = memo(function EditPanel({
                   {selectedScreenElement && onSelectedScreenStyleChange ? (
                     <>
                       <LayoutContextProperties
+                        key={`layout-context:${elementIdentityKey(selectedScreenElement)}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3244,6 +3246,7 @@ export const EditPanel = memo(function EditPanel({
                         showContainerSizing={false}
                       />
                       <AppearanceProperties
+                        key={`appearance:${elementIdentityKey(selectedScreenElement)}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3251,17 +3254,20 @@ export const EditPanel = memo(function EditPanel({
                         onToggleHidden={onToggleSelectionHidden}
                       />
                       <FillProperties
+                        key={`fill:${elementIdentityKey(selectedScreenElement)}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
                       />
                       <StrokeProperties
+                        key={`stroke:${elementIdentityKey(selectedScreenElement)}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                       />
                       <EffectsProperties
+                        key={`effects:${elementIdentityKey(selectedScreenElement)}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3330,6 +3336,7 @@ export const EditPanel = memo(function EditPanel({
               {inspectorElement && (
                 <>
                   <PositionLayoutProperties
+                    key={`position:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -3339,6 +3346,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
                   <LayoutContextProperties
+                    key={`layout-context:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -3348,6 +3356,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
                   <AppearanceProperties
+                    key={`appearance:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={
@@ -3360,6 +3369,7 @@ export const EditPanel = memo(function EditPanel({
                   />
                   {selectionHasTextElement ? (
                     <TypographyProperties
+                      key={`typography:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
@@ -3373,6 +3383,7 @@ export const EditPanel = memo(function EditPanel({
                   ) : null}
                   {selectionIsGroup ? (
                     <GroupFillProperties
+                      key={`group-fill:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                       scopes={selectionColorScopes}
                       documentColors={documentColorPalette}
                       disabled={readOnly || Boolean(interactionState)}
@@ -3385,6 +3396,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : (
                     <FillProperties
+                      key={`fill:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
@@ -3399,6 +3411,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   )}
                   <StrokeProperties
+                    key={`stroke:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -3406,6 +3419,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
                   <EffectsProperties
+                    key={`effects:${elementIdentityKey(stateResolvedInspectorElement ?? inspectorElement)}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
