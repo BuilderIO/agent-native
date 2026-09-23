@@ -42,6 +42,10 @@ If it is merged or closed, do not create or resume a watcher; if this task
 already owns one, run the stop cleanup below. If the query fails or is
 ambiguous, stay foreground-only until the PR state is known.
 
+If the user asks not to create scheduled tasks, keep this invocation in the
+foreground and do not create or resume a heartbeat. Continue ticking here with
+interruptible waits until a stop condition is reached.
+
 1. Establish a durable self-re-arming tick loop before yielding. Do ONE tick
    (see "Each tick"), then schedule the next one with the host's durable
    wake-up facility using this same `/babysit-pr <number> …` invocation. In
