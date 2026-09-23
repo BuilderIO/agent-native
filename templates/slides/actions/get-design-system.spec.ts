@@ -123,7 +123,6 @@ describe("get-design-system", () => {
     expect(mockWhere).toHaveBeenCalledWith({
       type: "and",
       conditions: [
-        "access-filter",
         { type: "eq", column: "id", value: "builder-ds-1" },
         {
           type: "eq",
@@ -140,6 +139,7 @@ describe("get-design-system", () => {
             colors: { primary: "var(--primary)" },
           }),
         },
+        "access-filter",
       ],
     });
   });
