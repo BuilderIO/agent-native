@@ -63,7 +63,10 @@ import {
   type Deck,
 } from "@/context/DeckContext";
 import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  clearStartedGenerationAttempt,
+  useAgentGenerating,
+} from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
@@ -897,6 +900,7 @@ export default function Index() {
       setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
+      clearStartedGenerationAttempt(generationAttemptId, deckId);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
@@ -1153,6 +1157,8 @@ export default function Index() {
         newTab: true,
         reuseEmptyTab: true,
         openSidebar: true,
+        generationAttemptId,
+        generationOutputId: deckId,
         ...getUploadedImageAgentOptions(filesForGeneration),
         attachments: attachmentsForGeneration,
         ...modelSelection,

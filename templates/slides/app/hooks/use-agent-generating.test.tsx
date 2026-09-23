@@ -31,6 +31,7 @@ vi.mock("sonner", () => ({ toast: toastState }));
 
 import {
   CHAT_STOP_DEBOUNCE_MS,
+  SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
 } from "./use-agent-generating";
 
@@ -147,6 +148,30 @@ describe("useAgentGenerating", () => {
     expect(toastState.error).toHaveBeenCalledWith("Generation failed", {
       id: "agent-run-error-actual-tab",
     });
+  });
+
+  it("emits a scoped start marker for deck lifecycle correlation", () => {
+    agentChatState.send.mockReturnValue("requested-new-tab");
+    const listener = vi.fn();
+    window.addEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
+    const { result } = renderHook(() => useAgentGenerating());
+
+    act(() =>
+      result.current.submit("Create a deck", "context", {
+        generationAttemptId: "attempt-1",
+        generationOutputId: "deck-1",
+      }),
+    );
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: {
+          generationAttemptId: "attempt-1",
+          outputId: "deck-1",
+        },
+      }),
+    );
+    window.removeEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
   });
 
   it("ignores a run error until the active tab is correlated", () => {

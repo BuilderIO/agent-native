@@ -112,6 +112,7 @@ export default defineAction({
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
     "Establish a new deck's direction with the first one or two slides slide-by-slide, waiting for each result before continuing. " +
     "Continue using add-slide for every newly generated slide so each write preserves per-slide Creative Context provenance; never issue independent parallel writes to the same deck. " +
+    "For an incremental create-deck call with slides: [], set generationComplete to true on the final add-slide call so the generation lifecycle closes. " +
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
@@ -168,6 +169,12 @@ export default defineAction({
       .describe(
         "New total slide target. Set only when the user explicitly asks for more slides after the persisted target.",
       ),
+    generationComplete: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only on the final slide of an incremental create-deck generation so its lifecycle closes.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -211,6 +218,7 @@ export default defineAction({
       contextModeOverride,
       reuseLabels,
       targetSlideCountOverride,
+      generationComplete,
     },
     ctx,
   ) =>
@@ -521,6 +529,27 @@ export default defineAction({
         },
         ctx,
       );
+      const generationAttemptId =
+        typeof generationContext?.generationAttemptId === "string"
+          ? generationContext.generationAttemptId
+          : undefined;
+      if (generationComplete && generationAttemptId) {
+        track(
+          "generation_completed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: deckId,
+            output_type: "deck",
+            slide_count: slides.length,
+            generation_mode: "incremental",
+            outcome: "completed",
+            source: "add_slide_action",
+          },
+          ctx,
+        );
+      }
 
       const base = {
         deckId,

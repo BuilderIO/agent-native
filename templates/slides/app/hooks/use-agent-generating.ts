@@ -14,6 +14,28 @@ const MAX_GENERATING_MS = 30 * 60 * 1000;
 // chunks. Keep generation UI and presence steady across that transport gap.
 export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 const CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
+export const SLIDES_GENERATION_STARTED_EVENT = "slides:generation-started";
+const startedGenerationAttempts = new Set<string>();
+
+function generationAttemptKey(attemptId: string, outputId: string): string {
+  return `${attemptId}:${outputId}`;
+}
+
+export function hasStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+): boolean {
+  return startedGenerationAttempts.has(
+    generationAttemptKey(attemptId, outputId),
+  );
+}
+
+export function clearStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+): void {
+  startedGenerationAttempts.delete(generationAttemptKey(attemptId, outputId));
+}
 
 type AgentGeneratingSubmitOptions = Pick<
   AgentChatMessage,
@@ -27,6 +49,8 @@ type AgentGeneratingSubmitOptions = Pick<
 > & {
   reuseEmptyTab?: boolean;
   attachments?: ReadonlyArray<unknown>;
+  generationAttemptId?: string;
+  generationOutputId?: string;
 };
 
 /**
@@ -186,6 +210,8 @@ export function useAgentGenerating() {
       context: string,
       options?: AgentGeneratingSubmitOptions,
     ) => {
+      const { generationAttemptId, generationOutputId, ...agentOptions } =
+        options ?? {};
       const submitMessageId = `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
@@ -200,8 +226,25 @@ export function useAgentGenerating() {
         context,
         submit: true,
         submitMessageId,
-        ...options,
+        ...agentOptions,
       } as AgentChatMessage & { attachments?: ReadonlyArray<unknown> });
+      if (
+        generationAttemptId &&
+        generationOutputId &&
+        typeof window !== "undefined"
+      ) {
+        startedGenerationAttempts.add(
+          generationAttemptKey(generationAttemptId, generationOutputId),
+        );
+        window.dispatchEvent(
+          new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+            detail: {
+              generationAttemptId,
+              outputId: generationOutputId,
+            },
+          }),
+        );
+      }
     },
     [send, clearWatchdog],
   );

@@ -87,7 +87,12 @@ import {
   useDecks,
   useSaveState,
 } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  clearStartedGenerationAttempt,
+  hasStartedGenerationAttempt,
+  SLIDES_GENERATION_STARTED_EVENT,
+  useAgentGenerating,
+} from "@/hooks/use-agent-generating";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
@@ -391,6 +396,7 @@ export default function DeckEditor() {
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
   const newDeckGenerationStarted = useRef(false);
   const generationStartedAtRef = useRef<number | null>(null);
+  const generationRunStartedRef = useRef(false);
   const generationSawActiveRef = useRef(false);
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
@@ -665,6 +671,34 @@ export default function DeckEditor() {
 
   useEffect(() => {
     if (!generationAttemptId || !id || !wasNewDeckCreation.current) return;
+    generationRunStartedRef.current = hasStartedGenerationAttempt(
+      generationAttemptId,
+      id,
+    );
+    const handleGenerationStarted = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        detail?.generationAttemptId !== generationAttemptId ||
+        detail?.outputId !== id
+      ) {
+        return;
+      }
+      generationRunStartedRef.current = true;
+    };
+    window.addEventListener(
+      SLIDES_GENERATION_STARTED_EVENT,
+      handleGenerationStarted,
+    );
+    return () =>
+      window.removeEventListener(
+        SLIDES_GENERATION_STARTED_EVENT,
+        handleGenerationStarted,
+      );
+  }, [generationAttemptId, id]);
+
+  useEffect(() => {
+    if (!generationAttemptId || !id || !wasNewDeckCreation.current) return;
+    if (!generationRunStartedRef.current) return;
     if (generating) {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= Date.now();
@@ -679,7 +713,11 @@ export default function DeckEditor() {
     }
     generationSettlingAttemptRef.current = generationAttemptId;
     void (async () => {
-      const refreshedDeck = await refreshOpenDeck(id);
+      let refreshedDeck = await refreshOpenDeck(id);
+      if (refreshedDeck === null) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        refreshedDeck = await refreshOpenDeck(id);
+      }
       if (generationTerminalAttemptRef.current === generationAttemptId) return;
       generationTerminalAttemptRef.current = generationAttemptId;
       const settledSlideCount = refreshedDeck?.slides.length ?? slideCount;
@@ -693,14 +731,12 @@ export default function DeckEditor() {
             ? "timeout"
             : generationRunError
               ? "agent_error"
-              : refreshedDeck === null
-                ? "deck_refresh_failed"
-                : targetSlideCount !== null &&
-                    settledSlideCount < targetSlideCount
-                  ? "incomplete_output"
-                  : settledSlideCount === 0
-                    ? "no_output"
-                    : null;
+              : targetSlideCount !== null &&
+                  settledSlideCount < targetSlideCount
+                ? "incomplete_output"
+                : settledSlideCount === 0
+                  ? "no_output"
+                  : null;
       const properties = {
         app_name: "slides",
         template_name: "slides",
@@ -714,7 +750,13 @@ export default function DeckEditor() {
         ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
         source: "new_deck_prompt",
       };
-      if (failureCode === "cancelled") {
+      if (refreshedDeck === null && failureCode === null) {
+        trackEvent("generation_outcome_unresolved", {
+          ...properties,
+          outcome: "unresolved",
+          reason: "deck_refresh_unavailable",
+        });
+      } else if (failureCode === "cancelled") {
         trackEvent("generation_cancelled", {
           ...properties,
           outcome: "cancelled",
@@ -730,13 +772,14 @@ export default function DeckEditor() {
         trackEvent("generation_failed", {
           ...properties,
           failure_code: failureCode,
-          failure_stage:
-            failureCode === "deck_refresh_failed" ? "post_generation" : "agent",
+          failure_stage: "agent",
         });
       } else {
         trackEvent("generation_completed", properties);
       }
+      clearStartedGenerationAttempt(generationAttemptId, id);
       generationSawActiveRef.current = false;
+      generationRunStartedRef.current = false;
       generationStartedAtRef.current = null;
     })();
   }, [
@@ -755,6 +798,7 @@ export default function DeckEditor() {
     if (!generationAttemptId || !wasNewDeckCreation.current) return;
     const handlePageHide = () => {
       if (
+        !generationRunStartedRef.current ||
         !generationSawActiveRef.current ||
         generationSettlingAttemptRef.current === generationAttemptId ||
         generationTerminalAttemptRef.current === generationAttemptId

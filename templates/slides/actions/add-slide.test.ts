@@ -208,6 +208,29 @@ describe("add-slide", () => {
     });
   });
 
+  it("closes an incremental generation on its final slide", async () => {
+    deckData.generationContext = { generationAttemptId: "attempt-1" };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      output_type: "deck",
+      slide_count: 3,
+      generation_mode: "incremental",
+      source: "add_slide_action",
+    });
+  });
+
   it.each(["tool", "webmcp"] as const)(
     "rejects agent additions after the requested slide count for %s callers",
     async (caller) => {
