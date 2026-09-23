@@ -117,7 +117,7 @@ export async function syncInboxLabelDeltaForTargets(
           messageIds: missingIds.length,
           error,
         });
-        return;
+        resolved = new Map();
       }
       const threadIds = new Set<string>();
       for (const item of items) {

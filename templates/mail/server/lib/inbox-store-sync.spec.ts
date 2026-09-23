@@ -193,6 +193,40 @@ describe("syncInboxLabelDeltaForTargets", () => {
     consoleError.mockRestore();
   });
 
+  it("still mirrors known thread hints when a mixed lookup fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.findThreadIdsByMessageIds.mockRejectedValueOnce(
+      new Error("SQL down"),
+    );
+
+    await syncInboxLabelDeltaForTargets(
+      "owner@example.com",
+      [
+        {
+          id: "known-message",
+          threadId: "known-thread",
+          accountEmail: "a@example.com",
+        },
+        { id: "unknown-message", accountEmail: "a@example.com" },
+      ],
+      { add: ["STARRED"] },
+    );
+
+    expect(mocks.applyLocalLabelDelta).toHaveBeenCalledWith(
+      "owner@example.com",
+      "a@example.com",
+      ["known-thread"],
+      { add: ["STARRED"] },
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "[inbox-store-sync] bulk mirror lookup failed",
+      expect.objectContaining({ messageIds: 1 }),
+    );
+    consoleError.mockRestore();
+  });
+
   it("resolves the other targets in the same call even when one has no accountEmail", async () => {
     mocks.findThreadIdsByMessageIds.mockResolvedValue(new Map([["m1", "t1"]]));
 
