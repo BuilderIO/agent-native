@@ -11,6 +11,7 @@ import { inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
@@ -459,6 +460,11 @@ export function InboxPage() {
     if (!jevConfigured && sortMode === "priority") setSortMode("newest");
   }, [jevAvailability.isSuccess, jevConfigured, sortMode]);
   useEffect(() => {
+    if (jevAvailability.isError && sortMode === "priority") {
+      toast.error(t("mail.sort.priorityFailed"));
+    }
+  }, [jevAvailability.isError, sortMode, t]);
+  useEffect(() => {
     if (!isInboxView || activeLabel || searchQuery) setSortMode("newest");
   }, [activeLabel, isInboxView, searchQuery]);
   const resolvedInboxTab = resolveInboxTabId(searchParams);
@@ -846,7 +852,10 @@ export function InboxPage() {
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
-      sort: jevConfigured && sortMode === "priority" ? sortMode : undefined,
+      sort:
+        sortMode === "priority" && (jevConfigured || jevAvailability.isError)
+          ? sortMode
+          : undefined,
     });
   }, [
     view,
@@ -862,6 +871,7 @@ export function InboxPage() {
     activeAccounts,
     selectedThreadIds,
     jevConfigured,
+    jevAvailability.isError,
     sortMode,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 

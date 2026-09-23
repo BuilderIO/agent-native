@@ -133,13 +133,11 @@ describe("Mail Jev automation routing", () => {
     mocks.readDeployCredentialEnv.mockReturnValue("legacy-typesafe-key");
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ answers: { q_0_0: { noul: 0.91 } } }), {
-            status: 200,
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ answers: { q_0_0: { noul: 0.91 } } }), {
+          status: 200,
+        }),
+      ),
     );
 
     const result = await previewAutomationRules(
