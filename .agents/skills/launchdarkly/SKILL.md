@@ -40,9 +40,6 @@ LaunchDarkly project's active environment. Unset, every read falls back to its
 default value and LaunchDarkly is never contacted — there is no broken state
 to debug, only an inactive one.
 
-`LAUNCHDARKLY_PROJECT_KEY` (default `"agent-native"`) is informational only;
-the SDK key already scopes evaluation to one project and environment.
-
 No client-side ID or LaunchDarkly JS SDK is used. Browser code reads evaluated
 flags through the `get-launchdarkly-flags` action instead, so the SDK key never
 reaches a bundle and no LaunchDarkly network connection opens from the browser.
@@ -120,7 +117,7 @@ run("get-launchdarkly-flags", { keys: ["new-checkout-flow"], defaultValue: false
 
 - **feature-flags** — the framework's own rollout system; read this first to
   decide which system a new flag belongs in.
-- **configuration** — how `LAUNCHDARKLY_SDK_KEY`/`LAUNCHDARKLY_PROJECT_KEY`
-  resolve through `getAppConfig().launchDarkly`.
+- **configuration** — how `LAUNCHDARKLY_SDK_KEY` resolves through
+  `getAppConfig().launchDarkly`.
 - **secrets** — why the SDK key is a plain deploy-level env var rather than a
   vault-backed per-user/org secret.

@@ -11,12 +11,4 @@ export const launchDarklyConfig = z.object({
       env: ["LAUNCHDARKLY_SDK_KEY"],
       doc: "LaunchDarkly server-side SDK key for the active environment. Unset disables LaunchDarkly entirely — every flag read falls back to its caller-supplied default instead of contacting LaunchDarkly.",
     }),
-  projectKey: z
-    .string()
-    .min(1)
-    .default("agent-native")
-    .meta({
-      env: ["LAUNCHDARKLY_PROJECT_KEY"],
-      doc: "LaunchDarkly project key flags are defined under. Informational only — the SDK key above already scopes evaluation to one project and environment.",
-    }),
 });
