@@ -8798,6 +8798,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // each axis always stays body-grabbable.
   var HANDLE_MAX_INWARD_FRACTION = 0.25;
 
+  // A translated or scaled element still has an axis-aligned visual box, so
+  // its center is safe for move-drag fallback. Rotation, skew, perspective,
+  // and other non-axis-aligned transforms must keep the existing handle-first
+  // behavior because their edge handles can legitimately overlap the element's
+  // axis-aligned bounding rect.
+  function isAxisAlignedTransform(transform: string): boolean {
+    if (!transform || transform === "none") return true;
+    var matrixMatch = /^matrix\(([^)]+)\)$/.exec(transform);
+    if (matrixMatch) {
+      var matrixValues = matrixMatch[1]!.split(",").map(Number);
+      return (
+        matrixValues.length === 6 &&
+        matrixValues.every(function (value) {
+          return Number.isFinite(value);
+        }) &&
+        Math.abs(matrixValues[1]!) < 0.001 &&
+        Math.abs(matrixValues[2]!) < 0.001
+      );
+    }
+    var matrix3dMatch = /^matrix3d\(([^)]+)\)$/.exec(transform);
+    if (!matrix3dMatch) return false;
+    var matrix3dValues = matrix3dMatch[1]!.split(",").map(Number);
+    return (
+      matrix3dValues.length === 16 &&
+      matrix3dValues.every(function (value) {
+        return Number.isFinite(value);
+      }) &&
+      Math.abs(matrix3dValues[1]!) < 0.001 &&
+      Math.abs(matrix3dValues[2]!) < 0.001 &&
+      Math.abs(matrix3dValues[3]!) < 0.001 &&
+      Math.abs(matrix3dValues[4]!) < 0.001 &&
+      Math.abs(matrix3dValues[6]!) < 0.001 &&
+      Math.abs(matrix3dValues[7]!) < 0.001 &&
+      Math.abs(matrix3dValues[8]!) < 0.001 &&
+      Math.abs(matrix3dValues[9]!) < 0.001 &&
+      Math.abs(matrix3dValues[11]!) < 0.001 &&
+      Math.abs(matrix3dValues[10]! - 1) < 0.001 &&
+      Math.abs(matrix3dValues[15]! - 1) < 0.001
+    );
+  }
+
   // Mirror of clampHandleInwardReach in multi-screen/handle-hit-zones.ts.
   // Non-finite or non-positive dimensions (no overlaid element, degenerate
   // zero-size elements mid-creation) return the nominal reach unchanged —
@@ -22992,10 +23033,131 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // smaller than a screen pixel, so the first move often leaves the iframe.
   // Capture the pointer before the existing mouse handler starts the gesture;
   // otherwise the document-level move/up listeners stop receiving the drag.
+  var selectionHandleMoveRerouted = false;
+  function rerouteStaleSelectionHandleHitToMove(e): boolean {
+    if (
+      readOnly ||
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl) ||
+      !e ||
+      e.button !== 0
+    ) {
+      return false;
+    }
+    var target = e.target as Element | null;
+    var isResizeHandle = Boolean(
+      target &&
+      target.getAttribute &&
+      (target.getAttribute("data-agent-native-edit-handle") ||
+        target.getAttribute("data-agent-native-edge-handle")),
+    );
+    if (!isResizeHandle) return false;
+
+    // Runtime inserts can settle from their source-frame size to their
+    // destination layout size after the selection overlay was first painted.
+    // Recompute the current hit geometry before deciding whether this press is
+    // genuinely on a resize handle. Without this, a tiny inserted node can
+    // retain a scaled edge bar over its entire center and every canvas drag
+    // starts a resize instead of moving the node.
+    var hadSuppressedHandleTransition = selectionOverlay.hasAttribute(
+      "data-agent-native-suppress-handle-transition",
+    );
+    if (!hadSuppressedHandleTransition) {
+      selectionOverlay.setAttribute(
+        "data-agent-native-suppress-handle-transition",
+        "",
+      );
+    }
+    applySelectionHandleHitGeometry(selectedEl);
+    // Same-element scale/resize updates normally animate the singleton
+    // handles. Hit testing must see the just-written geometry, not an
+    // interpolated frame from that transition.
+    void selectionOverlay.offsetHeight;
+    var refreshedTarget = document.elementFromPoint(e.clientX, e.clientY);
+    var resizeHandlePosition = (
+      target.getAttribute("data-agent-native-edit-handle") ||
+      target.getAttribute("data-agent-native-edge-handle") ||
+      ""
+    ).toLowerCase();
+    var selectedRect = selectedEl.getBoundingClientRect();
+    var selectedTransform = window.getComputedStyle(selectedEl).transform;
+    var isAxisAligned = isAxisAlignedTransform(selectedTransform);
+    var isClearlyInsideMoveBand = false;
+    if (
+      isAxisAligned &&
+      e.clientX >= selectedRect.left &&
+      e.clientX <= selectedRect.right &&
+      e.clientY >= selectedRect.top &&
+      e.clientY <= selectedRect.bottom
+    ) {
+      // A resize handle should only win when the pointer is in the outer
+      // quarter of the selected box on the handle's axis. This guard is
+      // deliberately based on the live element rect rather than the overlay
+      // span: the span can still cover the center for one frame while a
+      // runtime clone settles from its source-frame size. A center press must
+      // remain a move even if elementFromPoint reports the stale span.
+      var moveBandX = selectedRect.width * HANDLE_MAX_INWARD_FRACTION;
+      var moveBandY = selectedRect.height * HANDLE_MAX_INWARD_FRACTION;
+      var awayFromTop = e.clientY > selectedRect.top + moveBandY;
+      var awayFromBottom = e.clientY < selectedRect.bottom - moveBandY;
+      var awayFromLeft = e.clientX > selectedRect.left + moveBandX;
+      var awayFromRight = e.clientX < selectedRect.right - moveBandX;
+      var onTop = resizeHandlePosition.indexOf("n") !== -1;
+      var onBottom = resizeHandlePosition.indexOf("s") !== -1;
+      var onLeft = resizeHandlePosition.indexOf("w") !== -1;
+      var onRight = resizeHandlePosition.indexOf("e") !== -1;
+      isClearlyInsideMoveBand =
+        (!onTop || awayFromTop) &&
+        (!onBottom || awayFromBottom) &&
+        (!onLeft || awayFromLeft) &&
+        (!onRight || awayFromRight);
+    }
+    var refreshedResizeHandle = Boolean(
+      refreshedTarget &&
+      refreshedTarget.getAttribute &&
+      (refreshedTarget.getAttribute("data-agent-native-edit-handle") ||
+        refreshedTarget.getAttribute("data-agent-native-edge-handle")),
+    );
+    if (isClearlyInsideMoveBand) {
+      selectionHandleMoveRerouted = true;
+      window.setTimeout(function () {
+        selectionHandleMoveRerouted = false;
+      }, 0);
+      beginPotentialShieldDrag(e);
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition",
+        );
+      }
+      return true;
+    }
+    if (refreshedResizeHandle) {
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition",
+        );
+      }
+      return false;
+    }
+
+    selectionHandleMoveRerouted = true;
+    window.setTimeout(function () {
+      selectionHandleMoveRerouted = false;
+    }, 0);
+    beginPotentialShieldDrag(e);
+    if (!hadSuppressedHandleTransition) {
+      selectionOverlay.removeAttribute(
+        "data-agent-native-suppress-handle-transition",
+      );
+    }
+    return true;
+  }
+
   selectionOverlay.addEventListener(
     "pointerdown",
     function (e) {
       if (readOnly || e.button !== 0) return;
+      if (rerouteStaleSelectionHandleHitToMove(e)) return;
       if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
         selectionOverlay.setPointerCapture(e.pointerId);
       }
@@ -23007,6 +23169,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "mousedown",
     function (e) {
       if (readOnly) return;
+      if (selectionHandleMoveRerouted) {
+        selectionHandleMoveRerouted = false;
+        return;
+      }
       var spacingKey =
         e.target &&
         e.target.getAttribute &&

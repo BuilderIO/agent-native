@@ -2722,6 +2722,7 @@ it(
       await page.evaluate(() => {
         window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
       });
+      await page.waitForTimeout(10);
 
       const seBox2 = await seHandle.boundingBox();
       if (!seBox2) throw new Error("resize handle not found after resize");
