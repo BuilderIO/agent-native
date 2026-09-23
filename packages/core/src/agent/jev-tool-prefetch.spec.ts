@@ -44,8 +44,14 @@ describe("preloadJevTools", () => {
     systemOne.mockReset();
     typeSafeClient.mockReset();
     typeSafeClient.mockImplementation(
-      class TypeSafeClient {
-        systemOne = systemOne;
+      function TypeSafeClient(this: {
+        handler: typeof systemOne;
+        systemOne: (request: unknown) => unknown;
+      }) {
+        this.handler = systemOne;
+        this.systemOne = function (request: unknown) {
+          return this.handler(request);
+        };
       },
     );
   });
