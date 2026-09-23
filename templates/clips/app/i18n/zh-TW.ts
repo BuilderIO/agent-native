@@ -1,4 +1,61 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide: "先點一下那一段，再把紅線往右拖。",
+    helpOtherSideTerm: "改為從右側那一段裁掉素材",
+    helpRemove: "點一下它並按 Delete。",
+    helpRemoveTerm: "刪除整段",
+    helpRestore: "點一下它並再按一次 Delete，或使用它的箭頭。",
+    helpRestoreTerm: "還原已刪除的片段",
+    helpShorten: "把紅線往左拖。拖過的部分會從其左側那一段的結尾被裁掉。",
+    helpShortenTerm: "縮短一段",
+    helpSplit: "按 S，會在播放磁頭處剪開。",
+    helpSplitTerm: "在目前位置分割影片",
+    helpTitle: "使用時間軸",
+    putBack: "還原這一段",
+    removedSection: "已刪除的片段，{{duration}}",
+    section: "{{start}} 到 {{end}} 的片段",
+    sectionEndsAt: "片段結束於 {{at}} — 拖曳可移動",
+    sectionStartsAt: "片段開始於 {{at}} — 拖曳可移動",
+  },
+  redaction: {
+    box: "遮蔽框",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "遮蔽結束於 {{at}}",
+    goTo: "跳到此處遮蔽",
+    helpDraw: "在畫面上拖曳。",
+    helpDrawTerm: "遮住內容",
+    helpFollow:
+      "往前拖動進度，再把遮蔽框拖到目標移動到的位置。遮蔽框會在你設定的各點之間滑動。畫得比要遮住的東西稍大一些。",
+    helpFollowTerm: "跟隨會移動的目標",
+    helpLead:
+      "在你按下「合成」之前，什麼都沒有被隱藏。在那之前遮蔽框只是畫在上面，下方的影片依然一覽無遺。",
+    helpMove: "拖曳遮蔽框，或拖曳它的某個角。",
+    helpMoveTerm: "移動或調整遮蔽框大小",
+    helpRemove: "點一下它並按 Delete。Cmd+Z 可以復原。",
+    helpRemoveTerm: "刪除遮蔽框",
+    helpStylesTerm: "模糊或純色",
+    helpTiming: "在時間軸下方的軌道上，拖曳其長條的任一端。",
+    helpTimingTerm: "變更遮蔽框出現的時間",
+    helpTitle: "使用遮蔽",
+    helpWaypoint:
+      "每一個都是你設定的點。拖曳可變更它出現的時間，按兩下即可刪除。",
+    helpWaypointTerm: "該長條上的菱形",
+    helpWhenInDoubt: "兩種樣式都會把該區域完全遮住。",
+    notYetBurned:
+      "已畫出 {{count}} 處遮蔽但尚未套用——在合成之前，影片中遮蔽下方的內容依然看得到。",
+    range: "從 {{start}} 到 {{end}} 的遮蔽",
+    remove: "刪除遮蔽 {{number}}",
+    resize: "調整此遮蔽的大小",
+    resizeTopLeft: "從左上角調整此遮蔽的大小",
+    startsAt: "遮蔽開始於 {{at}}",
+    styleBlur: "模糊",
+    styleBlurHint:
+      "模糊：在該區域上方產生的一片色暈。它完全不取自下方的畫面，因此其中沒有任何可還原的內容。",
+    styleSolid: "純色",
+    styleSolidHint:
+      "純色：以單一顏色填滿該區域。與模糊一樣安全——兩者都不是由所遮內容產生的——選擇在影片裡看起來較合適的即可。",
+    waypoint: "{{at}} 處的路徑點",
+  },
   common: {
     cancel: "取消",
     create: "建立",
@@ -350,6 +407,8 @@ const messages = {
     ownerInsights: "擁有者洞察",
     ownerInsightsDescription:
       "此剪輯的編輯者可以查看觀看次數、完成率與觀看者詳細資料。",
+    beingEdited: "正在編輯",
+    beingEditedMessage: "擁有者正在修改這段影片。完成後連結會重新生效。",
   },
   meetingDetail: {
     untitledMeeting: "無標題會議",
@@ -527,6 +586,9 @@ const messages = {
     customizeEmbed: "自訂嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
+    redactionsPendingBody:
+      "這段錄影上畫了 {{count}} 處遮蔽，但尚未合成進影片，因此檔案裡遮蔽下方的內容依然看得到。開啟編輯器完成合成後，即可重新分享。",
+    redactionsPendingTitle: "請先完成遮蔽",
   },
   shareUi: {
     owner: "擁有者： {{email}}",
@@ -1177,6 +1239,14 @@ const messages = {
     loadingRecording: "正在載入錄製…",
     recordingNotFound: "找不到錄製",
     noVideoYet: "還沒有可用影片。",
+    burnFailed: "無法將遮蔽合成到影片中",
+    burnProgressUnreadable:
+      "無法得知遮蔽處理的進度。多半仍在算圖中，請稍後重新整理。",
+    burnedRedactionsDone: "已遮蔽。這些區域已從檔案中移除，原始檔案已刪除。",
+    burningRedactions: "正在將遮蔽算進影片…",
+    burningRedactionsPercent: "正在將遮蔽算進影片… {{percent}}%",
+    editFailed: "無法儲存該編輯",
+    nothingToRedo: "沒有可重做的動作",
   },
   transcriptEditor: {
     transcript: "轉錄",
@@ -1368,6 +1438,25 @@ const messages = {
     exportedMp4: "已匯出 MP4",
     exportFailed:
       "匯出失敗，ffmpeg.wasm 不一定能處理長影片。請嘗試較短的編輯，或使用原始檔案。",
+    backToEditing: "返回編輯",
+    burnIn: "合成 {{count}} 處",
+    burnInConfirm: "合成並刪除原始檔",
+    burnInHint: "將遮蔽永久算進影片，並刪除原始檔",
+    burnInTitle: "要將 {{count}} 處遮蔽合成到這段影片嗎？",
+    burnInWarning:
+      "被遮住的區域會在影片的新副本中被銷毀，原始檔案會被刪除。此動作無法復原。",
+    burning: "正在合成…",
+    burningPercent: "正在合成… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "請先合成遮蔽",
+    exportUnredactedWarning:
+      "這段錄影上畫了 {{count}} 處遮蔽，但尚未合成進影片，因此檔案裡遮蔽下方的內容依然看得到，這份副本也一樣。合成之後即可再次使用。",
+    redact: "遮蔽",
+    redactHint: "遮住畫面中的內容。在合成之前，任何內容都不會真正隱藏。",
+    redactOn: "遮蔽中",
+    redoTooltip: "重做（Cmd/Ctrl+Shift+Z）",
+    scrollBack: "顯示左側的控制項",
+    scrollOn: "顯示右側的控制項",
   },
   preRecord: {
     modeScreenCamera: "螢幕 + 攝影機",

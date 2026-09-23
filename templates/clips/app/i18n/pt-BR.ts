@@ -1,4 +1,64 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "Clique primeiro naquela seção e arraste a linha vermelha para a direita.",
+    helpOtherSideTerm: "Tirar material da seção da direita em vez disso",
+    helpRemove: "Clique nela e pressione Delete.",
+    helpRemoveTerm: "Remover uma seção inteira",
+    helpRestore: "Clique nela e pressione Delete de novo, ou use a seta dela.",
+    helpRestoreTerm: "Trazer de volta um trecho removido",
+    helpShorten:
+      "Arraste a linha vermelha para a esquerda. Tudo por onde você passar sai do fim da seção à esquerda dela.",
+    helpShortenTerm: "Encurtar uma seção",
+    helpSplit: "Pressione S. O corte acontece no cursor de reprodução.",
+    helpSplitTerm: "Dividir o clipe onde você está",
+    helpTitle: "Usando a linha do tempo",
+    putBack: "Trazer esta seção de volta",
+    removedSection: "Seção removida, {{duration}}",
+    section: "Seção de {{start}} até {{end}}",
+    sectionEndsAt: "Fim da seção em {{at}} — arraste para mover",
+    sectionStartsAt: "Início da seção em {{at}} — arraste para mover",
+  },
+  redaction: {
+    box: "Caixa de tarja",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "A tarja termina em {{at}}",
+    goTo: "Ir para esta tarja",
+    helpDraw: "Arraste sobre a imagem.",
+    helpDrawTerm: "Cobrir algo",
+    helpFollow:
+      "Avance no vídeo e arraste a caixa até onde o elemento chegou. A caixa desliza entre os pontos que você definir. Desenhe-a um pouco maior do que aquilo que ela cobre.",
+    helpFollowTerm: "Acompanhar algo que se move",
+    helpLead:
+      "Nada fica oculto até você pressionar Aplicar. Até lá, a caixa está apenas desenhada por cima, e o vídeo embaixo continua mostrando tudo.",
+    helpMove: "Arraste a caixa, ou um dos cantos dela.",
+    helpMoveTerm: "Mover ou redimensionar uma caixa",
+    helpRemove: "Clique nela e pressione Delete. Cmd+Z traz de volta.",
+    helpRemoveTerm: "Remover uma caixa",
+    helpStylesTerm: "Desfoque ou Sólido",
+    helpTiming:
+      "Arraste uma das pontas da barra dela, na faixa abaixo da linha do tempo.",
+    helpTimingTerm: "Mudar quando uma caixa aparece",
+    helpTitle: "Usando a tarja",
+    helpWaypoint:
+      "Cada um é um ponto que você definiu. Arraste um para mudar quando ele acontece, ou pressione duas vezes para removê-lo.",
+    helpWaypointTerm: "Os losangos nessa barra",
+    helpWhenInDoubt: "Os dois estilos ocultam a área por completo.",
+    notYetBurned:
+      "{{count}} tarja(s) estão desenhadas, mas não aplicadas — o vídeo ainda mostra tudo o que está embaixo delas até você aplicá-las.",
+    range: "Tarja de {{start}} até {{end}}",
+    remove: "Excluir a tarja {{number}}",
+    resize: "Redimensionar esta tarja",
+    resizeTopLeft: "Redimensionar esta tarja pelo canto superior esquerdo",
+    startsAt: "A tarja começa em {{at}}",
+    styleBlur: "Desfoque",
+    styleBlurHint:
+      "Desfoque: um borrão de cor gerado sobre a área. Nada do que estava embaixo é usado para criá-lo, então não há nada nele a recuperar.",
+    styleSolid: "Sólido",
+    styleSolidHint:
+      "Sólido: preenche a área com uma cor. Tão seguro quanto o Desfoque — nenhum dos dois é construído a partir do que cobre — então escolha o que ficar melhor no clipe.",
+    waypoint: "Ponto em {{at}}",
+  },
   common: {
     cancel: "Cancelar",
     create: "Criar",
@@ -374,6 +434,9 @@ const messages = {
     ownerInsights: "Insights do proprietário",
     ownerInsightsDescription:
       "Visualizações, conclusão e detalhes dos espectadores ficam visíveis para editores deste clipe.",
+    beingEdited: "Em edição",
+    beingEditedMessage:
+      "O proprietário está fazendo alterações neste clipe. O link volta a funcionar quando ele terminar.",
   },
   meetingDetail: {
     untitledMeeting: "Reunião sem título",
@@ -561,6 +624,9 @@ const messages = {
     customizeEmbed: "Personalizar incorporação",
     more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
+    redactionsPendingBody:
+      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas. Abra o editor, aplique-as, e o compartilhamento volta.",
+    redactionsPendingTitle: "Conclua as tarjas primeiro",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",
@@ -1251,6 +1317,15 @@ const messages = {
     loadingRecording: "Carregando gravação…",
     recordingNotFound: "Gravação não encontrada",
     noVideoYet: "Ainda não há vídeo disponível.",
+    burnFailed: "Não foi possível aplicar as tarjas",
+    burnProgressUnreadable:
+      "Não dá para saber como está o andamento da tarja. É bem provável que ainda esteja sendo processada — atualize em instantes.",
+    burnedRedactionsDone:
+      "Tarjado. Essas áreas agora não estão mais no arquivo, e o original foi excluído.",
+    burningRedactions: "Aplicando as tarjas ao vídeo…",
+    burningRedactionsPercent: "Aplicando as tarjas ao vídeo… {{percent}}%",
+    editFailed: "Não foi possível salvar essa edição",
+    nothingToRedo: "Nada para refazer",
   },
   transcriptEditor: {
     transcript: "Transcrição",
@@ -1455,6 +1530,26 @@ const messages = {
     exportedMp4: "Exported MP4",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
+    backToEditing: "Voltar à edição",
+    burnIn: "Aplicar {{count}}",
+    burnInConfirm: "Aplicar e excluir o original",
+    burnInHint:
+      "Aplicar as tarjas ao vídeo definitivamente e excluir o original",
+    burnInTitle: "Aplicar {{count}} tarja(s) a este vídeo?",
+    burnInWarning:
+      "As áreas cobertas serão destruídas em uma nova cópia do vídeo, e o arquivo original será excluído. Isso não pode ser desfeito.",
+    burning: "Aplicando…",
+    burningPercent: "Aplicando… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "Aplique as tarjas primeiro",
+    exportUnredactedWarning:
+      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas — e esta cópia também mostraria. Aplique-as e isto volta a ficar disponível.",
+    redact: "Tarjar",
+    redactHint: "Cubra algo na imagem. Nada fica oculto até você aplicar.",
+    redactOn: "Tarjando",
+    redoTooltip: "Refazer (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "Mostrar os controles à esquerda",
+    scrollOn: "Mostrar os controles à direita",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam",

@@ -110,7 +110,9 @@ import {
 } from "@/lib/recording-processing-lifecycle";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
+import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import { parseRedactions } from "@/lib/video-redactions";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
@@ -1058,7 +1060,29 @@ export default function ShareRoute() {
     } catch {}
   }
 
+  /**
+   * Redactions drawn but not burned in. Resharing is held back while there are
+   * any — the file still shows everything under them, so passing the link on
+   * passes on the unredacted clip.
+   */
+  // `recording` comes from a client-side query and is undefined while the
+  // server renders, so this has to tolerate its absence: reading through it
+  // unguarded here returned a 500 for every share page, redactions or not.
+  const pendingRedactions = parseRedactions(
+    parseEdits(recording?.editsJson).overlays,
+  ).length;
+
   async function downloadRecording() {
+    // Every way out of here is the same file, and it still shows what the
+    // boxes are over until the burn has run.
+    if (pendingRedactions > 0) {
+      toast.warning(t("shareDialog.redactionsPendingTitle"), {
+        description: t("shareDialog.redactionsPendingBody", {
+          count: pendingRedactions,
+        }),
+      });
+      return;
+    }
     if (!recording?.videoUrl) return;
     setDownloading(true);
     const downloadToastId = toast.loading(t("sharePage.downloading"));
@@ -1162,6 +1186,22 @@ export default function ShareRoute() {
           onSubmit={onSubmitPassword}
           error={pwError}
           title={t("sharePage.passwordProtected")}
+        />
+      </>
+    );
+  }
+
+  // Held while the owner has redactions drawn but not burned in. The clip
+  // comes back on its own the moment they are, so this says "for now" and
+  // nothing about what is being covered up.
+  if (dataQ.data?.status === 409 && dataQ.data.data?.redactionPending) {
+    return (
+      <>
+        {agentDiscovery}
+        <EndState
+          icon={<IconLock className="h-5 w-5" aria-hidden="true" />}
+          title={t("sharePage.beingEdited")}
+          message={t("sharePage.beingEditedMessage")}
         />
       </>
     );
@@ -1446,6 +1486,7 @@ export default function ShareRoute() {
           {viewerCanEdit || canReshareLink ? (
             <ShareRecordingPopover
               recordingId={recording.id}
+              pendingRedactions={pendingRedactions}
               recordingTitle={recording.title}
               initialVisibility={recording.visibility}
               initialRole={viewerIsOwner ? "owner" : undefined}

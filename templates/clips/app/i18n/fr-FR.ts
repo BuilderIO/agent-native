@@ -1,4 +1,67 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "Cliquez d'abord sur cette section, puis faites glisser la ligne rouge vers la droite.",
+    helpOtherSideTerm: "Retirer plutôt des images de la section de droite",
+    helpRemove: "Cliquez dessus et appuyez sur Suppr.",
+    helpRemoveTerm: "Supprimer une section entière",
+    helpRestore:
+      "Cliquez dessus et appuyez de nouveau sur Suppr, ou utilisez sa flèche.",
+    helpRestoreTerm: "Rétablir un passage supprimé",
+    helpShorten:
+      "Faites glisser la ligne rouge vers la gauche. Tout ce que vous dépassez est retiré de la fin de la section située à sa gauche.",
+    helpShortenTerm: "Raccourcir une section",
+    helpSplit: "Appuyez sur S. La coupe se fait à la tête de lecture.",
+    helpSplitTerm: "Diviser le clip à l'endroit où vous êtes",
+    helpTitle: "Utiliser la chronologie",
+    putBack: "Rétablir cette section",
+    removedSection: "Section supprimée, {{duration}}",
+    section: "Section de {{start}} à {{end}}",
+    sectionEndsAt:
+      "Fin de la section à {{at}} — faites glisser pour la déplacer",
+    sectionStartsAt:
+      "Début de la section à {{at}} — faites glisser pour le déplacer",
+  },
+  redaction: {
+    box: "Zone de masquage",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "Le masquage se termine à {{at}}",
+    goTo: "Aller à ce masquage",
+    helpDraw: "Faites glisser sur l'image.",
+    helpDrawTerm: "Couvrir quelque chose",
+    helpFollow:
+      "Avancez dans la vidéo, puis faites glisser la zone là où l'élément se trouve désormais. La zone se déplace entre les points que vous définissez. Dessinez-la un peu plus grande que ce qu'elle couvre.",
+    helpFollowTerm: "Suivre un élément qui se déplace",
+    helpLead:
+      "Rien n'est caché tant que vous n'avez pas appuyé sur Appliquer. Jusque-là, la zone n'est que dessinée par-dessus, et la vidéo en dessous montre encore tout.",
+    helpMove: "Faites glisser la zone, ou l'un de ses coins.",
+    helpMoveTerm: "Déplacer ou redimensionner une zone",
+    helpRemove: "Cliquez dessus et appuyez sur Suppr. Cmd+Z la rétablit.",
+    helpRemoveTerm: "Supprimer une zone",
+    helpStylesTerm: "Flou ou Uni",
+    helpTiming:
+      "Faites glisser l'une des extrémités de sa barre, sur la piste sous la chronologie.",
+    helpTimingTerm: "Changer le moment où une zone apparaît",
+    helpTitle: "Utiliser le masquage",
+    helpWaypoint:
+      "Chacun est un point que vous avez défini. Faites-en glisser un pour changer son moment, ou appuyez deux fois dessus pour le supprimer.",
+    helpWaypointTerm: "Les losanges sur cette barre",
+    helpWhenInDoubt: "Les deux styles masquent entièrement la zone.",
+    notYetBurned:
+      "{{count}} masquage(s) sont dessinés mais pas appliqués — la vidéo montre encore tout ce qui se trouve dessous tant que vous ne les appliquez pas.",
+    range: "Masquage de {{start}} à {{end}}",
+    remove: "Supprimer le masquage {{number}}",
+    resize: "Redimensionner ce masquage",
+    resizeTopLeft: "Redimensionner ce masquage depuis le coin supérieur gauche",
+    startsAt: "Le masquage commence à {{at}}",
+    styleBlur: "Flou",
+    styleBlurHint:
+      "Flou : un voile de couleur généré au-dessus de la zone. Rien de ce qui se trouvait dessous ne sert à le produire, il n'y a donc rien à y récupérer.",
+    styleSolid: "Uni",
+    styleSolidHint:
+      "Uni : remplit la zone d'une seule couleur. Aussi sûr que Flou — ni l'un ni l'autre n'est construit à partir de ce qu'il couvre — choisissez donc celui qui rend le mieux sur le clip.",
+    waypoint: "Point de repère à {{at}}",
+  },
   common: {
     cancel: "Annuler",
     create: "Créer",
@@ -377,6 +440,9 @@ const messages = {
     ownerInsights: "Insights du propriétaire",
     ownerInsightsDescription:
       "Les vues, l’achèvement et les détails des spectateurs sont visibles par les éditeurs de ce clip.",
+    beingEdited: "En cours de modification",
+    beingEditedMessage:
+      "Le propriétaire modifie ce clip. Le lien fonctionnera de nouveau lorsqu'il aura terminé.",
   },
   meetingDetail: {
     untitledMeeting: "Réunion sans titre",
@@ -564,6 +630,9 @@ const messages = {
     customizeEmbed: "Personnaliser l’intégration",
     more: "Plus",
     sharePlainTitle: "Partager {{title}}",
+    redactionsPendingBody:
+      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n'ont pas été appliqués à la vidéo : le fichier montre donc toujours tout ce qui se trouve dessous. Ouvrez l'éditeur, appliquez-les, et le partage redeviendra disponible.",
+    redactionsPendingTitle: "Terminez d'abord les masquages",
   },
   shareUi: {
     owner: "Propriétaire : {{email}}",
@@ -1255,6 +1324,16 @@ const messages = {
     loadingRecording: "Chargement de l’enregistrement…",
     recordingNotFound: "Enregistrement introuvable",
     noVideoYet: "Aucune vidéo disponible pour le moment.",
+    burnFailed: "Impossible d'appliquer les masquages",
+    burnProgressUnreadable:
+      "Impossible de savoir où en est le masquage. Il est très probablement encore en cours de rendu — actualisez dans un instant.",
+    burnedRedactionsDone:
+      "Masqué. Ces zones ont été retirées du fichier et l'original a été supprimé.",
+    burningRedactions: "Application des masquages à la vidéo…",
+    burningRedactionsPercent:
+      "Application des masquages à la vidéo… {{percent}} %",
+    editFailed: "Impossible d'enregistrer cette modification",
+    nothingToRedo: "Rien à rétablir",
   },
   transcriptEditor: {
     transcript: "Transcription",
@@ -1465,6 +1544,27 @@ const messages = {
     exportedMp4: "Exported MP4 (Localisé)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (Localisé)",
+    backToEditing: "Retour à l'édition",
+    burnIn: "Appliquer {{count}}",
+    burnInConfirm: "Appliquer et supprimer l'original",
+    burnInHint:
+      "Appliquer définitivement les masquages à la vidéo et supprimer l'original",
+    burnInTitle: "Appliquer {{count}} masquage(s) à cette vidéo ?",
+    burnInWarning:
+      "Les zones couvertes seront détruites dans une nouvelle copie de la vidéo, et le fichier original sera supprimé. C'est irréversible.",
+    burning: "Application…",
+    burningPercent: "Application… {{percent}} %",
+    deleteKey: "Suppr",
+    exportUnredactedTitle: "Appliquez d'abord les masquages",
+    exportUnredactedWarning:
+      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n'ont pas été appliqués à la vidéo : le fichier montre donc toujours tout ce qui se trouve dessous — et cette copie ferait de même. Appliquez-les et cette option redeviendra disponible.",
+    redact: "Masquer",
+    redactHint:
+      "Couvrir quelque chose dans l'image. Rien n'est caché tant que vous ne l'appliquez pas.",
+    redactOn: "Masquage actif",
+    redoTooltip: "Rétablir (Cmd/Ctrl+Maj+Z)",
+    scrollBack: "Afficher les commandes à gauche",
+    scrollOn: "Afficher les commandes à droite",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (Localisé)",

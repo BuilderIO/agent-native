@@ -1,4 +1,67 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "Klicken Sie zuerst diesen Abschnitt an und ziehen Sie dann die rote Linie nach rechts.",
+    helpOtherSideTerm: "Stattdessen Material vom Abschnitt rechts entfernen",
+    helpRemove: "Klicken Sie ihn an und drücken Sie Entf.",
+    helpRemoveTerm: "Einen ganzen Abschnitt entfernen",
+    helpRestore:
+      "Klicken Sie ihn an und drücken Sie erneut Entf, oder nutzen Sie seinen Pfeil.",
+    helpRestoreTerm: "Einen entfernten Abschnitt zurückholen",
+    helpShorten:
+      "Ziehen Sie die rote Linie nach links. Alles, woran Sie vorbeiziehen, wird am Ende des Abschnitts links davon entfernt.",
+    helpShortenTerm: "Einen Abschnitt kürzen",
+    helpSplit: "Drücken Sie S. Der Schnitt erfolgt an der Abspielposition.",
+    helpSplitTerm: "Den Clip an der aktuellen Stelle teilen",
+    helpTitle: "Die Zeitleiste verwenden",
+    putBack: "Diesen Abschnitt zurückholen",
+    removedSection: "Entfernter Abschnitt, {{duration}}",
+    section: "Abschnitt {{start}} bis {{end}}",
+    sectionEndsAt: "Ende des Abschnitts bei {{at}} – zum Verschieben ziehen",
+    sectionStartsAt:
+      "Beginn des Abschnitts bei {{at}} – zum Verschieben ziehen",
+  },
+  redaction: {
+    box: "Schwärzungsfeld",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "Schwärzung endet bei {{at}}",
+    goTo: "Zu dieser Schwärzung springen",
+    helpDraw: "Ziehen Sie über das Bild.",
+    helpDrawTerm: "Etwas abdecken",
+    helpFollow:
+      "Spulen Sie vor und ziehen Sie das Feld dorthin, wo sich das Objekt nun befindet. Das Feld bewegt sich zwischen den von Ihnen gesetzten Punkten. Zeichnen Sie es etwas größer als das, was es abdeckt.",
+    helpFollowTerm: "Etwas verfolgen, das sich bewegt",
+    helpLead:
+      "Nichts ist verborgen, bis Sie auf Einbrennen drücken. Bis dahin liegt das Feld nur darüber, und das Video darunter zeigt weiterhin alles.",
+    helpMove: "Ziehen Sie das Feld oder eine seiner Ecken.",
+    helpMoveTerm: "Ein Feld verschieben oder in der Größe ändern",
+    helpRemove:
+      "Klicken Sie es an und drücken Sie Entf. Cmd+Z stellt es wieder her.",
+    helpRemoveTerm: "Ein Feld entfernen",
+    helpStylesTerm: "Unschärfe oder Deckend",
+    helpTiming:
+      "Ziehen Sie eines der Enden des Balkens in der Spur unter der Zeitleiste.",
+    helpTimingTerm: "Ändern, wann ein Feld erscheint",
+    helpTitle: "Schwärzung verwenden",
+    helpWaypoint:
+      "Jede ist ein von Ihnen gesetzter Punkt. Ziehen Sie eine, um ihren Zeitpunkt zu ändern, oder drücken Sie zweimal darauf, um sie zu entfernen.",
+    helpWaypointTerm: "Die Rauten auf diesem Balken",
+    helpWhenInDoubt: "Beide Varianten verbergen den Bereich vollständig.",
+    notYetBurned:
+      "{{count}} Schwärzung(en) sind eingezeichnet, aber nicht angewendet – das Video zeigt weiterhin alles darunter, bis Sie sie einbrennen.",
+    range: "Schwärzung von {{start}} bis {{end}}",
+    remove: "Schwärzung {{number}} löschen",
+    resize: "Größe dieser Schwärzung ändern",
+    resizeTopLeft: "Größe dieser Schwärzung von oben links ändern",
+    startsAt: "Schwärzung beginnt bei {{at}}",
+    styleBlur: "Unschärfe",
+    styleBlurHint:
+      "Unschärfe: ein über den Bereich erzeugter Farbschleier. Nichts von dem, was darunter lag, fließt in ihn ein, es gibt also nichts darin wiederherzustellen.",
+    styleSolid: "Deckend",
+    styleSolidHint:
+      "Deckend: füllt den Bereich mit einer Farbe. Genauso sicher wie Unschärfe – keine von beiden wird aus dem Abgedeckten erzeugt – wählen Sie also, was im Clip besser aussieht.",
+    waypoint: "Wegpunkt bei {{at}}",
+  },
   common: {
     cancel: "Abbrechen",
     create: "Erstellen",
@@ -383,6 +446,9 @@ const messages = {
     ownerInsights: "Eigentümer-Einblicke",
     ownerInsightsDescription:
       "Aufrufe, Abschlussrate und Zuschauerdetails sind für Bearbeiter dieses Clips sichtbar.",
+    beingEdited: "Wird bearbeitet",
+    beingEditedMessage:
+      "Der Eigentümer nimmt Änderungen an diesem Clip vor. Der Link funktioniert wieder, sobald er fertig ist.",
   },
   meetingDetail: {
     untitledMeeting: "Treffen ohne Titel",
@@ -570,6 +636,9 @@ const messages = {
     customizeEmbed: "Einbettung anpassen",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
+    redactionsPendingBody:
+      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter. Öffnen Sie den Editor, brennen Sie sie ein, und das Teilen steht wieder zur Verfügung.",
+    redactionsPendingTitle: "Schließen Sie die Schwärzungen zuerst ab",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
@@ -1263,6 +1332,16 @@ const messages = {
     loadingRecording: "Aufzeichnung wird geladen…",
     recordingNotFound: "Aufzeichnung nicht gefunden",
     noVideoYet: "Noch kein Video verfügbar.",
+    burnFailed: "Die Schwärzungen konnten nicht eingebrannt werden",
+    burnProgressUnreadable:
+      "Der Fortschritt der Schwärzung lässt sich nicht ermitteln. Sie wird höchstwahrscheinlich noch gerendert – aktualisieren Sie die Seite in einem Moment.",
+    burnedRedactionsDone:
+      "Geschwärzt. Diese Bereiche sind nun aus der Datei entfernt und das Original wurde gelöscht.",
+    burningRedactions: "Die Schwärzungen werden in das Video gerendert …",
+    burningRedactionsPercent:
+      "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
+    editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    nothingToRedo: "Nichts zum Wiederherstellen",
   },
   transcriptEditor: {
     transcript: "Transkript",
@@ -1468,6 +1547,27 @@ const messages = {
     exportedMp4: "Exported MP4 (Lokalisiert)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (Lokalisiert)",
+    backToEditing: "Zurück zur Bearbeitung",
+    burnIn: "{{count}} einbrennen",
+    burnInConfirm: "Einbrennen und Original löschen",
+    burnInHint:
+      "Die Schwärzungen dauerhaft in das Video rendern und das Original löschen",
+    burnInTitle: "{{count}} Schwärzung(en) in dieses Video einbrennen?",
+    burnInWarning:
+      "Die abgedeckten Bereiche werden in einer neuen Kopie des Videos zerstört, und die Originaldatei wird gelöscht. Das lässt sich nicht rückgängig machen.",
+    burning: "Wird eingebrannt …",
+    burningPercent: "Wird eingebrannt … {{percent}} %",
+    deleteKey: "Entf",
+    exportUnredactedTitle: "Brennen Sie die Schwärzungen zuerst ein",
+    exportUnredactedWarning:
+      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter – und diese Kopie ebenfalls. Brennen Sie sie ein, dann steht dies wieder zur Verfügung.",
+    redact: "Schwärzen",
+    redactHint:
+      "Etwas im Bild abdecken. Nichts ist verborgen, bis Sie es einbrennen.",
+    redactOn: "Schwärzen aktiv",
+    redoTooltip: "Wiederherstellen (Cmd/Strg+Umschalt+Z)",
+    scrollBack: "Die Steuerelemente links anzeigen",
+    scrollOn: "Die Steuerelemente rechts anzeigen",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (Lokalisiert)",
