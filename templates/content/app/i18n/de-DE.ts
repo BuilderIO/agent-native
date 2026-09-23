@@ -464,7 +464,7 @@ const editor = {
     "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
   createCollection: "Sammlung erstellen",
   creatingDatabase: "Inline-Sammlung wird erstellt...",
-  databaseCreated: "Inline-Sammlung erstellt",
+  databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",

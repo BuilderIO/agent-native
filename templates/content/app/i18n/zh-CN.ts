@@ -425,7 +425,7 @@ const editor = {
     "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
   createCollection: "创建集合",
   creatingDatabase: "正在创建内联集合...",
-  databaseCreated: "内联集合已创建",
+  databaseCreated: "集合已创建",
   emptyBlockPlaceholder: "按“/”使用命令",
   describeWhatToGenerate: "描述要生成什么...",
   enterToSubmit: "输入提交",

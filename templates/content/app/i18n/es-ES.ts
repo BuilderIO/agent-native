@@ -459,7 +459,7 @@ const editor = {
     "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
   createCollection: "Crear colección",
   creatingDatabase: "Creando colección integrada...",
-  databaseCreated: "Colección integrada creada",
+  databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
   describeWhatToGenerate: "Describe qué generar...",
   enterToSubmit: "Entra para enviar",

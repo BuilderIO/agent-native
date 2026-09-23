@@ -467,7 +467,7 @@ const editor = {
     "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
   createCollection: "Créer une collection",
   creatingDatabase: "Création d'une collection intégrée...",
-  databaseCreated: "Collection intégrée créée",
+  databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
   describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
   enterToSubmit: "Entrez pour soumettre",

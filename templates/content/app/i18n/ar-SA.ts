@@ -441,7 +441,7 @@ const editor = {
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
   createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
-  databaseCreated: "تم إنشاء المجموعة المضمنة",
+  databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
   describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
   enterToSubmit: "أدخل لتقديم",

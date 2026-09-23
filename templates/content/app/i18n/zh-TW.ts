@@ -397,7 +397,7 @@ const overrides = {
     toggleField: "切換 {{name}}",
     createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
-    databaseCreated: "內嵌集合已建立",
+    databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",
     describeWhatToGenerate: "描述要生成什麼...",
     enterToSubmit: "輸入提交",

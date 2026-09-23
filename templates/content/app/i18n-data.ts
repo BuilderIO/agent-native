@@ -1224,7 +1224,7 @@ const enUS = {
     toggleField: "Toggle {{name}}",
     createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
-    databaseCreated: "Inline collection created",
+    databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",

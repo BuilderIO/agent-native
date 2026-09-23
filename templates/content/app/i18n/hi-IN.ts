@@ -439,7 +439,7 @@ const editor = {
     "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
   createCollection: "संग्रह बनाएँ",
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
-  databaseCreated: "इनलाइन संग्रह बनाया गया",
+  databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
   describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
   enterToSubmit: "सबमिट करने के लिए दर्ज करें",

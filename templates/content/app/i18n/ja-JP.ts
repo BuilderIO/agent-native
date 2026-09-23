@@ -451,7 +451,7 @@ const editor = {
     "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
   createCollection: "コレクションを作成",
   creatingDatabase: "インラインコレクションを作成しています...",
-  databaseCreated: "インラインコレクションが作成されました",
+  databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
   describeWhatToGenerate: "何を生成するかを説明します...",
   enterToSubmit: "入力して送信してください",

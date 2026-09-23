@@ -445,7 +445,7 @@ const editor = {
     "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
   createCollection: "컬렉션 만들기",
   creatingDatabase: "인라인 컬렉션 생성 중...",
-  databaseCreated: "인라인 컬렉션가 생성되었습니다.",
+  databaseCreated: "컬렉션이 생성되었습니다.",
   emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
   describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
   enterToSubmit: "제출하려면 입력하세요.",
