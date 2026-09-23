@@ -272,7 +272,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 // before this fires (see the "keeps polling" tests below for the regression
 // this replaced). Anything past this is a cancelled/closed popup, not a slow
 // success, and the button must not spin for the full 5-minute ceiling.
-const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
+export const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
 // A waiting page that never loads cannot hand off the popup, so keep the
 // connect flow bounded even when the popup remains open.
 const POPUP_LOAD_TIMEOUT_MS = 20_000;
@@ -558,7 +558,7 @@ function waitForBuilderConnectPopupLoad(
   });
 }
 
-function isPopupClosed(popup: Window | null): boolean {
+export function isPopupClosed(popup: Window | null): boolean {
   if (!popup) return false;
   try {
     return popup.closed === true;
@@ -745,6 +745,25 @@ export function useBuilderConnectFlow(
     source: trackingSource,
     flow: trackingFlow,
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const desktopBridge = (
+      window as Window & {
+        agentNativeDesktop?: {
+          oauth?: {
+            onPopupClosed: (
+              callback: (attemptId: string | null) => void,
+            ) => () => void;
+          };
+        };
+      }
+    ).agentNativeDesktop;
+    return desktopBridge?.oauth?.onPopupClosed((attemptId) => {
+      if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
+      popupClosedAtRef.current ??= Date.now();
+    });
+  }, []);
 
   // Accepts an optional external `signal` so the connect-flow poll loop below
   // can cancel this fetch via its own timeout instead of racing a second,
@@ -1262,7 +1281,8 @@ export function useBuilderConnectFlow(
             : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
       } else if (
-        isPopupClosed(activePopupRef.current) &&
+        (isPopupClosed(activePopupRef.current) ||
+          popupClosedAtRef.current !== null) &&
         callbackSuccessStartedAtRef.current !== started
       ) {
         // The user closed or cancelled the popup before Builder confirmed

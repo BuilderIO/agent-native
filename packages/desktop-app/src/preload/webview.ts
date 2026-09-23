@@ -40,6 +40,18 @@ const agentNativeDesktop = {
   analytics: {
     clientPlatform: "electron" as const,
   },
+  oauth: {
+    onPopupClosed: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_POPUP_CLOSED, handler);
+      return () => ipcRenderer.removeListener(IPC.OAUTH_POPUP_CLOSED, handler);
+    },
+  },
   chat: {
     toggle: (options?: AgentChatCommandOptions) =>
       sendChatCommand("toggle", options),

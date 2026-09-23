@@ -28,6 +28,8 @@ export const IPC = {
 
   /** App status events (main → renderer) */
   APP_STATUS: "app:status",
+  /** OAuth popup closed in the main process (main → originating webview) */
+  OAUTH_POPUP_CLOSED: "oauth:popup:closed",
 
   /** Desktop workspace identity (renderer intent/status only; no secrets) */
   IDENTITY_STATUS_GET: "identity:status:get",

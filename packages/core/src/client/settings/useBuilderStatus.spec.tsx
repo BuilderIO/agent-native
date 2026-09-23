@@ -1505,6 +1505,62 @@ describe("useBuilderConnectFlow", () => {
     expect(openSpy).toHaveBeenCalled();
   });
 
+  it("resets after the desktop OAuth popup closes without a Window handle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifyPopupClosed: ((attemptId: string | null) => void) | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onPopupClosed: (callback: (attemptId: string | null) => void) => {
+            notifyPopupClosed = callback;
+            return () => {
+              notifyPopupClosed = null;
+            };
+          },
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(openSpy).toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+
+    const openedUrl = (openSpy.mock.calls[0] as unknown as [string])[0];
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    await act(async () => {
+      notifyPopupClosed?.(attemptId);
+      await vi.advanceTimersByTimeAsync(24_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
   it("does not cancel a real success that confirms shortly after the popup-close grace window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));

@@ -13438,14 +13438,23 @@ function openMatchedOAuthUrl(
   parsed: URL,
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
-  sourceUrl?: string,
+  sourceUrl: string | undefined,
+  sourceContents: Electron.WebContents,
 ) {
   if (shouldOpenOAuthInSystemBrowser(provider, parsed)) {
     openExternalUrl(url);
     return;
   }
+  const attemptId = parsed.searchParams.get("_an_connect_attempt");
   routeOAuthToBoundSession(url, sourceSession, (boundUrl, callbackSession) =>
-    openOAuthWindow(boundUrl, callbackSession, provider, sourceUrl),
+    openOAuthWindow(
+      boundUrl,
+      callbackSession,
+      provider,
+      sourceUrl,
+      sourceContents,
+      attemptId,
+    ),
   );
 }
 
@@ -13477,7 +13486,9 @@ function openOAuthWindow(
   url: string,
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
-  sourceUrl?: string,
+  sourceUrl: string | undefined,
+  sourceContents: Electron.WebContents,
+  attemptId: string | null = null,
 ) {
   const injectionTarget = getOAuthInjectionTarget(sourceSession, sourceUrl);
   rememberOAuthStateFromNavigation(provider, url, injectionTarget);
@@ -13500,6 +13511,11 @@ function openOAuthWindow(
       contextIsolation: true,
       ...(sourceSession ? { session: sourceSession } : {}),
     },
+  });
+
+  oauthWin.on("closed", () => {
+    if (sourceContents.isDestroyed()) return;
+    sourceContents.send(IPC.OAUTH_POPUP_CLOSED, attemptId);
   });
 
   void oauthWin.loadURL(url);
@@ -13676,6 +13692,7 @@ function openOAuthFromWebviewNavigation(
       sourceContents.session,
       provider,
       sourceContents.getURL(),
+      sourceContents,
     );
     return true;
   } catch {
@@ -13907,6 +13924,7 @@ function handleWindowOpenForContents(
         contents.session,
         provider,
         contents.getURL(),
+        contents,
       );
     } else {
       openExternalUrl(url);
