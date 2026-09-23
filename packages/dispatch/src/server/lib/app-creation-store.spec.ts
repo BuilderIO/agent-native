@@ -1586,12 +1586,18 @@ describe("startWorkspaceAppCreation", () => {
       ],
     });
 
-    await expect(
-      create("onboarding", {
-        userEmail: "other@example.test",
-        orgId: "org-123",
-      }),
-    ).rejects.toThrow("already being created by another member");
+    const result = (await create("onboarding", {
+      userEmail: "other@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result).toMatchObject({
+      mode: "app-id-taken",
+      appId: "onboarding",
+      conflict: "pending",
+      owner: "creator@example.test",
+    });
+    expect(result.message).toContain("already being created by another member");
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
     expect(
       mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
@@ -1622,12 +1628,49 @@ describe("startWorkspaceAppCreation", () => {
       ],
     });
 
-    await expect(
-      create("onboarding", {
-        userEmail: "other@example.test",
-        orgId: "org-123",
-      }),
-    ).rejects.toThrow("already being created by another member");
+    const result = (await create("onboarding", {
+      userEmail: "other@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result).toMatchObject({
+      mode: "app-id-taken",
+      conflict: "pending",
+    });
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("reports the creator's own in-flight app id as app-id-taken", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.settings.set("dispatch-app-creation-settings:org:org-123", {
+      pendingApps: [
+        {
+          id: "onboarding",
+          name: "Onboarding",
+          description: "Already being created",
+          path: "/onboarding",
+          projectId: "project-1",
+          createdBy: "dev@example.test",
+          owner: "dev@example.test",
+          createdAt: "2026-08-19T21:00:00.000Z",
+          updatedAt: "2026-08-19T21:00:00.000Z",
+          expiresAt: "2999-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result).toMatchObject({
+      mode: "app-id-taken",
+      appId: "onboarding",
+      conflict: "pending",
+      owner: "dev@example.test",
+    });
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
   });
 
