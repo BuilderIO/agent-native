@@ -65,10 +65,9 @@ import {
 import {
   useCreateContentDatabase,
   useCreateInlineContentDatabase,
-  useDeleteContentDatabase,
 } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { useDeleteDocument } from "@/hooks/use-documents";
+import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
@@ -730,12 +729,11 @@ export function SlashCommandMenu({
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
-  const deleteDocument = useDeleteDocument();
+  const rollbackCreatedSlashDocument = useRollbackCreatedSlashDocument();
   const createInlineDatabase = useCreateInlineContentDatabase(
     documentId ?? null,
   );
   const createFullPageDatabase = useCreateContentDatabase(null);
-  const deleteContentDatabase = useDeleteContentDatabase();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -920,7 +918,11 @@ export function SlashCommandMenu({
           ? []
           : await cleanupFailedSlashCreation(
               () => removeCreatedPageReference(editor, pageId),
-              () => deleteDocument.mutateAsync({ id: pageId }),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: pageId,
+                  parentId: documentId,
+                }),
             );
         toast.error(t("editor.failedToCreatePage"), {
           description: [error, ...cleanupErrors]
@@ -988,8 +990,9 @@ export function SlashCommandMenu({
                     blockToCleanup.ownerBlockId,
                   ),
                 () =>
-                  deleteDocument.mutateAsync({
+                  rollbackCreatedSlashDocument.mutateAsync({
                     id: blockToCleanup.databaseDocumentId,
+                    parentId: documentId,
                   }),
               )
             : [];
@@ -1017,7 +1020,6 @@ export function SlashCommandMenu({
         return;
       }
       const toastId = toast.loading(t("editor.creatingDatabase"));
-      let createdDatabaseId: string | null = null;
       let createdPageId: string | null = null;
       let parentPersisted = false;
       try {
@@ -1025,7 +1027,6 @@ export function SlashCommandMenu({
           parentId: documentId,
           title: t("editor.untitledDatabase"),
         });
-        createdDatabaseId = result.database.id;
         const pageId = result.database.documentId;
         createdPageId = pageId;
         const pageReference = {
@@ -1071,17 +1072,18 @@ export function SlashCommandMenu({
         toast.success(t("editor.databaseCreated"), { id: toastId });
         navigate(`/page/${pageId}`, { flushSync: true });
       } catch (error) {
-        const databaseIdToCleanup = createdDatabaseId;
+        const pageIdToCleanup = createdPageId;
         const cleanupErrors =
-          databaseIdToCleanup && !parentPersisted
+          pageIdToCleanup && !parentPersisted
             ? await cleanupFailedSlashCreation(
                 () => {
                   if (createdPageId)
                     removeCreatedPageReference(editor, createdPageId);
                 },
                 () =>
-                  deleteContentDatabase.mutateAsync({
-                    databaseId: databaseIdToCleanup,
+                  rollbackCreatedSlashDocument.mutateAsync({
+                    id: pageIdToCleanup,
+                    parentId: documentId,
                   }),
               )
             : [];

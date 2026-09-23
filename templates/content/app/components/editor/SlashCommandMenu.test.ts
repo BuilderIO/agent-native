@@ -912,6 +912,8 @@ describe("inline database slash command", () => {
     expect(source).toContain("requiredText: result.block.ownerBlockId");
     expect(source).toContain("await onDraftPersisted(content)");
     expect(source).toContain("useCreateContentDatabase");
+    expect(source).toContain("useRollbackCreatedSlashDocument");
+    expect(source).not.toContain("useDeleteContentDatabase");
     expect(source).toContain('searchText: "database collection inline"');
     expect(source).toContain('searchText: "database collection full page"');
     expect(source).toContain("parentId: documentId");
