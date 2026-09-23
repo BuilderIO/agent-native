@@ -372,7 +372,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`",
     );
-    expect(sidebar).toContain("return handleSelectContentSpace(space, null, true)");
+    expect(sidebar).toContain(
+      "return handleSelectContentSpace(space, null, true)",
+    );
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );
