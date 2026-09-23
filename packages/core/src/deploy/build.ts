@@ -322,7 +322,9 @@ function configureAwsRuntimeOutput(
     ...readEnvExampleKeys(path.join(appDir, ".env.example")),
   ]);
   for (const key of appScopedRuntimeEnvKeys(
-    env.AGENT_NATIVE_WORKSPACE_APP_ID || env.APP_NAME,
+    env.AGENT_NATIVE_WORKSPACE_APP_ID ||
+      env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID ||
+      env.APP_NAME,
   )) {
     declaredKeys.add(key);
   }
