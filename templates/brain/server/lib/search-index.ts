@@ -39,6 +39,23 @@ export const BRAIN_MAX_EMBEDDED_BURSTS = 12;
 
 export type BrainSearchArtifact = z.infer<typeof artifactSchema>;
 
+export type BrainEmbeddingReadinessStatus =
+  | "ready"
+  | "not-configured"
+  | "ambiguous";
+
+export interface BrainEmbeddingReadiness {
+  status: BrainEmbeddingReadinessStatus;
+  ready: boolean;
+  configuredProviders: string[];
+  configuredFamilies: number;
+  provider: string | null;
+  model: string | null;
+  embeddingSetId: string | null;
+  dimensions: number | null;
+  warning: string | null;
+}
+
 export interface SearchIndexCapture {
   id: string;
   sourceId: string;
@@ -245,9 +262,59 @@ export function burstRows(
   return rows;
 }
 
+export function embeddingReadinessFromFamilies(
+  families: readonly EmbeddingFamily[],
+): BrainEmbeddingReadiness {
+  const family = defaultEmbeddingFamily(families);
+  if (family) {
+    return {
+      status: "ready",
+      ready: true,
+      configuredProviders: [family.provider],
+      configuredFamilies: 1,
+      provider: family.provider,
+      model: family.model,
+      embeddingSetId: family.id,
+      dimensions: family.dimensions,
+      warning: null,
+    };
+  }
+  const configuredProviders = Array.from(
+    new Set(families.map((candidate) => candidate.provider)),
+  );
+  return {
+    status: families.length ? "ambiguous" : "not-configured",
+    ready: false,
+    configuredProviders,
+    configuredFamilies: families.length,
+    provider: null,
+    model: null,
+    embeddingSetId: null,
+    dimensions: null,
+    warning: families.length
+      ? "Configure exactly one embedding provider."
+      : "Configure one embedding provider to enable semantic retrieval.",
+  };
+}
+
+export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness> {
+  return embeddingReadinessFromFamilies(await availableEmbeddingFamilies());
+}
+
 async function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
   const families = await availableEmbeddingFamilies();
   return defaultEmbeddingFamily(families);
+}
+
+export async function embedSearchTexts(
+  family: EmbeddingFamily | null,
+  texts: string[],
+): Promise<number[][] | null> {
+  if (!family) return null;
+  return family.embed(
+    texts.map((text) => ({ text })),
+    "document",
+  );
 }
 
 async function indexExternalSearchLanes(input: {
@@ -276,7 +343,6 @@ async function indexExternalSearchLanes(input: {
     namespace: SEARCH_NAMESPACE,
   });
   const family = await configuredEmbeddingFamily();
-  if (!family || !true) return;
   const targets = [
     {
       targetType: "artifact" as const,
@@ -291,10 +357,11 @@ async function indexExternalSearchLanes(input: {
       text: input.burstBodies[index] ?? "",
     })),
   ].filter((target) => target.text.trim());
-  const vectors = await family.embed(
-    targets.map((target) => ({ text: target.text })),
-    "document",
+  const vectors = await embedSearchTexts(
+    family,
+    targets.map((target) => target.text),
   );
+  if (!family || !vectors) return;
   await ensurePgVectorIndex(dbExec, family.dimensions, {
     namespace: SEARCH_NAMESPACE,
   });

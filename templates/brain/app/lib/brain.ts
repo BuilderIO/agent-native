@@ -401,6 +401,23 @@ export interface BrainHealthResponse {
       counts?: Record<string, number>;
     };
     embeddings: {
+      readiness: {
+        status: "ready" | "not-configured" | "ambiguous";
+        ready: boolean;
+        configuredProviders: string[];
+        configuredFamilies: number;
+        provider: string | null;
+        model: string | null;
+        embeddingSetId: string | null;
+        dimensions: number | null;
+        warning: string | null;
+      };
+      coverage: {
+        eligibleArtifacts: number;
+        embeddedArtifacts: number;
+        missingArtifacts: number;
+        percent: number;
+      };
       total: number;
       active: number;
       stale: number;
