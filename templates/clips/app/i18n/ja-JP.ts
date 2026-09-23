@@ -1648,7 +1648,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (ローカライズ済み)",
     loomImported: "Loom imported (ローカライズ済み)",
-    couldNotImportLoom: "Could not import that Loom. (ローカライズ済み)",
+    couldNotImportLoom: "この Loom をインポートできませんでした。",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
     linkCopied: "リンクをコピーしました",
