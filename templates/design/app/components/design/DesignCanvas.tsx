@@ -5000,6 +5000,8 @@ export function DesignCanvas({
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
   const interactModeRef = useRef(interactMode);
   interactModeRef.current = interactMode;
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
   // Render-synced committed selection so the message handler reads current
   // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
@@ -5019,6 +5021,13 @@ export function DesignCanvas({
       "*",
     );
     iframe.contentWindow?.postMessage({ type: "set-read-only", readOnly }, "*");
+    iframe.contentWindow?.postMessage(
+      {
+        type: "set-text-editing-enabled",
+        enabled: editModeRef.current,
+      },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       {
         type: "embedded-canvas-gesture-mode",
@@ -5525,8 +5534,6 @@ export function DesignCanvas({
   // Alpine state). The initial baked __TEXT_EDITING_ENABLED__ placeholder
   // covers first paint; subsequent changes arrive here. Also re-send on
   // iframe load so the bridge is in sync after any content-key-driven reload.
-  const editModeRef = useRef(editMode);
-  editModeRef.current = editMode;
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
