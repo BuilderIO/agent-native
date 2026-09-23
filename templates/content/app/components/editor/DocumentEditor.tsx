@@ -5781,6 +5781,7 @@ function PageEditorSessionBody({
                               localFileSyncRevision,
                             })}:${isSuggesting ? "suggesting" : "canonical"}`}
                             documentId={documentId}
+                            contentSpaceId={document.spaceId ?? undefined}
                             content={
                               isLocalFileDocument
                                 ? localContent

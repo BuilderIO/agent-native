@@ -63,6 +63,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  contentDatabaseCreationRequest,
   useCreateContentDatabase,
   useCreateInlineContentDatabase,
 } from "@/hooks/use-content-database";
@@ -80,6 +81,7 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+  contentSpaceId?: string;
   /** Restrict the menu to block operations supported by suggestion capture. */
   suggesting?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
@@ -719,6 +721,7 @@ const turnIntoCommands: CommandTemplate[] = [
 export function SlashCommandMenu({
   editor,
   documentId,
+  contentSpaceId,
   suggesting = false,
   notionPageId,
   onDraftCommitted,
@@ -1023,10 +1026,15 @@ export function SlashCommandMenu({
       let createdPageId: string | null = null;
       let parentPersisted = false;
       try {
-        const result = await createFullPageDatabase.mutateAsync({
+        const request = contentDatabaseCreationRequest({
+          newDocumentId: crypto.randomUUID(),
           parentId: documentId,
+          spaceId: contentSpaceId,
           title: t("editor.untitledDatabase"),
         });
+        const result = await createFullPageDatabase
+          .mutateAsync(request)
+          .catch(() => createFullPageDatabase.mutateAsync(request));
         const pageId = result.database.documentId;
         createdPageId = pageId;
         const pageReference = {
