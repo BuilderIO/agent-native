@@ -494,6 +494,12 @@ describe("update-file browser operation ordering with real PostgreSQL", () => {
       content_operation_revision: 3,
       content_operation_result_hash: sourceContentHash(third),
     });
+    // The editor writes this into its get-design cache instead of refetching
+    // every file, so it must be exactly the row's stored value.
+    const row = (await localDb.pglite
+      ?.prepare(`SELECT updated_at FROM design_files WHERE id = ?`)
+      .get(FILE_ID)) as { updated_at: string };
+    expect((result as { updatedAt?: string }).updatedAt).toBe(row.updated_at);
   });
 
   it("rejects a higher same-tab revision built from a stale snapshot", async () => {

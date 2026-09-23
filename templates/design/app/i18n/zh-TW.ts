@@ -815,6 +815,7 @@ const messages = {
       figImportSelected: "匯入已選取的 {{count}} 個",
       figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
+      figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
@@ -1120,6 +1121,7 @@ const messages = {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",
+      versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       booleanSubtractUnsupported:
         "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",

@@ -234,6 +234,142 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ]);
   });
 
+  it("does not roll back a runtime insert from its informational structure echo", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const onVisualStructureChange = vi.fn(() => false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="runtime-insert-ack"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="runtime-insert-ack-preview-token"
+          runtimeStructureInsertRequest={{
+            requestId: 1,
+            screenId: "screen-live",
+            html: '<div data-agent-native-node-id="inserted" />',
+            anchor: { selector: "body", sourceId: "body" },
+            placement: "inside",
+          }}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          onVisualStructureChange={onVisualStructureChange}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    const posted: unknown[] = [];
+    iframeWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    posted.length = 0;
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "visual-structure-change",
+            runtimeInsert: true,
+            requestId: "1",
+            transactionId: "runtime-insert-transaction",
+            selector: '[data-agent-native-node-id="inserted"]',
+            sourceId: "inserted",
+            anchorSelector: "body",
+            anchorSourceId: "body",
+            placement: "inside",
+            insertedHtml: '<div data-agent-native-node-id="inserted" />',
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(onVisualStructureChange).not.toHaveBeenCalled();
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "visual-structure-ack",
+      ),
+    ).toEqual([]);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-insert-applied",
+            requestId: "1",
+            transactionId: "runtime-insert-transaction",
+            selector: '[data-agent-native-node-id="inserted"]',
+            applied: true,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(posted).toContainEqual({
+      type: "visual-structure-ack",
+      requestId: "1",
+      applied: true,
+    });
+  });
+
   /**
    * The recovery above is passive — it needs the frame to speak first. An idle
    * live-edit frame never does, so an inspector style commit into a canvas

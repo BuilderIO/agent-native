@@ -75,7 +75,7 @@ A mutation reaches the UI one of two ways, and they have different latency.
 
 A local mutation, one your own `useActionMutation()` call just made, fires a `source: "action"` event as soon as it succeeds. Every query depending on that action refetches immediately. There's no round-trip delay, since the tab that made the write already knows about it.
 
-A remote mutation, from the agent, a webhook, another tab, or another user, has to reach this tab first. `useDbSync()` picks it up over SSE almost immediately, or over the polling fallback within about two seconds if SSE isn't available. Only once that event arrives does the relevant version counter bump and the query refetch in the background.
+A remote mutation, from the agent, a webhook, another tab, or another user, has to reach this tab first. `useDbSync()` picks it up over SSE almost immediately on a long-lived host, or over the polling fallback otherwise. Only once that event arrives does the relevant version counter bump and the query refetch in the background. On a production serverless deploy, the app's own SSE stream isn't a slower path to fall back from — it's off by design (see [Live Sync](/docs/key-concepts#polling-sync)), so every remote mutation there rides the poll, unless the app has opted in to the [Hosted Realtime Sync Gateway](/docs/real-time-collaboration#hosted-gateway).
 
 <Diagram id="doc-block-client-sync-internals-3" title="Two paths to a refetch" summary="A local mutation invalidates its own caches instantly. A remote write reaches this tab over SSE, or the polling tick as a fallback.">
 

@@ -25,6 +25,7 @@ import {
   _nitroStartupGate,
   _nitroStartupRecovery,
   agentNative,
+  defaultViteWatchIgnored,
   defineConfig,
   isFrameworkDynamicDevPath,
   isFrameworkDevPath,
@@ -2212,6 +2213,20 @@ describe("app changelog raw imports", () => {
       ).ignored ?? [];
 
     expect(ignored).not.toContain("**/changelog/**");
+  });
+
+  it("watches an app checked out under an ignored directory name", () => {
+    const root = path.join(os.tmpdir(), "repo", ".claude", "worktrees", "wt");
+    const app = path.join(root, "templates", "app");
+    const ignored = defaultViteWatchIgnored(app);
+
+    expect(ignored(path.join(app, "app", "page.tsx"))).toBe(false);
+    expect(ignored(path.join(root, "packages", "core", "src", "a.ts"))).toBe(
+      false,
+    );
+    expect(ignored(path.join(app, ".claude", "settings.json"))).toBe(true);
+    expect(ignored(path.join(app, "node_modules", "x", "index.js"))).toBe(true);
+    expect(ignored(path.join(app, ".data", "base", "1"))).toBe(true);
   });
 });
 

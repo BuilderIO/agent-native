@@ -123,6 +123,24 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
+// Real snapshotDesignBeforeAgentEdit needs its own full design-versions DB
+// harness (covered by design-versions.spec.ts); here it's a controllable
+// stub so checkpoint.spec-style tests below can drive its return value
+// without duplicating that harness. checkpointSkippedResultField is real
+// production logic (trivial, and the thing update-file.ts actually depends
+// on), so it's re-exported unmocked. Default resolves to `null` — the exact
+// value the real function returns for every existing test in this file,
+// which calls `.run({...})` with no `context` and so never reaches it.
+const snapshotDesignBeforeAgentEditMock = vi.hoisted(() =>
+  vi.fn(async () => null as unknown),
+);
+vi.mock("../server/lib/design-versions.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/design-versions.js")
+  >()),
+  snapshotDesignBeforeAgentEdit: snapshotDesignBeforeAgentEditMock,
+}));
+
 // ---------------------------------------------------------------------------
 // Minimal fake Drizzle app-DB layer: one `design_files` table backing store,
 // same query shapes as apply-source-edit.interleave.spec.ts.
@@ -260,6 +278,8 @@ beforeEach(() => {
   collabDocs.docs.clear();
   designFilesStore.rows.clear();
   designsStore.updatedAt.clear();
+  snapshotDesignBeforeAgentEditMock.mockReset();
+  snapshotDesignBeforeAgentEditMock.mockResolvedValue(null);
   seedFile(buildDoc());
 });
 
@@ -670,5 +690,67 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     // 404, not a bare 500 — otherwise the save-outbox retries the gone file
     // forever (the orphan-storm this fix prevents).
     expect((rejection as { statusCode?: number })?.statusCode).toBe(404);
+  });
+});
+
+describe("update-file: editor-surface checkpoint skip surfaces in the result", () => {
+  it("includes checkpoint: {skipped, reason} when the auxiliary version checkpoint failed, and the write still lands", async () => {
+    snapshotDesignBeforeAgentEditMock.mockResolvedValue({
+      skipped: true,
+      reason: "blob-storage-unavailable",
+    });
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: buildDoc(" checkpoint-skip-"),
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never,
+      { caller: "frontend", actionName: "update-file" } as never,
+    );
+
+    expect(result).toMatchObject({
+      id: FILE_ID,
+      updated: true,
+      // A fixed code, never the raw Error message — see
+      // DesignVersionCheckpointSkipReason's doc comment in design-versions.ts.
+      checkpoint: {
+        skipped: true,
+        reason: "blob-storage-unavailable",
+      },
+    });
+    // A skipped checkpoint is auxiliary — the real save must not be lost.
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" checkpoint-skip-"),
+    );
+    // update-file is one of the few callers that surfaces a skipped
+    // checkpoint to the user, so it must opt in — see
+    // snapshotDesignBeforeAgentEdit's fail-open contract in design-versions.ts.
+    expect(snapshotDesignBeforeAgentEditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { allowCheckpointFailureSkip: true },
+    );
+  });
+
+  it("omits checkpoint entirely when the version was captured normally", async () => {
+    snapshotDesignBeforeAgentEditMock.mockResolvedValue({
+      id: "design-version-1",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      label: "Before editor edit",
+    });
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: buildDoc(" checkpoint-ok-"),
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never,
+      { caller: "frontend", actionName: "update-file" } as never,
+    );
+
+    expect(result).not.toHaveProperty("checkpoint");
   });
 });

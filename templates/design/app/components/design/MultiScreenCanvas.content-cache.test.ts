@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getCachedScreenContentNode,
+  getPreviewUrl,
   pruneResolvedMetadataCache,
   pruneScreenContentCache,
   resolveScreenMetadataCached,
@@ -524,5 +525,20 @@ describe("resolveScreenMetadataCached", () => {
       "mobile",
     );
     expect(mobileAgain).toBe(mobile);
+  });
+});
+
+describe("getPreviewUrl", () => {
+  it("treats only a bare http(s) URL as a preview URL", () => {
+    expect(getPreviewUrl("  http://localhost:3000/route  ")).toBe(
+      "http://localhost:3000/route",
+    );
+    expect(
+      getPreviewUrl("<!doctype html><a href='http://localhost:3000'>x</a>"),
+    ).toBeUndefined();
+    expect(getPreviewUrl("http://localhost:3000/<div>glued</div>")).toBe(
+      undefined,
+    );
+    expect(getPreviewUrl("mailto:someone@example.com")).toBeUndefined();
   });
 });

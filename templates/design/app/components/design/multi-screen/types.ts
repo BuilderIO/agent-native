@@ -328,6 +328,9 @@ export interface MultiScreenCanvasProps {
   ) => ReactNode;
   /** Cached inert HTML used while a live screen is waiting for a boot slot. */
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
+  /** The design's resolved tweak CSS custom properties. Editors receive them
+   *  from their own DesignCanvas; static previews are posted them here. */
+  tweakValues?: Record<string, string>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview

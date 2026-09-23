@@ -12455,7 +12455,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return runtimeMutationApplied;
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId, requestIdOverride) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml, collectMessages, transactionId, requestIdOverride, runtimeInsert) {
       if (!el || !target || !target.anchor) return;
       var messageAnchor = collectMessages ? target.anchor : target.persistenceAnchor || target.anchor;
       var messagePlacement = collectMessages ? target.placement : target.persistencePlacement || target.placement;
@@ -12505,6 +12505,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         // the change. The host must NOT tell the coding agent to relocate an
         // element the source file has never contained.
         insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
+        // A runtime insert has a separate applied acknowledgement. Its
+        // optimistic visual-structure echo is informational and must not be
+        // rejected independently, or the target bridge removes a successful
+        // cross-screen/canvas insert before the host records it.
+        runtimeInsert: runtimeInsert === true ? true : void 0,
         replaced: replaced === true ? true : void 0,
         replacementSnapshotHtml,
         sourceRect: rectInfoForElement(el),
@@ -18195,7 +18200,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             parsedInsertEl.outerHTML,
             true,
-            replacementSnapshot.html
+            replacementSnapshot.html,
+            void 0,
+            typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
+            String(insertRequestId),
+            true
           );
           replaceParent.removeChild(insertAnchor);
           refreshOverlays();
@@ -18222,7 +18231,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           void 0,
           void 0,
           typeof e.data.transactionId === "string" ? e.data.transactionId : void 0,
-          String(insertRequestId)
+          String(insertRequestId),
+          true
         );
         acknowledgeInsert(parsedInsertEl);
         return;

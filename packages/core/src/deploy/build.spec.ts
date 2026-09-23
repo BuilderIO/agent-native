@@ -901,7 +901,10 @@ describe("Netlify static root shell", () => {
 
 async function importGeneratedWorker(
   entrySource: string,
-  options: { responseHeaders?: Record<string, string> } = {},
+  options: {
+    responseHeaders?: Record<string, string>;
+    rootDataLocation?: string;
+  } = {},
 ) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
@@ -918,6 +921,13 @@ export function createRequestHandler() {
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
       if (url.pathname === "/.data") {
+        const rootDataLocation = ${JSON.stringify(options.rootDataLocation ?? null)};
+        if (rootDataLocation) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: rootDataLocation },
+          });
+        }
         return new Response(url.pathname, {
           headers: { "content-type": "text/x-script" },
         });
@@ -1415,6 +1425,24 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe("/.data");
   });
+
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        rootDataLocation: location,
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/docs.data"),
+        { APP_BASE_PATH: "/docs" },
+        {},
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+    },
+  );
 
   it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
