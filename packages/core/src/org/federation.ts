@@ -5,7 +5,7 @@ import type { H3Event } from "h3";
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
-import type { IconValue } from "../icons/index.js";
+import { iconValueSchema, type IconValue } from "../icons/index.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   resolveIdentityHubUrl,
@@ -42,6 +42,16 @@ export type FederatedOrganizationSyncInput = Omit<
   FederatedOrganizationIdentity,
   "authority"
 >;
+
+export class FederatedIconConflictError extends Error {
+  constructor(
+    readonly icon: IconValue | null,
+    readonly iconRevision: number,
+  ) {
+    super("Workspace icon changed elsewhere; retry your selection");
+    this.name = "FederatedIconConflictError";
+  }
+}
 
 export type FederatedOrganizationProvisionResult =
   | "disabled"
@@ -340,6 +350,21 @@ async function registerWithIdentityHub(
   if (!sent) return null;
   const { hub, response } = sent;
   if (!response.ok) {
+    if (response.status === 409) {
+      const conflict = await response.json().catch(() => null);
+      if (
+        conflict?.code === "icon-revision-conflict" &&
+        Number.isSafeInteger(conflict.iconRevision) &&
+        conflict.iconRevision >= 0 &&
+        (conflict.icon === null ||
+          iconValueSchema.safeParse(conflict.icon).success)
+      ) {
+        throw new FederatedIconConflictError(
+          conflict.icon,
+          conflict.iconRevision,
+        );
+      }
+    }
     throw new Error(
       `Identity hub organization federation failed (${response.status}).`,
     );

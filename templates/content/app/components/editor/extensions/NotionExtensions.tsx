@@ -1,4 +1,8 @@
-import { serializeIconValue, type IconValue } from "@agent-native/core/icons";
+import {
+  safeParseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS } from "@shared/nfm";
 import {
@@ -1010,6 +1014,11 @@ export const NotionCallout = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const parsedIcon = safeParseIconValue(HTMLAttributes.icon || "💡");
+    const fallbackIcon =
+      parsedIcon.success && parsedIcon.data?.kind === "emoji"
+        ? parsedIcon.data.emoji
+        : "";
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
@@ -1017,11 +1026,7 @@ export const NotionCallout = Node.create({
         "data-icon": HTMLAttributes.icon || "💡",
         "data-color": HTMLAttributes.color || undefined,
       }),
-      [
-        "div",
-        { "data-notion-callout-icon": "true" },
-        HTMLAttributes.icon || "💡",
-      ],
+      ["div", { "data-notion-callout-icon": "true" }, fallbackIcon],
       ["div", { "data-notion-callout-content": "true" }, 0],
     ];
   },

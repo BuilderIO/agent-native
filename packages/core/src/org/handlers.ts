@@ -62,6 +62,7 @@ import {
 } from "./context.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
+  FederatedIconConflictError,
   addFederatedOrganizationMember,
   updateFederatedOrganizationMemberRole,
   revokeFederatedOrganizationMember,
@@ -1433,6 +1434,23 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
           email: ctx.email,
         }));
       } catch (error) {
+        if (error instanceof FederatedIconConflictError) {
+          await e.execute({
+            sql: `UPDATE organizations
+                  SET icon_json = ?, icon_revision = ?
+                  WHERE id = ? AND icon_revision = ?
+                    AND icon_json IS NOT DISTINCT FROM ?`,
+            args: [
+              serializeOrganizationIcon(error.icon),
+              error.iconRevision,
+              ctx.orgId,
+              iconRevision,
+              serializeOrganizationIcon(icon),
+            ],
+          });
+          invalidateMemberOrgCaches();
+          throw createError({ statusCode: 409, message: error.message });
+        }
         console.warn("Workspace icon federation sync failed", error);
         syncPending = true;
       }

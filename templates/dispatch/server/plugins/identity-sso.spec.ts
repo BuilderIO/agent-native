@@ -159,6 +159,12 @@ vi.mock("@agent-native/core/db", () => ({
       if (/^UPDATE organizations/i.test(sql)) {
         return { rows: [], rowsAffected: 1 };
       }
+      if (/^SELECT icon_json, icon_revision\s+FROM organizations/i.test(sql)) {
+        return {
+          rows: organizationRow ? [organizationRow] : [],
+          rowsAffected: 0,
+        };
+      }
       if (/^INSERT INTO org_members/i.test(sql)) {
         return { rows: [], rowsAffected: 1 };
       }
@@ -1183,6 +1189,49 @@ describe("silent browser bootstrap", () => {
 });
 
 describe("organization federation endpoint", () => {
+  it("returns the canonical icon and revision when a replica sends a stale icon", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(
+      async (flag) => flag.key === "organization.cross-app-federation",
+    );
+    const canonical = { version: 1, kind: "emoji", emoji: "📚" };
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+      icon_json: JSON.stringify(canonical),
+      icon_revision: 5,
+    };
+    centralActorRole = "owner";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        org_icon: { version: 1, kind: "emoji", emoji: "🏗️" },
+        org_icon_revision: 2,
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer stale-icon-assertion" },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "icon-revision-conflict",
+      icon: canonical,
+      iconRevision: 5,
+    });
+  });
+
   it("atomically bootstraps the existing owner roster", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";

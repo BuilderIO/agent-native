@@ -62,23 +62,15 @@ export interface TablerCatalogEntry {
   search: string;
 }
 
-let catalogPromise: Promise<TablerModule> | undefined;
 let metadataPromise: Promise<TablerCatalogEntry[]> | undefined;
 
-function loadCatalog() {
+function assertBrowser() {
   if (
     (import.meta as ViteImportMeta).env.SSR &&
     (import.meta as ViteImportMeta).env.MODE !== "test"
   ) {
     throw new Error("Tabler icons are available only in the browser");
   }
-  catalogPromise ??= (
-    import("@tabler/icons-react") as Promise<TablerModule>
-  ).catch((error) => {
-    catalogPromise = undefined;
-    throw error;
-  });
-  return catalogPromise;
 }
 
 export function tablerExportName(name: string): string {
@@ -92,7 +84,14 @@ export function tablerExportName(name: string): string {
 export async function loadTablerIcon(
   name: string,
 ): Promise<TablerIconComponent | null> {
-  const catalog = await loadCatalog();
+  assertBrowser();
+  const initial = name.charAt(0).toLowerCase();
+  const { default: loaders } = await import("./tabler-chunk-loaders.js");
+  const loadChunk = (
+    loaders as Record<string, () => Promise<{ default: TablerModule }>>
+  )[initial];
+  if (!loadChunk) return null;
+  const { default: catalog } = await loadChunk();
   const candidate = catalog[tablerExportName(name)];
   return typeof candidate === "object" || typeof candidate === "function"
     ? (candidate as TablerIconComponent)
@@ -112,12 +111,7 @@ export async function searchTablerIcons(
 }
 
 export function loadTablerCatalog(): Promise<TablerCatalogEntry[]> {
-  if (
-    (import.meta as ViteImportMeta).env.SSR &&
-    (import.meta as ViteImportMeta).env.MODE !== "test"
-  ) {
-    throw new Error("Tabler catalog is available only in the browser");
-  }
+  assertBrowser();
   metadataPromise ??= import("./tabler-catalog-data.js")
     .then(({ default: metadata }) => {
       return metadata

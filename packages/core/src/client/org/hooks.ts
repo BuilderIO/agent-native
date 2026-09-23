@@ -341,6 +341,7 @@ export function useSetOrgVisualIdentity() {
     },
     onError: (_error, _icon, context) => {
       if (context?.previous) qc.setQueryData(["org-me"], context.previous);
+      void qc.invalidateQueries({ queryKey: ["org-me"] });
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });

@@ -1086,7 +1086,12 @@ export const organizationFederationHandler = defineEventHandler(
         ) {
           return jsonResponse(
             {
+              code: "icon-revision-conflict",
               error: "Workspace icon changed elsewhere; retry your selection",
+              icon: currentIconRow?.icon_json
+                ? JSON.parse(String(currentIconRow.icon_json))
+                : null,
+              iconRevision: Number(currentIconRow?.icon_revision ?? 0),
             },
             409,
           );

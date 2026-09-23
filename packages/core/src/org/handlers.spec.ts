@@ -11,6 +11,17 @@ const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
 const mockSyncOrganizationToIdentityHub = vi.hoisted(() => vi.fn());
+const MockFederatedIconConflictError = vi.hoisted(
+  () =>
+    class extends Error {
+      constructor(
+        readonly icon: unknown,
+        readonly iconRevision: number,
+      ) {
+        super("Workspace icon changed elsewhere; retry your selection");
+      }
+    },
+);
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
@@ -41,6 +52,7 @@ vi.mock("./context.js", () => ({
 }));
 
 vi.mock("./federation.js", () => ({
+  FederatedIconConflictError: MockFederatedIconConflictError,
   addFederatedOrganizationMember: (...args: any[]) =>
     mockAddFederatedOrganizationMember(...args),
   revokeFederatedOrganizationMember: (...args: any[]) =>
@@ -253,6 +265,50 @@ describe("org handlers", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(mockSyncOrganizationToIdentityHub).not.toHaveBeenCalled();
+  });
+
+  it("restores the authority icon and rejects a stale replica selection", async () => {
+    const selected = {
+      version: 1 as const,
+      kind: "emoji" as const,
+      emoji: "🏗️",
+    };
+    const canonical = {
+      version: 1 as const,
+      kind: "emoji" as const,
+      emoji: "📚",
+    };
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            name: "Example",
+            icon_revision: 1,
+            identity_authority: "https://dispatch.example.test",
+            identity_id: "org-1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ icon_revision: 2 }], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [{ icon_revision: 5 }], rowsAffected: 1 });
+    mockSyncOrganizationToIdentityHub.mockRejectedValueOnce(
+      new MockFederatedIconConflictError(canonical, 5),
+    );
+
+    await expect(
+      setOrgVisualIdentityHandler(
+        makeEvent("/_agent-native/org/visual-identity", { icon: selected }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mockExecute.mock.calls[2]?.[0]).toMatchObject({
+      args: [
+        JSON.stringify(canonical),
+        5,
+        "org-1",
+        2,
+        JSON.stringify(selected),
+      ],
+    });
   });
 
   it("refuses closed creation with no organizations and no bootstrap roster", async () => {
