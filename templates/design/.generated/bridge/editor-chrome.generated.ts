@@ -6597,6 +6597,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       return false;
     }
     var HANDLE_MAX_INWARD_FRACTION = 0.25;
+    function isAxisAlignedTransform(transform) {
+      if (!transform || transform === "none") return true;
+      var matrixMatch = /^matrix\\(([^)]+)\\)$/.exec(transform);
+      if (matrixMatch) {
+        var matrixValues = matrixMatch[1].split(",").map(Number);
+        return matrixValues.length === 6 && matrixValues.every(function(value) {
+          return Number.isFinite(value);
+        }) && Math.abs(matrixValues[1]) < 1e-3 && Math.abs(matrixValues[2]) < 1e-3;
+      }
+      var matrix3dMatch = /^matrix3d\\(([^)]+)\\)$/.exec(transform);
+      if (!matrix3dMatch) return false;
+      var matrix3dValues = matrix3dMatch[1].split(",").map(Number);
+      return matrix3dValues.length === 16 && matrix3dValues.every(function(value) {
+        return Number.isFinite(value);
+      }) && Math.abs(matrix3dValues[1]) < 1e-3 && Math.abs(matrix3dValues[2]) < 1e-3 && Math.abs(matrix3dValues[3]) < 1e-3 && Math.abs(matrix3dValues[4]) < 1e-3 && Math.abs(matrix3dValues[6]) < 1e-3 && Math.abs(matrix3dValues[7]) < 1e-3 && Math.abs(matrix3dValues[8]) < 1e-3 && Math.abs(matrix3dValues[9]) < 1e-3 && Math.abs(matrix3dValues[11]) < 1e-3 && Math.abs(matrix3dValues[10] - 1) < 1e-3 && Math.abs(matrix3dValues[15] - 1) < 1e-3;
+    }
     function clampHandleInwardReach(nominalInward, elementDimension) {
       if (!Number.isFinite(elementDimension) || elementDimension <= 0) {
         return nominalInward;
@@ -16299,12 +16315,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         target && target.getAttribute && (target.getAttribute("data-agent-native-edit-handle") || target.getAttribute("data-agent-native-edge-handle"))
       );
       if (!isResizeHandle) return false;
+      var hadSuppressedHandleTransition = selectionOverlay.hasAttribute(
+        "data-agent-native-suppress-handle-transition"
+      );
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.setAttribute(
+          "data-agent-native-suppress-handle-transition",
+          ""
+        );
+      }
       applySelectionHandleHitGeometry(selectedEl);
+      void selectionOverlay.offsetHeight;
       var refreshedTarget = document.elementFromPoint(e.clientX, e.clientY);
       var resizeHandlePosition = (target.getAttribute("data-agent-native-edit-handle") || target.getAttribute("data-agent-native-edge-handle") || "").toLowerCase();
       var selectedRect = selectedEl.getBoundingClientRect();
       var selectedTransform = window.getComputedStyle(selectedEl).transform;
-      var isAxisAligned = !selectedTransform || selectedTransform === "none" || selectedTransform === "matrix(1, 0, 0, 1, 0, 0)";
+      var isAxisAligned = isAxisAlignedTransform(selectedTransform);
       var isClearlyInsideMoveBand = false;
       if (isAxisAligned && e.clientX >= selectedRect.left && e.clientX <= selectedRect.right && e.clientY >= selectedRect.top && e.clientY <= selectedRect.bottom) {
         var moveBandX = selectedRect.width * HANDLE_MAX_INWARD_FRACTION;
@@ -16328,14 +16354,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectionHandleMoveRerouted = false;
         }, 0);
         beginPotentialShieldDrag(e);
+        if (!hadSuppressedHandleTransition) {
+          selectionOverlay.removeAttribute(
+            "data-agent-native-suppress-handle-transition"
+          );
+        }
         return true;
       }
-      if (refreshedResizeHandle) return false;
+      if (refreshedResizeHandle) {
+        if (!hadSuppressedHandleTransition) {
+          selectionOverlay.removeAttribute(
+            "data-agent-native-suppress-handle-transition"
+          );
+        }
+        return false;
+      }
       selectionHandleMoveRerouted = true;
       window.setTimeout(function() {
         selectionHandleMoveRerouted = false;
       }, 0);
       beginPotentialShieldDrag(e);
+      if (!hadSuppressedHandleTransition) {
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition"
+        );
+      }
       return true;
     }
     selectionOverlay.addEventListener(

@@ -50,6 +50,9 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
   <div data-agent-native-node-id="wordmark" style="position:absolute;left:900px;top:100px;width:70px;height:19.1875px;background:#111827"></div>
 </body></html>`;
 const ZOOM_FACTOR = 1 / 3.1858;
+const AXIS_ALIGNED_TRANSFORM_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="wordmark" style="position:absolute;left:300px;top:100px;width:70px;height:19.1875px;background:#111827;transform:translate(80px, 30px) scale(1.4, 0.8)"></div>
+</body></html>`;
 
 describe("selection handle hit geometry", () => {
   it("dragging a just-selected short element from its own center never starts a resize", async () => {
@@ -153,6 +156,45 @@ describe("selection handle hit geometry", () => {
         `center drag of a settled runtime node must move it (before ${before}, after ${after})`,
       ).toBeGreaterThan(leftOf(before ?? ""));
       expect(heightOf(after)).toBeCloseTo(28, 2);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps the center of a translated and scaled node move-draggable", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1400, height: 1000 },
+      });
+      await page.setContent(AXIS_ALIGNED_TRANSFORM_FIXTURE);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(ZOOM_FACTOR),
+      });
+
+      const el = page.locator('[data-agent-native-node-id="wordmark"]');
+      const box = (await el.boundingBox())!;
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(300);
+
+      const before = await el.getAttribute("style");
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        box.x + box.width / 2 + 60,
+        box.y + box.height / 2,
+        { steps: 10 },
+      );
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+
+      const after = (await el.getAttribute("style")) ?? "";
+      const leftOf = (style: string) =>
+        Number(/left:\s*([\d.]+)px/.exec(style)?.[1] ?? NaN);
+      expect(
+        leftOf(after),
+        `center drag of an axis-aligned transformed node must move it (before ${before}, after ${after})`,
+      ).toBeGreaterThan(leftOf(before ?? ""));
     } finally {
       await browser.close();
     }
