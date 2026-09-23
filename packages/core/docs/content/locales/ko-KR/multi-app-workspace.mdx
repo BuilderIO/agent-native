@@ -401,7 +401,7 @@ Workspace 앱은 기본적으로 내부용입니다. 로그인 전용 관리 페
 
 ### 앱별 독립적 배포
 
-자체 도메인(`mail.company.com`, `calendar.company.com`)에 있는 각 앱을 선호하시나요? 작업 공간의 모든 앱은 여전히 ​​독립적으로 배포 가능합니다. `cd apps/mail && npx @agent-native/core@latest build`는 ​​독립형 스캐폴드처럼 정확하게 작동합니다. 그런 다음 크로스 앱 A2A는 공유 `A2A_SECRET`를 사용하여 표준 JWT 서명 경로를 통과합니다. 별도로 배포된 앱 간의 도메인 간 SSO는 Dispatch를 허브로 사용하는 ID 페더레이션에 의해 처리됩니다. [Cross-App SSO](/docs/cross-app-sso)를 참조하세요. 통합된 단일 원본 배포를 사용하면 필요하지 않습니다.
+자체 도메인(`mail.company.com`, `calendar.company.com`)에 있는 각 앱을 선호하시나요? 작업 공간의 모든 앱은 여전히 ​​독립적으로 배포 가능합니다. `cd apps/mail && pnpm build`는 ​​독립형 스캐폴드처럼 정확하게 작동합니다. 그런 다음 크로스 앱 A2A는 공유 `A2A_SECRET`를 사용하여 표준 JWT 서명 경로를 통과합니다. 별도로 배포된 앱 간의 도메인 간 SSO는 Dispatch를 허브로 사용하는 ID 페더레이션에 의해 처리됩니다. [Cross-App SSO](/docs/cross-app-sso)를 참조하세요. 통합된 단일 원본 배포를 사용하면 필요하지 않습니다.
 
 ### 공유 데이터베이스, 공유 자격 증명
 

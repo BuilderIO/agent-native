@@ -401,7 +401,7 @@ Diese Einstellungen wirken sich nur auf die schreibgeschützte Seitennavigation 
 
 ### Unabhängige Bereitstellung pro App
 
-Bevorzugen Sie jede App in einer eigenen Domain (`mail.company.com`, `calendar.company.com`)? Jede App im Arbeitsbereich ist immer noch ein unabhängiges Deployable – `cd apps/mail && npx @agent-native/core@latest build` verhält sich genau wie ein eigenständiges Gerüst. Der App-übergreifende A2A durchläuft dann den standardmäßigen JWT-signierten Pfad mit einem gemeinsam genutzten `A2A_SECRET`. Der domänenübergreifende SSO zwischen separat bereitgestellten Apps wird von der Identitätsföderation mit Dispatch als Hub abgewickelt – siehe [Cross-App SSO](/docs/cross-app-sso); Durch die einheitliche Single-Origin-Bereitstellung ist dies nicht erforderlich.
+Bevorzugen Sie jede App in einer eigenen Domain (`mail.company.com`, `calendar.company.com`)? Jede App im Arbeitsbereich ist immer noch ein unabhängiges Deployable – `cd apps/mail && pnpm build` verhält sich genau wie ein eigenständiges Gerüst. Der App-übergreifende A2A durchläuft dann den standardmäßigen JWT-signierten Pfad mit einem gemeinsam genutzten `A2A_SECRET`. Der domänenübergreifende SSO zwischen separat bereitgestellten Apps wird von der Identitätsföderation mit Dispatch als Hub abgewickelt – siehe [Cross-App SSO](/docs/cross-app-sso); Durch die einheitliche Single-Origin-Bereitstellung ist dies nicht erforderlich.
 
 ### Gemeinsame Datenbank, gemeinsame Anmeldeinformationen
 

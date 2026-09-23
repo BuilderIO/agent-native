@@ -227,7 +227,7 @@ Die Ressourcen-Shell besitzt die äußere Hostgröße. `embedApp({ height })` is
 
 Claude verwendet standardmäßig den Single-Frame-Transplantationspfad. Sie können es auch auf anderen Hosts mit `embedMode: "transplant"` oder `frame: "transplant"` erzwingen, wenn Sie das Ladeverhalten von Hostmodulen debuggen. Sie können den verschachtelten Diagnose-Iframe mit `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true` oder `frame: "iframe"` erzwingen. Wenn der Iframe blockiert ist, ersetzt `embedApp()` ihn durch einen Open-App-Fallback: Der Benutzer kann es inline erneut versuchen, eine frisch erstellte Einbettungssitzung über den Host öffnen oder die sichtbare Route URL verwenden. Halten Sie das `link`-Ziel der Aktion für sich genommen nützlich, da es immer noch die universelle Notluke ist.
 
-Wenn Sie Claude über ngrok testen, verwenden Sie einen Produktions-Build (`npx @agent-native/core@latest build`, dann `npx @agent-native/core@latest start`) oder eine bereitgestellte Vorschau/Produktion URL. Der Single-Frame-Transplantationspfad von Claude funktioniert mit Produktions-Asset-Chunks; Rohe Vite-Entwicklungsmodule wie `/app/root.tsx` können durch App-Authentifizierung geschützt werden und dynamische Importe vom Claude-Ressourcesursprung scheitern lassen.
+Wenn Sie Claude über ngrok testen, verwenden Sie einen Produktions-Build (`pnpm build`, dann `npx @agent-native/core@latest start`) oder eine bereitgestellte Vorschau/Produktion URL. Der Single-Frame-Transplantationspfad von Claude funktioniert mit Produktions-Asset-Chunks; Rohe Vite-Entwicklungsmodule wie `/app/root.tsx` können durch App-Authentifizierung geschützt werden und dynamische Importe vom Claude-Ressourcesursprung scheitern lassen.
 
 ## Hostbrücke API {#host-bridge}
 
