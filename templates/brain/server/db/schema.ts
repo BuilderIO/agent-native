@@ -265,6 +265,7 @@ export const brainSensitivityEvents = table("brain_sensitivity_events", {
   }).notNull(),
   categoriesJson: text("categories_json").notNull().default("[]"),
   decisionScoresJson: text("decision_scores_json"),
+  classifierFailureReason: text("classifier_failure_reason"),
   confidenceBand: text("confidence_band", {
     enum: ["deterministic", "high", "medium", "uncertain"],
   }).notNull(),

@@ -212,7 +212,7 @@ describe("review fixes", () => {
         { source: "stored-key", apiKey: "not-a-real-key" },
         { title: "Planning", body: CLEAN_BODY },
       ),
-    ).rejects.toThrow(/out-of-range/);
+    ).rejects.toThrow("jev-invalid-response");
   });
 
   it("resolves the credential with the capture owner, not the ambient request user", async () => {
@@ -359,7 +359,7 @@ describe("Jev transport", () => {
         { source: "stored-key", apiKey: "not-a-real-key" },
         { title: "Planning", body: CLEAN_BODY },
       ),
-    ).rejects.toThrow(/omitted a probability/);
+    ).rejects.toThrow("jev-invalid-response");
   });
 
   it("surfaces a non-OK response as an error", async () => {
@@ -373,7 +373,7 @@ describe("Jev transport", () => {
         { source: "stored-key", apiKey: "not-a-real-key" },
         { title: "Planning", body: CLEAN_BODY },
       ),
-    ).rejects.toThrow(/HTTP 503/);
+    ).rejects.toThrow("jev-http-503");
   });
 });
 
@@ -504,7 +504,54 @@ describe("end to end classification", () => {
 
     expect(outcome.configured).toBe(true);
     expect(outcome.decision).toBeUndefined();
-    expect(outcome.failureReason).toMatch(/HTTP 500/);
+    expect(outcome.failureReason).toBe("jev-http-500");
+  });
+
+  it("maps invalid JSON responses without retaining response details", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => {
+          throw new Error("private response detail from https://example.test");
+        },
+      })),
+    );
+
+    const outcome = await runJevClassification(input);
+
+    expect(outcome.failureReason).toBe("jev-invalid-response");
+    expect(JSON.stringify(outcome)).not.toContain("private response detail");
+  });
+
+  it("maps credential exceptions without retaining exception details", async () => {
+    resolveSourceCredential.mockRejectedValue(
+      new Error("vault response included private credential detail"),
+    );
+
+    const outcome = await runJevClassification(input);
+
+    expect(outcome).toEqual({
+      configured: false,
+      failureReason: "jev-credential-unavailable",
+    });
+    expect(JSON.stringify(outcome)).not.toContain("private credential detail");
+  });
+
+  it("maps abort and timeout failures to a stable code", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const timeout = new Error("request URL must not be retained");
+    timeout.name = "TimeoutError";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(timeout)),
+    );
+
+    const outcome = await runJevClassification(input);
+
+    expect(outcome.failureReason).toBe("jev-timeout");
+    expect(JSON.stringify(outcome)).not.toContain("request URL");
   });
 
   it("stays out of the way when the workspace picked another classifier", async () => {
