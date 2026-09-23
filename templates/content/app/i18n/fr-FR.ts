@@ -1314,6 +1314,8 @@ const overrides = {
     suggestionTitle: "Suggestion",
     close: "Fermer",
     showEarlierReplies: "Afficher les réponses précédentes",
+    replyAction: "Répondre",
+    panelTabs: "Panneaux de la page",
     aiAuto: "Automatique",
     aiModel: "Modèle d’IA",
     aiRemoveRecipient: "Supprimer le destinataire IA",

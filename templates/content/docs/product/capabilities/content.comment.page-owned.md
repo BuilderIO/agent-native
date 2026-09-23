@@ -49,6 +49,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Reply adds an AI-attributed answer to the original thread without editing or resolving. Suggest creates a native proposal linked in both directions and leaves the original thread open, including after human acceptance. Apply-and-resolve verifies the saved edit and unchanged source conversation before resolving; conflicts and partial success remain available for review.
 - Retrying one request recovers its retained operation and result. It does not silently replace its intent, duplicate a reply or proposal, or reapply a saved edit. Unknown historical authorship is not retrospectively labeled AI.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
+- A person or agent with comment access can react to a Comment or reply with one emoji at a time through the shared reaction Action. Each person reacts with a given emoji at most once, reactions inherit the Comment's access, and deleting the Comment removes them. Suggested-edit discussions present reactions the same way while keeping their own storage.
 
 ## Boundaries and non-goals
 
@@ -57,6 +58,10 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - This capability does not define named Version access, although Comments retain Version context.
 
 ## Acceptance stories
+
+### React without replying
+
+Given an open Comment, when a commenter adds 👍 twice and 🎉 once, the thread shows one 👍 and one 🎉 marked as theirs; removing 👍 leaves only 🎉, a person without comment access cannot react, and deleting the Comment removes its reactions.
 
 ### Preserve a deleted anchor
 

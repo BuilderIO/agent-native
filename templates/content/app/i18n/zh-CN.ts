@@ -1345,6 +1345,8 @@ const overrides = {
     suggestionTitle: "建议",
     close: "关闭",
     showEarlierReplies: "显示较早的回复",
+    replyAction: "回复",
+    panelTabs: "页面面板",
     aiAuto: "自动",
     aiModel: "AI 模型",
     aiRemoveRecipient: "移除 AI 接收者",

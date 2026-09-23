@@ -16,6 +16,7 @@ const { reconcile, mutateAsync } = vi.hoisted(() => ({
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({ reconcileAmbiguous: reconcile }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
@@ -242,7 +243,8 @@ it("names the agent, keeps the exact model in its badge, and keeps the time comp
   expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
   const time = container.querySelector("time");
   expect(time?.getAttribute("datetime")).toBe(comment.created_at);
-  expect(time?.className).toContain("shrink-0");
+  // The time truncates before a short author name does.
+  expect(time?.className).toContain("truncate");
   expect(time?.className).toContain("whitespace-nowrap");
 });
 

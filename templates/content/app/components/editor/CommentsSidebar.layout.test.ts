@@ -507,9 +507,9 @@ describe("comments sidebar layout", () => {
       type: "text",
       value: "  ",
     });
-    expect(source).toContain(
-      'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
-    );
+    // The panel is one flat feed rather than a stack of summary cards.
+    expect(source).toContain("data-comments-feed");
+    expect(source).not.toContain("HistoryThreadView");
   });
 
   it("labels pending suggestions whose page anchor cannot be resolved", () => {

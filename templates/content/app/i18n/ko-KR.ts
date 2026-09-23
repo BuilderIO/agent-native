@@ -1265,6 +1265,8 @@ const overrides = {
     suggestionTitle: "제안",
     close: "닫기",
     showEarlierReplies: "이전 답글 보기",
+    replyAction: "답글",
+    panelTabs: "페이지 패널",
     aiAuto: "자동",
     aiModel: "AI 모델",
     aiRemoveRecipient: "AI 수신자 제거",

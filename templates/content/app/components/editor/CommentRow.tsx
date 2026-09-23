@@ -256,7 +256,7 @@ export function CommentRow({
           {badge}
           {timestamp?.label ? (
             <time
-              className="shrink-0 whitespace-nowrap text-sm text-muted-foreground"
+              className="min-w-0 truncate whitespace-nowrap text-sm text-muted-foreground"
               title={timestamp.title}
               dateTime={timestamp.dateTime}
             >
@@ -271,9 +271,10 @@ export function CommentRow({
           {actions ? (
             <div
               className={cn(
-                "-me-1 ms-auto flex shrink-0 items-center gap-0.5",
-                revealActions === "hover" &&
-                  "opacity-0 transition-opacity focus-within:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100",
+                "-me-1 ms-auto shrink-0 items-center gap-0.5",
+                revealActions === "hover"
+                  ? "hidden focus-within:flex group-hover/comment:flex group-focus-within/comment:flex has-[[data-state=open]]:flex pointer-coarse:flex"
+                  : "flex",
               )}
               data-comment-row-actions
             >

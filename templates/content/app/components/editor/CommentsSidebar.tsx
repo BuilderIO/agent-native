@@ -13,6 +13,7 @@ import {
   IconCheck,
   IconArrowBackUp,
   IconCircleCheck,
+  IconCornerDownRight,
   IconFilter,
   IconX,
 } from "@tabler/icons-react";
@@ -24,7 +25,6 @@ import {
   useLayoutEffect,
   useMemo,
   useCallback,
-  useId,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -74,7 +74,7 @@ import {
   type CommentAiSubmitPayload,
   type MentionEntry,
 } from "./CommentComposer";
-import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
+import { CommentEntry } from "./CommentEntry";
 import {
   CommentAvatar,
   CommentIconButton,
@@ -90,7 +90,11 @@ import {
   startCommentAiSubmission,
   type CommentAiController,
 } from "./comment-ai";
-import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
+import {
+  ReviewAddReactionButton,
+  ReviewCommentMenu,
+  ReviewReactionList,
+} from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 
@@ -101,7 +105,12 @@ export type CommentSurface = "rail" | "popover" | "panel";
 interface ThreadEntrySlots {
   headerActions?: ReactNode;
   revealActions: "always" | "hover";
+  /** The panel's inline "Reply" action for this row. */
+  replyAction?: ReactNode;
 }
+
+/** Replies shown under the first comment before "Show earlier replies". */
+const PANEL_VISIBLE_REPLIES = 2;
 
 function renderSuggestionText(
   content: string,
@@ -1339,6 +1348,7 @@ export function CommentsSidebar({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        quote={thread.quotedText}
         renderEntry={(id, slots) => (
           <CommentEntry
             comment={thread.comments.find((comment) => comment.id === id)!}
@@ -1348,6 +1358,7 @@ export function CommentsSidebar({
             members={members}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
+            replyAction={slots.replyAction}
             onOpenAiConversation={
               id === thread.comments[0]?.id &&
               aiRequest?.agentThreadId &&
@@ -1576,14 +1587,15 @@ export function CommentsSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="grid gap-2 p-3">
+        <div
+          className="flex flex-col divide-y divide-border/60"
+          data-comments-feed
+        >
           {isLoading ? (
             [0, 1, 2].map((item) => (
-              <div
-                key={item}
-                className="h-24 animate-pulse rounded-lg bg-muted/60"
-                aria-hidden="true"
-              />
+              <div key={item} className="p-4" aria-hidden="true">
+                <div className="h-20 animate-pulse rounded-lg bg-muted/60" />
+              </div>
             ))
           ) : historyEntries.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
@@ -1601,28 +1613,17 @@ export function CommentsSidebar({
                 : t("comments.noFilteredComments")}
             </div>
           ) : (
+            // One flat feed: every thread shows its first comment and latest
+            // replies in place, whether it is a comment or a suggested edit.
             historyEntries.map((entry) => {
               if (entry.kind === "draft")
                 return renderDraftSuggestionCard(entry.suggestion);
               if (entry.kind === "suggestion")
                 return renderSuggestionCard(entry.suggestion);
-              if (entry.thread.resolved)
-                return renderCommentThread(entry.thread);
-              if (replyingThreadId === entry.thread.threadId)
-                return renderCommentThread(
-                  entry.thread,
-                  0,
-                  activeThreadId === entry.thread.threadId,
-                );
-              return (
-                <HistoryThreadView
-                  key={entry.thread.threadId}
-                  thread={entry.thread}
-                  onOpen={() => {
-                    onActivateThread?.(entry.thread.threadId);
-                    if (canComment) setReplyingThreadId(entry.thread.threadId);
-                  }}
-                />
+              return renderCommentThread(
+                entry.thread,
+                0,
+                activeThreadId === entry.thread.threadId,
               );
             })
           )}
@@ -1779,65 +1780,6 @@ export function CommentsSidebar({
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function HistoryThreadView({
-  thread,
-  onOpen,
-}: {
-  thread: CommentThread;
-  onOpen: () => void;
-}) {
-  const first = thread.comments[0];
-  const t = useT();
-  const labelId = useId();
-  const contentId = useId();
-  return (
-    <div className="w-full min-w-0 overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50 group/history relative">
-      <button
-        type="button"
-        className="absolute inset-0 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        aria-labelledby={`${labelId} ${contentId}`}
-        onClick={onOpen}
-      />
-      <div className="pointer-events-none relative p-3">
-        {thread.quotedText ? (
-          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
-            {thread.quotedText}
-          </p>
-        ) : null}
-        <div className="flex items-start gap-2">
-          <CommentAvatar
-            email={first.author_email}
-            name={first.author_name ?? first.author_email}
-            className="size-5 shrink-0"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
-              <span
-                id={labelId}
-                className="truncate text-[13px] font-semibold leading-5 text-foreground"
-              >
-                {first.author_name ?? first.author_email.split("@")[0]}
-              </span>
-              <CommentAttributionBadge comment={first} />
-            </div>
-            <div
-              id={contentId}
-              className="break-words text-start text-[13px] leading-5 text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
-            >
-              {renderCommentBody(first.content, first.mentions)}
-            </div>
-          </div>
-        </div>
-        {thread.comments.length > 1 && (
-          <span className="mt-2 block text-xs text-muted-foreground">
-            {t("comments.replyCount", { count: thread.comments.length - 1 })}
-          </span>
-        )}
-      </div>
     </div>
   );
 }
@@ -2280,14 +2222,25 @@ function SuggestionThreadView({
         }
         renderCommentActions={(commentId) =>
           comments.data?.discussion && root ? (
-            <ReviewCommentMenu
-              alwaysVisible={compact}
-              documentId={documentId}
-              suggestionId={suggestion.id}
-              threadId={suggestion.threadId}
-              commentId={commentId}
-              discussion={comments.data.discussion}
-            />
+            <>
+              {comments.data.discussion.canReact ? (
+                <ReviewAddReactionButton
+                  documentId={documentId}
+                  commentId={commentId}
+                  reactions={
+                    comments.data.discussion.reactions[commentId] ?? []
+                  }
+                />
+              ) : null}
+              <ReviewCommentMenu
+                alwaysVisible={compact}
+                documentId={documentId}
+                suggestionId={suggestion.id}
+                threadId={suggestion.threadId}
+                commentId={commentId}
+                discussion={comments.data.discussion}
+              />
+            </>
           ) : null
         }
         renderCommentFooter={(commentId) =>
@@ -2382,6 +2335,7 @@ function SuggestionThreadView({
 function ThreadView({
   renderEntry,
   surface = "rail",
+  quote,
   onClose,
   popoverTitle,
   currentUserEmail,
@@ -2422,6 +2376,8 @@ function ThreadView({
 }: {
   renderEntry?: (id: string, slots: ThreadEntrySlots) => ReactNode;
   surface?: CommentSurface;
+  /** The anchored text, shown as a quote line above the thread in the panel. */
+  quote?: string | null;
   onClose?: () => void;
   popoverTitle?: string;
   currentUserEmail?: string;
@@ -2510,6 +2466,32 @@ function ThreadView({
 
   const timestamp = useCommentTimestamp();
   const isRail = surface === "rail";
+  const isPanel = surface === "panel";
+  // The panel keeps long threads scannable: the first comment and the latest
+  // replies, with the rest one click away. Comments and suggestions alike.
+  const [showAllReplies, setShowAllReplies] = useState(false);
+  const hiddenReplyCount =
+    isPanel && !showAllReplies
+      ? Math.max(0, thread.comments.length - 1 - PANEL_VISIBLE_REPLIES)
+      : 0;
+  const visibleComments = hiddenReplyCount
+    ? [thread.comments[0]!, ...thread.comments.slice(1 + hiddenReplyCount)]
+    : thread.comments;
+  const replyButton = () =>
+    canExpand && canComment && !resolved ? (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onExpand();
+        }}
+        className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-sm font-medium text-foreground/80 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-comment-reply-action
+      >
+        <IconCornerDownRight size={16} aria-hidden />
+        {t("comments.replyAction")}
+      </button>
+    ) : null;
   const resolveLabel = t(resolved ? "comments.reopen" : "comments.resolve");
   const resolveButton = canResolve ? (
     <Tooltip>
@@ -2588,8 +2570,20 @@ function ThreadView({
       data-thread-card={thread.threadId}
       data-comment-surface={surface}
       className={cn(
-        "group/thread overflow-hidden rounded-xl bg-popover text-start ring-1 ring-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        surface === "popover" ? "shadow-comment-raised" : "shadow-comment-card",
+        "group/thread text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        isPanel
+          ? cn(
+              "transition-[background-color,opacity] hover:bg-accent/40 focus-within:bg-accent/40",
+              isActive && "bg-accent/40",
+              resolved &&
+                "opacity-60 hover:opacity-100 focus-within:opacity-100",
+            )
+          : cn(
+              "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 focus-visible:ring-2",
+              surface === "popover"
+                ? "shadow-comment-raised"
+                : "shadow-comment-card",
+            ),
         canExpand && !isExpanded && "cursor-pointer",
         isRail &&
           "mx-2 mr-4 transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
@@ -2615,7 +2609,25 @@ function ThreadView({
       onMouseLeave={() => onHoverChange(false)}
     >
       {popoverHeader}
-      <div className="relative grid gap-3.5 px-4 pb-3.5 pt-3.5">
+      <div
+        className={cn(
+          "relative grid gap-3.5",
+          isPanel ? "px-4 py-3.5" : "px-4 pb-3.5 pt-3.5",
+        )}
+      >
+        {isPanel && quote ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (canExpand) onExpand();
+            }}
+            className="-mb-1 line-clamp-2 border-s-2 border-border ps-2.5 text-start text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-comment-quote
+          >
+            {quote}
+          </button>
+        ) : null}
         {canExpand ? (
           <button
             type="button"
@@ -2630,54 +2642,91 @@ function ThreadView({
             {expandLabel ?? t("comments.reply")}
           </button>
         ) : null}
-        {thread.comments.map((c, index) =>
-          renderEntry ? (
+        {visibleComments.map((c, visibleIndex) => {
+          const index =
+            visibleIndex === 0 ? 0 : visibleIndex + hiddenReplyCount;
+          const isReply = index > 0;
+          const indent = isPanel && isReply ? "ms-9.5" : undefined;
+          const earlier =
+            visibleIndex === 1 && hiddenReplyCount ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowAllReplies(true);
+                }}
+                className="ms-9.5 -my-1 justify-self-start rounded-full px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-comment-earlier-replies
+              >
+                {t("comments.showEarlierReplies")}
+              </button>
+            ) : null;
+          return renderEntry ? (
             <Fragment key={c.id}>
-              {renderEntry(c.id, {
-                headerActions: index === 0 ? firstRowActions : undefined,
-                revealActions: index === 0 ? "always" : "hover",
-              })}
+              {earlier}
+              <div className={indent}>
+                {renderEntry(c.id, {
+                  headerActions: index === 0 ? firstRowActions : undefined,
+                  revealActions: index === 0 ? "always" : "hover",
+                  replyAction: isPanel && !isReply ? replyButton() : undefined,
+                })}
+              </div>
             </Fragment>
           ) : (
-            <CommentRow
-              key={c.id}
-              avatar={
-                <CommentAvatar
-                  email={c.author_email}
-                  name={c.author_name ?? c.author_email}
-                />
-              }
-              name={c.author_name ?? c.author_email.split("@")[0]}
-              timestamp={
-                index === 0 && timeLabel
-                  ? { label: timeLabel, title: timeLabel }
-                  : { ...timestamp(c.created_at), dateTime: c.created_at }
-              }
-              status={index === 0 ? headerStatus : undefined}
-              actions={
-                renderCommentActions || (index === 0 && firstRowActions) ? (
-                  <>
-                    {renderCommentActions?.(c.id)}
-                    {index === 0 ? firstRowActions : null}
-                  </>
-                ) : null
-              }
-              revealActions={index === 0 ? "always" : "hover"}
-              footer={renderCommentFooter?.(c.id)}
-            >
-              {index === 0 && firstEntryBody !== undefined
-                ? firstEntryBody
-                : renderCommentBody(c.content, c.mentions)}
-            </CommentRow>
-          ),
-        )}
-        {feedback}
+            <Fragment key={c.id}>
+              {earlier}
+              <CommentRow
+                className={indent}
+                avatar={
+                  <CommentAvatar
+                    email={c.author_email}
+                    name={c.author_name ?? c.author_email}
+                  />
+                }
+                name={c.author_name ?? c.author_email.split("@")[0]}
+                timestamp={
+                  index === 0 && timeLabel
+                    ? { label: timeLabel, title: timeLabel }
+                    : { ...timestamp(c.created_at), dateTime: c.created_at }
+                }
+                status={index === 0 ? headerStatus : undefined}
+                actions={
+                  renderCommentActions || (index === 0 && firstRowActions) ? (
+                    <>
+                      {renderCommentActions?.(c.id)}
+                      {index === 0 ? firstRowActions : null}
+                    </>
+                  ) : null
+                }
+                revealActions={index === 0 ? "always" : "hover"}
+                footer={
+                  (isPanel && !isReply) || renderCommentFooter ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {isPanel && !isReply ? replyButton() : null}
+                      {renderCommentFooter?.(c.id)}
+                    </div>
+                  ) : null
+                }
+              >
+                {index === 0 && firstEntryBody !== undefined
+                  ? firstEntryBody
+                  : renderCommentBody(c.content, c.mentions)}
+              </CommentRow>
+            </Fragment>
+          );
+        })}
+        {feedback ? (
+          <div className={isPanel ? "ms-9.5" : undefined}>{feedback}</div>
+        ) : null}
       </div>
 
       {isExpanded && canComment && !resolved && (
         <div
           data-comment-reply-composer
-          className="flex items-start gap-2.5 px-4 pb-4"
+          className={cn(
+            "flex items-start gap-2.5 px-4 pb-4",
+            isPanel && "ps-13.5",
+          )}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex h-9.5 shrink-0 items-center">

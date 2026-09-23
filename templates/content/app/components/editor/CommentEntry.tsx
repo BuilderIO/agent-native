@@ -15,6 +15,7 @@ import {
 import {
   useCreateComment,
   useEditComment,
+  useReactToComment,
   type Comment,
 } from "@/hooks/use-comments";
 import type { MentionMember } from "@/hooks/use-mention-members";
@@ -26,6 +27,7 @@ import {
 } from "./agent-identity";
 import { useCommentDraft } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
+import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
   CommentAgentBadge,
   CommentAvatar,
@@ -103,6 +105,7 @@ export function CommentEntry({
   members,
   headerActions,
   revealActions = "always",
+  replyAction,
   footer,
   onOpenAiConversation,
 }: {
@@ -114,12 +117,18 @@ export function CommentEntry({
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
+  /**
+   * The panel feed's inline "Reply" action. When set, Reply and the reaction
+   * picker sit in one row under the comment instead of in the header.
+   */
+  replyAction?: ReactNode;
   footer?: ReactNode;
   onOpenAiConversation?: () => void;
 }) {
   const t = useT();
   const timestamp = useCommentTimestamp();
   const edit = useEditComment();
+  const react = useReactToComment();
   const create = useCreateComment({ email: currentUserEmail });
   const [checking, setChecking] = useState(false);
   const sourceDraft = useCommentDraft(
@@ -200,6 +209,37 @@ export function CommentEntry({
       });
     }
   };
+  const reactions = comment.reactions ?? [];
+  const canReact =
+    canComment && !pending && comment.mutation?.kind !== "create";
+  const toggleReaction = (reaction: string, active: boolean) =>
+    react.mutate(
+      { documentId, commentId: comment.id, reaction, active },
+      {
+        onError: (error) =>
+          toast.error(t("empty.genericError"), {
+            description: error instanceof Error ? error.message : undefined,
+          }),
+      },
+    );
+  const feedLayout = replyAction !== undefined && revealActions === "always";
+  const hoverOnly =
+    "opacity-0 group-hover/comment:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100";
+  const addReaction =
+    canReact && !editing ? (
+      <AddReactionButton
+        className={
+          feedLayout || revealActions === "hover" ? undefined : hoverOnly
+        }
+        onSelect={(reaction) =>
+          toggleReaction(
+            reaction,
+            !reactions.find((entry) => entry.reaction === reaction)
+              ?.reactedByMe,
+          )
+        }
+      />
+    ) : null;
   const menu =
     (canEdit || onOpenAiConversation) && !editing ? (
       <DropdownMenu>
@@ -289,8 +329,9 @@ export function CommentEntry({
       badge={<CommentAttributionBadge comment={comment} />}
       timestamp={{ ...time, dateTime: comment.created_at }}
       actions={
-        menu || headerActions ? (
+        (!feedLayout && addReaction) || menu || headerActions ? (
           <>
+            {feedLayout ? null : addReaction}
             {menu}
             {headerActions}
           </>
@@ -298,11 +339,31 @@ export function CommentEntry({
       }
       revealActions={revealActions}
       footer={
-        hasSaveStatus || footer ? (
-          <>
+        hasSaveStatus || footer || reactions.length || feedLayout ? (
+          <div className="grid gap-1.5">
             {saveStatus}
+            {feedLayout ? (
+              <div
+                className="flex flex-wrap items-center gap-1"
+                data-comment-action-row
+              >
+                {replyAction}
+                {addReaction}
+                <CommentReactionChips
+                  reactions={reactions}
+                  canReact={canReact}
+                  onToggle={toggleReaction}
+                />
+              </div>
+            ) : (
+              <CommentReactionChips
+                reactions={reactions}
+                canReact={canReact}
+                onToggle={toggleReaction}
+              />
+            )}
             {footer}
-          </>
+          </div>
         ) : null
       }
     >

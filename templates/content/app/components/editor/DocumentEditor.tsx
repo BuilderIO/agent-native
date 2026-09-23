@@ -5291,11 +5291,38 @@ function PageEditorSessionBody({
       >
         <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
           <h2
-            className="text-sm font-semibold"
+            className="sr-only"
             aria-hidden={!hasUtilityRailSpace || undefined}
           >
             {utilityPanelTitle}
           </h2>
+          <div
+            role="tablist"
+            aria-label={t("comments.panelTabs")}
+            className="flex h-full items-stretch gap-5"
+            data-utility-panel-tabs
+          >
+            {(["comments", "info"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={panel === tab}
+                onClick={() => {
+                  if (panel !== tab) handleUtilityPanelChange(tab);
+                }}
+                className={cn(
+                  "relative inline-flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
+                  panel === tab && "text-foreground after:bg-foreground",
+                )}
+              >
+                {tab === "comments"
+                  ? t("comments.title")
+                  : t("editor.toolbar.info")}
+              </button>
+            ))}
+          </div>
           {panel === "comments" ? (
             <button
               type="button"

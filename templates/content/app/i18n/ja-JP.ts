@@ -1280,6 +1280,8 @@ const overrides = {
     suggestionTitle: "提案",
     close: "閉じる",
     showEarlierReplies: "以前の返信を表示",
+    replyAction: "返信",
+    panelTabs: "ページパネル",
     aiAuto: "自動",
     aiModel: "AI モデル",
     aiRemoveRecipient: "AI 宛先を削除",

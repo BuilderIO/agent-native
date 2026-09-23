@@ -221,6 +221,34 @@ export const documentComments = table("document_comments", {
   notionDiscussionId: text("notion_discussion_id"),
 });
 
+/**
+ * One person's emoji reaction on one Page comment. Access follows the
+ * comment's document; a person reacts with each emoji at most once.
+ */
+export const documentCommentReactions = table(
+  "document_comment_reactions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    commentId: text("comment_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    reaction: text("reaction").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reaction) => [
+    uniqueIndex("document_comment_reactions_actor_unique").on(
+      reaction.commentId,
+      reaction.actorEmail,
+      reaction.reaction,
+    ),
+    index("document_comment_reactions_document_idx").on(
+      reaction.ownerEmail,
+      reaction.documentId,
+    ),
+  ],
+);
+
 export const commentAiRequests = table(
   "comment_ai_requests",
   {

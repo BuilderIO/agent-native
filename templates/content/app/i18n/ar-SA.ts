@@ -1261,6 +1261,8 @@ const overrides = {
     suggestionTitle: "اقتراح",
     close: "إغلاق",
     showEarlierReplies: "عرض الردود السابقة",
+    replyAction: "رد",
+    panelTabs: "لوحات الصفحة",
     aiAuto: "تلقائي",
     aiModel: "نموذج الذكاء الاصطناعي",
     aiRemoveRecipient: "إزالة مستلم الذكاء الاصطناعي",

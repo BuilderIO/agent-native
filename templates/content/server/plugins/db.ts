@@ -1337,6 +1337,23 @@ export const runContentMigrations = runMigrations(
       name: "content-comment-ai-submitted-provider",
       sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_provider TEXT`,
     },
+    {
+      version: 106,
+      name: "content-comment-reactions",
+      sql: `CREATE TABLE IF NOT EXISTS document_comment_reactions (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          comment_id TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          reaction TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_comment_reactions_actor_unique
+          ON document_comment_reactions (comment_id, actor_email, reaction);
+        CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
+          ON document_comment_reactions (owner_email, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

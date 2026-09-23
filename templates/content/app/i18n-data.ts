@@ -1360,6 +1360,8 @@ const enUS = {
     suggestionTitle: "Suggestion",
     close: "Close",
     showEarlierReplies: "Show earlier replies",
+    replyAction: "Reply",
+    panelTabs: "Page panels",
     aiAuto: "Auto",
     aiModel: "AI model",
     aiRemoveRecipient: "Remove AI recipient",

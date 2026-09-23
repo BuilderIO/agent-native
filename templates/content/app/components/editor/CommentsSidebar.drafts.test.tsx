@@ -311,6 +311,7 @@ vi.mock("@agent-native/core/client/review", () => ({
 }));
 vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
@@ -1514,10 +1515,14 @@ it("opens an unanchored history thread so its recovery actions remain reachable"
   }
   try {
     await act(async () => root.render(<Harness />));
-    const historyCard = container.querySelector<HTMLButtonElement>(
-      "button[aria-labelledby]",
+    // The feed shows the anchored text and an inline Reply action.
+    expect(container.querySelector("[data-comment-quote]")?.textContent).toBe(
+      "Text changed by the partial operation",
     );
-    await act(async () => historyCard?.click());
+    const reply = container.querySelector<HTMLButtonElement>(
+      "[data-comment-reply-action]",
+    );
+    await act(async () => reply?.click());
     expect(
       container.querySelector<HTMLElement>(
         '.ProseMirror[aria-label="comments.reply"]',

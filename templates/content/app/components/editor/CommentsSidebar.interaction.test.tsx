@@ -48,6 +48,7 @@ vi.mock("@/hooks/use-comments", async () => {
       };
     },
     useEditComment: () => ({ mutateAsync: actions.edit, isPending: false }),
+    useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
     useResolveComment: () => ({
       mutateAsync: actions.resolve,
       isPending: false,

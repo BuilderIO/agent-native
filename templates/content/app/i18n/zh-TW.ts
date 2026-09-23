@@ -917,6 +917,8 @@ const overrides = {
     suggestionTitle: "建議",
     close: "關閉",
     showEarlierReplies: "顯示較早的回覆",
+    replyAction: "回覆",
+    panelTabs: "頁面面板",
     aiAuto: "自動",
     aiModel: "AI 模型",
     aiRemoveRecipient: "移除 AI 收件者",

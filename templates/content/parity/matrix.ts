@@ -919,6 +919,27 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "comments.reactions",
+    surface: "comments",
+    label: "React to a comment or reply with an emoji, or remove your reaction",
+    uiEntrypoints: [
+      "app/components/editor/CommentEntry.tsx",
+      "app/components/editor/CommentReactions.tsx",
+    ],
+    durableEffect:
+      "One row per person, emoji, and comment in document_comment_reactions; list-comments returns per-comment counts with the viewer's own reactions, and deleting a comment removes its reactions.",
+    uiImplementation:
+      "The reaction chips and add-reaction picker call react-to-comment with an optimistic update, and agents use the same action.",
+    status: "action-backed",
+    actions: ["react-to-comment", "list-comments"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/react-to-comment.db.test.ts"],
+  },
+  {
     id: "comments.threads",
     surface: "comments",
     label: "List, add, reply, resolve, reopen, and delete comment threads",

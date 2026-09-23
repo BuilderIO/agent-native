@@ -8,11 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
-import {
-  richEditor,
-  richEditorValue,
-  setRichEditorValue,
-} from "./comment-composer-test-utils";
+import { richEditor, setRichEditorValue } from "./comment-composer-test-utils";
 import { CommentDraftProvider } from "./comment-drafts";
 import {
   CommentsSidebar,
@@ -32,6 +28,7 @@ vi.mock("@/hooks/use-comments", () => ({
     reconcileAmbiguous: vi.fn(),
   }),
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useResolveComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({

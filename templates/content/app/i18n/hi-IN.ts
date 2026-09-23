@@ -1254,6 +1254,8 @@ const overrides = {
     suggestionTitle: "सुझाव",
     close: "बंद करें",
     showEarlierReplies: "पिछले जवाब दिखाएँ",
+    replyAction: "जवाब दें",
+    panelTabs: "पेज पैनल",
     aiAuto: "स्वचालित",
     aiModel: "AI मॉडल",
     aiRemoveRecipient: "AI प्राप्तकर्ता हटाएँ",
