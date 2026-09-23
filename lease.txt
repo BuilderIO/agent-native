@@ -1,9 +1,9 @@
 pr=5783
 owner_thread=01a0d076-5e3a-7f30-a1f0-17dd217764eb
-version=2
-expires_at=2026-09-23T23:14:23Z
+version=3
+expires_at=2026-09-23T23:17:46Z
 legacy_heartbeat=babysit-pr-5783
 legacy_heartbeat_version=absent
 legacy_retired=true
 status=active
-head_oid=100e5269578ea6c10af779fd5558e5ae59c523f9
+head_oid=d5f26f5b49
