@@ -72,8 +72,8 @@ describe("BigQuery delivery queue", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rowsAffected: 0 })
-        .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 0 })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
@@ -128,6 +128,139 @@ describe("BigQuery delivery queue", () => {
     expect(reconcileSql).toMatch(
       /deliveryState[\s\S]*NOT EXISTS[\s\S]*LIMIT \$2/,
     );
+  });
+
+  it("keeps later tenant leases unclaimed while a BigQuery request runs past the lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
+    const secondQueueRow = {
+      ...queueRow,
+      event_id: "evt_2",
+      owner_email: "other@example.com",
+      org_id: "org_other",
+      table_ref: "builder-3b0a2.analytics.other_events_raw",
+    };
+    const secondEventRow = {
+      ...eventRow,
+      id: "evt_2",
+      owner_email: secondQueueRow.owner_email,
+      org_id: secondQueueRow.org_id,
+    };
+    let firstInsertInProgress = false;
+    let secondClaimDuringFirstInsert = false;
+    const claimTimes: number[] = [];
+    const renewals: string[][] = [];
+    const eventRows = [eventRow, secondEventRow];
+    const claimTransactions = [
+      {
+        execute: vi
+          .fn()
+          .mockImplementationOnce(async (query: { sql: string }) => {
+            claimTimes.push(Date.now());
+            expect(query.sql).toContain("WITH next_scope AS MATERIALIZED");
+            expect(query.sql).toContain(
+              "delivery.table_ref IS NOT DISTINCT FROM scope.table_ref",
+            );
+            return { rows: [queueRow] };
+          })
+          .mockResolvedValueOnce({ rowsAffected: 1 }),
+      },
+      {
+        execute: vi
+          .fn()
+          .mockImplementationOnce(async () => {
+            if (firstInsertInProgress) secondClaimDuringFirstInsert = true;
+            claimTimes.push(Date.now());
+            return { rows: [secondQueueRow] };
+          })
+          .mockResolvedValueOnce({ rowsAffected: 1 }),
+      },
+      { execute: vi.fn().mockResolvedValue({ rows: [] }) },
+    ];
+    const cleanupTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    let transactionIndex = 0;
+    const db = {
+      execute: vi.fn(async (query: { sql: string; args?: unknown[] }) => {
+        if (
+          query.sql.includes("INSERT INTO analytics_bigquery_delivery_queue")
+        ) {
+          return { rowsAffected: 0 };
+        }
+        if (query.sql.includes("lease_expires_at = $1")) {
+          const ids = query.args?.slice(3) as string[];
+          renewals.push(ids);
+          return { rowsAffected: ids.length };
+        }
+        if (query.sql.includes("FROM analytics_events")) {
+          const ids = query.args as string[];
+          return { rows: eventRows.filter((row) => ids.includes(row.id)) };
+        }
+        if (query.sql.includes("UPDATE settings")) {
+          return { rowsAffected: 0 };
+        }
+        if (query.sql.includes("SET delivered_at = $1")) {
+          return { rowsAffected: (query.args?.length ?? 2) - 2 };
+        }
+        if (query.sql.includes("pending_count")) {
+          return {
+            rows: [
+              {
+                pending_count: "0",
+                oldest_pending_at: null,
+                last_delivered_at: "2026-09-22T00:06:00.000Z",
+                last_error: null,
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected delivery query: ${query.sql}`);
+      }),
+      transaction: vi.fn((fn: (tx: unknown) => unknown) => {
+        const tx = claimTransactions[transactionIndex] ?? cleanupTx;
+        if (transactionIndex < claimTransactions.length) transactionIndex += 1;
+        return fn(tx);
+      }),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+    mocks.insertWithResults.mockImplementation(
+      async (rows: Array<{ id: string }>) => {
+        if (rows[0]?.id === "evt_1") {
+          firstInsertInProgress = true;
+          await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+          firstInsertInProgress = false;
+        }
+        return {
+          acceptedIds: rows.map((row) => row.id),
+          rejectedIds: [],
+          error: null,
+        };
+      },
+    );
+    try {
+      await expect(
+        runFirstPartyAnalyticsBigQueryDeliveryOnce(),
+      ).resolves.toMatchObject({
+        status: "progress",
+        delivered: 2,
+      });
+      expect(secondClaimDuringFirstInsert).toBe(false);
+      expect(claimTimes).toHaveLength(2);
+      expect(claimTimes[1]! - claimTimes[0]!).toBeGreaterThan(5 * 60 * 1000);
+      expect(
+        renewals.filter((ids) => ids.includes("evt_1")).length,
+      ).toBeGreaterThan(1);
+      const secondGroupRenewal = renewals.findIndex((ids) =>
+        ids.includes("evt_2"),
+      );
+      expect(secondGroupRenewal).toBeGreaterThan(0);
+      expect(
+        renewals
+          .slice(0, secondGroupRenewal)
+          .every((ids) => !ids.includes("evt_2")),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("expires terminal source events after their recovery retention", async () => {
@@ -194,8 +327,8 @@ describe("BigQuery delivery queue", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rowsAffected: 0 })
-        .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [
@@ -259,8 +392,8 @@ describe("BigQuery delivery queue", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rowsAffected: 0 })
-        .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [eventRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [

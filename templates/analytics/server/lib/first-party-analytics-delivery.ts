@@ -14,6 +14,7 @@ const DELIVERY_BATCH_SIZE = 2_000;
 // Minute triggers may overlap safely because claims use SKIP LOCKED.
 const MAX_DELIVERY_BATCHES_PER_SWEEP = 30;
 const DELIVERY_LEASE_MS = 5 * 60 * 1000;
+const DELIVERY_LEASE_RENEW_INTERVAL_MS = 60 * 1000;
 const DELIVERY_RETRY_BASE_MS = 60 * 1000;
 const DELIVERY_RETRY_MAX_MS = 60 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS = 10;
@@ -272,19 +273,39 @@ async function claimPendingDeliveryRows(
   ).toISOString();
   return db.transaction(async (tx) => {
     const result = await tx.execute({
-      sql: `SELECT event_id, owner_email, org_id, table_ref, attempt_count, created_at
-              FROM ${DELIVERY_TABLE}
-             WHERE delivered_at IS NULL
-               AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-               AND next_attempt_at <= $1
-               AND (
-                 lease_token IS NULL
-                 OR lease_expires_at IS NULL
-                 OR lease_expires_at <= $1
-               )
-             ORDER BY created_at ASC, event_id ASC
-             LIMIT $2
-             FOR UPDATE SKIP LOCKED`,
+      sql: `WITH next_scope AS MATERIALIZED (
+              SELECT owner_email, org_id, table_ref
+                FROM ${DELIVERY_TABLE}
+               WHERE delivered_at IS NULL
+                 AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                 AND next_attempt_at <= $1
+                 AND (
+                   lease_token IS NULL
+                   OR lease_expires_at IS NULL
+                   OR lease_expires_at <= $1
+                 )
+               ORDER BY created_at ASC, event_id ASC
+               LIMIT 1
+               FOR UPDATE SKIP LOCKED
+             )
+             SELECT delivery.event_id, delivery.owner_email, delivery.org_id,
+                    delivery.table_ref, delivery.attempt_count, delivery.created_at
+               FROM ${DELIVERY_TABLE} AS delivery
+               JOIN next_scope AS scope
+                 ON delivery.owner_email = scope.owner_email
+                AND delivery.org_id IS NOT DISTINCT FROM scope.org_id
+                AND delivery.table_ref IS NOT DISTINCT FROM scope.table_ref
+              WHERE delivery.delivered_at IS NULL
+                AND delivery.attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
+                AND delivery.next_attempt_at <= $1
+                AND (
+                  delivery.lease_token IS NULL
+                  OR delivery.lease_expires_at IS NULL
+                  OR delivery.lease_expires_at <= $1
+                )
+              ORDER BY delivery.created_at ASC, delivery.event_id ASC
+              LIMIT $2
+              FOR UPDATE OF delivery SKIP LOCKED`,
       args: [now, DELIVERY_BATCH_SIZE],
       timeoutMs: 5_000,
       maxAttempts: 1,
@@ -441,8 +462,32 @@ async function renewDeliveryRows(
   requireRowsAffected(updated, rows.length, "Renewing BigQuery delivery rows");
 }
 
-function groupKey(row: DeliveryQueueRow): string {
-  return JSON.stringify([row.ownerEmail, row.orgId, row.tableRef]);
+async function withDeliveryLeaseHeartbeat<T>(
+  db: Executor,
+  rows: DeliveryQueueRow[],
+  work: () => Promise<T>,
+): Promise<T> {
+  let renewal: Promise<void> | undefined;
+  let renewalError: unknown;
+  const timer = setInterval(() => {
+    if (renewal) return;
+    renewal = renewDeliveryRows(db, rows, new Date().toISOString())
+      .catch((error: unknown) => {
+        renewalError = error;
+      })
+      .finally(() => {
+        renewal = undefined;
+      });
+  }, DELIVERY_LEASE_RENEW_INTERVAL_MS);
+  try {
+    const result = await work();
+    await renewal;
+    if (renewalError) throw renewalError;
+    return result;
+  } finally {
+    clearInterval(timer);
+    await renewal;
+  }
 }
 
 async function markDeliveryRowsDelivered(
@@ -714,69 +759,66 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
     );
     if (!claimed.length) break;
     batches += 1;
-
-    const groups = new Map<string, DeliveryQueueRow[]>();
-    for (const row of claimed) {
-      const key = groupKey(row);
-      const group = groups.get(key) ?? [];
-      group.push(row);
-      groups.set(key, group);
-    }
-
-    for (const rows of groups.values()) {
-      const first = rows[0]!;
-      try {
-        const events = await hydrateDeliveryRows(db, rows);
-        await renewDeliveryRows(db, rows, new Date().toISOString());
-        const insertResult = await runWithRequestContext(
-          { userEmail: first.ownerEmail, orgId: first.orgId ?? undefined },
-          () =>
-            insertFirstPartyAnalyticsRowsWithResults(events, first.tableRef, {
-              maxRowsPerRequest: 500,
-              maxConcurrentRequests: 4,
-            }),
-        );
-        const acceptedIds = new Set(insertResult.acceptedIds);
-        const rejectedIds = new Set(insertResult.rejectedIds);
-        if (
-          acceptedIds.size + rejectedIds.size !== rows.length ||
-          rows.some(
-            (row) =>
-              !acceptedIds.has(row.eventId) && !rejectedIds.has(row.eventId),
-          )
-        ) {
-          throw new Error(
-            "BigQuery delivery returned an incomplete row result",
+    await renewDeliveryRows(db, claimed, new Date().toISOString());
+    const first = claimed[0]!;
+    try {
+      const insertResult = await withDeliveryLeaseHeartbeat(
+        db,
+        claimed,
+        async () => {
+          const events = await hydrateDeliveryRows(db, claimed);
+          return runWithRequestContext(
+            { userEmail: first.ownerEmail, orgId: first.orgId ?? undefined },
+            () =>
+              insertFirstPartyAnalyticsRowsWithResults(events, first.tableRef, {
+                maxRowsPerRequest: 500,
+                maxConcurrentRequests: 4,
+              }),
           );
-        }
-        const acceptedRows = rows.filter((row) => acceptedIds.has(row.eventId));
-        const rejectedRows = rows.filter((row) => rejectedIds.has(row.eventId));
-        if (acceptedRows.length) {
-          const deliveredAt = new Date().toISOString();
-          await markFallbackMarkersDelivered(db, acceptedRows, deliveredAt);
-          await markDeliveryRowsDelivered(db, acceptedRows, deliveredAt);
-          delivered += acceptedRows.length;
-        }
-        if (rejectedRows.length) {
-          retryScheduled = true;
-          const message =
-            insertResult.error ??
-            `BigQuery rejected ${rejectedRows.length} event row(s)`;
-          await scheduleDeliveryRetry(db, rejectedRows, message);
-          console.error(
-            "[first-party-analytics] BigQuery delivery rejected rows; retry scheduled:",
-            message,
-          );
-        }
-      } catch (error) {
+        },
+      );
+      const acceptedIds = new Set(insertResult.acceptedIds);
+      const rejectedIds = new Set(insertResult.rejectedIds);
+      if (
+        acceptedIds.size + rejectedIds.size !== claimed.length ||
+        claimed.some(
+          (row) =>
+            !acceptedIds.has(row.eventId) && !rejectedIds.has(row.eventId),
+        )
+      ) {
+        throw new Error("BigQuery delivery returned an incomplete row result");
+      }
+      const acceptedRows = claimed.filter((row) =>
+        acceptedIds.has(row.eventId),
+      );
+      const rejectedRows = claimed.filter((row) =>
+        rejectedIds.has(row.eventId),
+      );
+      if (acceptedRows.length) {
+        const deliveredAt = new Date().toISOString();
+        await markFallbackMarkersDelivered(db, acceptedRows, deliveredAt);
+        await markDeliveryRowsDelivered(db, acceptedRows, deliveredAt);
+        delivered += acceptedRows.length;
+      }
+      if (rejectedRows.length) {
         retryScheduled = true;
-        const message = errorMessage(error);
-        await scheduleDeliveryRetry(db, rows, message);
+        const message =
+          insertResult.error ??
+          `BigQuery rejected ${rejectedRows.length} event row(s)`;
+        await scheduleDeliveryRetry(db, rejectedRows, message);
         console.error(
-          "[first-party-analytics] BigQuery delivery failed; retry scheduled:",
+          "[first-party-analytics] BigQuery delivery rejected rows; retry scheduled:",
           message,
         );
       }
+    } catch (error) {
+      retryScheduled = true;
+      const message = errorMessage(error);
+      await scheduleDeliveryRetry(db, claimed, message);
+      console.error(
+        "[first-party-analytics] BigQuery delivery failed; retry scheduled:",
+        message,
+      );
     }
   }
 
