@@ -127,7 +127,7 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
     );
-    expect(source).toContain("jevConfigured || jevAvailability.isError");
+    expect(source).toContain("jevAvailability.isError || jevConfigured");
     expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
     expect(source).not.toContain("refetchOnWindowFocus: false");
   });
