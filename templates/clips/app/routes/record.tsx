@@ -2183,6 +2183,7 @@ export default function RecordRoute() {
       setPreviewStream(null);
       setCompressionProgress(null);
       setUploadProgress(null);
+      setSavingKind(null);
       setUiState("complete");
       const reportContext = bugReportContextRef.current;
       if (result.waitingForStorage) {

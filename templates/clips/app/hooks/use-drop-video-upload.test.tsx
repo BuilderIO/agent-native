@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
   uploadChunkRequest: vi.fn(),
   uploadVideoBlobThumbnail: vi.fn(),
+  waitForAcceptedRecordingAfterFinalizeError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -27,6 +28,10 @@ vi.mock("@shared/recording-core", () => ({
   chunkUploadParallelism: () => 1,
   chunkUploadUrl: (base: string) => base,
   UPLOAD_SLICE_BYTES: 1024,
+}));
+vi.mock("@shared/finalize-recovery", () => ({
+  waitForAcceptedRecordingAfterFinalizeError: (...args: unknown[]) =>
+    mocks.waitForAcceptedRecordingAfterFinalizeError(...args),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
@@ -185,6 +190,46 @@ describe("useDropVideoUpload", () => {
     ]);
     await vi.waitFor(() =>
       expect(mocks.toast.success).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("recovers when the server accepts a final chunk but its response is lost", async () => {
+    mocks.callAction.mockResolvedValue({
+      id: "recording-1",
+      uploadChunkUrl: "/api/uploads/recording-1/chunk",
+    });
+    mocks.probeVideoMetadata.mockResolvedValue({
+      durationMs: 1000,
+      width: 640,
+      height: 480,
+    });
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+    mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+    mocks.invalidateQueries.mockResolvedValue(undefined);
+    mocks.uploadChunkRequest.mockRejectedValue(new TypeError("Network error"));
+    mocks.waitForAcceptedRecordingAfterFinalizeError.mockResolvedValue({
+      ok: true,
+      finalized: true,
+      recoveredAfterFinalizeError: true,
+      id: "recording-1",
+      recordingId: "recording-1",
+      status: "ready",
+    });
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() => expect(mocks.toast.success).toHaveBeenCalledOnce());
+    expect(
+      mocks.waitForAcceptedRecordingAfterFinalizeError,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadUrl: "/api/uploads/recording-1/chunk",
+        recordingId: "recording-1",
+        preferAuthenticated: true,
+      }),
     );
   });
 });

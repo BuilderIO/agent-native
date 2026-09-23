@@ -1,6 +1,7 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chunkUploadParallelism,
   chunkUploadUrl,
@@ -225,23 +226,43 @@ export function useDropVideoUpload(scope: {
         );
         if (uploadError) throw uploadError;
 
-        const finalRes = await uploadChunkRequest({
-          url: finalChunkDesc.url,
-          contentType: mimeType,
-          body: await finalChunkDesc.slice.arrayBuffer(),
-          signal: abort.signal,
-        });
-        if (!finalRes.ok) {
-          throw new Error(
-            `Upload failed at the final chunk (${finalRes.status})`,
-          );
-        }
-        const finalResult = (await finalRes.json()) as {
+        const recoverFinalization = () =>
+          waitForAcceptedRecordingAfterFinalizeError({
+            uploadUrl: uploadBase,
+            recordingId: info.id,
+            preferAuthenticated: true,
+            signal: abort.signal,
+          });
+        let finalResult: {
           ok?: boolean;
           status?: string;
           waitingForStorage?: boolean;
-        };
-        if (finalResult.ok !== true) {
+        } | null = null;
+        let finalRes: Response | null = null;
+        try {
+          finalRes = await uploadChunkRequest({
+            url: finalChunkDesc.url,
+            contentType: mimeType,
+            body: await finalChunkDesc.slice.arrayBuffer(),
+            signal: abort.signal,
+          });
+        } catch (error) {
+          finalResult = await recoverFinalization();
+          if (!finalResult) throw error;
+        }
+        if (finalRes && !finalRes.ok) {
+          const error = new Error(
+            `Upload failed at the final chunk (${finalRes.status})`,
+          );
+          if (finalRes.status === 413) throw error;
+          finalResult = await recoverFinalization();
+          if (!finalResult) throw error;
+        } else if (finalRes?.ok) {
+          finalResult = (await finalRes.json()) as NonNullable<
+            typeof finalResult
+          >;
+        }
+        if (finalResult?.ok !== true) {
           throw new Error("Upload finalization returned no success result.");
         }
         setProgress(1);
