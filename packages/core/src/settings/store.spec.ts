@@ -84,16 +84,12 @@ describe("settings store", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null instead of throwing for a corrupted (unparseable) stored value", async () => {
-    // A single flag/setting row corrupted by a bug or manual edit must not
-    // reject and take down a Promise.all sibling read (e.g. a valid
-    // organization override read alongside this global row) — see
-    // getFeatureFlagRules in feature-flags/store.ts.
+  it("throws for a corrupted (unparseable) stored value instead of reporting it missing", async () => {
     await pglite
       .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
       .run("corrupt", "{not valid json", Date.now());
 
-    await expect(getSetting("corrupt")).resolves.toBeNull();
+    await expect(getSetting("corrupt")).rejects.toThrow(SyntaxError);
   });
 
   it("deletes an existing key and returns true", async () => {
