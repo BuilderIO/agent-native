@@ -120,6 +120,11 @@ describe("get-design-system", () => {
         { type: "eq", column: "designSystems.id", value: "builder-ds-1" },
         {
           type: "eq",
+          column: "designSystems.ownerEmail",
+          value: "owner@example.test",
+        },
+        {
+          type: "eq",
           column: "designSystems.data",
           value: JSON.stringify({
             source: "builder",
@@ -127,11 +132,6 @@ describe("get-design-system", () => {
             builderJobId: "job-1",
             colors: { primary: "var(--primary)" },
           }),
-        },
-        {
-          type: "eq",
-          column: "designSystems.ownerEmail",
-          value: "owner@example.test",
         },
       ],
     });
@@ -141,6 +141,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
