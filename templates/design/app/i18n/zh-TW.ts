@@ -815,6 +815,7 @@ const messages = {
       figImportSelected: "匯入已選取的 {{count}} 個",
       figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
+      figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:

@@ -21,7 +21,7 @@ import {
   type SourceWorkspaceFile,
 } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
-import { decodeFig, type DecodedFigImage } from "./fig-file-decoder.js";
+import { decodeFigImages, type DecodedFigImage } from "./fig-file-decoder.js";
 
 // ---------------------------------------------------------------------------
 // HTML helpers
@@ -298,7 +298,7 @@ function mimeTypeForExt(ext: string): string {
  */
 export function indexFigImages(figBytes: Buffer): Map<string, DecodedFigImage> {
   const byHash = new Map<string, DecodedFigImage>();
-  for (const image of decodeFig(figBytes).images) byHash.set(image.hash, image);
+  for (const image of decodeFigImages(figBytes)) byHash.set(image.hash, image);
   return byHash;
 }
 

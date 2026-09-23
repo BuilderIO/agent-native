@@ -227,6 +227,7 @@ async function signedS3Request(
     "x-amz-date": amzDate,
   };
   if (options.contentType) headers["content-type"] = options.contentType;
+  if (options.range?.startsWith("bytes=")) headers.range = options.range;
 
   const signedHeaderKeys = Object.keys(headers).sort();
   const signedHeaders = signedHeaderKeys.join(";");
@@ -269,9 +270,6 @@ async function signedS3Request(
         Authorization: authorization,
         ...(options.body
           ? { "Content-Length": String(options.body.byteLength) }
-          : {}),
-        ...(options.range?.startsWith("bytes=")
-          ? { Range: options.range }
           : {}),
       },
       ...(options.body

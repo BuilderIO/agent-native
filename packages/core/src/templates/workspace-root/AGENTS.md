@@ -243,6 +243,15 @@ an additional locale or changelog.
   should still create the separate workspace app, not patch chat. The local
   workspace gateway detects new app directories automatically and starts each
   app server lazily on first visit.
+- Before telling the user the app is created, request `/<app-id>` on the
+  running gateway and confirm it serves the new app, not a fallback route or
+  another app's shell, then tell the user that exact path to open — the
+  preview root can still show a different app. Never report the app as
+  created while the preview still shows something else.
+- If the preview/host isn't running the workspace gateway (root `pnpm dev`),
+  say plainly that its run/dev command must point at the workspace root
+  `pnpm dev` and name where to set it (Builder: project settings → dev
+  command); the agent cannot change a host's run/dev command itself.
 - When using the chat template, treat it as scaffolding only. The finished
   app must be branded as the requested app, with its own home screen,
   navigation, package metadata, manifest, and domain workflow. Do not leave

@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
+import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
 import type { EditorMode } from "@/pages/design-editor/types";
 
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
@@ -79,8 +80,10 @@ import {
   type RuntimeComponentDetails,
 } from "./edit-panel/component-section";
 import {
+  type DocumentColorCountCache,
   type DocumentColorSourceFile,
   type SelectionColorValue,
+  documentFileColorCounts,
   extractDocumentColorPalette,
   type SelectionColorScope,
   selectionColorValues,
@@ -408,7 +411,10 @@ interface EditPanelProps {
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
   /** Current hashes for every HTML file when a linked component edit spans Screens. */
-  componentExpectedFiles?: Array<{ fileId: string; versionHash: string }>;
+  getComponentExpectedFiles?: () => Array<{
+    fileId: string;
+    versionHash: string;
+  }>;
   /**
    * Every file's content in the current design (all screens, not just the
    * active one) — used to compute the document-wide "Document colors"
@@ -2411,6 +2417,47 @@ function GroupFillProperties({
   );
 }
 
+const NO_DOCUMENT_COLORS: string[] = [];
+
+/**
+ * Document-wide color palette (real "Document colors", not just the selected
+ * element's own color props). Only a color picker shows it, so it is read in
+ * idle slices rather than tokenizing every screen during the render that
+ * opens a design; after an edit only the changed file is re-read.
+ */
+function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
+  const cacheRef = useRef<DocumentColorCountCache>(new Map());
+  const [palette, setPalette] = useState(NO_DOCUMENT_COLORS);
+  useEffect(() => {
+    const cache = cacheRef.current;
+    if (!files?.length) {
+      cache.clear();
+      setPalette(NO_DOCUMENT_COLORS);
+      return;
+    }
+    let next = 0;
+    return runInIdleSlices((deadline) => {
+      do {
+        const file = files[next];
+        if (!file) {
+          const read = extractDocumentColorPalette(files, undefined, cache);
+          setPalette((current) =>
+            current.length === read.length &&
+            current.every((color, index) => color === read[index])
+              ? current
+              : read,
+          );
+          return true;
+        }
+        next += 1;
+        documentFileColorCounts(file, cache);
+      } while (performance.now() < deadline);
+      return false;
+    });
+  }, [files]);
+  return palette;
+}
+
 // PF8: EditPanel re-renders on every DesignEditor state change (drag,
 // hover, zoom) unless memoized. Nearly all props are already stabilized at
 // the call site (useMemo/useCallback — see DesignEditor.tsx's
@@ -2479,7 +2526,7 @@ export const EditPanel = memo(function EditPanel({
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
-  componentExpectedFiles,
+  getComponentExpectedFiles,
   files,
   designId,
   onComponentPropApplied,
@@ -2635,18 +2682,7 @@ export const EditPanel = memo(function EditPanel({
     onShaderSourceApplied,
     onEditCode,
   ]);
-  // Document-wide color palette (real "Document colors", not just the
-  // selected element's own color props) — recomputed only when the set of
-  // file contents actually changes, since scanning every file's HTML/CSS
-  // text is nontrivially more work than the old per-element prop read.
-  const filesContentKey = files
-    ? files.map((file) => `${file.id}:${file.content.length}`).join("|")
-    : "";
-  const documentColorPalette = useMemo(
-    () => (files && files.length > 0 ? extractDocumentColorPalette(files) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on filesContentKey (cheap length+id fingerprint) instead of `files` itself so an unstable-but-equal array identity from the parent doesn't force a full re-scan every render.
-    [filesContentKey],
-  );
+  const documentColorPalette = useDocumentColorPalette(files);
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
@@ -3124,7 +3160,7 @@ export const EditPanel = memo(function EditPanel({
                   }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
-                  expectedFiles={componentExpectedFiles}
+                  getExpectedFiles={getComponentExpectedFiles}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
                   runtime={componentRuntime}
