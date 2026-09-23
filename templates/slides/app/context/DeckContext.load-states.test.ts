@@ -242,6 +242,25 @@ describe("deck list recovery through the fallback poll", () => {
     queryClient.clear();
   });
 
+  it("retries a failed home list sooner than the normal poll interval", async () => {
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+    api.failNextListReads(2, 500);
+
+    const { result, seen } = renderDeckListStates();
+    await waitFor(() => expect(result.current.loadError).toBe(true));
+    expect(seen).toEqual(["loading", "error"]);
+
+    api.failNextListReads(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    await waitFor(() => expect(result.current.decks).toHaveLength(1));
+
+    expect(seen).not.toContain("empty");
+    expect(seen[seen.length - 1]).toBe("decks");
+  });
+
   it("keeps the error when the list names decks whose bodies cannot be read back", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a")]);

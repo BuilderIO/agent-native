@@ -372,7 +372,9 @@ const LIVE_CHANNEL_IDLE_POLL_MS = 60_000;
 export function fallbackPollIntervalMs(state: {
   liveChannelConnected: boolean;
   hasOpenDeck: boolean;
+  hasLoadError: boolean;
 }): number {
+  if (state.hasLoadError) return OPEN_DECK_FALLBACK_POLL_MS;
   if (state.liveChannelConnected) return LIVE_CHANNEL_IDLE_POLL_MS;
   return state.hasOpenDeck
     ? OPEN_DECK_FALLBACK_POLL_MS
@@ -1830,6 +1832,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   >(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const loadErrorRef = useRef(loadError);
+  loadErrorRef.current = loadError;
   const decksRef = useRef<Deck[]>([]);
 
   // Per-user inverse-op undo/redo. `canUndo`/`canRedo` are React state kept in
@@ -2915,6 +2919,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         fallbackPollIntervalMs({
           liveChannelConnected: liveChannelConnectedRef.current,
           hasOpenDeck: Boolean(readOpenDeckId()),
+          hasLoadError: loadErrorRef.current,
         }),
       );
     };
