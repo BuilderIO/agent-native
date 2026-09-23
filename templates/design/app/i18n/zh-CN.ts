@@ -1446,6 +1446,7 @@ export default {
     startBlankCanvasHint: "使用画框、形状和文字自行绘制。",
     designSystem: "Design系统",
     noDesignSystem: "没有设计系统",
+    designSystemIndexing: "正在索引…",
     newDesignSystem: "新",
     createDesignSystem: "创建设计系统",
     template: "模板",

@@ -1528,6 +1528,7 @@ export default {
     startBlankCanvasHint: "Dessinez-la vous-même avec cadres, formes et texte.",
     designSystem: "Système Design",
     noDesignSystem: "Aucun système de conception",
+    designSystemIndexing: "Indexation…",
     newDesignSystem: "Nouveau",
     createDesignSystem: "Créer un système de design",
     template: "Modèle",

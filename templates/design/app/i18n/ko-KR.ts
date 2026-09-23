@@ -1494,6 +1494,7 @@ export default {
     startBlankCanvasHint: "프레임, 도형, 텍스트로 직접 그립니다.",
     designSystem: "Design 시스템",
     noDesignSystem: "디자인 시스템 없음",
+    designSystemIndexing: "색인 생성 중…",
     newDesignSystem: "새로운",
     createDesignSystem: "디자인 시스템 만들기",
     template: "템플릿",

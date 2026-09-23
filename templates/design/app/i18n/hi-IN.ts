@@ -1486,6 +1486,7 @@ export default {
     startBlankCanvasHint: "फ़्रेम, आकृतियों और टेक्स्ट से स्वयं बनाइए।",
     designSystem: "Design प्रणाली",
     noDesignSystem: "कोई डिज़ाइन प्रणाली नहीं",
+    designSystemIndexing: "इंडेक्स हो रहा है…",
     newDesignSystem: "नया",
     createDesignSystem: "डिज़ाइन सिस्टम बनाएँ",
     template: "टेम्पलेट",

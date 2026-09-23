@@ -1502,6 +1502,7 @@ export default {
     startBlankCanvasHint: "Draw it yourself with frames, shapes and text.",
     designSystem: "Design system",
     noDesignSystem: "No design system",
+    designSystemIndexing: "Indexing…",
     newDesignSystem: "New",
     createDesignSystem: "Create design system",
     template: "Template",

@@ -1530,6 +1530,7 @@ export default {
     startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
     designSystem: "Design-System",
     noDesignSystem: "Kein Designsystem",
+    designSystemIndexing: "Wird indiziert…",
     newDesignSystem: "Neu",
     createDesignSystem: "Designsystem erstellen",
     template: "Vorlage",

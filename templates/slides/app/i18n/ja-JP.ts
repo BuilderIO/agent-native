@@ -830,10 +830,6 @@ const messages = {
     continue: "続行",
     continueToGenerate: "生成に進む",
     designSystem: "デザインシステム",
-    designSystemIndexing: "インデックス作成中…",
-    designSystemUnavailable: "利用不可",
-    designSystemIndexingNotice:
-      "このデザインシステムはまだインデックス作成中です。続行する前に別のシステムを選択するか、完了をお待ちください。",
     referenceDeck: "参考デッキ",
     referenceDeckPlaceholder: "既存デッキのスタイルに合わせる",
     referenceDeckNone: "使用しない",

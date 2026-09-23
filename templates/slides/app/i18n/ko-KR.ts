@@ -821,10 +821,6 @@ const messages = {
     continue: "계속",
     continueToGenerate: "생성 계속",
     designSystem: "디자인 시스템",
-    designSystemIndexing: "인덱싱 중…",
-    designSystemUnavailable: "사용 불가",
-    designSystemIndexingNotice:
-      "이 디자인 시스템은 아직 인덱싱 중입니다. 계속하기 전에 다른 시스템을 선택하거나 인덱싱이 끝날 때까지 기다리세요.",
     referenceDeck: "참고 덱",
     referenceDeckPlaceholder: "기존 덱의 스타일을 따르기",
     referenceDeckNone: "사용 안 함",

@@ -1512,6 +1512,7 @@ export default {
     startBlankCanvasHint: "Desenhe você mesmo com molduras, formas e texto.",
     designSystem: "Sistema Design",
     noDesignSystem: "Nenhum sistema de design",
+    designSystemIndexing: "Indexando…",
     newDesignSystem: "Novo",
     createDesignSystem: "Criar sistema de design",
     template: "Modelo",

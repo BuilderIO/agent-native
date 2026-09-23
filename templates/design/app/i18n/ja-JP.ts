@@ -1516,6 +1516,7 @@ export default {
     startBlankCanvasHint: "フレーム・図形・テキストで自分で描きます。",
     designSystem: "Designシステム",
     noDesignSystem: "デザインシステムがない",
+    designSystemIndexing: "インデックス作成中…",
     newDesignSystem: "新しい",
     createDesignSystem: "デザインシステムを作成",
     template: "テンプレート",

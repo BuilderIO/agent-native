@@ -402,6 +402,7 @@ import {
   DesignAccessState,
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -4947,6 +4948,10 @@ function DesignEditor() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems(isSignedIn && showPrompt);
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -28644,7 +28649,7 @@ function DesignEditor() {
           (designSystemsLoading && promptDesignSystemId === undefined)
         }
         anchorRef={promptAnchorRef}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}

@@ -1478,6 +1478,7 @@ export default {
     startBlankCanvasHint: "ارسمها بنفسك بالإطارات والأشكال والنص.",
     designSystem: "نظام Design",
     noDesignSystem: "لا يوجد نظام التصميم",
+    designSystemIndexing: "جارٍ الفهرسة…",
     newDesignSystem: "جديد",
     createDesignSystem: "إنشاء نظام تصميم",
     template: "قالب",

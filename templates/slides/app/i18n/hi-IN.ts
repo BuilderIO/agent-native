@@ -819,10 +819,6 @@ const messages = {
     continue: "जारी रखें",
     continueToGenerate: "जनरेट करने के लिए जारी रखें",
     designSystem: "डिज़ाइन सिस्टम",
-    designSystemIndexing: "इंडेक्सिंग हो रही है…",
-    designSystemUnavailable: "अनुपलब्ध",
-    designSystemIndexingNotice:
-      "यह डिज़ाइन सिस्टम अभी भी इंडेक्स हो रहा है। जारी रखने से पहले कोई अन्य सिस्टम चुनें या इंडेक्सिंग पूरी होने की प्रतीक्षा करें।",
     referenceDeck: "संदर्भ डेक",
     referenceDeckPlaceholder: "किसी मौजूदा डेक की शैली अपनाएँ",
     referenceDeckNone: "किसी का उपयोग न करें",

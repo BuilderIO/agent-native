@@ -1515,6 +1515,7 @@ export default {
     startBlankCanvasHint: "Dibújala tú con marcos, formas y texto.",
     designSystem: "sistema Design",
     noDesignSystem: "Sin sistema de diseño",
+    designSystemIndexing: "Indexando…",
     newDesignSystem: "Nuevo",
     createDesignSystem: "Crear sistema de diseño",
     template: "Plantilla",

@@ -22,6 +22,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import PromptPopover, {
   preloadPromptComposer,
 } from "@/components/editor/PromptDialog";
@@ -108,6 +109,10 @@ export default function Templates() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
 
   const templates = useMemo(() => data?.templates ?? [], [data?.templates]);
   const linkedTemplateId = searchParams.get("templateId");
@@ -391,7 +396,7 @@ export default function Templates() {
         onSubmit={handleSubmit}
         anchorRef={anchorRef}
         loading={creating}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedDesignSystemId ?? null}
         onDesignSystemChange={setSelectedDesignSystemId}
