@@ -5013,10 +5013,6 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
-      { type: "agent-native:editor-chrome-ready-probe" },
-      "*",
-    );
-    iframe.contentWindow?.postMessage(
       { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
     );

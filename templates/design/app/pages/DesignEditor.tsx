@@ -1602,6 +1602,10 @@ function DesignEditor() {
     PendingLiveNonStyleEdit[]
   >([]);
   const [
+    pendingVisualEditPublicationFailed,
+    setPendingVisualEditPublicationFailed,
+  ] = useState(false);
+  const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
   ] = useState<Record<string, string>>({});
@@ -1800,6 +1804,18 @@ function DesignEditor() {
   ] = useState<number | null>(null);
   const pendingVisualStyleEditsRef = useRef<PendingVisualStyleEdit[]>([]);
   const pendingLiveNonStyleEditsRef = useRef<PendingLiveNonStyleEdit[]>([]);
+  const pendingVisualEditPublicationRevisionRef = useRef(0);
+  const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const pendingVisualEditClearRequestedRef = useRef<string | null>(null);
+  const pendingVisualEditHadPendingRef = useRef<string | null>(null);
+  useEffect(() => {
+    pendingVisualEditPublicationRevisionRef.current = 0;
+    pendingVisualEditClearRequestedRef.current = null;
+    pendingVisualEditHadPendingRef.current = null;
+    setPendingVisualEditPublicationFailed(false);
+  }, [id]);
   const localhostConnectionRootPathByIdRef = useRef<Map<string, string>>(
     new Map(),
   );
@@ -2021,6 +2037,13 @@ function DesignEditor() {
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
+    if (
+      id &&
+      (pendingVisualStyleEditsRef.current.length > 0 ||
+        pendingLiveNonStyleEditsRef.current.length > 0)
+    ) {
+      pendingVisualEditClearRequestedRef.current = id;
+    }
     stagedSourceHandoffRef.current = "idle";
     setApplyingViaHost(false);
     if (pendingEditSessionDesignIdRef.current === id) {
@@ -19390,10 +19413,23 @@ function DesignEditor() {
   );
   useEffect(() => {
     if (!id) return;
+    if (
+      pendingVisualEditCount === 0 &&
+      pendingVisualEditClearRequestedRef.current !== id &&
+      pendingVisualEditHadPendingRef.current !== id
+    ) {
+      return;
+    }
+    const revision = Math.max(
+      Date.now(),
+      pendingVisualEditPublicationRevisionRef.current + 1,
+    );
+    pendingVisualEditPublicationRevisionRef.current = revision;
     const pending =
       pendingVisualEditCount > 0
         ? {
             designId: id,
+            revision,
             pending: {
               designId: id,
               pendingEditCount: pendingVisualEditCount,
@@ -19403,35 +19439,77 @@ function DesignEditor() {
           }
         : {
             designId: id,
+            revision,
             pending: null,
           };
-    void callAction("publish-visual-edit-pending", pending).catch(() => {
-      // A stale Design build may not know this action yet; the bridge remains
-      // the local-session fallback until the page reloads on the new build.
-    });
+    if (pendingVisualEditCount > 0) {
+      pendingVisualEditClearRequestedRef.current = null;
+      pendingVisualEditHadPendingRef.current = id;
+    }
+    const clearRequested = pending.pending === null;
+    const publish = async () => {
+      try {
+        await callAction("publish-visual-edit-pending", pending);
+        setPendingVisualEditPublicationFailed(false);
+        if (
+          clearRequested &&
+          pendingVisualEditClearRequestedRef.current === id
+        ) {
+          pendingVisualEditClearRequestedRef.current = null;
+          pendingVisualEditHadPendingRef.current = null;
+        }
+      } catch (error) {
+        console.error(
+          "[design:visual-edit] durable handoff publication failed",
+          error,
+        );
+        setPendingVisualEditPublicationFailed(true);
+        toast.error(t("designEditor.toasts.codingHandoffError"), {
+          id: "design-visual-edit-pending-publication",
+        });
+      }
 
-    if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
-    void fetch(
-      `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-design-preview-token": activeScreenPreviewToken,
-        },
-        body: JSON.stringify(pending),
-      },
-    ).catch(() => {
-      // The bridge is optional for static screens and may be offline while a
-      // coding agent is starting the local app; the in-tab prompt remains the
-      // authoritative fallback.
-    });
+      if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
+      try {
+        const response = await fetch(
+          `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-design-preview-token": activeScreenPreviewToken,
+            },
+            body: JSON.stringify(pending.pending),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Bridge returned HTTP ${response.status}`);
+        }
+      } catch (error) {
+        // The bridge is optional for static screens; durable MCP publication
+        // remains authoritative when the local app is offline.
+        console.warn(
+          "[design:visual-edit] local bridge handoff publication failed",
+          error,
+        );
+      }
+    };
+    pendingVisualEditPublicationQueueRef.current =
+      pendingVisualEditPublicationQueueRef.current
+        .catch((error) => {
+          console.error(
+            "[design:visual-edit] queued handoff publication failed",
+            error,
+          );
+        })
+        .then(publish);
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
+    t,
   ]);
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
@@ -27614,6 +27692,17 @@ function DesignEditor() {
                       deployedUrl={fusionApp.deployedUrl}
                     />
                   )}
+                  {pendingVisualEditPublicationFailed ? (
+                    <div
+                      data-design-visual-edit-publication-warning
+                      role="status"
+                      className="pointer-events-none absolute inset-x-0 top-16 z-[70] flex justify-center px-4"
+                    >
+                      <div className="pointer-events-auto rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {t("designEditor.toasts.codingHandoffError")}
+                      </div>
+                    </div>
+                  ) : null}
                   {showPendingVisualStyleApply ? (
                     <div
                       data-design-pending-visual-style-toolbar

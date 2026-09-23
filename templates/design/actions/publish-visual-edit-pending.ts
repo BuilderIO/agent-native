@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -27,11 +27,16 @@ export default defineAction({
   maxBodyBytes: MAX_PROMPT_LENGTH + 8_192,
   schema: z.object({
     designId: z.string().describe("Design project ID."),
+    revision: z
+      .number()
+      .int()
+      .positive()
+      .describe("Monotonic handoff revision from the Design browser."),
     pending: pendingSchema.describe(
       "The current visual-edit handoff, or null after the edits are applied or discarded.",
     ),
   }),
-  run: async ({ designId, pending }, ctx) => {
+  run: async ({ designId, revision, pending }, ctx) => {
     if (!isSameOriginVisualEditBrowserRequest(ctx)) {
       fail(
         "Visual-edit handoff publication is available only from the same-origin Design page.",
@@ -49,6 +54,7 @@ export default defineAction({
     const now = new Date().toISOString();
     const values = {
       designId,
+      revision,
       pendingEditCount: pending?.pendingEditCount ?? 0,
       status: pending?.status ?? ("empty" as const),
       prompt: pending?.prompt ?? "",
@@ -67,17 +73,20 @@ export default defineAction({
           pendingEditCount: values.pendingEditCount,
           status: values.status,
           prompt: values.prompt,
+          revision: values.revision,
           updatedAt: values.updatedAt,
           visibility: values.visibility,
           ownerEmail: values.ownerEmail,
           orgId: values.orgId,
         },
+        setWhere: sql`${schema.designVisualEditPending.revision} <= excluded.revision`,
       });
 
     return {
       designId,
       pendingEditCount: values.pendingEditCount,
       status: values.status,
+      revision: values.revision,
       updatedAt: now,
     };
   },

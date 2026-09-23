@@ -16,20 +16,32 @@ const mocks = vi.hoisted(() => {
   insertChain.values.mockReturnValue(insertChain);
   insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
 
+  const updateChain = {
+    set: vi.fn(),
+    where: vi.fn(),
+    returning: vi.fn(),
+  };
+  updateChain.set.mockReturnValue(updateChain);
+  updateChain.where.mockReturnValue(updateChain);
+  updateChain.returning.mockResolvedValue([]);
+
   return {
     designVisualEditPending: {
       designId: "pending.designId",
       pendingEditCount: "pending.pendingEditCount",
       status: "pending.status",
       prompt: "pending.prompt",
+      revision: "pending.revision",
       updatedAt: "pending.updatedAt",
     },
     designs: {},
     getDb: vi.fn(() => ({
       insert: vi.fn(() => insertChain),
+      update: vi.fn(() => updateChain),
       select: vi.fn(() => selectChain),
     })),
     insertChain,
+    updateChain,
     isSameOrigin: vi.fn(),
     assertAccess: vi.fn(),
     selectChain,
@@ -48,7 +60,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ conditions })),
   eq: vi.fn((left, right) => ({ left, right })),
+  sql: vi.fn((...parts) => ({ parts })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -63,6 +77,7 @@ vi.mock("./visual-edit-browser-request.js", () => ({
   isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
 }));
 
+import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
 
@@ -82,6 +97,10 @@ describe("visual-edit pending handoff", () => {
     mocks.selectChain.limit.mockReset();
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
+    mocks.updateChain.set.mockClear();
+    mocks.updateChain.where.mockClear();
+    mocks.updateChain.returning.mockReset();
+    mocks.updateChain.returning.mockResolvedValue([]);
   });
 
   it("exposes a durable read tool while keeping publication browser-only", () => {
@@ -93,6 +112,15 @@ describe("visual-edit pending handoff", () => {
       title: "Pull visual edits from Design",
     });
     expect(getPendingAction.capabilityScopes).toEqual(["visual-edit"]);
+    expect(acknowledgePendingAction).toMatchObject({
+      mcpTool: true,
+      agentTool: false,
+      capabilityScopes: ["visual-edit"],
+      publicAgent: {
+        expose: true,
+        title: "Mark visual edits applied",
+      },
+    });
     expect(publishPendingAction).toMatchObject({
       agentTool: false,
       mcpTool: false,
@@ -106,7 +134,7 @@ describe("visual-edit pending handoff", () => {
 
     await expect(
       publishPendingAction.run(
-        { designId: "design_public", pending: null },
+        { designId: "design_public", revision: 1, pending: null },
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).rejects.toThrow(/same-origin Design page/);
@@ -123,6 +151,7 @@ describe("visual-edit pending handoff", () => {
       publishPendingAction.run(
         {
           designId: "design_public",
+          revision: 1,
           pending: {
             designId: "design_public",
             pendingEditCount: 1,
@@ -143,6 +172,7 @@ describe("visual-edit pending handoff", () => {
     const result = await publishPendingAction.run(
       {
         designId: "design_public",
+        revision: 1,
         pending: {
           designId: "design_public",
           pendingEditCount: 2,
@@ -193,6 +223,7 @@ describe("visual-edit pending handoff", () => {
         pendingEditCount: 1,
         status: "ready",
         prompt: "Move the CTA to the right.",
+        revision: 1,
         updatedAt: "2026-09-23T12:00:00.000Z",
       },
     ]);
@@ -211,6 +242,39 @@ describe("visual-edit pending handoff", () => {
     );
   });
 
+  it("acknowledges only the exact applied handoff revision", async () => {
+    mocks.updateChain.returning.mockResolvedValueOnce([
+      { designId: "design_public" },
+    ]);
+
+    await expect(
+      acknowledgePendingAction.run({ designId: "design_public", revision: 7 }),
+    ).resolves.toMatchObject({
+      designId: "design_public",
+      revision: 7,
+      status: "empty",
+      pendingEditCount: 0,
+    });
+    expect(mocks.updateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pendingEditCount: 0,
+        status: "empty",
+        prompt: "",
+      }),
+    );
+  });
+
+  it("rejects a plain public viewer from acknowledging a handoff", async () => {
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      acknowledgePendingAction.run({ designId: "design_public", revision: 7 }),
+    ).rejects.toThrow(/Requires editor role/);
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+  });
+
   it("does not let a public viewer read the coding-agent handoff", async () => {
     mocks.assertAccess.mockRejectedValueOnce(
       new Error("Requires editor role on design design_public (have viewer)"),
@@ -225,6 +289,7 @@ describe("visual-edit pending handoff", () => {
   it("bounds the durable prompt to a single handoff-sized payload", () => {
     const parsed = publishPendingAction.schema.safeParse({
       designId: "design_public",
+      revision: 1,
       pending: {
         designId: "design_public",
         pendingEditCount: 1,

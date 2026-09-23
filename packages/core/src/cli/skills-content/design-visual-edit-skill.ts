@@ -162,8 +162,9 @@ approve it and never bypass that consent.
   localhost screens; pending changes stay in the browser until applied.
   This capability is not an account session: \`/_agent-native/session\` remains
   signed out, and account-backed save/share/generate actions remain denied.
-- Hosted MCP highlights \`get-visual-edit-pending\`. Call it with the
-  visual-edit design ID to retrieve the tab-free handoff.
+- Hosted MCP highlights \`get-visual-edit-pending\`; pass the visual-edit
+  design ID for a tab-free handoff. It returns a revision; after applying,
+  call \`acknowledge-visual-edit-pending\` with that revision, then pull again.
   \`empty\` means no edits; \`session-ended\` means edits were lost;
   \`unknown\` means the marker was unreadable, not proof of no change.
 - Browser hosts can use page-local \`get-visual-edit-prompt\`.
@@ -485,9 +486,10 @@ bridge URLs are localhost. Never run \`pnpm action\` from \`templates/design\`.
 
 ## Applying Visual Edits Back To Source
 
-With the Design tab closed, prefer the hosted Design MCP tool
+With the Design tab closed, use highlighted hosted Design MCP tool
 \`get-visual-edit-pending\` with the visual-edit design ID. It returns the
-latest source handoff without copy/paste. If the MCP server is unavailable,
+handoff and revision. After verifying the source change,
+acknowledge that revision and pull again. If the MCP server is unavailable,
 recover the bridge handoff with:
 
 \`\`\`bash
@@ -502,13 +504,12 @@ button on the canvas. An MCP App sends the bounded prompt to the host;
 otherwise it uses the local Design agent. The dropdown's **Copy prompt to your
 agent** action is the manual fallback.
 
-ChatGPT and Claude Code should call \`get-visual-edit-pending\` first; browser
-WebMCP hosts can call \`get-visual-edit-prompt\`. Apply sends the same batch
-when the host bridge is available, while ordinary browsers copy the detailed
-handoff.
+ChatGPT and Claude Code should pull, apply, acknowledge, and pull again.
+Browser WebMCP hosts can call \`get-visual-edit-prompt\`. Never acknowledge
+before applying the source change.
 
-- Style, text, and drag/drop structure edits all collect into the same pending
-  batch, so the user can make several changes and apply once.
+- Style, text, and drag/drop edits collect into one pending batch for a single
+  apply.
 - After the write lands, the target app's own dev-server HMR refreshes the
   frames — no manual reload. If frames do not refresh, the write did not land;
   say so rather than assuming.
@@ -598,8 +599,7 @@ only to diagnose an actual report, or to confirm an applied edit landed:
   reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
-- \`get-visual-edit-pending\` returns the latest pending source handoff without
-  requiring a Design tab; \`get-visual-edit-prompt\` is the page-local
-  equivalent.
+- \`get-visual-edit-pending\` is the tab-free handoff; acknowledge its revision
+  after applying. \`get-visual-edit-prompt\` is the browser equivalent.
 - The Code tab shows a local-files root for the connection and opens its files.
 `;

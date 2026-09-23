@@ -440,6 +440,11 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
     org_id TEXT
   )`,
     },
+    {
+      version: 31,
+      name: "design-visual-edit-pending-revision",
+      sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0`,
+    },
   ],
   { table: "design_migrations" },
 );
