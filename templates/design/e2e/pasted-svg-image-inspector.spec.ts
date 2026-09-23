@@ -640,7 +640,7 @@ test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async 
   }
 });
 
-test("pasting a PNG from the clipboard preserves intrinsic size through save and reload", async ({
+test("pasting a PNG from the clipboard preserves size and Crop through reload", async ({
   page,
 }) => {
   const { designId, screenId } = await createDesign(page);
@@ -709,6 +709,19 @@ test("pasting a PNG from the clipboard preserves intrinsic size through save and
       "blob:",
     );
 
+    await page
+      .getByRole("treeitem")
+      .filter({ hasText: "clipboard-image.png" })
+      .first()
+      .locator("[data-layer-row-button]")
+      .click();
+    await page.getByRole("combobox", { name: "Resizing" }).click();
+    await page.getByRole("option", { name: "Crop", exact: true }).click();
+    await expect(image).toHaveCSS("object-fit", "cover");
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toMatch(/object-fit:\s*cover/i);
+
     await page.reload();
     const reloaded = designFrame(page, screenId).locator(
       'img[data-agent-native-layer-name="clipboard-image.png"]',
@@ -716,6 +729,7 @@ test("pasting a PNG from the clipboard preserves intrinsic size through save and
     await expect(reloaded).toHaveAttribute("src", assetUrl);
     await expect(reloaded).toHaveCSS("width", "640px");
     await expect(reloaded).toHaveCSS("height", "360px");
+    await expect(reloaded).toHaveCSS("object-fit", "cover");
     await expect
       .poll(() =>
         reloaded.evaluate(
@@ -723,6 +737,9 @@ test("pasting a PNG from the clipboard preserves intrinsic size through save and
         ),
       )
       .toBe(640);
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toMatch(/object-fit:\s*cover/i);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
