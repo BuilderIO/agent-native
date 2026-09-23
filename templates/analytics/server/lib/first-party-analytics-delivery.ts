@@ -17,11 +17,7 @@ const DELIVERY_LEASE_MS = 5 * 60 * 1000;
 const DELIVERY_LEASE_RENEW_INTERVAL_MS = 60 * 1000;
 const DELIVERY_RETRY_BASE_MS = 60 * 1000;
 const DELIVERY_RETRY_MAX_MS = 60 * 60 * 1000;
-export const FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS = 10;
 const DELIVERY_CLEANUP_RETENTION_MS = 10 * 60 * 1000;
-// Keep terminal failures in Postgres for a week to allow recovery, then expire them.
-export const FIRST_PARTY_ANALYTICS_DELIVERY_TERMINAL_RETENTION_MS =
-  7 * 24 * 60 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS = 10 * 60 * 1000;
 export const FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX =
   "first-party-analytics-bigquery-fallback:";
@@ -208,11 +204,9 @@ export async function getFirstPartyAnalyticsDeliveryHealth(
            )
            SELECT COUNT(*) FILTER (
                     WHERE delivered_at IS NULL
-                      AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
                   ) AS pending_count,
                   MIN(created_at) FILTER (
                     WHERE delivered_at IS NULL
-                      AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
                   ) AS oldest_pending_at,
                   MAX(delivered_at) AS last_delivered_at,
                   (
@@ -277,7 +271,6 @@ async function claimPendingDeliveryRows(
               SELECT owner_email, org_id, table_ref
                 FROM ${DELIVERY_TABLE}
                WHERE delivered_at IS NULL
-                 AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
                  AND next_attempt_at <= $1
                  AND (
                    lease_token IS NULL
@@ -296,7 +289,6 @@ async function claimPendingDeliveryRows(
                 AND delivery.org_id IS NOT DISTINCT FROM scope.org_id
                 AND delivery.table_ref IS NOT DISTINCT FROM scope.table_ref
               WHERE delivery.delivered_at IS NULL
-                AND delivery.attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
                 AND delivery.next_attempt_at <= $1
                 AND (
                   delivery.lease_token IS NULL
@@ -564,22 +556,13 @@ async function scheduleDeliveryRetry(
   const updated = await db.execute({
     sql: `UPDATE ${DELIVERY_TABLE}
              SET attempt_count = attempt_count + 1,
-                 next_attempt_at = CASE
-                   WHEN attempt_count + 1 >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-                     THEN next_attempt_at
-                   ELSE $1
-                 END,
+                 next_attempt_at = $1,
                  lease_token = NULL,
                  lease_expires_at = NULL,
-                 last_error = CASE
-                   WHEN attempt_count + 1 >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-                     THEN LEFT('[terminal after ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS} attempts] ' || $2, 1000)
-                   ELSE $2
-                 END,
+                 last_error = $2,
                  updated_at = $3
            WHERE lease_token = $4
              AND delivered_at IS NULL
-             AND attempt_count < ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
              AND event_id IN (${idPlaceholders(5, rows.length)})`,
     args: [
       retryAt,
@@ -608,9 +591,6 @@ async function cleanupDeliveryRows(db: Executor): Promise<number> {
     Date.now() - DELIVERY_CLEANUP_RETENTION_MS,
   ).toISOString();
   const markerCutoff = Date.now() - DELIVERY_CLEANUP_RETENTION_MS;
-  const terminalCutoff = new Date(
-    Date.now() - FIRST_PARTY_ANALYTICS_DELIVERY_TERMINAL_RETENTION_MS,
-  ).toISOString();
   return db.transaction(async (tx) => {
     const selected = await tx.execute({
       sql: `SELECT event_id
@@ -661,28 +641,8 @@ async function cleanupDeliveryRows(db: Executor): Promise<number> {
           : "",
       )
       .filter(Boolean);
-    const selectedTerminal = await tx.execute({
-      sql: `SELECT event_id
-              FROM ${DELIVERY_TABLE} AS delivery
-             WHERE delivery.delivered_at IS NULL
-               AND delivery.attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-               AND delivery.updated_at <= $1
-             ORDER BY delivery.updated_at ASC, delivery.event_id ASC
-             LIMIT $2
-             FOR UPDATE SKIP LOCKED`,
-      args: [terminalCutoff, DELIVERY_BATCH_SIZE],
-      timeoutMs: 5_000,
-      maxAttempts: 1,
-    });
-    const terminalIds = (selectedTerminal.rows ?? [])
-      .map((row) =>
-        row && typeof row === "object"
-          ? stringValue(row as Record<string, unknown>, "event_id", "eventId")
-          : "",
-      )
-      .filter(Boolean);
     const deliveredIds = [...new Set([...ids, ...fallbackIds])];
-    const sourceEventIds = [...new Set([...deliveredIds, ...terminalIds])];
+    const sourceEventIds = deliveredIds;
     const markerIds = sourceEventIds;
     if (!sourceEventIds.length) return 0;
     await tx.execute({
@@ -714,23 +674,6 @@ async function cleanupDeliveryRows(db: Executor): Promise<number> {
         deleted,
         ids.length,
         "Cleaning BigQuery delivery rows",
-      );
-    }
-    if (terminalIds.length) {
-      const deleted = await tx.execute({
-        sql: `DELETE FROM ${DELIVERY_TABLE}
-               WHERE delivered_at IS NULL
-                 AND attempt_count >= ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS}
-                 AND updated_at <= $1
-                 AND event_id IN (${idPlaceholders(2, terminalIds.length)})`,
-        args: [terminalCutoff, ...terminalIds],
-        timeoutMs: 5_000,
-        maxAttempts: 1,
-      });
-      requireRowsAffected(
-        deleted,
-        terminalIds.length,
-        "Cleaning terminal BigQuery delivery rows",
       );
     }
     return sourceEventIds.length;
