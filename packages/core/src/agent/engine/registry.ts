@@ -11,6 +11,7 @@
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
+import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
 import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
@@ -878,7 +879,12 @@ async function resolveProviderBaseUrl(
     const baseUrl = await validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
     });
-    return { baseUrl, allowedPrivateOrigin: new URL(baseUrl).origin };
+    return {
+      baseUrl,
+      allowedPrivateOrigin: (await isBlockedExtensionUrlWithDns(baseUrl))
+        ? new URL(baseUrl).origin
+        : undefined,
+    };
   }
 
   // Deployment configuration is operator-owned. `resolveSecret` may return
@@ -893,7 +899,8 @@ async function resolveProviderBaseUrl(
     allowLocalOllama,
   });
   const allowedPrivateOrigin =
-    isDeployValue || (allowLocalOllama && isLoopbackOllamaEndpoint(baseUrl))
+    (isDeployValue || allowLocalOllama) &&
+    (await isBlockedExtensionUrlWithDns(baseUrl))
       ? new URL(baseUrl).origin
       : undefined;
   return { baseUrl, allowedPrivateOrigin };

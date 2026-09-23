@@ -3133,6 +3133,54 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("reuses the shared dispatcher for a public deployment endpoint", async () => {
+      process.env.OPENAI_API_KEY = "sk-operator-test"; // guard:allow-env-credential — verifies operator-owned endpoint classification
+      process.env.OPENAI_BASE_URL = "https://provider.example.invalid/v1"; // guard:allow-env-credential — public endpoint should use the shared dispatcher
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+      await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      const url = "https://provider.example.invalid/v1/chat/completions";
+      try {
+        await requestFetch(url);
+        await requestFetch(url);
+
+        const dispatcher = (
+          fetchMock.mock.calls[0]?.[1] as
+            | (RequestInit & { dispatcher?: unknown })
+            | undefined
+        )?.dispatcher;
+        expect(dispatcher).toBeDefined();
+        expect(
+          (
+            fetchMock.mock.calls[1]?.[1] as
+              | (RequestInit & { dispatcher?: unknown })
+              | undefined
+          )?.dispatcher,
+        ).toBe(dispatcher);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("rejects a private camelCase provider endpoint before engine creation", async () => {
       const { registerAgentEngine, resolveEngine } =
         await import("./registry.js");
