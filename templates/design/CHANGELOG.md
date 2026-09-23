@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Design loads translated catalogs and AI prompt tools only when you need them.
+
 ## 2026-09-22
 
 ### Improved
@@ -13,6 +19,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fixed the design system picker showing a still-indexing Builder design system as ready to use
 - Blocks can be selected with one click inside screens
 - Canvas edits on large designs now save even when version history can't be stored, with a one-time notice instead of a lost change.
 - Opening Design signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.

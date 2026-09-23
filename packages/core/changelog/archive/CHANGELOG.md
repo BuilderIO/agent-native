@@ -1,3 +1,9 @@
+## 0.164.3
+
+### Patch Changes
+
+- f790010: Keep the current-main merge tree formatter-clean for shared agent runtime sources.
+
 ## 0.164.2
 
 ### Patch Changes

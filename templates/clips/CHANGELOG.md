@@ -3,6 +3,16 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Insights charts load only when opened, keeping the recording library faster.
+
+### Fixed
+
+- Long recording menus scroll within the visible space so every action stays reachable.
+
 ## 2026-09-22
 
 ### Added
