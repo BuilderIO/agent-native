@@ -621,6 +621,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.userEmail,
   getRequestOrgId: () => mocks.orgId,
+  getRequestContext: () => undefined,
   runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
     fn(),
 }));

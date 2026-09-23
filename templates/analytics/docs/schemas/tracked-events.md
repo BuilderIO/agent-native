@@ -43,9 +43,12 @@ Events tracked by application instrumentation and stored in the configured appli
 
 ### Content Editing
 
-- `content saved` — Content entry saved
-- `content published` — Content entry published
-- `content created` — New content entry created
+- `document_created` — New content document created
+- `ai_refine_used` — AI-assisted content refinement applied
+
+There is no general-purpose publish event for the normal editor flow. A
+`"published"` event exists only for the narrow Builder-CMS push-back
+integration, gated on `result.executed`.
 
 ### Traffic
 

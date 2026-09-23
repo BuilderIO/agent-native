@@ -749,6 +749,25 @@ async function inviteOne(
     args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
   });
 
+  // Lazy import: an eager `tracking/registry.js` import here has previously
+  // regressed cold start on code that loads during auth/signup. Never let a
+  // tracking failure block or reject an invite.
+  try {
+    void import("../tracking/registry.js")
+      .then(({ track }) => {
+        const app = getAppConfig().app.slug ?? "unknown";
+        track(
+          "invite_sent",
+          { app, template: app, org_id: ctx.orgId, role },
+          { userId: ctx.email },
+        );
+      })
+      .catch(() => {});
+    // coercion-ok: telemetry must never block or fail an invite.
+  } catch {
+    // Tracking must never block or fail an invite.
+  }
+
   let emailSent = false;
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
