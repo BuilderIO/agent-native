@@ -268,13 +268,14 @@ export default defineAction({
       explicitToken ||
       existing[0]?.bridgeToken ||
       crypto.randomBytes(32).toString("hex");
-    const explicitPreviewToken =
-      args.previewToken?.trim() ||
-      (explicitToken ? derivePreviewToken(nextBridgeToken) : undefined);
-    const nextPreviewToken =
-      explicitPreviewToken ||
-      existing[0]?.previewToken ||
-      derivePreviewToken(nextBridgeToken);
+    const derivedPreviewToken = derivePreviewToken(nextBridgeToken);
+    const explicitPreviewToken = args.previewToken?.trim();
+    if (explicitPreviewToken && explicitPreviewToken !== derivedPreviewToken) {
+      throw new Error(
+        "previewToken must match the deterministic token derived from bridgeToken",
+      );
+    }
+    const nextPreviewToken = derivedPreviewToken;
     const baseValues = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
@@ -291,11 +292,11 @@ export default defineAction({
       updatedAt: now,
     };
 
-    // On conflict, an explicit token overwrites; a server-minted one uses
-    // coalesce(existing, minted) evaluated at write time — it fills a null token
-    // but never clobbers one, so concurrent first-time callers converge on the
-    // first writer (read->mint->write isn't atomic). setWhere keeps a cross-user
-    // conflict a no-op.
+    // Keep the read-only credential paired with the bridge credential on every
+    // reconnect. A legacy row may contain an unrelated preview token from
+    // before the deterministic pairing contract; preserving it makes the
+    // next daemon restart fail again. setWhere keeps a cross-user conflict a
+    // no-op, and the read-back below returns the winning row after a race.
     await db
       .insert(schema.designLocalhostConnections)
       .values({
@@ -311,9 +312,7 @@ export default defineAction({
           bridgeToken: explicitToken
             ? nextBridgeToken
             : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
-          previewToken: explicitPreviewToken
-            ? nextPreviewToken
-            : sql`coalesce(${schema.designLocalhostConnections.previewToken}, excluded.preview_token)`,
+          previewToken: nextPreviewToken,
         },
         setWhere: ownerOrgScope,
       });
@@ -330,8 +329,7 @@ export default defineAction({
       .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
       .limit(1);
     const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
-    const effectivePreviewToken =
-      stored?.previewToken ?? derivePreviewToken(effectiveBridgeToken);
+    const effectivePreviewToken = derivePreviewToken(effectiveBridgeToken);
 
     return {
       id,

@@ -5,14 +5,17 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
+import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
 import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
@@ -116,6 +119,8 @@ const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
 export function isVerificationLinkInvalid(error: string | null): boolean {
   return error === "verification_link_invalid" || error === "INVALID_TOKEN";
@@ -331,24 +336,33 @@ function trackAuth(
         return "";
       }
     })();
-    const body = JSON.stringify({
-      publicKey: config.agentNativeAnalyticsPublicKey,
-      event: name,
-      properties: { app, ...properties },
-      anonymousId,
-      sessionId: sessionId || undefined,
-      timestamp: new Date().toISOString(),
-    });
     const endpoint =
       config.agentNativeAnalyticsEndpoint ??
       "https://analytics.agent-native.com/track";
-    if (navigator.sendBeacon?.(endpoint, body)) return;
-    void fetch(endpoint, {
-      method: "POST",
-      body,
-      keepalive: true,
-      headers: { "Content-Type": "text/plain;charset=UTF-8" },
-    }).catch(() => undefined);
+    const legacyProperties = { app, ...properties };
+    const events: Array<{
+      name: string;
+      properties: Record<string, unknown>;
+    }> = [{ name, properties: legacyProperties }];
+    const canonical = canonicalTrackingEvent(name, legacyProperties);
+    if (canonical) events.push(canonical);
+    for (const event of events) {
+      const body = JSON.stringify({
+        publicKey: config.agentNativeAnalyticsPublicKey,
+        event: event.name,
+        properties: event.properties,
+        anonymousId,
+        sessionId: sessionId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      if (navigator.sendBeacon?.(endpoint, body)) continue;
+      void fetch(endpoint, {
+        method: "POST",
+        body,
+        keepalive: true,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      }).catch(() => undefined);
+    }
   } catch {
     // coercion-ok: analytics is best effort and cannot block authentication.
   }
@@ -693,6 +707,23 @@ export function shouldHideAuthSubtitle(
   return view === "signup" && localDevAvailable;
 }
 
+export function shouldStartWithLocalDev(
+  pathname: string,
+  search: string,
+): boolean {
+  const params = new URLSearchParams(search);
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return (
+    !params.has("tab") &&
+    !params.has("c") &&
+    !params.has("verified") &&
+    !isVerificationLinkInvalid(params.get("error")) &&
+    !path.endsWith("/login") &&
+    !path.endsWith("/signup") &&
+    !path.endsWith("/sign-in")
+  );
+}
+
 export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
@@ -798,7 +829,8 @@ export function AuthPage(props: AuthPageProps) {
     [defaultLocale, locale, locales],
   );
   const apiPath = React.useCallback(
-    (path: string) => `${runtimeAppBasePath}${path}`,
+    (path: string) =>
+      `${runtimeAppBasePath}${toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() })}`,
     [runtimeAppBasePath],
   );
   const identityHref = React.useMemo(
@@ -1161,6 +1193,18 @@ export function AuthPage(props: AuthPageProps) {
     [builderPreviewLocalDevEnabled],
   );
 
+  useIsomorphicLayoutEffect(() => {
+    if (
+      !localDevAllowed ||
+      verificationStepStartedRef.current ||
+      !shouldStartWithLocalDev(window.location.pathname, window.location.search)
+    ) {
+      return;
+    }
+    setLocalDevAvailable(true);
+    setFullAuthOptionsVisible(false);
+  }, [localDevAllowed]);
+
   React.useEffect(() => {
     if (!runtimeBasePathResolved || !localDevAllowed) return;
     let active = true;
@@ -1185,14 +1229,16 @@ export function AuthPage(props: AuthPageProps) {
           setFullAuthOptionsVisible(true);
           return;
         }
-        const params = new URLSearchParams(window.location.search);
-        const startWithLocalDev =
-          !params.has("tab") &&
-          !params.has("verified") &&
-          params.get("error") !== "verification_link_invalid";
-        setFullAuthOptionsVisible(!startWithLocalDev);
+        const startWithLocalDev = shouldStartWithLocalDev(
+          window.location.pathname,
+          window.location.search,
+        );
+        setFullAuthOptionsVisible((visible) => visible || !startWithLocalDev);
       } catch {
-        if (active) setFullAuthOptionsVisible(true);
+        if (active) {
+          setLocalDevAvailable(false);
+          setFullAuthOptionsVisible(true);
+        }
       }
     };
     void loadAvailability();
@@ -1560,7 +1606,7 @@ export function AuthPage(props: AuthPageProps) {
       try {
         popup = openOAuthPopup({
           initialUrl: new URL(
-            `${runtimeAppBasePath}/_agent-native/oauth/popup`,
+            apiPath("/_agent-native/oauth/popup"),
             window.location.origin,
           ).href,
           features: "width=640,height=760",
@@ -1657,6 +1703,7 @@ export function AuthPage(props: AuthPageProps) {
       });
     }
   }, [
+    apiPath,
     googleAuthUrlPath,
     googleBusy,
     identityHref,
@@ -1664,7 +1711,6 @@ export function AuthPage(props: AuthPageProps) {
     googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
-    runtimeAppBasePath,
     setNotice,
     showGoogle,
     startOAuthExchange,

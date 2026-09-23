@@ -1,5 +1,26 @@
 // Public API for the org module.
 
+function lazyFunction<TModule, TKey extends keyof TModule>(
+  load: () => Promise<TModule>,
+  name: TKey,
+): TModule[TKey] {
+  return ((...args: any[]) =>
+    load().then((module) => {
+      const implementation = module[name];
+      if (typeof implementation !== "function") {
+        throw new Error(`Org export ${String(name)} is not callable`);
+      }
+      return Reflect.apply(implementation, undefined, args);
+    })) as TModule[TKey];
+}
+
+const loadOrgContext = () => import("./context.js");
+const loadOrgFederation = () => import("./federation.js");
+const loadOrgHandlers = () => import("./handlers.js");
+const loadOrgAppRolesHandlers = () => import("./app-roles-handlers.js");
+const loadOrgEnterpriseHandlers = () => import("./enterprise-auth-handlers.js");
+const loadOrgPlugin = () => import("./plugin.js");
+
 export type {
   OrgRole,
   OrgContext,
@@ -21,16 +42,26 @@ export {
   orgRoleRank,
 } from "./permissions.js";
 
-export {
-  getOrgContext,
-  getOrgDomain,
-  getOrgA2ASecret,
-  getA2ASecretByDomain,
-  isSoleOrgDomain,
-  resolveOrgByDomain,
-  resolveOrgIdForEmail,
-  createOrganization,
-} from "./context.js";
+export const getOrgContext = lazyFunction(loadOrgContext, "getOrgContext");
+export const getOrgDomain = lazyFunction(loadOrgContext, "getOrgDomain");
+export const getOrgA2ASecret = lazyFunction(loadOrgContext, "getOrgA2ASecret");
+export const getA2ASecretByDomain = lazyFunction(
+  loadOrgContext,
+  "getA2ASecretByDomain",
+);
+export const isSoleOrgDomain = lazyFunction(loadOrgContext, "isSoleOrgDomain");
+export const resolveOrgByDomain = lazyFunction(
+  loadOrgContext,
+  "resolveOrgByDomain",
+);
+export const resolveOrgIdForEmail = lazyFunction(
+  loadOrgContext,
+  "resolveOrgIdForEmail",
+);
+export const createOrganization = lazyFunction(
+  loadOrgContext,
+  "createOrganization",
+);
 
 export {
   implicitServiceOrgRole,
@@ -85,15 +116,35 @@ export {
   CROSS_APP_ORG_FEDERATION_SCOPE,
 } from "./feature-flags.js";
 
-export {
-  addFederatedOrganizationMember,
-  provisionFederatedOrganization,
-  revokeFederatedOrganizationMember,
-  syncOrganizationToIdentityHub,
-  validateFederatedOrganizationMembership,
-  validateFederatedOrganizationMembershipForCurrentRequest,
-  updateFederatedOrganizationMemberRole,
-} from "./federation.js";
+export const addFederatedOrganizationMember = lazyFunction(
+  loadOrgFederation,
+  "addFederatedOrganizationMember",
+);
+export const provisionFederatedOrganization = lazyFunction(
+  loadOrgFederation,
+  "provisionFederatedOrganization",
+);
+export const revokeFederatedOrganizationMember = lazyFunction(
+  loadOrgFederation,
+  "revokeFederatedOrganizationMember",
+);
+export const syncOrganizationToIdentityHub = lazyFunction(
+  loadOrgFederation,
+  "syncOrganizationToIdentityHub",
+);
+export const validateFederatedOrganizationMembership = lazyFunction(
+  loadOrgFederation,
+  "validateFederatedOrganizationMembership",
+);
+export const validateFederatedOrganizationMembershipForCurrentRequest =
+  lazyFunction(
+    loadOrgFederation,
+    "validateFederatedOrganizationMembershipForCurrentRequest",
+  );
+export const updateFederatedOrganizationMemberRole = lazyFunction(
+  loadOrgFederation,
+  "updateFederatedOrganizationMemberRole",
+);
 export type {
   FederatedOrganizationIdentity,
   FederatedMembershipValidation,
@@ -107,7 +158,16 @@ export {
   setRequiredAuthProvider,
 } from "./auth-policy.js";
 
-export { createOrgPlugin, defaultOrgPlugin } from "./plugin.js";
+export const createOrgPlugin: (typeof import("./plugin.js"))["createOrgPlugin"] =
+  ((...args: any[]) =>
+    (...nitroArgs: any[]) =>
+      loadOrgPlugin().then(({ createOrgPlugin }) => {
+        const plugin = Reflect.apply(createOrgPlugin, undefined, args) as (
+          ...args: any[]
+        ) => unknown;
+        return Reflect.apply(plugin, undefined, nitroArgs);
+      })) as (typeof import("./plugin.js"))["createOrgPlugin"];
+export const defaultOrgPlugin = createOrgPlugin();
 
 // Drizzle schema (re-exported so templates can write typed queries against
 // org tables without redefining the schema themselves).
@@ -122,41 +182,105 @@ export {
   workspaceAppShares,
 } from "./schema.js";
 
-export {
-  listSSOProvidersHandler,
-  createSSOProviderHandler,
-  verifySSOProviderHandler,
-  deleteSSOProviderHandler,
-  getSCIMHandler,
-  createSCIMHandler,
-  deleteSCIMHandler,
-} from "./enterprise-auth-handlers.js";
+export const listSSOProvidersHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "listSSOProvidersHandler",
+);
+export const createSSOProviderHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "createSSOProviderHandler",
+);
+export const verifySSOProviderHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "verifySSOProviderHandler",
+);
+export const deleteSSOProviderHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "deleteSSOProviderHandler",
+);
+export const getSCIMHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "getSCIMHandler",
+);
+export const createSCIMHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "createSCIMHandler",
+);
+export const deleteSCIMHandler = lazyFunction(
+  loadOrgEnterpriseHandlers,
+  "deleteSCIMHandler",
+);
 
 // Individual handlers — exported so templates can compose a custom org plugin
 // while still using the framework-provided handlers.
-export {
-  getMyOrgHandler,
-  createOrgHandler,
-  updateOrgHandler,
-  switchOrgHandler,
-  listMembersHandler,
-  removeMemberHandler,
-  retryPendingFederatedRemovalHandler,
-  changeMemberRoleHandler,
-  listInvitationsHandler,
-  createInvitationHandler,
-  acceptInvitationHandler,
-  setA2ASecretHandler,
-  syncA2ASecretHandler,
-  receiveA2ASecretHandler,
-  setRequiredAuthProviderHandler,
-  setWorkspaceAppDefaultVisibilityHandler,
-} from "./handlers.js";
+export const getMyOrgHandler = lazyFunction(loadOrgHandlers, "getMyOrgHandler");
+export const createOrgHandler = lazyFunction(
+  loadOrgHandlers,
+  "createOrgHandler",
+);
+export const updateOrgHandler = lazyFunction(
+  loadOrgHandlers,
+  "updateOrgHandler",
+);
+export const switchOrgHandler = lazyFunction(
+  loadOrgHandlers,
+  "switchOrgHandler",
+);
+export const listMembersHandler = lazyFunction(
+  loadOrgHandlers,
+  "listMembersHandler",
+);
+export const removeMemberHandler = lazyFunction(
+  loadOrgHandlers,
+  "removeMemberHandler",
+);
+export const retryPendingFederatedRemovalHandler = lazyFunction(
+  loadOrgHandlers,
+  "retryPendingFederatedRemovalHandler",
+);
+export const changeMemberRoleHandler = lazyFunction(
+  loadOrgHandlers,
+  "changeMemberRoleHandler",
+);
+export const listInvitationsHandler = lazyFunction(
+  loadOrgHandlers,
+  "listInvitationsHandler",
+);
+export const createInvitationHandler: (typeof import("./handlers.js"))["createInvitationHandler"] =
+  lazyFunction(loadOrgHandlers, "createInvitationHandler");
+export const acceptInvitationHandler = lazyFunction(
+  loadOrgHandlers,
+  "acceptInvitationHandler",
+);
+export const setA2ASecretHandler = lazyFunction(
+  loadOrgHandlers,
+  "setA2ASecretHandler",
+);
+export const syncA2ASecretHandler = lazyFunction(
+  loadOrgHandlers,
+  "syncA2ASecretHandler",
+);
+export const receiveA2ASecretHandler = lazyFunction(
+  loadOrgHandlers,
+  "receiveA2ASecretHandler",
+);
+export const setRequiredAuthProviderHandler = lazyFunction(
+  loadOrgHandlers,
+  "setRequiredAuthProviderHandler",
+);
+export const setWorkspaceAppDefaultVisibilityHandler = lazyFunction(
+  loadOrgHandlers,
+  "setWorkspaceAppDefaultVisibilityHandler",
+);
 
-export {
-  listAppRolesHandler,
-  setAppRoleHandler,
-} from "./app-roles-handlers.js";
+export const listAppRolesHandler = lazyFunction(
+  loadOrgAppRolesHandlers,
+  "listAppRolesHandler",
+);
+export const setAppRoleHandler = lazyFunction(
+  loadOrgAppRolesHandlers,
+  "setAppRoleHandler",
+);
 
 export { isFreeEmailProvider } from "./free-email-providers.js";
 

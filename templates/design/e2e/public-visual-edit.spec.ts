@@ -22,6 +22,8 @@ import {
   designFrame,
   installBridge,
   readSeedDesignId,
+  selectByText,
+  waitForBridge,
 } from "./helpers";
 
 const AUTH_STATE_PATH = process.env.E2E_AUTH_DIR
@@ -29,6 +31,9 @@ const AUTH_STATE_PATH = process.env.E2E_AUTH_DIR
   : path.join(import.meta.dirname, ".auth", "state.json");
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SHORTCUT = process.platform === "darwin" ? "Meta+k" : "Control+k";
+const UNDO_SHORTCUT = process.platform === "darwin" ? "Meta+z" : "Control+z";
+const REDO_SHORTCUT =
+  process.platform === "darwin" ? "Meta+Shift+z" : "Control+y";
 
 let designId: string;
 let linkedScreenId: string;
@@ -62,7 +67,7 @@ test.describe.serial("public visual edit", () => {
     visualEditTargetServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
-        "<!doctype html><html><body><main><h1>Local visual edit target</h1></main></body></html>",
+        "<!doctype html><html><body><main><h1>Local visual edit</h1></main></body></html>",
       );
     });
     const address = await listen(visualEditTargetServer);
@@ -129,6 +134,58 @@ test.describe.serial("public visual edit", () => {
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
+    }
+  });
+
+  test("rejects forged bare-link editor access", async ({ browser }) => {
+    const context = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+      extraHTTPHeaders: {
+        "X-Agent-Native-Frontend": "1",
+        Origin: new URL(BASE_URL).origin,
+        "Sec-Fetch-Site": "same-origin",
+      },
+    });
+    try {
+      const directResponse = await context.request.get(
+        appUrl(`/visual-edit/${designId}`),
+      );
+      expect(directResponse.ok()).toBe(true);
+      expect(directResponse.url()).toBe(appUrl(`/visual-edit/${designId}`));
+      const directHtml = await directResponse.text();
+      expect(directHtml).not.toContain("/_agent-native/embed/start");
+      expect(directHtml).not.toMatch(/__an_embed_token=[^&"<]*/);
+
+      const response = await context.request.post(
+        appUrl("/_agent-native/actions/issue-visual-edit-access"),
+        { data: { designId } },
+      );
+      expect(response.status()).toBe(401);
+      expect(await response.text()).not.toContain("/_agent-native/embed/start");
+
+      const forgedFileWrite = await context.request.post(
+        appUrl("/_agent-native/actions/update-file"),
+        {
+          data: {
+            id: linkedScreenId,
+            content: "forged anonymous source write",
+          },
+        },
+      );
+      expect([401, 403]).toContain(forgedFileWrite.status());
+
+      const forgedDesignWrite = await context.request.post(
+        appUrl("/_agent-native/actions/update-design"),
+        {
+          data: {
+            id: designId,
+            data: JSON.stringify({ title: "forged anonymous design write" }),
+          },
+        },
+      );
+      expect([401, 403]).toContain(forgedDesignWrite.status());
+    } finally {
+      await context.close();
     }
   });
 
@@ -245,18 +302,10 @@ test.describe.serial("public visual edit", () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
 
-      await expect
-        .poll(
-          () => {
-            const url = new URL(signedOut.page.url());
-            return {
-              editorPath: url.pathname.startsWith("/visual-edit/"),
-              hasCapability: url.searchParams.has("__an_embed_token"),
-            };
-          },
-          { timeout: 30_000 },
-        )
-        .toEqual({ editorPath: true, hasCapability: true });
+      await signedOut.page.waitForURL(
+        /\/visual-edit\/[^?]+\?.*__an_embed_token=/,
+        { timeout: 30_000, waitUntil: "domcontentloaded" },
+      );
       await expect(signedOut.page.locator("[data-design-editor]")).toBeVisible({
         timeout: 30_000,
       });
@@ -336,6 +385,153 @@ test.describe.serial("public visual edit", () => {
           tool: "list-localhost-connections",
           result: { count: 1 },
         });
+
+      const direct = await openSignedOutPage(
+        browser,
+        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview`,
+      );
+      try {
+        await expect(direct.page).toHaveURL(
+          new RegExp(
+            `${escapeRegExp(appUrl(`/visual-edit/${preflightResult?.designId}`))}\\?editorView=overview$`,
+          ),
+          { timeout: 30_000 },
+        );
+        expect(
+          new URL(direct.page.url()).searchParams.get("__an_embed_token"),
+        ).toBeNull();
+        await expect(direct.page.locator("[data-design-editor]")).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(
+          direct.page.locator("[data-read-only-design-banner]"),
+        ).toHaveCount(0);
+        await expect(
+          direct.page
+            .locator("iframe[data-design-preview-iframe]")
+            .last()
+            .contentFrame()
+            .getByRole("heading", { name: "Local visual edit" }),
+        ).toBeVisible({ timeout: 30_000 });
+        await installBridge(direct.page);
+        const selected = await selectByText(direct.page, "Local visual edit");
+        expect(selected.textContent).toBe("Local visual edit");
+        const frame = direct.page
+          .locator("iframe[data-design-preview-iframe]")
+          .last()
+          .contentFrame();
+        const heading = frame.getByRole("heading", {
+          name: "Local visual edit",
+        });
+        const before = await heading.boundingBox();
+        expect(before).toBeTruthy();
+        const handle = frame.locator('[data-agent-native-edge-handle="s"]');
+        await expect(handle).toBeVisible({ timeout: 15_000 });
+        const handleBox = await handle.boundingBox();
+        expect(handleBox).toBeTruthy();
+        await direct.page.evaluate(() => {
+          (window as any).__bridge = [];
+        });
+        await direct.page.mouse.move(
+          (handleBox?.x ?? 0) + (handleBox?.width ?? 0) / 2,
+          (handleBox?.y ?? 0) + (handleBox?.height ?? 0) / 2,
+        );
+        await direct.page.mouse.down();
+        await direct.page.mouse.move(
+          (handleBox?.x ?? 0) + (handleBox?.width ?? 0) / 2,
+          (handleBox?.y ?? 0) + (handleBox?.height ?? 0) / 2 + 16,
+          { steps: 8 },
+        );
+        await direct.page.mouse.up();
+        await waitForBridge(direct.page, "visual-style-change");
+        await expect
+          .poll(async () => (await heading.boundingBox())?.height ?? 0)
+          .toBeGreaterThan((before?.height ?? 0) + 1);
+        await expect
+          .poll(
+            () =>
+              direct.page.evaluate(async () => {
+                const helper = (
+                  window as typeof window & {
+                    __agentNativeWebMcp?: {
+                      call(
+                        name: string,
+                        args?: Record<string, unknown>,
+                      ): Promise<unknown>;
+                    };
+                  }
+                ).__agentNativeWebMcp;
+                if (!helper) throw new Error("WebMCP page helper missing");
+                return helper.call("get-visual-edit-prompt", {});
+              }),
+            { timeout: 15_000 },
+          )
+          .toMatchObject({
+            state: "done",
+            ok: true,
+            result: { pendingEditCount: expect.any(Number) },
+          });
+        const pendingAfterResize = await direct.page.evaluate(async () => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                call(
+                  name: string,
+                  args?: Record<string, unknown>,
+                ): Promise<any>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing");
+          return helper.call("get-visual-edit-prompt", {});
+        });
+        expect(pendingAfterResize.result.pendingEditCount).toBeGreaterThan(0);
+
+        await direct.page.keyboard.press(UNDO_SHORTCUT);
+        await expect
+          .poll(async () => (await heading.boundingBox())?.height ?? 0)
+          .toBeCloseTo(before?.height ?? 0, 0);
+        await direct.page.keyboard.press(REDO_SHORTCUT);
+        await expect
+          .poll(async () => (await heading.boundingBox())?.height ?? 0)
+          .toBeGreaterThan((before?.height ?? 0) + 1);
+        expect(direct.mutationRequests).toEqual([]);
+        await assertNoRuntimeErrors(direct);
+      } finally {
+        await direct.close();
+      }
+
+      const modeMarkerDirect = await openSignedOutPage(
+        browser,
+        `/visual-edit/${encodeURIComponent(String(preflightResult?.designId))}?editorView=overview&embedChrome=1&embedded=1`,
+      );
+      try {
+        await expect(modeMarkerDirect.page).toHaveURL(
+          /\/visual-edit\/[^?]+\?editorView=overview&embedChrome=1&embedded=1$/,
+          { timeout: 30_000 },
+        );
+        await expect(
+          modeMarkerDirect.page.locator("[data-read-only-design-banner]"),
+        ).toHaveCount(0);
+        await expect(
+          modeMarkerDirect.page.locator("[data-design-editor]"),
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(
+          modeMarkerDirect.page.getByText("Preparing editable preview...", {
+            exact: true,
+          }),
+        ).toHaveCount(0, { timeout: 30_000 });
+        await expect(
+          modeMarkerDirect.page
+            .locator("iframe[data-design-preview-iframe]")
+            .first()
+            .contentFrame()
+            .locator("[data-agent-native-editor-chrome-host]"),
+        ).toHaveCount(1, { timeout: 30_000 });
+        await assertNoRuntimeErrors(modeMarkerDirect);
+      } finally {
+        await modeMarkerDirect.close();
+      }
       const consentRequest = await signedOut.page.evaluate(
         async ({ designId, connectionId }) => {
           const helper = (
@@ -523,9 +719,7 @@ test.describe.serial("public visual edit", () => {
       // Button asChild wraps an <a href>, so the CTA's role is link — the
       // sibling /visual-edit test queries it the same way.
       await expect(
-        signedOut.page
-          .getByRole("link", { name: /sign up free to save/i })
-          .first(),
+        signedOut.page.getByRole("link", { name: /^sign up$/i }).first(),
       ).toBeVisible();
       // A read-only visitor DOES get a Share control — it is a sign-in CTA
       // rendered as `<Button asChild><a>`, so it carries role "link", not
@@ -612,7 +806,7 @@ test.describe.serial("public visual edit", () => {
       (page) =>
         page
           .getByRole("link")
-          .filter({ hasText: /sign up free to save/i })
+          .filter({ hasText: /^sign up$/i })
           .first(),
       appReturnPath(`/design/${designId}?intent=save`),
     );

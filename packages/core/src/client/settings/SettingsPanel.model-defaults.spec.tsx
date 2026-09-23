@@ -88,7 +88,13 @@ describe("AppDefaultModelField", () => {
       root.render(
         <AppDefaultModelField
           engine="ai-sdk:openrouter"
-          models={["z-ai/glm-5.2"]}
+          models={[
+            "z-ai/glm-5.2",
+            "gpt-6-sol",
+            "openai/gpt-6-luna",
+            "anthropic/claude-opus-5.5",
+            "anthropic/claude-opus-4.8",
+          ]}
           value="custom/provider-model"
           onValueChange={onValueChange}
         />,
@@ -97,6 +103,12 @@ describe("AppDefaultModelField", () => {
 
     const input = container.querySelector<HTMLInputElement>("input[list]");
     expect(input?.value).toBe("custom/provider-model");
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLOptionElement>("datalist option"),
+        (option) => option.getAttribute("label"),
+      ),
+    ).toEqual(["GLM 5.2", "GPT-6 Sol", "GPT-6 Luna", "Opus 5.5"]);
 
     act(() => {
       if (!input) return;

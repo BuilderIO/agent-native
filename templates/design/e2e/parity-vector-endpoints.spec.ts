@@ -167,7 +167,10 @@ async function chooseEndpoint(
   });
   await expect(trigger).toBeVisible();
   await trigger.click();
-  await page.getByRole("option", { name: label, exact: true }).click();
+  const listbox = page.getByRole("listbox").last();
+  await expect(listbox).toBeVisible();
+  await listbox.getByRole("option", { name: label, exact: true }).click();
+  await expect(trigger).toHaveText(label);
 }
 
 async function liveEndpoints(page: Page, nodeId: string) {
@@ -196,6 +199,7 @@ async function liveEndpoints(page: Page, nodeId: string) {
         markerIds: defs.map((marker) => marker.id).sort(),
         markerShapes: defs.map((marker) => ({
           id: marker.id,
+          refX: marker.getAttribute("refX"),
           fill: marker.firstElementChild?.getAttribute("fill") ?? null,
           stroke: marker.firstElementChild?.getAttribute("stroke") ?? null,
         })),
@@ -270,6 +274,60 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
         ),
       ).toBe(true);
     }
+
+    await chooseEndpoint(page, "Start", "Reversed triangle");
+    await chooseEndpoint(page, "End", "Reversed triangle");
+    await expect
+      .poll(async () => liveEndpoints(page, "endpoint-line"))
+      .toMatchObject({
+        style: { start: "reversed-triangle", end: "reversed-triangle" },
+      });
+    const reversedLive = await liveEndpoints(page, "endpoint-line");
+    expect(reversedLive.markerShapes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "start"),
+          refX: "0",
+        }),
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "end"),
+          refX: "0",
+        }),
+      ]),
+    );
+    await expect
+      .poll(async () => source(request, designId, fileId), {
+        timeout: 15_000,
+        intervals: [250, 500, 1_000],
+      })
+      .toMatch(
+        /--an-vector-start-point:\s*reversed-triangle[\s\S]*--an-vector-end-point:\s*reversed-triangle/,
+      );
+    const persistedReversed = await source(request, designId, fileId);
+    expect(persistedReversed).toMatch(/refX=["']0["']/);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(async () => liveEndpoints(page, "endpoint-line"), {
+        timeout: 40_000,
+      })
+      .toMatchObject({
+        style: { start: "reversed-triangle", end: "reversed-triangle" },
+      });
+    const reloadedReversed = await liveEndpoints(page, "endpoint-line");
+    expect(reloadedReversed.markerShapes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "start"),
+          refX: "0",
+        }),
+        expect.objectContaining({
+          id: expectedMarkerId("endpoint-line", "end"),
+          refX: "0",
+        }),
+      ]),
+    );
+    await selectVector(page, "endpoint-line");
 
     // The swap is one batched inspector action. Undo/redo must move only the
     // endpoint pair while retaining the same selected source identity.

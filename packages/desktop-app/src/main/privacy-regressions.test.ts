@@ -525,6 +525,7 @@ describe("desktop passive-access regressions", () => {
   });
 
   it("keeps stable and nightly protocol registration channel-specific", () => {
+    const main = source("./index.ts");
     expect(
       readFileSync(
         new URL("../../electron-builder.yml", import.meta.url),
@@ -540,6 +541,8 @@ describe("desktop passive-access regressions", () => {
         "utf8",
       ),
     ).toContain("agentnative(?:-nightly)?");
+    expect(main).toContain('DESKTOP_RELEASE_CHANNEL === "nightly"');
+    expect(main).toContain("AgentNativeDesktopNightly/");
   });
 
   it("does not claim unsupported desktop deep-link routes were handled", () => {

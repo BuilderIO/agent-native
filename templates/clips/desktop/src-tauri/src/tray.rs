@@ -510,9 +510,10 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         let _ = app.emit("clips:recorder-stop", ());
                     }
-                } else if active && !meeting_active {
-                    // Recording session exists but capture isn't live (setup,
-                    // countdown, finishing) — restore the parked popover.
+                } else if active && !meeting_active && crate::clips::popover_is_parked(app) {
+                    // Setup may park the popover while the native picker owns
+                    // focus. Restore it from that state, but do not let a
+                    // stale recording flag swallow an ordinary tray toggle.
                     force_show_popover(app);
                 } else {
                     toggle_popover(app);
@@ -520,6 +521,9 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .build(app)?;
+    if let Err(err) = tray.set_visible(true) {
+        eprintln!("[clips-tray] failed to make tray visible: {err}");
+    }
     eprintln!("[clips-tray] tray built — should be visible in menu bar");
     // Persist the tray so it isn't dropped at the end of setup.
     app.manage(tray);

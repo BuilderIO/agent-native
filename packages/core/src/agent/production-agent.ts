@@ -80,7 +80,6 @@ import {
   resolveBuilderGatewayAuth,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
-import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
@@ -175,7 +174,10 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
-import { preloadJevTools } from "./jev-tool-prefetch.js";
+import {
+  BUILDER_JEV_PROXY_ENABLED,
+  preloadJevTools,
+} from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -718,9 +720,7 @@ async function getJevContextCredentials(
   builderAuth: BuilderGatewayAuth | null;
 }> {
   const apiKey = await getOwnerJevApiKey(ownerEmail);
-  if (resolveDeployEnvironment() === "production") {
-    return { apiKey, builderAuth: null };
-  }
+  if (!BUILDER_JEV_PROXY_ENABLED) return { apiKey, builderAuth: null };
   try {
     return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
   } catch {
@@ -10446,7 +10446,7 @@ export function createProductionAgentHandler(
             const {
               resourceListAccessible,
               SHARED_OWNER,
-              WORKSPACE_OWNER,
+              isWorkspaceResourceOwner,
               resourceGet,
             } = await import("../resources/store.js");
             const {
@@ -10470,12 +10470,11 @@ export function createProductionAgentHandler(
               const agentLines: string[] = [];
               const jobLines: string[] = [];
               for (const r of allResources) {
-                const scope =
-                  r.owner === WORKSPACE_OWNER
-                    ? "workspace"
-                    : r.owner === SHARED_OWNER
-                      ? "shared"
-                      : "personal";
+                const scope = isWorkspaceResourceOwner(r.owner)
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
                 const kind = getResourceKind(r.path);
                 if (kind === "file") {
                   fileLines.push(`  ${r.path} (${scope})`);

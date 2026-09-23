@@ -56,6 +56,31 @@ describe("extractDocumentColorPalette", () => {
     expect(palette).toHaveLength(3);
   });
 
+  it("re-reads a file whose bytes changed under the same id and length", () => {
+    const red = '<div style="color: #FF0000;"></div>';
+    const green = '<div style="color: #00FF00;"></div>';
+    const other = { id: "file-2", content: '<p style="color: #0000FF;"></p>' };
+    const cache = new Map();
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: red }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#FF0000", "#0000FF"]);
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: green }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#00FF00", "#0000FF"]);
+    expect(extractDocumentColorPalette([other], undefined, cache)).toEqual([
+      "#0000FF",
+    ]);
+    expect([...cache.keys()]).toEqual(["file-2"]);
+  });
+
   it("normalizes different formats of the same color to one deduped entry", () => {
     const palette = extractDocumentColorPalette([
       {
@@ -95,6 +120,28 @@ describe("extractDocumentColorPalette", () => {
         [{ fileId: "file-1", content, wholeDocument: true }],
       ),
     ).toEqual([{ property: "color", value: "#101010" }]);
+  });
+
+  it("does not expose style-block token definitions as selected colors", () => {
+    const content = `<style>
+      :root { --color-bg: #ffffff; --color-text: #111827; }
+      .unused { color: #abcdef; background: #fedcba; }
+    </style><body style="background:#101010"></body>`;
+
+    expect(
+      selectionColorValues(
+        [],
+        [{ fileId: "file-1", content, wholeDocument: true }],
+      ),
+    ).toEqual([{ property: "color", value: "#101010" }]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#ffffff",
+        "#000000",
+      ),
+    ).toContain("--color-bg: #000000");
   });
 
   it("orders results by descending frequency (most-used colors first)", () => {

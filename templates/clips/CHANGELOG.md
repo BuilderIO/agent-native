@@ -3,17 +3,76 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-17
+## 2026-09-21
 
 ### Fixed
 
+- Clips keeps the menu-bar popover open, restarts cleanly after updates, and waits for Google sign-in without a loading indicator.
+
+## 2026-09-19
+
+### Fixed
+
+- Clips library loads on older browsers that lack modern object helpers
+- After cutting a selected range from the editor toolbar, the selection follows the playhead again.
+
+## 2026-09-18
+
+### Improved
+
+- Clips loads recording and organization lists faster
+- Desktop recording alerts use matching warning and error highlights in the recorder and recovery list
+- Desktop recording failures notify you and stay available in Clips with upload retry and local recovery options.
+- Desktop recording recovery opens in a compact page, and completion cards close after Open or Copy succeeds
+- Dictation now shows listening, finalizing, pasting, and success states so release-to-paste never feels stalled.
+- Dictation keeps a quiet waveform pill, reveals controls on hover, and falls back to the clipboard when no text field is focused.
+- Recording shortcuts now start, stop, cancel, and pause recordings with editable platform defaults.
+- Use Fn as the default desktop dictation shortcut and keep its live waveform responsive during capture.
+
+### Fixed
+
+- Desktop recorder popover dismissal now works from outside clicks, the menu-bar icon, and Escape after native capture setup.
+- Desktop recording setup recovers cleanly from cancellation and no longer stalls on a hidden microphone request.
+- Fix Google sign-in popups when replying while signed out
+- Clips extension sign-in now works for self-hosted apps mounted under a path.
+- Hide recording recovery alerts from the sign-in screen
+- Large recordings now support on-demand frame extraction.
+- Refresh the desktop Dictate status surface and prevent shortcut-triggered native speech crashes.
+- Reply controls stay clickable near the bottom of a recording's comments.
+- Recordings with different frame sizes can now be stitched together.
+
+## 2026-09-17
+
+### Improved
+
+- Hardened macOS Window recording handoff and simplified the web recorder desktop menu.
+- Recordings keep capturing through brief connection losses and resume uploading when the open tab reconnects.
+- Refresh the Chrome extension recorder UI to match the current Desktop shell.
+- Screen and region recording controls are clearer and more reliable.
+
+### Fixed
+
+- The desktop popover now closes when you click away from it.
+- Escape now cancels native window selection regardless of pointer position.
+- Full screen, Region, and Window now appear together in the capture menu
+- macOS Window recording now uses the native single-window picker without the WebKit sharing-controls stall
+- Self-hosted Clips extensions now finish sign-in reliably.
+- Window picker cancellation responds to Escape immediately
+- Window picker launch no longer waits on Screen Memory or exposes a parked popover artifact
+- Window recording starts without interrupting Screen Memory or leaving the recorder stuck in finalization
 - Clips waits for authentication before showing the recording action
 - The Clips sort control keeps its keyboard focus ring visible
+
+### Changed
+
+- Chrome extension recorder labels now match the Web and Desktop capture controls.
+- Web recording labels full-screen capture as Full screen.
 
 ## 2026-09-16
 
 ### Improved
 
+- Folder breadcrumbs now collapse to fit and show a back button to the parent folder
 - Agents can continue through long recording transcripts without losing later sections.
 
 ### Fixed

@@ -11,6 +11,7 @@ import {
 import {
   normalizeRuntimeStructureClasses,
   normalizeRuntimeStructureText,
+  pendingLiveStructureEditsFromEdit,
   type PendingLiveStructureEdit,
   type RuntimeStructureNodeSignature,
 } from "./pending-edits";
@@ -27,7 +28,8 @@ export type RuntimeStructureVerificationFailure =
   | "ambiguous-anchor"
   | "wrong-parent"
   | "wrong-order"
-  | "wrong-drop-mode";
+  | "wrong-drop-mode"
+  | "wrong-grid-placement";
 
 export interface RuntimeStructureVerificationResult {
   ok: boolean;
@@ -191,6 +193,103 @@ function verifyRuntimeStructureSubjectAbsent(
   return signature.node
     ? { ok: false, failure: "subject-still-present" }
     : { ok: true };
+}
+
+function gridRange(value: string | undefined): [number, number] | undefined {
+  if (!value) return undefined;
+  const parts = value.split("/").map((part) => part.trim());
+  const start = Number(parts[0]);
+  if (!Number.isInteger(start)) return undefined;
+  if (parts.length === 1) return [start, start + 1];
+  const end = Number(parts[1]);
+  return Number.isInteger(end) ? [start, end] : undefined;
+}
+
+function gridLine(value: string, start?: number): number | undefined {
+  const line = Number(value);
+  if (Number.isInteger(line)) return line;
+  const span = /^span\s+(\d+)$/i.exec(value)?.[1];
+  return span && start !== undefined ? start + Number(span) : undefined;
+}
+
+function gridPlacementFromStyle(style: CodeLayerNode["style"]):
+  | {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    }
+  | undefined {
+  const area = style["grid-area"]?.split("/").map((part) => part.trim());
+  const column = gridRange(style["grid-column"]);
+  const row = gridRange(style["grid-row"]);
+  if (area?.length === 4) {
+    const rowStart = gridLine(area[0]);
+    const columnStart = gridLine(area[1]);
+    const rowEnd =
+      rowStart === undefined ? undefined : gridLine(area[2], rowStart);
+    const columnEnd =
+      columnStart === undefined ? undefined : gridLine(area[3], columnStart);
+    if (
+      rowStart !== undefined &&
+      columnStart !== undefined &&
+      rowEnd !== undefined &&
+      columnEnd !== undefined
+    ) {
+      return {
+        row: rowStart,
+        column: columnStart,
+        rowEnd,
+        columnEnd,
+      };
+    }
+  }
+  return column && row
+    ? {
+        column: column[0],
+        columnEnd: column[1],
+        row: row[0],
+        rowEnd: row[1],
+      }
+    : undefined;
+}
+
+function verifyGridPlacement(
+  projection: { nodes: CodeLayerNode[] },
+  edit: PendingLiveStructureEdit,
+  subject: CodeLayerNode,
+): RuntimeStructureVerificationResult {
+  if (!edit.gridPlacement) return { ok: true };
+  const actual = gridPlacementFromStyle(subject.style);
+  if (
+    !actual ||
+    actual.column !== edit.gridPlacement.column ||
+    actual.columnEnd !== edit.gridPlacement.columnEnd ||
+    actual.row !== edit.gridPlacement.row ||
+    actual.rowEnd !== edit.gridPlacement.rowEnd
+  ) {
+    return { ok: false, failure: "wrong-grid-placement" };
+  }
+  for (const displacement of edit.gridDisplacements ?? []) {
+    const resolution = resolveRuntimeStructureNode({
+      projection,
+      selector: displacement.selector,
+      sourceId: displacement.sourceId,
+      role: "subject",
+    });
+    if (!resolution.node) return { ok: false, failure: "wrong-grid-placement" };
+    const displacedPlacement = gridPlacementFromStyle(resolution.node.style);
+    if (
+      !displacedPlacement ||
+      displacedPlacement.column !== displacement.placement.column ||
+      displacedPlacement.columnEnd !== displacement.placement.columnEnd ||
+      displacedPlacement.row !== displacement.placement.row ||
+      displacedPlacement.rowEnd !== displacement.placement.rowEnd
+    ) {
+      return { ok: false, failure: "wrong-grid-placement" };
+    }
+  }
+  return { ok: true };
 }
 
 // These attributes are injected by serializeRuntimeLayerSnapshot, not authored
@@ -403,6 +502,118 @@ export function verifyPendingStructureRuntime(
     return { ok: false, failure: "wrong-drop-mode" };
   }
 
+  const gridResult = verifyGridPlacement(projection, edit, subject);
+  if (!gridResult.ok) return gridResult;
+
+  return { ok: true };
+}
+
+function verifyPendingStructureGroupRuntime(
+  snapshotHtml: string,
+  edits: readonly PendingLiveStructureEdit[],
+): RuntimeStructureVerificationResult {
+  const projection = buildCodeLayerProjection(snapshotHtml);
+  const resolutions = edits.map((edit) => ({
+    edit,
+    subject: resolveRuntimeStructureNode({
+      projection,
+      selector: edit.selector,
+      sourceId: edit.sourceId,
+      signature: edit.subjectSignature,
+      role: "subject",
+    }),
+    anchor: resolveRuntimeStructureNode({
+      projection,
+      selector: edit.anchorSelector,
+      sourceId: edit.anchorSourceId,
+      signature: edit.anchorSignature,
+      role: "anchor",
+    }),
+  }));
+  for (const { edit, subject, anchor } of resolutions) {
+    if (!subject.node) {
+      return {
+        ok: false,
+        failure: subject.failure ?? "missing-subject",
+      };
+    }
+    if (!anchor.node) {
+      return {
+        ok: false,
+        failure: anchor.failure ?? "missing-anchor",
+      };
+    }
+    const position =
+      subject.node.style.position?.trim().toLowerCase() ?? "static";
+    if (
+      (edit.dropMode === "absolute-container" && position !== "absolute") ||
+      (edit.dropMode === "flow-insert" &&
+        (position === "absolute" || position === "fixed"))
+    ) {
+      return { ok: false, failure: "wrong-drop-mode" };
+    }
+    const gridResult = verifyGridPlacement(projection, edit, subject.node);
+    if (!gridResult.ok) return gridResult;
+  }
+
+  const subjects = resolutions.map(({ subject }) => subject.node!);
+  const subjectIds = new Set(subjects.map((subject) => subject.id));
+  const parentIds = new Set(subjects.map((subject) => subject.parentId ?? ""));
+  if (parentIds.size !== 1) return { ok: false, failure: "wrong-parent" };
+  const parentId = subjects[0]?.parentId;
+  const siblings = parentId
+    ? (projection.nodes.find((node) => node.id === parentId)?.children ?? [])
+    : projection.nodes.filter((node) => !node.parentId).map((node) => node.id);
+  const subjectIndexes = subjects.map((subject) =>
+    siblings.indexOf(subject.id),
+  );
+  if (subjectIndexes.some((index) => index < 0)) {
+    return { ok: false, failure: "wrong-order" };
+  }
+  const sortedIndexes = [...subjectIndexes].sort((left, right) => left - right);
+  if (
+    sortedIndexes.some(
+      (index, position) => index !== sortedIndexes[0]! + position,
+    )
+  ) {
+    return { ok: false, failure: "wrong-order" };
+  }
+
+  const externalAnchors = resolutions.filter(
+    ({ edit, anchor }) =>
+      edit.placement !== "inside" && !subjectIds.has(anchor.node!.id),
+  );
+  for (const { edit, anchor } of externalAnchors) {
+    if (anchor.node!.parentId !== parentId) {
+      return { ok: false, failure: "wrong-parent" };
+    }
+    const anchorIndex = siblings.indexOf(anchor.node!.id);
+    if (anchorIndex < 0) return { ok: false, failure: "wrong-order" };
+    if (
+      (edit.placement === "before" &&
+        sortedIndexes[sortedIndexes.length - 1] !== anchorIndex - 1) ||
+      (edit.placement === "after" && sortedIndexes[0] !== anchorIndex + 1)
+    ) {
+      return { ok: false, failure: "wrong-order" };
+    }
+  }
+  for (const { edit, subject, anchor } of resolutions) {
+    if (!subjectIds.has(anchor.node!.id) || edit.placement === "inside") {
+      if (
+        edit.placement === "inside" &&
+        subject.node!.parentId !== anchor.node!.id
+      ) {
+        return { ok: false, failure: "wrong-parent" };
+      }
+      continue;
+    }
+    const subjectIndex = siblings.indexOf(subject.node!.id);
+    const anchorIndex = siblings.indexOf(anchor.node!.id);
+    const expectedDelta = edit.placement === "before" ? -1 : 1;
+    if (subjectIndex - anchorIndex !== expectedDelta) {
+      return { ok: false, failure: "wrong-order" };
+    }
+  }
   return { ok: true };
 }
 
@@ -455,6 +666,7 @@ function replacementSnapshotsByScreen(
   // Verify the composed screen without discarding each edit's identity checks.
   return new Map(
     edits
+      .flatMap((edit) => pendingLiveStructureEditsFromEdit(edit))
       .filter((edit) => edit.replaced)
       .map((edit) => [edit.screenId, edit.replacementSnapshotSignature]),
   );
@@ -465,14 +677,24 @@ export function verifyPendingStructuresRuntime(
   edits: readonly PendingLiveStructureEdit[],
 ): RuntimeStructureVerificationResult {
   const replacementSnapshots = replacementSnapshotsByScreen(edits);
-  for (const edit of edits) {
-    const snapshot = snapshots[edit.screenId];
+  for (const entry of edits) {
+    const members = pendingLiveStructureEditsFromEdit(entry);
+    const snapshot = snapshots[entry.screenId];
     if (!snapshot) return { ok: false, failure: "missing-subject" };
-    const result = verifyPendingStructureRuntime(snapshot.html, {
-      ...edit,
-      replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
-    });
-    if (!result.ok) return result;
+    if (members.length > 1) {
+      const result = verifyPendingStructureGroupRuntime(snapshot.html, members);
+      if (!result.ok) return result;
+      continue;
+    }
+    for (const edit of members) {
+      const snapshot = snapshots[edit.screenId];
+      if (!snapshot) return { ok: false, failure: "missing-subject" };
+      const result = verifyPendingStructureRuntime(snapshot.html, {
+        ...edit,
+        replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
+      });
+      if (!result.ok) return result;
+    }
   }
   return { ok: true };
 }
@@ -487,15 +709,24 @@ export function partitionPendingStructuresRuntime(
   const replacementSnapshots = replacementSnapshotsByScreen(edits);
   const results = edits.map((edit) => {
     const snapshot = snapshots[edit.screenId];
+    const members = pendingLiveStructureEditsFromEdit(edit);
+    const ok = Boolean(
+      snapshot &&
+      (members.length > 1
+        ? verifyPendingStructureGroupRuntime(snapshot.html, members).ok
+        : members.every(
+            (member) =>
+              verifyPendingStructureRuntime(snapshot.html, {
+                ...member,
+                replacementSnapshotSignature: replacementSnapshots.get(
+                  member.screenId,
+                ),
+              }).ok,
+          )),
+    );
     return {
       edit,
-      ok: Boolean(
-        snapshot &&
-        verifyPendingStructureRuntime(snapshot.html, {
-          ...edit,
-          replacementSnapshotSignature: replacementSnapshots.get(edit.screenId),
-        }).ok,
-      ),
+      ok,
     };
   });
   // Keep the shared evidence until every replacement using it verifies.
@@ -504,10 +735,19 @@ export function partitionPendingStructuresRuntime(
       .filter(({ edit, ok }) => edit.replaced && !ok)
       .map(({ edit }) => edit.screenId),
   );
+  const blockedTransactions = new Set(
+    results
+      .filter(({ edit, ok }) => edit.transactionId && !ok)
+      .map(({ edit }) => edit.transactionId!),
+  );
   const verified: PendingLiveStructureEdit[] = [];
   const remaining: PendingLiveStructureEdit[] = [];
   for (const { edit, ok } of results) {
-    if (ok && (!edit.replaced || !blockedScreens.has(edit.screenId))) {
+    if (
+      ok &&
+      (!edit.replaced || !blockedScreens.has(edit.screenId)) &&
+      (!edit.transactionId || !blockedTransactions.has(edit.transactionId))
+    ) {
       verified.push(edit);
     } else {
       remaining.push(edit);

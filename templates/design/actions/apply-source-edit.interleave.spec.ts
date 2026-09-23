@@ -295,6 +295,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
+  checkpointSkippedResultField: (result: unknown) =>
+    result && typeof result === "object" && "skipped" in (result as object)
+      ? { checkpoint: result }
+      : {},
 }));
 
 // ---------------------------------------------------------------------------

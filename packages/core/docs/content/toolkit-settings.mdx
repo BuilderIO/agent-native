@@ -114,6 +114,38 @@ on so settings stay findable everywhere.
 - Keep settings in the canonical `/settings` pages. Agent chat should remain
   focused on conversation and never render settings inline.
 
+## ChatGPT subscription lab {#chatgpt-subscription-lab}
+
+For apps using the shared framework settings surface, the Agent settings page
+includes an experimental way to use Codex through a user's ChatGPT
+subscription. It is a lab, not a general OpenAI API provider, and it exposes a
+fixed set of supported Codex models.
+
+<Steps>
+
+### Enable the lab
+
+Open **Settings → Labs** and enable **ChatGPT subscription**. The connection
+row stays hidden until the lab is enabled.
+
+### Connect the subscription
+
+Open **Settings → Agent → Overview** and select **Connect ChatGPT** in the
+**ChatGPT subscription** row. Finish sign-in in the popup. After it connects,
+select **Use in chat** to make it the current agent engine.
+
+</Steps>
+
+<Callout tone="warning">
+
+This is an experimental Labs feature. Your mileage may vary. Availability,
+model access, limits, and behavior can change as the upstream ChatGPT/Codex
+service changes. It is not intended for critical or production work. Use the
+app's **Feedback** control to tell us what worked or what failed, especially
+if connection or model access is inconsistent.
+
+</Callout>
+
 ## What's next
 
 - [**Internationalization**](/docs/internationalization) — localize the

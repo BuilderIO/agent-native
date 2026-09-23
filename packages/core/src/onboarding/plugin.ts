@@ -18,20 +18,17 @@ import {
   defineEventHandler,
   getCookie,
   getMethod,
+  setCookie,
   getQuery,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
-import {
-  cookieDomainAttrs,
-  crossSiteCookieAttrs,
-  getSession,
-} from "../server/auth.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
@@ -45,11 +42,24 @@ import {
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
 import { classifyTrackingFailure, track } from "../tracking/index.js";
-import { onboardingRoleSchema } from "../user-profile/shared.js";
-import { updateUserOnboardingRole } from "../user-profile/store.js";
+import {
+  getOnboardingRoleCategory,
+  onboardingRoleSchema,
+} from "../user-profile/shared.js";
+import {
+  getUserProfile,
+  updateUserOnboardingRole,
+} from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
+import {
+  SHARED_ONBOARDING_COOKIE,
+  SHARED_ONBOARDING_COOKIE_MAX_AGE,
+  decodeSharedOnboardingCookie,
+  encodeSharedOnboardingCookie,
+  hashOnboardingEmail,
+} from "./shared-cookie.js";
 import type {
   OnboardingResolveContext,
   OnboardingStepStatus,
@@ -72,6 +82,7 @@ export interface OnboardingPluginOptions {
 async function resolveOnboardingContext(
   event: H3Event,
 ): Promise<OnboardingResolveContext> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session) return { sessionId: "local" };
   return {
@@ -174,6 +185,22 @@ async function readDismissedFlag(sessionId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Without a parent cookie domain the shared cookie would be host-only, so no
+ * sibling app could read it. Warn and stay off rather than write a cookie that
+ * silently does nothing.
+ */
+async function resolveSharedCompletionEnabled(): Promise<boolean> {
+  if (!getAppConfig().onboarding.sharedCompletion.enabled) return false;
+  const { sharedFirstPartyCookieDomainAttrs } =
+    await import("../server/auth.js");
+  if (sharedFirstPartyCookieDomainAttrs().domain) return true;
+  console.warn(
+    "[onboarding] ONBOARDING_SHARED_COMPLETION is on but COOKIE_DOMAIN is not set, so sibling apps cannot read the shared cookie. Shared onboarding is disabled.",
+  );
+  return false;
+}
+
 export function createOnboardingPlugin(
   options: OnboardingPluginOptions = {},
 ): NitroPluginDef {
@@ -182,6 +209,7 @@ export function createOnboardingPlugin(
     await awaitBootstrap(nitroApp);
 
     const appProfile = getOnboardingAppProfile(options.appId);
+    const sharedCompletionEnabled = await resolveSharedCompletionEnabled();
 
     if (!options.skipDefaultSteps) {
       registerDefaultOnboardingSteps();
@@ -364,6 +392,9 @@ export function createOnboardingPlugin(
         }
         const context = await resolveOnboardingContext(event);
         if (!context.userEmail) return { firstRun: false };
+        const userEmail = context.userEmail;
+        const { cookieDomainAttrs, crossSiteCookieAttrs } =
+          await import("../server/auth.js");
 
         return withOnboardingRequestContext(context, async () => {
           const completed = await appStateGet(
@@ -396,10 +427,54 @@ export function createOnboardingPlugin(
               ...cookieDomainAttrs(),
               path: "/",
             });
+            return { firstRun };
           }
-          return {
-            firstRun,
-          };
+
+          if (sharedCompletionEnabled) {
+            const decoded = decodeSharedOnboardingCookie(
+              getCookie(event, SHARED_ONBOARDING_COOKIE),
+            );
+            if (
+              decoded &&
+              decoded.emailHash === hashOnboardingEmail(userEmail)
+            ) {
+              // The completion marker is written last: once it exists this
+              // route returns early, so anything after it would never retry.
+              if (decoded.role) {
+                const profile = await getUserProfile(userEmail);
+                if (!profile.onboardingRole) {
+                  await updateUserOnboardingRole(userEmail, decoded.role);
+                }
+              }
+              await appStatePut(
+                context.sessionId,
+                FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+                {
+                  completed: true,
+                  at: new Date().toISOString(),
+                  source: "shared-cookie",
+                },
+                { requestSource: "agent" },
+              );
+              track(
+                "onboarding_first_run_adopted",
+                {
+                  flow: "first_run",
+                  source: "shared_cookie",
+                  role: decoded.role,
+                },
+                { userId: userEmail },
+              );
+              deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+                ...crossSiteCookieAttrs(event),
+                ...cookieDomainAttrs(),
+                path: "/",
+              });
+              return { firstRun: false };
+            }
+          }
+
+          return { firstRun };
         });
       }),
     );
@@ -417,13 +492,13 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-
         const body = (await readBody(event)) as { role?: unknown } | null;
         const parsed = onboardingRoleSchema.safeParse(body?.role);
         if (!parsed.success) {
           setResponseStatus(event, 400);
           return { error: "Invalid onboarding role" };
         }
+        const roleCategory = getOnboardingRoleCategory(parsed.data);
 
         return withOnboardingRequestContext(context, async () => {
           const sessionId = readBrowserSessionIdHeader(event);
@@ -444,7 +519,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: parsed.data,
+                role: roleCategory,
                 outcome: "success",
               },
               trackingSource,
@@ -456,7 +531,7 @@ export function createOnboardingPlugin(
               {
                 flow: "first_run",
                 step_id: "role",
-                role: parsed.data,
+                role: roleCategory,
                 failure_type: classifyTrackingFailure(error),
               },
               trackingSource,
@@ -480,6 +555,12 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+        const {
+          cookieDomainAttrs,
+          crossSiteCookieAttrs,
+          isHttpsRequest,
+          sharedFirstPartyCookieDomainAttrs,
+        } = await import("../server/auth.js");
         await appStatePut(
           context.sessionId,
           FIRST_RUN_ONBOARDING_COMPLETED_KEY,
@@ -491,6 +572,28 @@ export function createOnboardingPlugin(
           ...cookieDomainAttrs(),
           path: "/",
         });
+        if (sharedCompletionEnabled) {
+          const role = await getUserProfile(context.userEmail).then(
+            (profile) => profile.onboardingRole ?? null,
+            // coercion-ok: the shared cookie is best-effort. A failed profile
+            // read still shares the completion and only drops the role; the
+            // sibling app then leaves its own role unset.
+            () => null,
+          );
+          setCookie(
+            event,
+            SHARED_ONBOARDING_COOKIE,
+            encodeSharedOnboardingCookie({ role, email: context.userEmail }),
+            {
+              ...sharedFirstPartyCookieDomainAttrs(),
+              path: "/",
+              httpOnly: true,
+              sameSite: "lax",
+              secure: isHttpsRequest(event),
+              maxAge: SHARED_ONBOARDING_COOKIE_MAX_AGE,
+            },
+          );
+        }
         return { ok: true };
       }),
     );

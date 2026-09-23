@@ -71,6 +71,7 @@ export interface RecordingPlayheadProps {
   paused: boolean;
   orientation?: RecordingPlayheadOrientation;
   enabled?: boolean;
+  saving?: boolean;
   pendingAction?: RecordingPlayheadIntent | "cancel" | null;
   /** Capture-specific level transport; the visual slot remains shared. */
   meter: ReactNode;
@@ -115,6 +116,7 @@ export function RecordingPlayhead({
   paused,
   orientation = "horizontal",
   enabled = true,
+  saving = false,
   pendingAction = null,
   meter,
   labels,
@@ -465,7 +467,8 @@ export function RecordingPlayhead({
   const isConfirming = confirmIntent !== null;
   const displayedConfirmIntent =
     confirmIntent ?? displayedConfirmIntentRef.current;
-  const controlsDisabled = !enabled || isConfirming || pendingAction !== null;
+  const controlsDisabled =
+    !enabled || isConfirming || pendingAction !== null || saving;
   const classNames = ["recording-playhead", className]
     .filter(Boolean)
     .join(" ");
@@ -493,15 +496,27 @@ export function RecordingPlayhead({
       <button
         type="button"
         data-recording-playhead-button
-        className="recording-playhead__button recording-playhead__stop"
+        className={
+          saving
+            ? "recording-playhead__button recording-playhead__stop recording-playhead__button--saving"
+            : "recording-playhead__button recording-playhead__stop"
+        }
         onClick={onStop}
         disabled={controlsDisabled}
         aria-label={labels.stop}
+        aria-busy={saving || undefined}
         style={{
           color: paused ? "var(--playhead-ghost-ink)" : "var(--playhead-rec)",
         }}
       >
-        <span aria-hidden className="recording-playhead__stop-icon" />
+        <span
+          aria-hidden
+          className={
+            saving
+              ? "recording-playhead__stop-spinner"
+              : "recording-playhead__stop-icon"
+          }
+        />
       </button>
       <span
         aria-live="off"
@@ -535,6 +550,19 @@ export function RecordingPlayhead({
             ) : (
               <IconPlayerPauseFilled size={14} aria-hidden />
             )}
+          </button>
+          <span aria-hidden className="recording-playhead__divider" />
+          <button
+            type="button"
+            data-recording-playhead-button
+            onClick={() => openConfirm("restart")}
+            disabled={controlsDisabled}
+            tabIndex={isConfirming ? -1 : 0}
+            aria-label={labels.restart}
+            title={labels.restartShortcut}
+            className="recording-playhead__button recording-playhead__restart"
+          >
+            <IconRefresh size={14} stroke={2} aria-hidden />
           </button>
         </span>
       </span>
@@ -586,22 +614,12 @@ export function RecordingPlayhead({
           <button
             type="button"
             data-recording-playhead-button
-            onClick={() => openConfirm("restart")}
-            disabled={!enabled || pendingAction !== null}
-            tabIndex={isConfirming || !expanded ? -1 : 0}
-            aria-label={labels.restart}
-            title={labels.restartShortcut}
-            className="recording-playhead__button recording-playhead__extras-restart"
-          >
-            <IconRefresh size={14} stroke={2} aria-hidden />
-          </button>
-          <button
-            type="button"
-            data-recording-playhead-button
             onClick={() =>
               enabled ? openConfirm("delete") : onDeleteRequest?.()
             }
-            disabled={(!enabled && !onDeleteRequest) || pendingAction !== null}
+            disabled={
+              (!enabled && !onDeleteRequest) || pendingAction !== null || saving
+            }
             tabIndex={isConfirming || !expanded ? -1 : 0}
             aria-label={labels.delete}
             title={labels.deleteShortcut}

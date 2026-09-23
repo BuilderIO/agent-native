@@ -130,24 +130,28 @@ export function SettingsPanel(props: SettingsPanelProps) {
               id="viewer-comments"
               label={t("playerSettings.comments")}
               checked={recording.enableComments}
+              disabled={update.isPending}
               onChange={(v) => patch({ enableComments: v })}
             />
             <ToggleRow
               id="viewer-reactions"
               label={t("playerSettings.reactions")}
               checked={recording.enableReactions}
+              disabled={update.isPending}
               onChange={(v) => patch({ enableReactions: v })}
             />
             <ToggleRow
               id="viewer-downloads"
               label={t("playerSettings.allowDownloads")}
               checked={recording.enableDownloads}
+              disabled={update.isPending}
               onChange={(v) => patch({ enableDownloads: v })}
             />
             <ToggleRow
               id="viewer-animated-thumbnail"
               label={t("playerSettings.animatedThumbnail")}
               checked={recording.animatedThumbnailEnabled}
+              disabled={update.isPending}
               onChange={(v) => patch({ animatedThumbnailEnabled: v })}
             />
             <div className="flex min-h-8 items-center gap-3 py-1">
@@ -337,11 +341,13 @@ function ToggleRow({
   id,
   label,
   checked,
+  disabled,
   onChange,
 }: {
   id: string;
   label: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -349,7 +355,12 @@ function ToggleRow({
       <Label htmlFor={id} className="cursor-pointer text-sm font-normal">
         {label}
       </Label>
-      <ViewerSwitch id={id} checked={checked} onCheckedChange={onChange} />
+      <ViewerSwitch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+      />
     </div>
   );
 }

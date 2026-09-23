@@ -22,6 +22,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let updateDocumentAction: typeof import("./update-document.js").default;
+let updatePersonalViewAction: typeof import("./update-content-database-personal-view.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 
@@ -35,6 +36,9 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   updateDocumentAction = (await import("./update-document.js")).default;
+  updatePersonalViewAction = (
+    await import("./update-content-database-personal-view.js")
+  ).default;
   editDocumentAction = (await import("./edit-document.js")).default;
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -86,6 +90,246 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it("prepends only a newly created favorite membership and removes its order reference on unpin", async () => {
+    const { getUserSetting } = await import("@agent-native/core/settings");
+    const { favoritesSystemIds } = await import("./_content-favorites.js");
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const first = await createDocument({ title: "First" });
+    const second = await createDocument({ title: "Second" });
+    for (const id of [first, second]) {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id, isFavorite: true }),
+      );
+    }
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: second, isFavorite: true }),
+    );
+    const databaseId = favoritesSystemIds(OWNER).databaseId;
+    const memberships = await getDb()
+      .select({
+        id: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    const secondMembership = memberships.find(
+      (item: any) => item.documentId === second,
+    )!.id;
+    const firstMembership = memberships.find(
+      (item: any) => item.documentId === first,
+    )!.id;
+    const settingKey = personalDatabaseViewSettingKey(databaseId);
+    expect(await getUserSetting(OWNER, settingKey)).toMatchObject({
+      views: [
+        {
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: [secondMembership, firstMembership],
+          },
+        },
+      ],
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: second, isFavorite: false }),
+    );
+    expect(await getUserSetting(OWNER, settingKey)).toMatchObject({
+      views: [{ sidebarOrder: { itemIds: [firstMembership] } }],
+    });
+  });
+
+  it("keeps favorite membership and order consistent under concurrent pin and unpin", async () => {
+    const { getUserSetting } = await import("@agent-native/core/settings");
+    const { favoritesSystemIds } = await import("./_content-favorites.js");
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const documentId = await createDocument({ title: "Concurrent favorite" });
+    const invoke = (isFavorite: boolean) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: documentId, isFavorite }),
+      );
+
+    await Promise.all([invoke(true), invoke(true)]);
+    const databaseId = favoritesSystemIds(OWNER).databaseId;
+    let memberships = await getDb()
+      .select({
+        id: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    expect(
+      memberships.filter((row: any) => row.documentId === documentId),
+    ).toHaveLength(1);
+
+    await Promise.all([invoke(true), invoke(false)]);
+    memberships = await getDb()
+      .select({
+        id: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    const membershipIds = new Set(memberships.map((row: any) => row.id));
+    const setting = await getUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey(databaseId),
+    );
+    const references = ((setting?.views as any[]) ?? []).flatMap(
+      (view) => view.sidebarOrder?.itemIds ?? [],
+    );
+    expect(references.every((id: string) => membershipIds.has(id))).toBe(true);
+  });
+
+  it("preserves a concurrent pin while an ordinary personal reorder commits", async () => {
+    const { getUserSetting } = await import("@agent-native/core/settings");
+    const { favoritesSystemIds } = await import("./_content-favorites.js");
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const first = await createDocument({ title: "Reorder first" });
+    const second = await createDocument({ title: "Reorder second" });
+    const concurrent = await createDocument({ title: "Concurrent pin" });
+    for (const id of [first, second]) {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id, isFavorite: true }),
+      );
+    }
+    const databaseId = favoritesSystemIds(OWNER).databaseId;
+    const memberships = await getDb()
+      .select({
+        id: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    const membershipByDocument = new Map(
+      memberships.map((item: any) => [item.documentId, item.id]),
+    );
+    const requestedOrder = [
+      membershipByDocument.get(first)!,
+      membershipByDocument.get(second)!,
+    ];
+
+    await Promise.all([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updatePersonalViewAction.run(
+          {
+            databaseId,
+            navigation: {
+              sidebarOrder: {
+                viewId: "default",
+                mode: "custom",
+                itemIds: requestedOrder,
+              },
+            },
+          },
+          { userEmail: OWNER },
+        ),
+      ),
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: concurrent, isFavorite: true }),
+      ),
+    ]);
+
+    const finalMemberships = await getDb()
+      .select({
+        id: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    const concurrentMembership = finalMemberships.find(
+      (item: any) => item.documentId === concurrent,
+    )!.id;
+    const setting = await getUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey(databaseId),
+    );
+    const order = (setting?.views as any[])[0].sidebarOrder.itemIds as string[];
+    expect(order).toEqual(
+      expect.arrayContaining([...requestedOrder, concurrentMembership]),
+    );
+    const finalMembershipIds = new Set(
+      finalMemberships.map((item: any) => item.id),
+    );
+    expect(order.every((id) => finalMembershipIds.has(id))).toBe(true);
+    expect(order.indexOf(requestedOrder[0])).toBeLessThan(
+      order.indexOf(requestedOrder[1]),
+    );
+  });
+
+  it("rolls back a failed favorite setting write without damaging a competing success", async () => {
+    const { getUserSetting } = await import("@agent-native/core/settings");
+    const { favoritesSystemIds } = await import("./_content-favorites.js");
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const failedCandidate = await createDocument({ title: "Failed candidate" });
+    const successfulCandidate = await createDocument({
+      title: "Successful candidate",
+    });
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    let failOneSettingWrite = true;
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementation(async (callback: any, config?: any) =>
+        originalTransaction(async (tx: any) => {
+          let executeCount = 0;
+          const wrapped = Object.create(tx);
+          wrapped.execute = async (...executeArgs: any[]) => {
+            executeCount += 1;
+            if (failOneSettingWrite && executeCount === 3) {
+              failOneSettingWrite = false;
+              throw new Error("simulated setting write failure");
+            }
+            return tx.execute(...executeArgs);
+          };
+          return callback(wrapped);
+        }, config),
+      );
+    let results: PromiseSettledResult<unknown>[];
+    try {
+      results = await Promise.allSettled(
+        [failedCandidate, successfulCandidate].map((id) =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run({ id, isFavorite: true }),
+          ),
+        ),
+      );
+    } finally {
+      transaction.mockRestore();
+    }
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+
+    const databaseId = favoritesSystemIds(OWNER).databaseId;
+    const memberships = await db
+      .select({
+        id: schema.contentDatabaseItems.id,
+        documentId: schema.contentDatabaseItems.documentId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    const membershipIds = new Set(memberships.map((row: any) => row.id));
+    const setting = await getUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey(databaseId),
+    );
+    const references = ((setting?.views as any[]) ?? []).flatMap(
+      (view) => view.sidebarOrder?.itemIds ?? [],
+    );
+    expect(references.every((id: string) => membershipIds.has(id))).toBe(true);
+    expect(
+      memberships.filter((row: any) =>
+        [failedCandidate, successfulCandidate].includes(row.documentId),
+      ),
+    ).toHaveLength(1);
+  });
   it("initializes an empty body through the externally callable edit action", async () => {
     const documentId = await createDocument({
       title: "Keep this title",
@@ -141,6 +385,36 @@ describe("update-document compare-and-swap", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "DOCUMENT_EDIT_MODE_CONFLICT" });
     expect((await documentRow(documentId)).content).toBe("");
+  });
+
+  it.each([
+    {
+      protocol: "base revision only",
+      fields: { baseRevision: "body:0:sha256:invalid" },
+    },
+    {
+      protocol: "idempotency key only",
+      fields: { idempotencyKey: "partial-edit-protocol" },
+    },
+  ])("rejects a partial revision protocol: $protocol", async ({ fields }) => {
+    const documentId = await createDocument({ content: "original" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocumentAction.run(
+          {
+            id: documentId,
+            find: "original",
+            replace: "changed",
+            ...fields,
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+    });
+    expect((await documentRow(documentId)).content).toBe("original");
   });
 
   it("rejects external full-body writes outside the revisioned edit protocol", async () => {
@@ -628,6 +902,10 @@ describe("update-document compare-and-swap", () => {
       targetId: documentId,
       status: "success",
     });
+    expect(await documentRow(documentId)).toMatchObject({
+      createdBy: null,
+      updatedBy: EDITOR,
+    });
     expect(JSON.stringify(result)).not.toContain(OWNER);
   });
 
@@ -684,7 +962,7 @@ describe("update-document compare-and-swap", () => {
     expect(ownerEvents).toHaveLength(0);
   });
 
-  it("preserves mixed updates without exposing their inputs to the owner", async () => {
+  it("preserves separate content and favorite updates without exposing their inputs to the owner", async () => {
     const documentId = await createDocument({ content: "owner body" });
     await getDb()
       .insert(schema.documentShares)
@@ -703,8 +981,17 @@ describe("update-document compare-and-swap", () => {
         {
           id: documentId,
           content: "collaborator body",
-          isFavorite: true,
         },
+        {
+          caller: "frontend",
+          actionName: "update-document",
+          userEmail: EDITOR,
+        },
+      ),
+    );
+    await runWithRequestContext({ userEmail: EDITOR }, () =>
+      updateDocumentAction.run(
+        { id: documentId, isFavorite: true },
         {
           caller: "frontend",
           actionName: "update-document",

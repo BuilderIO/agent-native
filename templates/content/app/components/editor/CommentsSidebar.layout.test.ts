@@ -245,6 +245,29 @@ describe("comments sidebar layout", () => {
     expect(items[1].top + 80).toBeLessThanOrEqual(items[2].top - 12);
   });
 
+  it("keeps a selected thread aligned when earlier cards do not fit above it", () => {
+    const threads = ["first", "second", "selected"].map(
+      (threadId) =>
+        ({
+          threadId,
+          comments: [{ id: `${threadId}-comment` }],
+        }) as CommentThread,
+    );
+    const positions = new Map([
+      ["first", { documentTop: 10, layoutTop: 10 }],
+      ["second", { documentTop: 25, layoutTop: 25 }],
+      ["selected", { documentTop: 40, layoutTop: 40 }],
+    ]);
+    const heights = new Map(threads.map((thread) => [thread.threadId, 80]));
+
+    const items = layoutCommentThreads(threads, positions, heights, "selected");
+
+    expect(items.map((item) => item.top)).toEqual([-144, -52, 40]);
+    expect(items[2].top).toBe(positions.get("selected")?.layoutTop);
+    expect(items[0].top + 80).toBeLessThanOrEqual(items[1].top - 12);
+    expect(items[1].top + 80).toBeLessThanOrEqual(items[2].top - 12);
+  });
+
   it("keeps narrow layouts sequential and puts missing anchors last", () => {
     const anchored = {
       threadId: "anchored",
@@ -368,6 +391,10 @@ describe("comments sidebar layout", () => {
       "focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
     );
     expect(source).toContain("ease-[var(--ease-drawer)]");
+    expect(source).toContain("data-comment-layout-thread");
+    expect(source).toContain(
+      'className="relative transition-transform duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transition-none"',
+    );
     expect(source).toContain("motion-reduce:hover:translate-x-0");
     expect(source).not.toContain("bg-accent/60");
     expect(source).toContain(
@@ -465,9 +492,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("event.preventDefault()");
     expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
-    expect(source).toContain(
-      "renderSuggestionCard(thread.suggestion, marginTop)",
-    );
+    expect(source).toContain("renderSuggestionCard(thread.suggestion)");
     expect(source).toContain(
       "renderSuggestionText(previousText, previousPresentation)",
     );
@@ -523,8 +548,8 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toContain(
-      'utilityPanel === "comments" &&\n      !hasInlineCommentSpace &&\n      !!selectedSuggestionId',
+    expect(source).toMatch(
+      /utilityPanel === "comments" &&\s+!hasInlineCommentSpace &&\s+!!selectedSuggestionId/,
     );
     expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(

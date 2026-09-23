@@ -273,12 +273,16 @@ async function mountCanvas(
       posted.filter(
         (message) => (message as { type?: string } | null)?.type === type,
       ),
-    /** Any trusted frame message marks the bridge ready and drains the queue. */
-    markReady: (frame: Window) =>
-      fromFrame(frame, {
+    /** Mark both the runtime bridge and the editor-chrome listener ready. */
+    markReady: async (frame: Window) => {
+      await fromFrame(frame, {
         type: "agent-native:runtime-layer-snapshot",
         payload: { html: "<body></body>", nodeCount: 1 },
-      }),
+      });
+      await fromFrame(frame, {
+        type: "agent-native:editor-chrome-ready",
+      });
+    },
   };
 }
 

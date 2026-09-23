@@ -525,18 +525,28 @@ describe("interactive agent run options — wiring guards", () => {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
-    const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),(?:(?!\n\s*(?:finalResponseGuard:|\}\);))[\s\S])*?\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
-    );
+    const handlerCallSites = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ];
+    const handlerBlocks = handlerCallSites.map((handlerCallSite, index) => {
+      const start = handlerCallSite.index ?? 0;
+      const end = handlerCallSites[index + 1]?.index ?? source.length;
+      return source.slice(start, end);
+    });
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
-    // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options before `finalResponseGuard`, allowing
-    // handler-specific options to sit between them.
+    // removed - update this guard alongside it, and confirm the new/changed
+    // site still includes both required options.
     expect(handlerCallSites).toHaveLength(3);
-    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+    for (const handlerBlock of handlerBlocks) {
+      expect(handlerBlock).toContain(
+        "...resolveInteractiveAgentRunOptions(options),",
+      );
+      expect(handlerBlock).toContain(
+        "finalResponseGuard: options?.finalResponseGuard,",
+      );
+    }
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {

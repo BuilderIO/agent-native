@@ -170,6 +170,34 @@ describe("live style runtime history", () => {
     ).toBe(false);
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("preserves interaction-state scope during runtime replay", () => {
+    const send = vi.fn(() => true);
+
+    expect(
+      replayPendingVisualStyleRuntimePatch(
+        {
+          screenId: "screen-home",
+          selector: "#card",
+          sourceId: "card",
+          styles: { backgroundColor: "red" },
+          interactionState: "hover",
+        },
+        send,
+      ),
+    ).toBe(true);
+    expect(send).toHaveBeenCalledWith(
+      "screen-home",
+      "#card",
+      "backgroundColor",
+      "red",
+      {
+        selectorCandidates: ["#card", '[data-agent-native-node-id="card"]'],
+        nodeId: "card",
+        interactionState: "hover",
+      },
+    );
+  });
 });
 
 describe("pending live layer state history", () => {

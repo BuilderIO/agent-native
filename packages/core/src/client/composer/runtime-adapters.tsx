@@ -1,3 +1,10 @@
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
+
+// Toolkit names framework routes by their internal path; the host swaps in
+// the public prefix before the base path is applied.
+function publicFrameworkPathInBrowser(path: string): string {
+  return toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() });
+}
 import {
   ComposerRuntimeAdaptersProvider,
   type ComposerRuntimeAdapters,
@@ -13,7 +20,7 @@ import {
   setAgentChatContextItem,
 } from "../agent-chat.js";
 import { SIDEBAR_STATE_CHANGE_EVENT } from "../agent-sidebar-state.js";
-import { appPath } from "../api-path.js";
+import { appPath, frameworkRoutePrefix } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
@@ -28,7 +35,7 @@ import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogDeferred.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { useVoiceProviderStatus } from "../voice-provider-status.js";
 import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
@@ -50,7 +57,7 @@ function subscribeSidebarState(
 type CoreComposerRuntimeAdapters = Omit<ComposerRuntimeAdapters, "translate">;
 
 export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
-  resolvePath: (path) => appPath(path),
+  resolvePath: (path) => appPath(publicFrameworkPathInBrowser(path)),
   models: {
     ...coreComposerModelAdapters,
     BuilderSetupCard,
@@ -67,7 +74,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
   },
   builder: {
     useConnectFlow: useBuilderConnectFlow,
-    BuilderConnectPopover,
+    BuilderConnectPopover: DeferredBuilderConnectPopover,
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,

@@ -8,6 +8,12 @@ const agentChatSource = readFileSync(
 );
 
 describe("Slides content-edit agent guidance", () => {
+  it("treats a new presentation request as a new deck even in an existing deck chat", () => {
+    expect(agentChatSource).toContain(
+      "A request to create or generate a presentation starts a new deck even when chat is scoped to an open deck or follows an earlier creation request; edit the open deck only when the user asks to change it.",
+    );
+  });
+
   it("keeps content-only edits from changing slide styling", () => {
     expect(
       agentChatSource.match(/For every content-only request/g),

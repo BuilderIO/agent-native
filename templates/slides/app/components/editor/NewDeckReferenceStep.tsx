@@ -173,6 +173,11 @@ export function NewDeckReferenceStep({
   const selectedDesignSystemUnavailable = Boolean(
     selectedDesignSystem && !isDesignSystemSelectable(selectedDesignSystem),
   );
+  const hasSelection = Boolean(
+    selectedDesignSystemId ||
+    selectedReferenceDeckId ||
+    selectedSource?.value.trim(),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -230,7 +235,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || selectedDesignSystemUnavailable) return;
+    if (busy || selectedDesignSystemUnavailable || !hasSelection) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -640,6 +645,7 @@ export function NewDeckReferenceStep({
           disabled={
             busy ||
             selectedDesignSystemUnavailable ||
+            !hasSelection ||
             Boolean(selectedSource && !selectedSource.value.trim())
           }
         >

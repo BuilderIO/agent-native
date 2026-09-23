@@ -42,6 +42,9 @@ import {
   isTextElement,
 } from "../edit-panel/element-classification";
 
+const PLATFORM_PRIMARY_KEY = process.platform === "darwin" ? "Meta" : "Control";
+const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
+
 declare global {
   interface Window {
     __bridgeMessages?: Array<{ type?: string; phase?: string }>;
@@ -78,14 +81,17 @@ function generatedPath(bridgeFilename: string): string {
 function hydratedEditorChromeBridgeScript(
   runtimeLayerSnapshotEnabled = false,
   screenId = "bridge-guard",
+  boardSurface = true,
 ): string {
+  // Most bridge guards exercise the infinite-canvas/Figma policy. Pass false
+  // explicitly when a test is asserting the screen's direct-click exception.
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(screenId))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", String(boardSurface))
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace(
@@ -102,7 +108,7 @@ function hydratedReadOnlyEditorChromeBridgeScript(): string {
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("read-only"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
@@ -149,7 +155,7 @@ function hydratedEditorChromeBridgeScriptWithScale(scale: number): string {
     .replace("__EDITOR_CHROME_SCALE_X__", String(scale))
     .replace("__EDITOR_CHROME_SCALE_Y__", String(scale))
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
@@ -164,7 +170,7 @@ function hydratedEditorChromeBridgeScriptWithTextEditing(): string {
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
@@ -534,6 +540,23 @@ it(
     expect(failed, `bridge tsconfig type-check failed:\n${output}`).toBe(false);
   },
 );
+
+it("keeps cancel cleanup compatible with held modifiers", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const resetStart = bridge.indexOf(
+    "function resetBridgeDragModifierStateOnCancel",
+  );
+  const resetEnd = bridge.indexOf(
+    "var activeCrossScreenStyleSnapshot",
+    resetStart,
+  );
+  const cancel = bridge.slice(resetStart, resetEnd);
+  expect(cancel).toContain("bridgeSpaceKeyPressed = false");
+  expect(cancel).not.toContain("bridgeIgnoreAutoLayoutKeyPressed = false");
+});
 
 // ── test 3: generated output is fresh ──────────────────────────────────────
 
@@ -2010,7 +2033,7 @@ it(
       // Holding Cmd/Ctrl bypasses snapping entirely (Figma behavior) — nudge
       // one px further (still well within snap range if snapping were
       // active) and hold Meta so the raw (unsnapped) position is used.
-      await page.keyboard.down("Meta");
+      await page.keyboard.down(PLATFORM_PRIMARY_KEY);
       await page.mouse.move(174 + 278, 244);
       const bypassedLeft = await page.evaluate(() => {
         const target = document.querySelector<HTMLElement>("#target")!;
@@ -2028,7 +2051,7 @@ it(
         );
       });
       expect(guideHiddenDuringBypass).toBe(true);
-      await page.keyboard.up("Meta");
+      await page.keyboard.up(PLATFORM_PRIMARY_KEY);
 
       await page.mouse.up();
       await page.waitForTimeout(30);
@@ -2265,6 +2288,78 @@ it(
         () => !document.querySelector("[data-agent-native-text-editing]"),
       );
       expect(stillNotTextEditing).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "uses direct single-click selection inside screens while the board keeps Figma container-first selection",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const openSurface = async (boardSurface: boolean) => {
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #screen { position: absolute; left: 100px; top: 100px; width: 320px; height: 220px; background: #f5f5f5; }
+      #frame { position: absolute; left: 20px; top: 20px; width: 280px; height: 180px; background: #e5e7eb; }
+      #heading { position: absolute; left: 20px; top: 20px; width: 180px; height: 48px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="screen" data-agent-native-node-id="screen">
+      <div id="frame" data-agent-native-node-id="frame">
+        <div id="heading" data-agent-native-node-id="heading"></div>
+      </div>
+    </div>
+  </body>
+</html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(
+            false,
+            boardSurface ? "board" : "screen",
+            boardSurface,
+          ),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.evaluate(() => {
+          (window as any).__selectedIds = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__selectedIds.push(event.data.payload?.sourceId);
+            }
+          });
+        });
+
+        // HUMAN-DIRECTED UX EXCEPTION: the screen path is intentionally a
+        // direct single-click selection, unlike the board's Figma behavior.
+        await page.mouse.click(160, 160);
+        await page.waitForFunction(
+          () => ((window as any).__selectedIds as string[]).length > 0,
+        );
+        const selectedId = await page.evaluate(() => {
+          const selectedIds = (window as any).__selectedIds as string[];
+          return selectedIds[selectedIds.length - 1];
+        });
+        return { page, selectedId };
+      };
+
+      const screen = await openSurface(false);
+      const board = await openSurface(true);
+      expect(screen.selectedId).toBe("heading");
+      expect(board.selectedId).toBe("screen");
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -2627,6 +2722,7 @@ it(
       await page.evaluate(() => {
         window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
       });
+      await page.waitForTimeout(10);
 
       const seBox2 = await seHandle.boundingBox();
       if (!seBox2) throw new Error("resize handle not found after resize");
@@ -4965,6 +5061,35 @@ describe("editor chrome bridge — text editing session", () => {
         }));
         expect(state.editing).toBe(false);
         expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "blurs an active text edit when bridge reconfiguration disables text editing",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const bridge = (window as any).__anEditorChromeBridgeInstance;
+          if (!bridge || typeof bridge.updateConfig !== "function") {
+            throw new Error("missing editor chrome config updater");
+          }
+          bridge.updateConfig({
+            readOnly: false,
+            textEditingEnabled: false,
+          });
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]", {
+          state: "detached",
+        });
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -7990,10 +8115,10 @@ it(
       );
       await page.mouse.move(controlStartX, controlStartY);
       await page.mouse.down();
-      await page.keyboard.down("Control");
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT_KEY);
       await page.mouse.move(450, 115, { steps: 8 });
       await page.mouse.up();
-      await page.keyboard.up("Control");
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT_KEY);
       await page.waitForTimeout(50);
 
       const ignored = await page.evaluate(() => {
@@ -11076,10 +11201,10 @@ it(
 
 // ── Hover-info postMessage de-duplication (perf) ────────────────────────────
 //
-it(
-  "editor chrome bridge flow-inserts grid children and CSS grid tracks reflow when the parent resizes",
+it.each(["row", "column"] as const)(
+  "editor chrome bridge flow-inserts %s-flow grid children without freezing auto placement",
   { timeout: 30_000 },
-  async () => {
+  async (flow) => {
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
     try {
@@ -11090,7 +11215,7 @@ it(
       await page.setContent(`<!doctype html>
 <html><head><style>
   html, body { margin: 0; width: 100%; height: 100%; }
-  #grid { position:absolute; left:100px; top:80px; width:400px; display:grid;
+  #grid { position:absolute; left:100px; top:80px; width:400px; display:grid; grid-auto-flow:${flow};
     grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,80px);
     column-gap:20px; row-gap:16px; padding:12px; }
   .cell { background:#a5b4fc; }
@@ -11147,6 +11272,96 @@ it(
       expect(structureMessages[structureMessages.length - 1]?.dropMode).toBe(
         "flow-insert",
       );
+      if (flow === "column") {
+        const styles = await page.evaluate(() =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>("#grid > .cell"),
+          ).map((element) => ({
+            gridColumn: element.style.gridColumn,
+            gridRow: element.style.gridRow,
+          })),
+        );
+        expect(styles).toEqual(
+          styles.map(() => ({ gridColumn: "", gridRow: "" })),
+        );
+        expect(
+          (
+            structureMessages[structureMessages.length - 1] as {
+              gridPlacement?: unknown;
+            }
+          )?.gridPlacement,
+        ).toBeUndefined();
+      }
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge shows an insertion line over an occupied explicit grid cell",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body>
+        <div id="source" data-agent-native-node-id="source"
+          style="position:absolute;left:40px;top:400px;width:80px;height:44px;background:#6366f1">Source</div>
+        <div id="grid" data-agent-native-node-id="grid"
+          style="position:absolute;left:300px;top:80px;width:320px;height:220px;padding:12px;display:grid;grid-template-columns:repeat(3,80px);grid-auto-rows:56px;gap:16px;box-sizing:border-box">
+          <div id="span" data-agent-native-node-id="span" style="grid-column:1 / span 2;background:#a855f7">Span</div>
+          <div id="target" data-agent-native-node-id="target" style="grid-column:3;background:#ec4899">Target</div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#source");
+
+      const source = await page.locator("#source").boundingBox();
+      const target = await page.locator("#target").boundingBox();
+      expect(source).toBeTruthy();
+      expect(target).toBeTruthy();
+      await page.mouse.move(
+        source!.x + source!.width / 2,
+        source!.y + source!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        source!.x + source!.width / 2 + 10,
+        source!.y + source!.height / 2 + 6,
+        { steps: 4 },
+      );
+      await page.mouse.move(target!.x + 4, target!.y + target!.height / 2, {
+        steps: 12,
+      });
+      await page.mouse.move(target!.x + 10, target!.y + target!.height / 2, {
+        steps: 4,
+      });
+      await page.waitForFunction(() => {
+        const guide = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        return guide && getComputedStyle(guide).display === "block";
+      });
+
+      const guide = await page.evaluate(() => {
+        const element = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      await page.mouse.up();
+      expect(guide).toBeTruthy();
+      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -11457,6 +11672,33 @@ it(
       // Still exactly one "move" (the pending tick from right before mouseup
       // was cancelled, never posted after release).
       expect(postReleaseCounts.move).toBe(1);
+
+      // The same move/up burst also cancels the overlay frame scheduled by the
+      // final move. A successful pointerup must schedule its replacement so
+      // selection chrome follows the committed element instead of freezing at
+      // the last pre-release frame.
+      const overlayAlignment = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target");
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        if (!target || !overlay) return null;
+        const targetRect = target.getBoundingClientRect();
+        const overlayRect = overlay.getBoundingClientRect();
+        return {
+          targetLeft: targetRect.left,
+          targetTop: targetRect.top,
+          overlayLeft: overlayRect.left,
+          overlayTop: overlayRect.top,
+        };
+      });
+      expect(overlayAlignment).not.toBeNull();
+      expect(
+        Math.abs(overlayAlignment!.overlayLeft - overlayAlignment!.targetLeft),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(overlayAlignment!.overlayTop - overlayAlignment!.targetTop),
+      ).toBeLessThan(1);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -13961,6 +14203,54 @@ it(
   },
 );
 
+it(
+  "forced nested hit testing refuses a locked descendant subtree",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="outer" data-agent-native-node-id="outer" style="display:flex;width:500px;height:300px">
+          <div id="locked" data-agent-native-locked="true" style="display:flex;width:300px;height:200px">
+            <div id="child" data-agent-native-node-id="child" style="width:100px;height:100px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "locked-nested",
+                x: 50,
+                y: 50,
+                preview: false,
+                modifiers: { forceNestedAutoLayout: true },
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string };
+
+      expect(reply.anchorNodeId).toBe("");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
   const extract = (filename: string) => {
     const source = readFileSync(join(bridgeDir, filename), "utf-8");
@@ -13982,6 +14272,85 @@ it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
   );
 });
 
+it("coalesces free-drag target and overlay work", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var currentAutoLayoutTarget:");
+  const end = bridge.indexOf(
+    "function restoreSourceDragPosition(): void {",
+    start,
+  );
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const freeDragLoop = bridge.slice(start, end);
+
+  // Auto-layout hit testing reads live geometry. It must run once per frame
+  // after pointer-follow writes, while pointerup keeps the authoritative final
+  // synchronous resolution for the committed drop.
+  expect(freeDragLoop).toContain(
+    "scheduleAutoLayoutTargetResolution(ev, snapResult)",
+  );
+  expect(freeDragLoop).toContain("scheduleRefreshOverlays()");
+  expect(freeDragLoop).not.toContain(
+    `currentAutoLayoutTarget = !bridgeSpaceKeyPressed
+          ? autoLayoutInsertionTargetForPoint(`,
+  );
+  expect(freeDragLoop).not.toContain(`      refreshOverlays();
+`);
+
+  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
+  expect(pointerUp).toContain("autoLayoutInsertionTargetForPoint(");
+  expect(pointerUp).toContain(
+    "currentAutoLayoutTarget = finalAutoLayoutTarget;",
+  );
+});
+
+it("snapshots drag modifiers before queued target resolution", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var pendingAutoLayoutTargetPoint:");
+  const end = bridge.indexOf(
+    "// Client px per CSS px for this element.",
+    start,
+  );
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const dragScheduler = bridge.slice(start, end);
+
+  // A queued frame must answer for the pointer sample that scheduled it. A
+  // later Space/S key transition must not leak through a stale global read.
+  expect(dragScheduler).toMatch(
+    /spaceKeyPressed:\s*[\s\S]*bridgeSpaceKeyPressed/,
+  );
+  expect(dragScheduler).toMatch(
+    /ignoreAutoLayoutKeyPressed:\s*[\s\S]*bridgeIgnoreAutoLayoutKeyPressed/,
+  );
+  expect(dragScheduler).toContain("if (point.spaceKeyPressed)");
+  expect(dragScheduler).toContain("isIgnoreAutoLayoutChordForDragPoint(point)");
+  expect(dragScheduler).toContain("dragChromeSuppressed = true");
+  expect(dragScheduler).toContain("hideSnapGuides()");
+  expect(dragScheduler).toContain("hideSizeBadge()");
+  expect(dragScheduler).toContain("hideConstraintGuides()");
+  expect(dragScheduler).toContain("showSnapGuides(");
+  expect(dragScheduler).toContain("showConstraintGuides(dragEl)");
+  expect(dragScheduler).not.toContain("isIgnoreAutoLayoutChord(point)");
+
+  const moveStart = bridge.indexOf("        if (!bridgeSpaceKeyPressed) {");
+  const moveEnd = bridge.indexOf("// Snap guides only make sense", moveStart);
+  expect(moveStart).toBeGreaterThan(-1);
+  expect(moveEnd).toBeGreaterThan(moveStart);
+  expect(bridge.slice(moveStart, moveEnd)).toContain("hideInsertionGuide()");
+
+  // Pointerup remains the authoritative live resolution for the final event.
+  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
+  expect(pointerUp).toContain("isIgnoreAutoLayoutChord(ev)");
+  expect(bridge).toContain("cancelAutoLayoutTargetResolution();");
+});
+
 it("keeps the authored inline-style key list in sync with the bridge", () => {
   const bridge = readFileSync(
     join(bridgeDir, "editor-chrome.bridge.ts"),
@@ -14000,6 +14369,20 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
   expect([...AUTHORED_INLINE_STYLE_PROPERTIES].sort()).toEqual(
     bridgeKeys.sort(),
   );
+});
+
+it("retains grid placement for authored grouped and cross-grid sources", () => {
+  const bridge = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf-8",
+  );
+  const start = bridge.indexOf("var sourceHasAuthoredPlacement = Boolean(");
+  const end = bridge.indexOf("var hasAuthoredSingleCellSourcePlacement", start);
+  expect(start).toBeGreaterThan(-1);
+  const classifier = bridge.slice(start, end);
+  expect(classifier).toContain("excluded?.some");
+  expect(classifier).toContain("hasAuthoredPlacement");
+  expect(classifier).not.toContain("parentElement === container");
 });
 
 it(

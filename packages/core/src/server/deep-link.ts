@@ -21,6 +21,7 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 
 /** Path of the framework deep-link route, relative to the route prefix. */
 export const OPEN_ROUTE_SUBPATH = "/open";
@@ -63,7 +64,9 @@ function buildQuery(input: DeepLinkInput): string {
  */
 export function buildDeepLink(input: DeepLinkInput): string {
   return withCollapsedAgentSidebarParam(
-    `/_agent-native${OPEN_ROUTE_SUBPATH}?${buildQuery(input)}`,
+    publicFrameworkPath(
+      `/_agent-native${OPEN_ROUTE_SUBPATH}?${buildQuery(input)}`,
+    ),
   );
 }
 

@@ -22,9 +22,10 @@ import type { FrameGeometry, Point } from "./types";
 //   reachable.
 // - A bounded live-context pool keeps nearby screens warm without retaining
 //   every browsing context ever visited. Active/selected/in-progress screens
-//   are protected; the remaining budget is filled by viewport distance and
-//   then by recency. Evicted screens keep their lightweight React content-cache
-//   entry so revisiting can remount directly without rebuilding source HTML.
+//   are protected; the remaining budget first preserves already-live screens
+//   that are still in the raw viewport, then fills by viewport distance and
+//   recency. Evicted screens keep their lightweight React content-cache entry
+//   so revisiting can remount directly without rebuilding source HTML.
 
 /** Escape hatch: flip to `false` to fully disable culling in one line if a
  *  regression appears — every screen goes back to always rendering full
@@ -37,7 +38,7 @@ export const OVERVIEW_CULLING_ENABLED = true;
  *  during an in-flight gesture are already live before the debounced
  *  ~120ms view-commit (see scheduleViewCommit) catches up and this
  *  recomputes. */
-export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 1.5;
+export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 2;
 
 /** Maximum number of evictable overview SCREENS kept mounted at once.
  *
@@ -66,6 +67,136 @@ export const OVERVIEW_LIVE_IFRAME_CEILING = 96;
 
 /** Maximum number of live app documents allowed to boot simultaneously. */
 export const OVERVIEW_LIVE_BOOT_BUDGET = 4;
+
+/** On-screen width (CSS px) below which an unprotected inline screen renders a
+ * static preview instead of a live editor document. Nothing inside a frame
+ * that small can be targeted, and every editor document carries the full
+ * editor bridge, parsed and compiled on the editor's own main thread. */
+export const OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX = 240;
+
+/** A live editor survives zooming out to this fraction of the promotion
+ * width, so a zoom that settles near the threshold cannot reload it on every
+ * commit. */
+const LIVE_EDITOR_DEMOTE_RATIO = 0.75;
+
+/** Static previews mounted for screens outside the live pool. They carry no
+ * editor bridge, but each is still a browsing context. */
+export const OVERVIEW_STATIC_PREVIEW_BUDGET = 64;
+
+/** Viewport margin for static previews, in viewport widths/heights. */
+export const OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR = 0.5;
+
+/** Screens that get a full editor document rather than a static preview.
+ * `alwaysLive` covers screens a static preview cannot stand in for (URL-backed
+ * apps) and interactions that need the bridge (active, selected, hovered,
+ * dragged, export preview). */
+export function resolveLiveEditorScreenIds({
+  candidates,
+  zoomPercent,
+  previousIds,
+  minScreenPx = OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX,
+}: {
+  candidates: readonly { id: string; width: number; alwaysLive: boolean }[];
+  zoomPercent: number;
+  previousIds: ReadonlySet<string>;
+  minScreenPx?: number;
+}): Set<string> {
+  const scale = zoomPercent / 100;
+  const live = new Set<string>();
+  for (const { id, width, alwaysLive } of candidates) {
+    const screenPx = width * scale;
+    if (
+      alwaysLive ||
+      screenPx >= minScreenPx ||
+      (previousIds.has(id) &&
+        screenPx >= minScreenPx * LIVE_EDITOR_DEMOTE_RATIO)
+    ) {
+      live.add(id);
+    }
+  }
+  return live;
+}
+
+/** Nearest-first static previews for screens with no mounted content, so a
+ * zoomed-out board shows its screens instead of name-only boxes without
+ * mounting a document for every screen of a very large board. */
+export function selectStaticPreviewScreenIds({
+  candidates,
+  viewport,
+  budget = OVERVIEW_STATIC_PREVIEW_BUDGET,
+}: {
+  candidates: readonly { id: string; geometry: FrameGeometry }[];
+  viewport: OverscannedViewportBounds | null;
+  budget?: number;
+}): Set<string> {
+  if (!viewport) return new Set();
+  return new Set(
+    orderByViewportDistance(
+      candidates.filter(({ geometry }) =>
+        isFrameWithinOverscannedViewport(geometry, viewport),
+      ),
+      viewport,
+    ).slice(0, Math.max(0, Math.floor(budget))),
+  );
+}
+
+/** Ids nearest the viewport center first; input order without a viewport. */
+export function orderByViewportDistance(
+  candidates: readonly { id: string; geometry: FrameGeometry }[],
+  viewport: OverscannedViewportBounds | null,
+): string[] {
+  if (!viewport) return candidates.map(({ id }) => id);
+  return candidates
+    .map(({ id, geometry }) => ({
+      id,
+      distance: distanceSquaredToViewportCenter(geometry, viewport),
+    }))
+    .sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id))
+    .map(({ id }) => id);
+}
+
+/** New overview iframe documents admitted per animation frame. Same-process
+ * iframes are built, styled and laid out on the editor's own main thread, so
+ * mounting a zoomed-out board's worth of previews in one commit put dozens of
+ * new documents into a single frame. */
+export const OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME = 8;
+
+/** Up to this many wanted iframes mount together, so a small board renders
+ * all of its screens in its first frame instead of trickling them in. */
+export const OVERVIEW_IFRAME_INSTANT_ADMISSION_MAX = 8;
+
+/** Paces iframe mounting. `wantedIds` is priority order (nearest first); ids
+ * that left it are dropped at once, `immediateIds` never wait, and at most
+ * `perFrame` other new ids are admitted per call. The caller repeats once per
+ * animation frame until every wanted id is admitted. */
+export function admitIframesProgressively({
+  wantedIds,
+  admittedIds,
+  immediateIds,
+  perFrame = OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME,
+  instantMax = OVERVIEW_IFRAME_INSTANT_ADMISSION_MAX,
+}: {
+  wantedIds: readonly string[];
+  admittedIds: ReadonlySet<string>;
+  immediateIds: ReadonlySet<string>;
+  perFrame?: number;
+  instantMax?: number;
+}): Set<string> {
+  let budget =
+    wantedIds.length <= instantMax
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, Math.floor(perFrame));
+  const next = new Set<string>();
+  for (const id of wantedIds) {
+    if (admittedIds.has(id) || immediateIds.has(id)) {
+      next.add(id);
+    } else if (budget > 0) {
+      next.add(id);
+      budget -= 1;
+    }
+  }
+  return next;
+}
 
 export type LiveScreenBootStatus = "booting" | "ready";
 
@@ -166,6 +297,7 @@ function distanceSquaredToViewportCenter(
  * Allocation order is intentional:
  * 1. protected interactions (active, selected, dragged, text/layer edited),
  * 2. screens inside the overscanned viewport, nearest the viewport center,
+ *    preserving prior-live screens only while they overlap the raw viewport,
  * 3. previously-mounted offscreen screens, most recently visible first.
  *
  * This keeps imminent pan/zoom destinations live while guaranteeing that a
@@ -176,6 +308,7 @@ function distanceSquaredToViewportCenter(
 export function computeBoundedScreenCullState({
   candidates,
   viewport,
+  visibleViewport,
   protectedScreenIds,
   previousLiveScreenIds,
   everVisibleScreenIds,
@@ -186,6 +319,9 @@ export function computeBoundedScreenCullState({
 }: {
   candidates: readonly ScreenCullCandidate[];
   viewport: OverscannedViewportBounds | null;
+  /** The unexpanded camera viewport, used to keep overscan-only screens from
+   *  displacing screens that have just entered the actual viewport. */
+  visibleViewport: OverscannedViewportBounds | null;
   protectedScreenIds: ReadonlySet<string>;
   previousLiveScreenIds: ReadonlySet<string>;
   everVisibleScreenIds: ReadonlySet<string>;
@@ -272,6 +408,22 @@ export function computeBoundedScreenCullState({
     )
     .sort((a, b) => {
       if (!viewport) return a.id.localeCompare(b.id);
+      // Keep the live pool stable while a camera move still overlaps the raw
+      // viewport. The overscan halo is only a warm-ahead buffer, so an old
+      // overscan-only screen must not displace a screen that just entered the
+      // actual viewport.
+      const previousLiveDelta =
+        Number(
+          previousLiveScreenIds.has(b.id) &&
+            visibleViewport !== null &&
+            isFrameWithinOverscannedViewport(b.geometry, visibleViewport),
+        ) -
+        Number(
+          previousLiveScreenIds.has(a.id) &&
+            visibleViewport !== null &&
+            isFrameWithinOverscannedViewport(a.geometry, visibleViewport),
+        );
+      if (previousLiveDelta !== 0) return previousLiveDelta;
       const distanceDelta =
         distanceSquaredToViewportCenter(a.geometry, viewport) -
         distanceSquaredToViewportCenter(b.geometry, viewport);

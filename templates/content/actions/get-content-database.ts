@@ -1,16 +1,21 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import type {
   ContentDatabaseResponse,
   ContentDatabaseUnavailableResponse,
+  ContentSidebarViewOrder,
 } from "../shared/api.js";
+import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   contentDatabaseTableQuerySchema,
   getContentDatabaseResponse,
   resolveContentDatabaseRead,
 } from "./_database-utils.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 const getContentDatabaseSchema = z.object({
   databaseId: z.string().optional().describe("Collection ID"),
@@ -22,6 +27,14 @@ const getContentDatabaseSchema = z.object({
     .max(CONTENT_DATABASE_MAX_READ_LIMIT)
     .optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  contentSpaceId: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe(
+      "For the personal Favorites database only, filter rows to authoritative Files membership in this Content space before pagination.",
+    ),
   tableQuery: contentDatabaseTableQuerySchema,
 });
 
@@ -49,7 +62,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (
-    { databaseId, documentId, limit, offset, tableQuery },
+    { databaseId, documentId, limit, offset, tableQuery, contentSpaceId },
     context,
   ): Promise<ContentDatabaseResponse | ContentDatabaseUnavailableResponse> => {
     const resolved = await resolveContentDatabaseRead({
@@ -58,11 +71,42 @@ export default defineAction({
     });
     if (!resolved.available) return resolved;
 
+    let filesMembershipDatabaseId: string | undefined;
+    let sidebarOrder: ContentSidebarViewOrder | undefined;
+    if (contentSpaceId) {
+      if (resolved.database.systemRole !== "favorites") {
+        throw new Error("Content-space scope is only valid for Favorites.");
+      }
+      const db = getDb();
+      const access = await resolveContentSpaceAccess(contentSpaceId, "viewer", {
+        db,
+      });
+      filesMembershipDatabaseId = access.space.filesDatabaseId;
+      if (context?.userEmail) {
+        const sharedConfig = parseDatabaseViewConfig(
+          resolved.database.viewConfigJson,
+        );
+        const overrides = await readPersonalDatabaseViewOverrides(
+          context.userEmail,
+          resolved.database.id,
+        );
+        const activeViewId =
+          overrides?.activeViewId &&
+          sharedConfig.views.some((view) => view.id === overrides.activeViewId)
+            ? overrides.activeViewId
+            : sharedConfig.activeViewId;
+        sidebarOrder = overrides?.views.find((view) => view.id === activeViewId)
+          ?.sidebarOrder ?? { mode: "custom", itemIds: [] };
+      }
+    }
+
     return getContentDatabaseResponse(resolved.database.id, {
       limit: resolveContentDatabaseReadLimit(limit, context?.caller),
       offset,
       tableQuery,
       database: resolved.database,
+      filesMembershipDatabaseId,
+      sidebarOrder,
     });
   },
 });

@@ -12,7 +12,12 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens } from "../oauth-tokens/store.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
+
+const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
+  (...args) =>
+    import("../org/context.js").then(({ resolveOrgIdForEmail }) =>
+      resolveOrgIdForEmail(...args),
+    );
 
 export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";

@@ -159,6 +159,10 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     async (message: string, context?: string) => {
+      // Hide the answered questionnaire before rehydrating optional context.
+      // Design-system reads can take long enough that leaving the old form up
+      // makes a submitted generation look stalled and still interactive.
+      flow.clear();
       const selection = getModelSelection?.() ?? {};
       const { model, engine, effort } = selection;
       const brief = getGenerationBrief?.() ?? null;
@@ -199,7 +203,6 @@ export function useQuestionFlow(
         ...(effort ? { effort } : {}),
       });
       onContinue?.(tabId);
-      flow.clear();
     },
     [
       continuationTabId,

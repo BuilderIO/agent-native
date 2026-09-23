@@ -172,7 +172,10 @@ For complete answers, combine data from multiple sources:
 - **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
-- **Sentry** for error rates and trends
+- **Agent-Native Analytics Monitoring -> Errors** for first-party captured
+  client/server issues; use `list-error-issues` and `get-error-issue` for
+  grouped details
+- **Sentry** for external error rates and trends when connected
 - **Grafana** for infrastructure metrics
 
 ## After Completing an Analysis — Capture New Knowledge

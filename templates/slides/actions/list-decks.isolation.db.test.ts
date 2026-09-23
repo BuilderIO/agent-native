@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -184,5 +185,46 @@ describe("list-decks cross-organization isolation", () => {
         expect(first.nextCursor).toBeUndefined();
       },
     );
+  });
+
+  it("does not fail the light+preview listing when one deck's data isn't valid JSON", async () => {
+    // The preview projection casts `data::jsonb` inside the query itself, so
+    // this row's non-JSON `data` (a legacy/corrupted write) fails that cast
+    // against the real Postgres-compatible engine — proving the bug, not
+    // just the mocked recovery path in list-decks.test.ts.
+    await getDb().insert(schema.decks).values({
+      id: "deck-a-corrupted",
+      title: "Org A corrupted",
+      data: "not valid json {{{",
+      ownerEmail: ALICE,
+      orgId: ORG_A,
+      visibility: "private",
+      createdAt: "2026-05-06T00:00:00.000Z",
+      updatedAt: "2026-05-06T00:00:00.000Z",
+    });
+    try {
+      await runWithRequestContext(
+        { userEmail: ALICE, orgId: ORG_A },
+        async () => {
+          const result: any = await listDecks.run(
+            { light: "true", includePreview: "true" } as any,
+            {} as any,
+          );
+          const decks = result.decks as any[];
+          expect(decks.map((d) => d.id).sort()).toEqual([
+            "deck-a-corrupted",
+            "deck-a-private",
+          ]);
+          const good = decks.find((d) => d.id === "deck-a-private");
+          expect(good.previewSlide).toEqual({ id: "s1" });
+          const corrupted = decks.find((d) => d.id === "deck-a-corrupted");
+          expect(corrupted).not.toHaveProperty("previewSlide");
+        },
+      );
+    } finally {
+      await getDb()
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, "deck-a-corrupted"));
+    }
   });
 });

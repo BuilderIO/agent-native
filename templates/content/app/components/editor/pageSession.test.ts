@@ -33,6 +33,28 @@ describe("savePageWithRecovery", () => {
     expect(clear).not.toHaveBeenCalled();
   });
 
+  it("leaves a superseded queued save to its newer local generation", async () => {
+    const retain = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      savePageWithRecovery({
+        save: () =>
+          Promise.resolve({
+            contentPersisted: false,
+            outcome: "superseded",
+          }),
+        retain,
+        clear,
+      }),
+    ).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "superseded",
+    });
+    expect(retain).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+  });
+
   it("clears a retained draft only after the primary edit persists", async () => {
     const retain = vi.fn().mockResolvedValue(undefined);
     const clear = vi.fn().mockResolvedValue(undefined);

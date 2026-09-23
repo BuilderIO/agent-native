@@ -20,6 +20,22 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
+// The player payload's tag read is a *projected* select, so it needs its own
+// builder: the share builder below resolves through `limit`, not `orderBy`.
+const mockTagRows = vi.hoisted(() =>
+  vi.fn(async () => [] as { tag: string }[]),
+);
+const mockTagsQuery = vi.hoisted(() => {
+  const query = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+  };
+  query.from.mockReturnValue(query);
+  query.where.mockReturnValue(query);
+  query.orderBy.mockImplementation(() => mockTagRows());
+  return query;
+});
 // Unselected `db.select()` means the run reached the player payload queries.
 // It throws unless a test opts in by installing a builder, which keeps the
 // access-gate tests honest about never getting that far.
@@ -34,8 +50,18 @@ const mockDb = vi.hoisted(() => ({
       }
       return mockPlayerQuery.build();
     }
+    if (
+      typeof selection === "object" &&
+      selection !== null &&
+      "tag" in selection
+    ) {
+      return mockTagsQuery;
+    }
     return mockShareQuery;
   }),
+  // The player's tag read is DISTINCT — `recording_tags` carries no unique
+  // (recording_id, tag) constraint, so duplicate rows are possible.
+  selectDistinct: vi.fn(() => mockTagsQuery),
 }));
 const mockCountRecordingViews = vi.hoisted(() =>
   vi.fn(async (_recordingId: string) => 0),
@@ -121,6 +147,10 @@ vi.mock("../server/db/index.js", () => ({
     recordingCtas: {
       recordingId: "recordingCtas.recordingId",
       createdAt: "recordingCtas.createdAt",
+    },
+    recordingTags: {
+      recordingId: "recordingTags.recordingId",
+      tag: "recordingTags.tag",
     },
     recordingBrowserDiagnostics: {
       recordingId: "recordingBrowserDiagnostics.recordingId",
@@ -290,6 +320,50 @@ describe("get-recording-player-data view count", () => {
     // Going through the shared helper is what keeps this number identical to
     // list-recordings.viewCount and get-recording-insights.views.
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+  });
+
+  it("holds the filmstrip back while redactions are pending", async () => {
+    // The sprite is a grid of frames cut from the stored file, so it shows the
+    // very thing a pending box is covering — and it is fetched from storage
+    // directly, not through a route that can refuse.
+    // A viewer needs an explicit share to open a recording directly.
+    mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "https://cdn.example.com/video.mp4",
+        filmstripUrl: "https://cdn.example.com/strip.jpg",
+        editsJson: JSON.stringify({
+          trims: [],
+          overlays: [
+            {
+              kind: "redact",
+              id: "r1",
+              startMs: 0,
+              endMs: 5_000,
+              keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+            },
+          ],
+        }),
+      },
+    });
+    mockPlayerQuery.build = () => {
+      const query: Record<string, unknown> = {};
+      query.from = () => query;
+      query.where = () => query;
+      query.orderBy = async () => [];
+      query.limit = async () => [];
+      query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+      return query;
+    };
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.filmstripUrl).toBeNull();
   });
 
   it("reports zero views without failing the player payload", async () => {

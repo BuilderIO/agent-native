@@ -18,6 +18,7 @@ export const triageItems = table(
     summary: text("summary"),
     status: text("status").notNull().default("received"),
     risk: text("risk").notNull().default("unknown"),
+    confidence: text("confidence").notNull().default("unknown"),
     channelId: text("channel_id"),
     threadTs: text("thread_ts"),
     repository: text("repository"),

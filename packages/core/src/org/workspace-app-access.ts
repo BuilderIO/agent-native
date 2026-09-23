@@ -4,9 +4,8 @@ import { getDbExec, type DbExec } from "../db/client.js";
 import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
-} from "../server/credential-provider.js";
+} from "../server/deployment-protection.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
-import { getOrgA2ASecret, getOrgDomain } from "./context.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
@@ -122,7 +121,12 @@ async function hostedWorkspaceAppAccess(
 
   const orgId = context.orgId?.trim() || null;
   const [orgDomain, orgSecret] = orgId
-    ? await Promise.all([getOrgDomain(orgId), getOrgA2ASecret(orgId)])
+    ? await Promise.all([
+        import("./context.js").then(({ getOrgDomain }) => getOrgDomain(orgId)),
+        import("./context.js").then(({ getOrgA2ASecret }) =>
+          getOrgA2ASecret(orgId),
+        ),
+      ])
     : [null, null];
 
   let token: string;

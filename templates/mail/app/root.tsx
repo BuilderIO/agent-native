@@ -5,6 +5,7 @@ import {
   AppProviders,
   createAgentNativeQueryClient,
 } from "@agent-native/core/client/hooks";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -22,8 +23,8 @@ import {
   ErrorReportActions,
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -46,7 +47,6 @@ import {
   MAIL_INTEGRATION_STATUS_QUERY_KEY,
   mailIntegrationProviderFromAppStateKey,
 } from "@/lib/integration-status";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -345,8 +345,117 @@ function VisibilityRefresh() {
   return null;
 }
 
+type MailSyncEvent = {
+  source?: string;
+  type: string;
+  path?: string;
+  key?: string;
+  requestSource?: string;
+};
+
+/**
+ * Builds DbSyncSetup's `onEvent` handler. A factory (rather than an inline
+ * closure) so the refresh-signal coalescing flag below is scoped to one
+ * handler instance instead of the component, and so it's callable directly
+ * from a test without mounting the component.
+ */
+export function createMailSyncEventHandler(qc: QueryClient) {
+  // Coalesces refresh-signal's inbox/label invalidation to once per sync
+  // batch: core's useDbSync forwards every event in a batch to onEvent
+  // synchronously (see use-db-sync.ts), and a batch of N refresh-signal
+  // events used to cancel-and-restart list-inbox-threads/list-labels N
+  // times with TanStack's default cancelRefetch:true.
+  let refreshSignalInvalidationScheduled = false;
+
+  return (data: MailSyncEvent) => {
+    // Ignore events we caused — the mutation's onSettled handles our own updates
+    const isOwnEvent = data.requestSource === TAB_ID;
+    const invalidateSettingsSurfaces = () => {
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["automations"] });
+      void qc.invalidateQueries({ queryKey: ["gmail-filters"] });
+      void qc.invalidateQueries({ queryKey: ["google-status"] });
+      void qc.invalidateQueries({ queryKey: ["automation-settings"] });
+      void qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
+      void qc.invalidateQueries({ queryKey: ["agent-engines"] });
+    };
+
+    if (data.source === "app-state") {
+      const integrationProvider = mailIntegrationProviderFromAppStateKey(
+        data.key,
+      );
+      if (integrationProvider && !isOwnEvent) {
+        void qc.invalidateQueries({
+          queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+        });
+        void qc.invalidateQueries({
+          queryKey:
+            integrationProvider === "*"
+              ? ["integration-data"]
+              : ["integration-data", integrationProvider],
+        });
+      }
+      if (
+        (data.key?.startsWith("compose-") || data.key === "*") &&
+        !isOwnEvent
+      ) {
+        void qc.invalidateQueries({
+          queryKey: ["compose-drafts"],
+          refetchType: "all",
+        });
+      }
+      if (data.key === "refresh-signal" && !isOwnEvent) {
+        markExternalEmailRefresh();
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["email"] });
+        // A pure app-state batch never reaches core's own ["action"]
+        // invalidation (that only fires for a data-changing event source),
+        // so this is the only refresh these two get — but a batch can
+        // carry several refresh-signal events, so schedule at most one
+        // invalidation per batch instead of one per event.
+        if (!refreshSignalInvalidationScheduled) {
+          refreshSignalInvalidationScheduled = true;
+          queueMicrotask(() => {
+            refreshSignalInvalidationScheduled = false;
+            void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+            void invalidateInboxThreads(qc);
+          });
+        }
+      }
+    } else if (data.source === "settings") {
+      if (!isOwnEvent) {
+        void qc.invalidateQueries({ queryKey: ["settings"] });
+        void qc.invalidateQueries({ queryKey: ["aliases"] });
+        // list-inbox-threads/list-labels are ["action", ...]-keyed, so
+        // core's useDbSync already refreshed them above through
+        // shouldInvalidateMailQueryForActionEvent, without cancelling an
+        // in-flight poll and with a trailing refresh. Invalidating them
+        // again here only re-triggers TanStack's default cancelRefetch.
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["email"] });
+        invalidateSettingsSurfaces();
+      }
+    } else if (data.source === "action") {
+      // The core sync hook already refreshes action-backed queries for action
+      // events. Email and label reads are refreshed by the explicit
+      // refresh-signal app-state event so generic action changes do not
+      // cancel and restart Gmail list requests.
+    } else if (data.source === "screen-refresh") {
+      if (!isOwnEvent) {
+        markExternalEmailRefresh();
+        // See the "settings" branch above: core already refreshed
+        // list-inbox-threads/list-labels without cancelling in flight.
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["email"] });
+        invalidateSettingsSurfaces();
+      }
+    }
+  };
+}
+
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const onEvent = useMemo(() => createMailSyncEventHandler(qc), [qc]);
 
   useDbSync({
     queryClient: qc,
@@ -356,82 +465,7 @@ function DbSyncSetup() {
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
-    onEvent: (data: {
-      source?: string;
-      type: string;
-      path?: string;
-      key?: string;
-      requestSource?: string;
-    }) => {
-      // Ignore events we caused — the mutation's onSettled handles our own updates
-      const isOwnEvent = data.requestSource === TAB_ID;
-      const invalidateSettingsSurfaces = () => {
-        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-        void qc.invalidateQueries({ queryKey: ["automations"] });
-        void qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        void qc.invalidateQueries({ queryKey: ["google-status"] });
-        void qc.invalidateQueries({ queryKey: ["automation-settings"] });
-        void qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
-        void qc.invalidateQueries({ queryKey: ["agent-engines"] });
-      };
-
-      if (data.source === "app-state") {
-        const integrationProvider = mailIntegrationProviderFromAppStateKey(
-          data.key,
-        );
-        if (integrationProvider && !isOwnEvent) {
-          void qc.invalidateQueries({
-            queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
-          });
-          void qc.invalidateQueries({
-            queryKey:
-              integrationProvider === "*"
-                ? ["integration-data"]
-                : ["integration-data", integrationProvider],
-          });
-        }
-        if (
-          (data.key?.startsWith("compose-") || data.key === "*") &&
-          !isOwnEvent
-        ) {
-          void qc.invalidateQueries({
-            queryKey: ["compose-drafts"],
-            refetchType: "all",
-          });
-        }
-        if (data.key === "refresh-signal" && !isOwnEvent) {
-          markExternalEmailRefresh();
-          void qc.invalidateQueries({ queryKey: ["emails"] });
-          void qc.invalidateQueries({ queryKey: ["email"] });
-          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
-          void invalidateInboxThreads(qc);
-        }
-      } else if (data.source === "settings") {
-        if (!isOwnEvent) {
-          void qc.invalidateQueries({ queryKey: ["settings"] });
-          void qc.invalidateQueries({ queryKey: ["aliases"] });
-          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
-          void invalidateInboxThreads(qc);
-          void qc.invalidateQueries({ queryKey: ["emails"] });
-          void qc.invalidateQueries({ queryKey: ["email"] });
-          invalidateSettingsSurfaces();
-        }
-      } else if (data.source === "action") {
-        // The core sync hook already refreshes action-backed queries for action
-        // events. Email and label reads are refreshed by the explicit
-        // refresh-signal app-state event so generic action changes do not
-        // cancel and restart Gmail list requests.
-      } else if (data.source === "screen-refresh") {
-        if (!isOwnEvent) {
-          markExternalEmailRefresh();
-          void qc.invalidateQueries({ queryKey: ["emails"] });
-          void qc.invalidateQueries({ queryKey: ["email"] });
-          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
-          void invalidateInboxThreads(qc);
-          invalidateSettingsSurfaces();
-        }
-      }
-    },
+    onEvent,
   });
   return null;
 }
@@ -454,6 +488,17 @@ function AppContent() {
   );
 }
 
+/**
+ * Bypass requires an actual embed credential, not just the `embedded=1`
+ * display flag isMcpEmbedSurface() checks (that flag stays app-chrome-only —
+ * see its other call sites): the Electron desktop shell opens every app tab
+ * with that flag and no token, and a bare-flag bypass sent those signed-out
+ * tabs straight into an infinite 401 poll instead of sign-in.
+ */
+export function computeSessionBypass(): boolean {
+  return Boolean(getEmbedAuthToken());
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
@@ -466,7 +511,7 @@ export default function Root() {
         tooltipDelayDuration={300}
         isPublicPath={isMarketingPath}
         toaster={isMarketingPath ? null : MAIL_TOASTER}
-        sessionBypass={isMcpEmbedSurface()}
+        sessionBypass={computeSessionBypass()}
         i18n={{ catalog: i18nCatalog }}
       >
         {isMarketingPath ? <Outlet /> : <AppContent />}

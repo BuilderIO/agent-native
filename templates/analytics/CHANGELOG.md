@@ -3,6 +3,16 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-22
+
+### Improved
+
+- Daily chart tooltips show the weekday alongside the date
+
+### Fixed
+
+- Analytics now distinguishes timeline-only sessions from missing replay data
+
 ## 2026-09-16
 
 ### Improved

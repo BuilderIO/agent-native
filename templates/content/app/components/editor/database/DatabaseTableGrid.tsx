@@ -85,7 +85,7 @@ export function DatabaseTableGrid({
     <Cell
       key="selection-gutter"
       data-table-selection-gutter=""
-      className="sticky left-0 z-20 flex min-w-0 items-center justify-start bg-inherit"
+      className="sticky start-0 z-20 flex min-w-0 items-center justify-start border-r border-border/35 bg-inherit"
     >
       {selectionCell}
     </Cell>,
@@ -101,11 +101,11 @@ export function DatabaseTableGrid({
           data-table-frozen={frozen ? "" : undefined}
           data-table-freeze-boundary={freezeBoundary ? "" : undefined}
           className={cn(
-            "grid min-w-0",
+            "grid min-w-0 items-center border-r border-border/35",
             frozen && "sticky z-10 bg-inherit",
             freezeBoundary && "border-r border-border/60",
           )}
-          style={frozen ? { left } : undefined}
+          style={frozen ? { insetInlineStart: left } : undefined}
         >
           {id === "name" ? nameCell : cells.get(id)}
         </Cell>

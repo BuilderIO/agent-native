@@ -38,6 +38,7 @@ import {
   sortBabysitQueueRows,
 } from "../server/triage/babysit-queue.js";
 import {
+  triageConfidenceSchema,
   triageItemStatusSchema,
   triageRiskSchema,
   triageSourceSchema,
@@ -51,12 +52,13 @@ import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
-    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Each item includes author when the source stored one. Results are scoped to the active workspace and include the latest shadow decision summary. Optional status, source, risk, and updatedAfter (ISO timestamp) filters narrow the queue. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
+    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Each item includes author when the source stored one. Results are scoped to the active workspace and include the latest shadow decision summary. Optional status, source, risk, confidence, and updatedAfter (ISO timestamp) filters narrow the queue. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     status: triageItemStatusSchema.optional(),
     source: triageSourceSchema.optional(),
     risk: triageRiskSchema.optional(),
+    confidence: triageConfidenceSchema.optional(),
     updatedAfter: z.string().trim().min(1).max(40).optional(),
     needsReview: z.boolean().default(false),
     limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -70,6 +72,7 @@ export default defineAction({
       status,
       source,
       risk,
+      confidence,
       updatedAfter,
       needsReview,
       limit,
@@ -155,6 +158,7 @@ export default defineAction({
                 : undefined,
             source ? eq(triageItems.source, source) : undefined,
             risk ? eq(triageItems.risk, risk) : undefined,
+            confidence ? eq(triageItems.confidence, confidence) : undefined,
             updatedAfterBound
               ? gte(triageItems.updatedAt, updatedAfterBound)
               : undefined,
@@ -287,6 +291,7 @@ export default defineAction({
         summary: item.summary,
         status: item.status,
         risk: item.risk,
+        confidence: item.confidence,
         coverage: item.coverage,
         repository: item.repository,
         pullRequestNumber: item.pullRequestNumber,
@@ -330,6 +335,7 @@ export default defineAction({
           status: status ?? null,
           source: source ?? null,
           risk: risk ?? null,
+          confidence: confidence ?? null,
           updatedAfter: updatedAfterBound ?? null,
           itemIds: listedItems.map((item) => item.itemId),
           listedItems: listedItems.map((item) => ({

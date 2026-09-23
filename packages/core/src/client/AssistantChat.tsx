@@ -893,7 +893,7 @@ function ComposerAttachmentPreviewCard({
         "group relative overflow-hidden border border-border/70 bg-muted/50 text-foreground",
         isImage
           ? "h-20 w-20 rounded-xl shadow-[0_12px_30px_-18px_rgba(0,0,0,0.7)]"
-          : "inline-flex max-w-[220px] items-center gap-2 rounded-lg px-2.5 py-2 text-xs",
+          : "inline-flex min-w-0 max-w-[220px] items-center gap-2 rounded-lg px-2.5 py-2 pe-9 text-xs",
       )}
     >
       {isImage ? (
@@ -914,9 +914,9 @@ function ComposerAttachmentPreviewCard({
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             {attachment.name.split(".").pop() || "file"}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate font-medium">{attachment.name}</div>
-            <div className="text-[11px] text-muted-foreground">
+            <div className="truncate text-[11px] text-muted-foreground">
               {attachment.contentType || attachment.type}
             </div>
           </div>
@@ -926,7 +926,7 @@ function ComposerAttachmentPreviewCard({
         type="button"
         onClick={() => onRemove(attachment.id)}
         className={cn(
-          "absolute flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/95 text-muted-foreground shadow-sm transition hover:text-foreground",
+          "absolute flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/95 text-foreground shadow-sm transition-colors hover:bg-accent",
           isImage
             ? "end-1.5 top-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100"
             : "end-1.5 top-1.5",

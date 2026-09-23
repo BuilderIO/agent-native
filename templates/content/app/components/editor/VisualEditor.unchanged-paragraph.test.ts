@@ -20,6 +20,54 @@ const canonical =
   "This reads more clearly than the original.\u00a0Indeed.\nEditors publish carefully.\nAlso:\u00a0Final sentence.\u00a0Added words\u00a0revised\u00a0finally.";
 
 describe("saved unchanged paragraph presentation", () => {
+  it("renders an action-created replacement through surrounding canonicalization", () => {
+    const raw =
+      "# Review notes\n\nEditors publish carefully.\n\n- Verify preview\n- Verify highlight";
+    const changedText = "Editors publish carefully.";
+    const replacement = "Editors publish deliberately.";
+    const from = raw.indexOf(changedText);
+    const operation = {
+      ordinal: 0,
+      kind: "replace_text",
+      targetId: "body",
+      schemaVersion: 1,
+      before: { markdown: raw, changedText },
+      after: {
+        markdown:
+          raw.slice(0, from) +
+          replacement +
+          raw.slice(from + changedText.length),
+        changedText: replacement,
+      },
+      anchor: {
+        from,
+        to: from + changedText.length,
+        prefix: raw.slice(Math.max(0, from - 32), from),
+        suffix: raw.slice(
+          from + changedText.length,
+          from + changedText.length + 32,
+        ),
+      },
+    };
+    const presentation = suggestionPresentation(
+      { id: "action-created", status: "pending", operations: [operation] },
+      raw,
+    );
+    expect(presentation).not.toBeNull();
+
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(raw),
+    });
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, presentation!),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("reconstructs persisted raw paragraph and list highlights after reload", () => {
     const raw =
       "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";

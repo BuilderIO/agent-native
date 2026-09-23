@@ -8,7 +8,7 @@
 
 import { IconBolt, IconLoader2 } from "@tabler/icons-react";
 
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 export function BuilderTranscriptionCta() {
@@ -45,7 +45,7 @@ export function BuilderTranscriptionCta() {
       {flow.connecting ? (
         <IconLoader2 size={12} className="shrink-0 animate-spin" />
       ) : (
-        <BuilderConnectPopover flow={flow}>
+        <DeferredBuilderConnectPopover flow={flow}>
           <button
             type="button"
             disabled={flow.connecting}
@@ -53,7 +53,7 @@ export function BuilderTranscriptionCta() {
           >
             {statusUnavailable || flow.error ? "Retry" : "Connect"}
           </button>
-        </BuilderConnectPopover>
+        </DeferredBuilderConnectPopover>
       )}
     </div>
   );

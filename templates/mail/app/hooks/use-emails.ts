@@ -1402,13 +1402,13 @@ export function useEmails(
   // partial failure on page 2 must not get silently dropped just because
   // page 1 fetched clean.
   const accountErrors = useMemo(() => {
-    if (!q.data) return undefined;
+    if (!q.data || q.isPlaceholderData) return undefined;
     const byEmail = new Map<string, AccountError>();
     for (const page of q.data.pages as EmailsPage[]) {
       for (const err of page.accountErrors ?? []) byEmail.set(err.email, err);
     }
     return byEmail.size > 0 ? [...byEmail.values()] : undefined;
-  }, [q.data]);
+  }, [q.data, q.isPlaceholderData]);
 
   // Placeholder InfiniteData includes the previous query's page token. Keep
   // pagination disabled until the new query owns the pages.
@@ -3143,12 +3143,13 @@ export function useLabels(accountEmails?: readonly string[]) {
       staleTime: 60_000,
     },
   );
-  const accountErrors: AccountError[] | undefined = query.data?.errors.length
-    ? query.data.errors.map(({ accountEmail, error }) => ({
-        email: accountEmail,
-        error,
-      }))
-    : undefined;
+  const accountErrors: AccountError[] | undefined =
+    !query.isPlaceholderData && query.data?.errors.length
+      ? query.data.errors.map(({ accountEmail, error }) => ({
+          email: accountEmail,
+          error,
+        }))
+      : undefined;
   return { ...query, data: query.data?.labels, accountErrors };
 }
 

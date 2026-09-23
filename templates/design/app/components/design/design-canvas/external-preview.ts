@@ -86,20 +86,34 @@ export type BridgeRegistrationFailureKind =
   | "unreachable"
   | "stalePreviewToken";
 
-export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
+export type LocalNetworkAccessPermissionState =
+  | "granted"
+  | "prompt"
+  | "denied"
+  | "unsupported";
+
+export async function getLocalNetworkAccessPermissionState(): Promise<LocalNetworkAccessPermissionState> {
   try {
     if (typeof navigator === "undefined" || !navigator.permissions?.query) {
-      return "maybePermissionBlocked";
+      return "unsupported";
     }
     const status = await navigator.permissions.query({
       name: "local-network-access" as PermissionName,
     });
-    return status.state === "granted"
-      ? "unreachable"
-      : "maybePermissionBlocked";
+    return status.state === "granted" ||
+      status.state === "prompt" ||
+      status.state === "denied"
+      ? status.state
+      : "unsupported";
   } catch {
-    return "maybePermissionBlocked";
+    return "unsupported";
   }
+}
+
+export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
+  return (await getLocalNetworkAccessPermissionState()) === "granted"
+    ? "unreachable"
+    : "maybePermissionBlocked";
 }
 
 export function shouldUseIframeLoadReadyFallback(

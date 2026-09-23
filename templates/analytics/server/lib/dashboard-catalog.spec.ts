@@ -298,6 +298,34 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("keeps signed-in activity panels resilient to session telemetry gaps", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+    }>;
+
+    for (const id of [
+      "repeat-users",
+      "dau-over-time",
+      "wau-over-time",
+      "retention-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+      "recurring-users-by-template",
+      "recurring-users-by-template-bar",
+    ]) {
+      const catalogSql = requiredFirstPartyPanel(id).sql;
+      const seedSql = seedPanels.find((panel) => panel.id === id)?.sql;
+      for (const sql of [catalogSql, seedSql]) {
+        expect(sql).toContain(
+          "event_name IN ('session status', 'session_status')",
+        );
+        expect(sql).toContain("event_name = 'app_entered'");
+      }
+    }
+  });
+
   it("replaces the original retention-over-time description alongside its legacy SQL", () => {
     const current = requiredFirstPartyPanel("retention-over-time");
     const repaired = repairFirstPartyObservedRetentionPanels({

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   admitBootBudget,
+  admitIframesProgressively,
   clampFrameGeometryToViewport,
   computeBoundedScreenCullState,
   computeScreenCullTier,
@@ -12,9 +13,15 @@ import {
   isFrameWithinOverscannedViewport,
   OVERVIEW_CULLING_ENABLED,
   OVERVIEW_CULLING_OVERSCAN_FACTOR,
+  OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME,
+  OVERVIEW_IFRAME_INSTANT_ADMISSION_MAX,
   OVERVIEW_LIVE_IFRAME_CEILING,
   OVERVIEW_LIVE_BOOT_BUDGET,
+  OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX,
   OVERVIEW_LIVE_SCREEN_BUDGET,
+  orderByViewportDistance,
+  resolveLiveEditorScreenIds,
+  selectStaticPreviewScreenIds,
   type ScreenCullCandidate,
   type OverscannedViewportBounds,
 } from "./multi-screen/culling";
@@ -36,8 +43,8 @@ describe("MultiScreenCanvas viewport culling", () => {
     expect(OVERVIEW_CULLING_ENABLED).toBe(true);
   });
 
-  it("uses a generous (>=1.5x) overscan factor by default", () => {
-    expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(1.5);
+  it("uses enough overscan to absorb a settled pan", () => {
+    expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(2);
   });
 
   describe("live boot admission", () => {
@@ -181,6 +188,7 @@ describe("MultiScreenCanvas viewport culling", () => {
       candidates: ScreenCullCandidate[],
       options: {
         viewport?: OverscannedViewportBounds | null;
+        visibleViewport?: OverscannedViewportBounds | null;
         protectedIds?: ReadonlySet<string>;
         previous?: ReturnType<typeof computeBoundedScreenCullState>;
         epoch?: number;
@@ -191,6 +199,12 @@ describe("MultiScreenCanvas viewport culling", () => {
       return computeBoundedScreenCullState({
         candidates,
         viewport: options.viewport === undefined ? viewport : options.viewport,
+        visibleViewport:
+          options.visibleViewport === undefined
+            ? options.viewport === undefined
+              ? viewport
+              : options.viewport
+            : options.visibleViewport,
         protectedScreenIds: options.protectedIds ?? new Set(),
         previousLiveScreenIds:
           options.previous?.liveScreenIds ?? new Set<string>(),
@@ -247,6 +261,90 @@ describe("MultiScreenCanvas viewport culling", () => {
       const second = compute(candidates, { previous: first, epoch: 2 });
       expect(second.liveScreenIds).toEqual(first.liveScreenIds);
       expect([...second.tierByScreenId.values()]).not.toContain("evicted");
+    });
+
+    it("preserves mounted screens across an overlapping camera move", () => {
+      const candidates = [
+        candidate("old-a", 0),
+        candidate("old-b", 100),
+        candidate("new-a", 4_000),
+        candidate("new-b", 4_100),
+      ];
+      const firstViewport = { left: 0, top: 0, right: 100, bottom: 1_000 };
+      const overlappingViewport = {
+        left: 0,
+        top: 0,
+        right: 5_000,
+        bottom: 1_000,
+      };
+      const first = compute(candidates, {
+        viewport: firstViewport,
+        budget: 2,
+        epoch: 1,
+      });
+      expect(first.liveScreenIds).toEqual(new Set(["old-a", "old-b"]));
+
+      const second = compute(candidates, {
+        viewport: overlappingViewport,
+        budget: 2,
+        epoch: 2,
+        previous: first,
+      });
+      expect(second.liveScreenIds).toEqual(new Set(["old-a", "old-b"]));
+      expect(second.tierByScreenId.get("new-a")).toBe("placeholder");
+      expect(second.tierByScreenId.get("new-b")).toBe("placeholder");
+    });
+
+    it("admits a screen in the overscan band before it reaches the raw viewport", () => {
+      const result = compute(
+        [{ id: "prewarm", geometry: geom(150, 100, 20, 20), iframeCount: 1 }],
+        {
+          viewport: { left: 0, top: 0, right: 200, bottom: 200 },
+          visibleViewport: { left: 0, top: 0, right: 100, bottom: 200 },
+          screenBudget: 1,
+        },
+      );
+
+      expect(result.liveScreenIds).toEqual(new Set(["prewarm"]));
+      expect(result.tierByScreenId.get("prewarm")).toBe("visible");
+    });
+
+    it("lets raw-visible screens replace prior overscan-only screens", () => {
+      const candidates = [
+        candidate("old-a", 0),
+        candidate("old-b", 100),
+        candidate("new-a", 4_000),
+        candidate("new-b", 4_100),
+      ];
+      const firstViewport = { left: 0, top: 0, right: 100, bottom: 1_000 };
+      const wideOverscanViewport = {
+        left: 0,
+        top: 0,
+        right: 5_000,
+        bottom: 1_000,
+      };
+      const rawNewViewport = {
+        left: 3_900,
+        top: 0,
+        right: 4_500,
+        bottom: 1_000,
+      };
+      const first = compute(candidates, {
+        viewport: firstViewport,
+        visibleViewport: firstViewport,
+        budget: 2,
+        epoch: 1,
+      });
+      const second = compute(candidates, {
+        viewport: wideOverscanViewport,
+        visibleViewport: rawNewViewport,
+        budget: 2,
+        epoch: 2,
+        previous: first,
+      });
+      expect(second.liveScreenIds).toEqual(new Set(["new-a", "new-b"]));
+      expect(second.tierByScreenId.get("old-a")).toBe("evicted");
+      expect(second.tierByScreenId.get("old-b")).toBe("evicted");
     });
 
     it("still bounds a huge breakpoint-bearing board by the iframe ceiling", () => {
@@ -758,5 +856,152 @@ describe("MultiScreenCanvas viewport culling", () => {
         geometry,
       );
     });
+  });
+});
+
+describe("overview level of detail", () => {
+  const none = new Set<string>();
+
+  it("promotes a screen to a live editor once it is wide enough on screen", () => {
+    const candidates = [
+      { id: "phone", width: 390, alwaysLive: false },
+      { id: "desktop", width: 1440, alwaysLive: false },
+      { id: "app", width: 390, alwaysLive: true },
+    ];
+    expect([
+      ...resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: 10,
+        previousIds: none,
+      }),
+    ]).toEqual(["app"]);
+    const zoomPercent = Math.ceil(
+      (OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX / 1440) * 100,
+    );
+    expect([
+      ...resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent,
+        previousIds: none,
+      }),
+    ]).toEqual(["desktop", "app"]);
+  });
+
+  it("keeps a live editor through a small zoom-out instead of reloading it", () => {
+    const candidates = [{ id: "a", width: 1000, alwaysLive: false }];
+    const justBelow = (OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX / 1000) * 90;
+    expect(
+      resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: justBelow,
+        previousIds: none,
+      }).has("a"),
+    ).toBe(false);
+    expect(
+      resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: justBelow,
+        previousIds: new Set(["a"]),
+      }).has("a"),
+    ).toBe(true);
+    expect(
+      resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: justBelow / 2,
+        previousIds: new Set(["a"]),
+      }).has("a"),
+    ).toBe(false);
+  });
+
+  it("mounts static previews nearest the viewport center within budget", () => {
+    const viewport = { left: 0, top: 0, right: 1000, bottom: 1000 };
+    const candidates = [
+      { id: "far", geometry: geom(900, 0, 50, 50) },
+      { id: "center", geometry: geom(475, 475, 50, 50) },
+      { id: "near", geometry: geom(300, 475, 50, 50) },
+      { id: "outside", geometry: geom(5000, 0, 50, 50) },
+    ];
+    expect([
+      ...selectStaticPreviewScreenIds({ candidates, viewport, budget: 2 }),
+    ]).toEqual(["center", "near"]);
+    expect(
+      selectStaticPreviewScreenIds({ candidates, viewport: null }).size,
+    ).toBe(0);
+  });
+});
+
+describe("progressive iframe admission", () => {
+  const ids = (count: number) =>
+    Array.from({ length: count }, (_, index) => `s${index}`);
+  const none = new Set<string>();
+
+  it("orders ids nearest the viewport center first", () => {
+    const viewport = { left: 0, top: 0, right: 1000, bottom: 1000 };
+    const candidates = [
+      { id: "far", geometry: geom(900, 900, 50, 50) },
+      { id: "center", geometry: geom(475, 475, 50, 50) },
+      { id: "near", geometry: geom(300, 475, 50, 50) },
+    ];
+    expect(orderByViewportDistance(candidates, viewport)).toEqual([
+      "center",
+      "near",
+      "far",
+    ]);
+    expect(orderByViewportDistance(candidates, null)).toEqual([
+      "far",
+      "center",
+      "near",
+    ]);
+  });
+
+  it("admits a large wanted set a frame's budget at a time, in priority order", () => {
+    const wantedIds = ids(20);
+    const first = admitIframesProgressively({
+      wantedIds,
+      admittedIds: none,
+      immediateIds: none,
+    });
+    expect([...first]).toEqual(
+      wantedIds.slice(0, OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME),
+    );
+    const second = admitIframesProgressively({
+      wantedIds,
+      admittedIds: first,
+      immediateIds: none,
+    });
+    expect([...second]).toEqual(
+      wantedIds.slice(0, OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME * 2),
+    );
+    expect(
+      admitIframesProgressively({
+        wantedIds,
+        admittedIds: second,
+        immediateIds: none,
+        perFrame: 0,
+      }),
+    ).toEqual(second);
+  });
+
+  it("admits a small wanted set at once so a small board never trickles in", () => {
+    const wantedIds = ids(OVERVIEW_IFRAME_INSTANT_ADMISSION_MAX);
+    expect([
+      ...admitIframesProgressively({
+        wantedIds,
+        admittedIds: none,
+        immediateIds: none,
+        perFrame: 0,
+      }),
+    ]).toEqual(wantedIds);
+  });
+
+  it("never delays immediate ids and drops ids that are no longer wanted", () => {
+    const wantedIds = ids(20);
+    const next = admitIframesProgressively({
+      wantedIds,
+      admittedIds: new Set(["gone", "s0"]),
+      immediateIds: new Set(["s19", "not-wanted"]),
+      perFrame: 1,
+    });
+    expect([...next]).toEqual(["s0", "s1", "s19"]);
   });
 });

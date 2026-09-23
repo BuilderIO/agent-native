@@ -10,11 +10,11 @@ import {
   workspacePackages,
 } from "./netlify-pr-preview-targets.ts";
 
-test("workspacePackages throws when a checkout has neither packages/ nor templates/", () => {
+test("workspacePackages throws when a checkout has no package manifests", () => {
   const emptyRepoRoot = mkdtempSync(path.join(tmpdir(), "netlify-preview-"));
   assert.throws(
     () => workspacePackages(emptyRepoRoot),
-    /neither packages\/ nor templates\/ exists/,
+    /neither packages\/, templates\/, nor community-templates\/ exists/,
   );
 });
 
@@ -90,6 +90,12 @@ test("previews the docs site for app changes but skips prose and hidden template
   assert.deepEqual(previewSitesForChangedPaths(["templates/crm/app.tsx"]), []);
   assert.deepEqual(
     previewSitesForChangedPaths(["templates/factory/app.tsx"]),
+    [],
+  );
+  assert.deepEqual(
+    previewSitesForChangedPaths([
+      "community-templates/account-tiering/app.tsx",
+    ]),
     [],
   );
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);

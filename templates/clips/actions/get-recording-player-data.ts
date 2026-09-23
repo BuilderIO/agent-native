@@ -6,6 +6,7 @@
  *   - comments (flat list — UI groups into threads)
  *   - reactions
  *   - chapters (parsed from recording.chaptersJson)
+ *   - tags
  *   - CTAs
  *   - counted-view total
  *
@@ -29,6 +30,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { isHeldForRedaction } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -99,7 +101,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, tags, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     transcriptOffset: z.coerce.number().int().min(0).optional(),
@@ -226,6 +228,17 @@ export default defineAction({
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
 
+    // DISTINCT because `recording_tags` carries no unique (recording_id, tag)
+    // constraint: `tag-recording` checks-then-inserts, so two editors adding
+    // the same tag at once can leave duplicate rows. The player should not
+    // render the same tag twice on account of that.
+    const tagRows = await db
+      .selectDistinct({ tag: schema.recordingTags.tag })
+      .from(schema.recordingTags)
+      .where(eq(schema.recordingTags.recordingId, args.recordingId))
+      .orderBy(asc(schema.recordingTags.tag));
+    const tags = tagRows.map((row) => row.tag);
+
     const [browserDiagnosticsRow] = await db
       .select()
       .from(schema.recordingBrowserDiagnostics)
@@ -341,7 +354,13 @@ export default defineAction({
         animatedThumbnailUrl: rec.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(rec, { animated: true })
           : null,
-        filmstripUrl: rec.filmstripUrl ?? null,
+        // The filmstrip is a sheet of unredacted frames, and unlike the
+        // video it is fetched straight from storage rather than through a
+        // route that can refuse. Held from anyone who cannot finish the burn,
+        // the same test every other media path uses.
+        filmstripUrl: isHeldForRedaction(rec.editsJson, access.role)
+          ? null
+          : (rec.filmstripUrl ?? null),
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
         filmstripColumns: rec.filmstripColumns ?? 0,
         filmstripRows: rec.filmstripRows ?? 0,
@@ -354,6 +373,10 @@ export default defineAction({
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
+        // The version of the stored bytes. A redaction burn re-uploads under
+        // the same URL, so without this the browser can keep playing the copy
+        // it already has — the one with the boxes still only drawn on.
+        mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
         hasAudio: Boolean(rec.hasAudio),
@@ -450,6 +473,7 @@ export default defineAction({
         createdAt: r.createdAt,
       })),
       chapters,
+      tags,
       ctas: ctas.map((c) => ({
         id: c.id,
         label: c.label,

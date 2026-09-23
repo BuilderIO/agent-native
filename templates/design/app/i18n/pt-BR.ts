@@ -163,6 +163,20 @@ const messages = {
       saveFailed: "Não foi possível atualizar o status da revisão",
     },
   },
+  designSystems: {
+    ...messagesByLocale["pt-BR"].designSystems,
+    tierLimitTitle: "Limite de sistemas de design atingido",
+    tierLimitDescription:
+      "Você atingiu o limite de sistemas de design do seu plano Builder. Faça upgrade do seu plano Builder para criar outro.",
+    tierLimitDescriptionWithCount:
+      "Você está usando {{current}} de {{max}} sistemas de design no seu plano Builder {{plan}}. Faça upgrade para criar outro.",
+    tierLimitUpgrade: "Fazer upgrade do plano Builder",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["pt-BR"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "A indexação de código e repositórios requer o plano Builder Enterprise",
+  },
 };
 
 export default messages;

@@ -68,9 +68,19 @@ const META_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
+
+const OVERSIZED_PLAIN_DROP_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="oversized-source" data-agent-native-layer-name="Oversized Source"
+    style="position:absolute;left:500px;top:300px;width:500px;height:110px;background:#ea580c">Source</div>
+  <section data-agent-native-node-id="plain-target" data-agent-native-layer-name="Empty Flow"
+    style="position:absolute;left:80px;top:70px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
+</body></html>`;
+
 function preview(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
@@ -79,20 +89,86 @@ function preview(page: Page): Locator {
 async function insertionGuideKind(
   page: Page,
 ): Promise<"inside" | "line" | null> {
-  return preview(page)
-    .locator("[data-agent-native-insertion-guide]")
-    .evaluateAll((elements) => {
-      const guide = elements.find((element) => {
-        const style = getComputedStyle(element);
-        return style.display !== "none";
-      }) as HTMLElement | undefined;
+  return preview(page).evaluate(() => {
+    // Editor chrome is mounted under the iframe's <html> element so it can
+    // sit above the preview content; scoping the locator to <body> misses it.
+    const guide = Array.from(
+      document.documentElement.querySelectorAll<HTMLElement>(
+        "[data-agent-native-insertion-guide]",
+      ),
+    ).find((candidate) => {
+      const style = getComputedStyle(candidate);
+      const rect = candidate.getBoundingClientRect();
+      return style.display !== "none" && rect.width > 0 && rect.height > 0;
+    });
+    if (!guide) return null;
+    const rect = guide.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
+      ? "inside"
+      : "line";
+  });
+}
+
+async function heldNestedDropState(
+  page: Page,
+  sourceId: string,
+  targetId: string,
+) {
+  const source = node(page, sourceId);
+  const target = node(page, targetId);
+  const [sourceState, targetState, guide] = await Promise.all([
+    source.evaluate((element) => {
+      return {
+        id: element.getAttribute("data-agent-native-node-id"),
+        parentId:
+          element.parentElement?.getAttribute("data-agent-native-node-id") ??
+          (element.parentElement?.tagName === "BODY" ? "BODY" : null),
+      };
+    }),
+    target.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        id: element.getAttribute("data-agent-native-node-id"),
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        },
+      };
+    }),
+    preview(page).evaluate(() => {
+      const guide = Array.from(
+        document.documentElement.querySelectorAll<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        ),
+      ).find((candidate) => {
+        const style = getComputedStyle(candidate);
+        const rect = candidate.getBoundingClientRect();
+        return style.display !== "none" && rect.width > 0 && rect.height > 0;
+      });
       if (!guide) return null;
       const rect = guide.getBoundingClientRect();
-      if (!rect.width || !rect.height) return null;
-      return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
-        ? "inside"
-        : "line";
-    });
+      const style = getComputedStyle(guide);
+      return {
+        display: style.display,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        kind:
+          parseFloat(style.borderTopWidth) > 0 ? ("inside" as const) : "line",
+      };
+    }),
+  ]);
+  return {
+    sourceId: sourceState.id,
+    sourceParentId: sourceState.parentId,
+    targetId: targetState.id,
+    targetRect: targetState.rect,
+    guide,
+  };
 }
 
 async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
@@ -121,6 +197,7 @@ async function dragCanvasNode(
   target: { x: number; y: number },
   feedback?: "inside" | "line" | "ghost",
   modifier?: "Meta" | "Control",
+  onHeld?: () => Promise<void>,
 ): Promise<void> {
   const beforeHtml = await indexHtml(page, designId);
   const source = (await node(page, sourceId).boundingBox())!;
@@ -128,38 +205,62 @@ async function dragCanvasNode(
     x: source.x + source.width / 2,
     y: source.y + source.height / 2,
   };
-  if (modifier) await page.keyboard.down(modifier);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-  await page.mouse.move(target.x, target.y, { steps: 20 });
-  if (feedback === "line" || feedback === "inside") {
+  let mouseHeld = false;
+  let modifierHeld = false;
+  try {
+    if (modifier) {
+      modifierHeld = true;
+      await page.keyboard.down(modifier);
+    }
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    mouseHeld = true;
+    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+    await page.mouse.move(target.x, target.y, { steps: 20 });
+    if (feedback === "line" || feedback === "inside") {
+      await expect
+        .poll(() => insertionGuideKind(page), {
+          timeout: 5_000,
+          message: `no ${feedback} guide while dragging ${sourceId}`,
+        })
+        .toBe(feedback);
+    }
+    if (feedback === "ghost") {
+      await expect
+        .poll(
+          () =>
+            node(page, sourceId).evaluate(
+              (element) => getComputedStyle(element).transform !== "none",
+            ),
+          { timeout: 5_000, message: `no drag ghost for ${sourceId}` },
+        )
+        .toBe(true);
+    }
+    if (onHeld) await onHeld();
+    await page.mouse.up();
+    mouseHeld = false;
     await expect
-      .poll(() => insertionGuideKind(page), {
+      .poll(() => indexHtml(page, designId), {
         timeout: 5_000,
-        message: `no ${feedback} guide while dragging ${sourceId}`,
+        message: `dragging ${sourceId} did not persist a source update`,
       })
-      .toBe(feedback);
+      .not.toBe(beforeHtml);
+  } finally {
+    if (mouseHeld) {
+      try {
+        await page.mouse.up();
+      } catch {
+        // Preserve the original drag assertion if cleanup also fails.
+      }
+    }
+    if (modifierHeld) {
+      try {
+        await page.keyboard.up(modifier!);
+      } catch {
+        // Preserve the original drag assertion if cleanup also fails.
+      }
+    }
   }
-  if (feedback === "ghost") {
-    await expect
-      .poll(
-        () =>
-          node(page, sourceId).evaluate(
-            (element) => getComputedStyle(element).transform !== "none",
-          ),
-        { timeout: 5_000, message: `no drag ghost for ${sourceId}` },
-      )
-      .toBe(true);
-  }
-  await page.mouse.up();
-  if (modifier) await page.keyboard.up(modifier);
-  await expect
-    .poll(() => indexHtml(page, designId), {
-      timeout: 5_000,
-      message: `dragging ${sourceId} did not persist a source update`,
-    })
-    .not.toBe(beforeHtml);
 }
 
 async function deleteDesign(page: Page, designId: string): Promise<void> {
@@ -174,10 +275,75 @@ test("physical vertical auto-layout reorder keeps parent, order, and geometry", 
     await openEditor(page, designId);
     await selectCanvasNode(page, "v1");
     const v3 = (await node(page, "v3").boundingBox())!;
-    await dragCanvasNode(page, designId, "v1", {
-      x: v3.x + v3.width / 2,
-      y: v3.y + v3.height * 0.8,
-    });
+    await dragCanvasNode(
+      page,
+      designId,
+      "v1",
+      {
+        x: v3.x + v3.width / 2,
+        y: v3.y + v3.height * 0.8,
+      },
+      "line",
+      undefined,
+      async () => {
+        const held = await preview(page).evaluate(() => {
+          const parent = document.querySelector(
+            '[data-agent-native-node-id="vertical"]',
+          );
+          const source = document.querySelector(
+            '[data-agent-native-node-id="v1"]',
+          ) as HTMLElement | null;
+          const target = document.querySelector(
+            '[data-agent-native-node-id="v3"]',
+          ) as HTMLElement | null;
+          const guide = Array.from(
+            document.documentElement.querySelectorAll<HTMLElement>(
+              "[data-agent-native-insertion-guide]",
+            ),
+          ).find((candidate) => {
+            const style = getComputedStyle(candidate);
+            const rect = candidate.getBoundingClientRect();
+            return (
+              style.display !== "none" && rect.width > 0 && rect.height > 0
+            );
+          });
+          const guideRect = guide?.getBoundingClientRect();
+          const targetRect = target?.getBoundingClientRect();
+          return {
+            order: parent
+              ? Array.from(parent.children).map((child) =>
+                  child.getAttribute("data-agent-native-node-id"),
+                )
+              : [],
+            sourceParent: source?.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            guideDisplay: guide ? getComputedStyle(guide).display : "none",
+            guideWidth: guideRect?.width ?? 0,
+            guideHeight: guideRect?.height ?? 0,
+            guideTop: guideRect?.top ?? 0,
+            targetTop: targetRect?.top ?? 0,
+            targetBottom: targetRect?.bottom ?? 0,
+            siblingTransforms: ["v2", "v3"].map((id) => {
+              const element = document.querySelector(
+                `[data-agent-native-node-id="${id}"]`,
+              );
+              return element ? getComputedStyle(element).transform : "none";
+            }),
+          };
+        });
+        expect(held.order).toEqual(["v1", "v2", "v3"]);
+        expect(held.sourceParent).toBe("vertical");
+        expect(held.guideDisplay).toBe("block");
+        expect(held.guideWidth).toBeGreaterThan(0);
+        expect(held.guideHeight).toBeGreaterThan(0);
+        expect(held.guideTop).toBeGreaterThanOrEqual(held.targetTop);
+        expect(held.guideTop).toBeLessThanOrEqual(held.targetBottom + 8);
+        expect(
+          held.siblingTransforms.some((transform) => transform !== "none"),
+        ).toBe(true);
+      },
+    );
 
     await openEditor(page, designId);
     const html = await indexHtml(page, designId);
@@ -322,7 +488,29 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
       frame.y + frame.height / 2,
       { steps: 20 },
     );
-    expect(await insertionGuideKind(page)).toBe("inside");
+    await expect
+      .poll(() => heldNestedDropState(page, "nest-source", "nested-frame"), {
+        timeout: 5_000,
+        message: "nested drop guide did not settle",
+      })
+      .toMatchObject({
+        sourceId: "nest-source",
+        targetId: "nested-frame",
+        guide: { display: "block", kind: "inside" },
+      });
+    const held = await heldNestedDropState(page, "nest-source", "nested-frame");
+    expect(held.sourceParentId).not.toBe("nested-frame");
+    expect(held.targetRect.width).toBeGreaterThan(0);
+    expect(held.targetRect.height).toBeGreaterThan(0);
+    if (!held.guide) throw new Error("nested drop guide disappeared");
+    expect(held.guide.left).toBeLessThanOrEqual(held.targetRect.left + 2);
+    expect(held.guide.top).toBeLessThanOrEqual(held.targetRect.top + 2);
+    expect(held.guide.left + held.guide.width).toBeGreaterThanOrEqual(
+      held.targetRect.left + held.targetRect.width - 2,
+    );
+    expect(held.guide.top + held.guide.height).toBeGreaterThanOrEqual(
+      held.targetRect.top + held.targetRect.height - 2,
+    );
     await page.mouse.up();
     await expect
       .poll(
@@ -360,7 +548,71 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
   }
 });
 
-test("physical Meta-drag overrides auto-layout resistance", async ({
+test("physical oversized free layer stays beside an empty auto-layout target", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, OVERSIZED_PLAIN_DROP_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "oversized-source");
+    const sourceBefore = (await node(page, "oversized-source").boundingBox())!;
+    const target = (await node(page, "plain-target").boundingBox())!;
+    expect(sourceBefore.width).toBeGreaterThan(target.width);
+    await page.mouse.move(
+      sourceBefore.x + sourceBefore.width / 2,
+      sourceBefore.y + sourceBefore.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(sourceBefore.x + 12, sourceBefore.y + 8, {
+      steps: 5,
+    });
+    await page.mouse.move(
+      target.x + target.width * 0.75,
+      target.y + target.height / 2,
+      { steps: 24 },
+    );
+    await expect
+      .poll(() => insertionGuideKind(page), {
+        timeout: 5_000,
+        message: "oversized source must resolve a sibling line, not inside",
+      })
+      .toBe("line");
+    await page.mouse.up();
+
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toMatch(
+        /data-agent-native-node-id="plain-target"[\s\S]*data-agent-native-node-id="oversized-source"/,
+      );
+    await openEditor(page, designId);
+    const state = await preview(page).evaluate(() => {
+      const source = document.querySelector(
+        '[data-agent-native-node-id="oversized-source"]',
+      ) as HTMLElement | null;
+      const target = document.querySelector(
+        '[data-agent-native-node-id="plain-target"]',
+      );
+      return {
+        sourceParent:
+          source?.parentElement?.tagName === "BODY"
+            ? "BODY"
+            : source?.parentElement?.getAttribute("data-agent-native-node-id"),
+        targetContains: !!target && !!source && target.contains(source),
+        position: source ? getComputedStyle(source).position : null,
+      };
+    });
+    expect(state).toEqual({
+      sourceParent: "BODY",
+      targetContains: false,
+      position: "static",
+    });
+    expect(state.sourceParent).not.toBe("flow");
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical command-drag overrides auto-layout resistance", async ({
   page,
 }) => {
   const designId = await newDesign(page, META_FIXTURE);
@@ -372,24 +624,41 @@ test("physical Meta-drag overrides auto-layout resistance", async ({
       x: source.x + source.width / 2,
       y: source.y + source.height / 2,
     };
-    await page.keyboard.down("Meta");
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
-    await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
-    await expect
-      .poll(() =>
-        preview(page)
-          .locator("[data-agent-native-transform-badge]")
-          .evaluate(
-            (element) =>
+    await preview(page).focus();
+    let mouseHeld = false;
+    await page.keyboard.down(IGNORE_AUTO_LAYOUT);
+    try {
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      mouseHeld = true;
+      await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+      await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
+      await expect
+        .poll(() =>
+          preview(page).evaluate(() => {
+            const element = document.documentElement.querySelector<HTMLElement>(
+              "[data-agent-native-transform-badge]",
+            );
+            return Boolean(
+              element &&
               getComputedStyle(element).display !== "none" &&
               element.textContent === "Move layer",
-          ),
-      )
-      .toBe(true);
-    await page.mouse.up();
-    await page.keyboard.up("Meta");
+            );
+          }),
+        )
+        .toBe(true);
+      await page.mouse.up();
+      mouseHeld = false;
+    } finally {
+      if (mouseHeld) {
+        try {
+          await page.mouse.up();
+        } catch {
+          // Preserve the original drag assertion if cleanup also fails.
+        }
+      }
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT);
+    }
     await expect
       .poll(
         () =>

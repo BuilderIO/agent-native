@@ -15,6 +15,7 @@ import {
 } from "./app-base-path.js";
 import { getSession } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -39,7 +40,11 @@ function isHttpsRequest(event: H3Event): boolean {
 }
 
 function capabilityCookiePath(appBasePath?: string): string {
-  return `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`;
+  // The browser only replays this cookie on the URL it actually requests,
+  // which carries the public prefix.
+  return publicFrameworkPath(
+    `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`,
+  );
 }
 
 /** Verify the server-minted browser capability for an authenticated owner. */

@@ -17,6 +17,10 @@ const WORKSPACE_ENV_KEYS = [
   "VITE_AGENT_NATIVE_WORKSPACE",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "AGENT_NATIVE_WORKSPACE_AUTH_MODE",
+  "VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
 ];
 
 describe("resolveAuthCookieNamespace", () => {
@@ -96,6 +100,22 @@ describe("resolveAuthCookieNamespace", () => {
     ).toMatchObject({
       frameworkCookieName: "an_session_workspace",
       betterAuthCookiePrefix: "an",
+      betterAuthCookieDomain: undefined,
+    });
+  });
+
+  it("isolates apps in an explicitly isolated workspace realm", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "account-tiering",
+        AGENT_NATIVE_WORKSPACE: "1",
+        AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated",
+        AGENT_NATIVE_WORKSPACE_APP_ID: "account-tiering",
+      }),
+    ).toMatchObject({
+      frameworkCookieName: "an_session_account_tiering",
+      betterAuthCookiePrefix: "an_account_tiering",
       betterAuthCookieDomain: undefined,
     });
   });

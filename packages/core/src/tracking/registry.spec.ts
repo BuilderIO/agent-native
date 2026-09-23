@@ -123,13 +123,38 @@ describe("tracking registry", () => {
 
     track("generate deck", { app: "agent-native-docs" });
 
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(3);
     expect(events[0]?.name).toBe("generate deck");
     expect(events[1]).toMatchObject({
+      name: "generate_deck",
+      properties: {
+        canonical_event_name: "generate_deck",
+        legacy_event_name: "generate deck",
+      },
+    });
+    expect(events[2]).toMatchObject({
       name: "cta_clicked",
       properties: {
         app_name: "docs",
         cta_name: "generate_deck",
+      },
+    });
+  });
+
+  it("emits a canonical alias with provenance for legacy event names", () => {
+    const events = captureEvents();
+    const legacyName = "session status";
+
+    track(legacyName, { signed_in: true });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe(legacyName);
+    expect(events[1]).toMatchObject({
+      name: "session_status",
+      properties: {
+        signed_in: true,
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
       },
     });
   });

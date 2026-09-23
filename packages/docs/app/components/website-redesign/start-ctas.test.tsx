@@ -47,7 +47,7 @@ describe("StartCtas", () => {
 
     fireEvent.click(link);
     expect(screen.getByTestId("pathname").textContent).toBe("/docs/");
-    expect(trackEvent).toHaveBeenCalledWith("click get started", {
+    expect(trackEvent).toHaveBeenCalledWith("click_get_started", {
       location: "hero",
     });
   });

@@ -214,7 +214,11 @@ export function SlideContextToolbar({
   const baseFontFamilyOptions = sortFontFamilyOptions(
     FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
-      label: t(`styleInspector.fontFamilies.${option.key}`),
+      label:
+        option.label ??
+        (option.key
+          ? t(`styleInspector.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
     })),
   );
   const inlineEditSurfaceProps = {

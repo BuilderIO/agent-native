@@ -100,7 +100,8 @@ export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
   threads.sort(
     (a, b) =>
       new Date(b.latestMessage.date).getTime() -
-      new Date(a.latestMessage.date).getTime(),
+        new Date(a.latestMessage.date).getTime() ||
+      b.latestMessage.id.localeCompare(a.latestMessage.id),
   );
 
   return threads;

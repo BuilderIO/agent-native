@@ -254,6 +254,7 @@ export type AutomationEditorSnapshot = {
   prompt?: string | null;
   body?: string | null;
   model?: string | null;
+  reasoningEffort?: string | null;
   schedule?: string | null;
   enabled?: boolean;
   source?: AutomationSource | null;
@@ -297,6 +298,7 @@ export function automationEditorConfigKey(
     displayName: automation.displayName ?? "",
     prompt: automation.prompt ?? automation.body ?? "",
     model: automation.model ?? "",
+    reasoningEffort: automation.reasoningEffort ?? "",
     schedule: automation.schedule ?? "",
     enabled: Boolean(automation.enabled),
     source: automation.source ?? "",
