@@ -843,6 +843,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     nodeId: string;
     path: PenPath;
   } | null>(null);
+  useEffect(() => {
+    const continuation = continuationPenPathRef.current;
+    if (
+      continuation &&
+      selectedPenPathNodeId !== undefined &&
+      selectedPenPathNodeId !== continuation.nodeId
+    ) {
+      continuationPenPathRef.current = null;
+    }
+  }, [selectedPenPathNodeId]);
   const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
     null,
   );
@@ -6135,6 +6145,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateNodeId: continuation.nodeId,
         });
         if (!persisted) {
+          continuationPenPathRef.current = null;
           activePenPathRef.current = path;
           setActivePenPath(path);
           return;
@@ -6275,7 +6286,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!pathBefore && continuationPenPathRef.current) {
         const continuation = continuationPenPathRef.current;
         const resumed =
-          !selectedPenPathNodeId ||
+          selectedPenPathNodeId === undefined ||
           selectedPenPathNodeId === continuation.nodeId
             ? resumePenPathAtEnd(
                 continuation.path,

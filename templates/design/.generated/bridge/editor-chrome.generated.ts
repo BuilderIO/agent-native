@@ -16696,8 +16696,45 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           return;
         }
+        var svgFile = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
+          return item.kind === "file" && (item.type.toLowerCase() === "image/svg+xml" || item.getAsFile()?.name.toLowerCase().endsWith(".svg"));
+        }).map(function(item) {
+          return item.getAsFile();
+        }).find(function(file) {
+          return Boolean(file);
+        });
+        if (svgFile) {
+          stopNativeInteraction(e);
+          if (svgFile.size > 1e6) {
+            window.parent.postMessage(
+              {
+                type: "figma-clipboard-paste",
+                content: "",
+                svgFileError: "too-large"
+              },
+              "*"
+            );
+            return;
+          }
+          void svgFile.text().then(function(source) {
+            window.parent.postMessage(
+              { type: "figma-clipboard-paste", content: "", svg: source },
+              "*"
+            );
+          }).catch(function() {
+            window.parent.postMessage(
+              {
+                type: "figma-clipboard-paste",
+                content: "",
+                svgFileError: "unreadable"
+              },
+              "*"
+            );
+          });
+          return;
+        }
         var imageFiles = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
-          return item.kind === "file" && item.type.startsWith("image/");
+          return item.kind === "file" && item.type.toLowerCase() !== "image/svg+xml" && (item.type.startsWith("image/") || item.type.startsWith("video/"));
         }).map(function(item) {
           return item.getAsFile();
         }).filter(function(f) {

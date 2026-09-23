@@ -163,10 +163,13 @@ describe("isVectorShapeElement — pasted SVG descendants", () => {
       "circle",
       "rect",
       "line",
-      "use",
     ]) {
       expect(isVectorShapeElement(makeElement({ tagName }))).toBe(true);
     }
+  });
+
+  it("does not expose SVG use instances as directly editable vector shapes", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "use" }))).toBe(false);
   });
 
   it("keeps unmarked SVG containers and other elements out of vector classification", () => {

@@ -80,6 +80,28 @@ describe("generic inline SVG fill edits", () => {
     expect(result.content).not.toMatch(/<svg[^>]*style="[^\"]*fill: #3b82f6/);
   });
 
+  it("refuses fill and stroke edits on use elements", () => {
+    const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 20 10"><defs><path id="source" d="M0 0h20v10z" fill="#f97316" stroke="#111827"/></defs><use id="instance" href="#source"/></svg>`;
+    const useNode = buildCodeLayerProjection(html).nodes.find(
+      (node) => node.tag === "use",
+    );
+    expect(useNode).toBeDefined();
+
+    for (const nodeId of [useNode!.id, "pasted"]) {
+      for (const property of ["fill", "stroke"] as const) {
+        const result = applyVisualEdit(html, {
+          kind: "style",
+          target: { nodeId },
+          property,
+          value: property === "fill" ? "#3b82f6" : "#22c55e",
+        });
+
+        expect(result.result.status).toBe("unsupported");
+        expect(result.content).toBe(html);
+      }
+    }
+  });
+
   it("keeps a grouped multi-shape pasted SVG wrapper paint ambiguous", () => {
     const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"><g><path d="M0 0h20v20z"/><circle cx="10" cy="10" r="4"/></g></svg>`;
     const result = applyVisualEdit(html, {
@@ -91,6 +113,104 @@ describe("generic inline SVG fill edits", () => {
 
     expect(result.result.status).toBe("unsupported");
     expect(result.content).toBe(html);
+  });
+
+  it("keeps sequential stroke gradients on the selected pasted SVG shapes", () => {
+    const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 20 10" style="width:20px;height:10px"><path id="first" d="M0 0h8v8z" stroke="#111111"/><path id="second" d="M12 0h8v8z" stroke="#222222" style="fill: none"/></svg>`;
+    const firstNode = buildCodeLayerProjection(html).nodes.find(
+      (node) => node.attributes.id === "first",
+    );
+    expect(firstNode).toBeDefined();
+
+    const first = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: firstNode!.id },
+      property: "stroke",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(first.result.status).toBe("applied");
+
+    const secondNode = buildCodeLayerProjection(first.content).nodes.find(
+      (node) => node.attributes.id === "second",
+    );
+    expect(secondNode).toBeDefined();
+    const second = applyVisualEdit(first.content, {
+      kind: "style",
+      target: { nodeId: secondNode!.id },
+      property: "stroke",
+      value: "linear-gradient(90deg, #00ff00 0%, #0000ff 100%)",
+    });
+
+    expect(second.result.status).toBe("applied");
+    const firstPath = second.content.match(/<path\b[^>]*id="first"[^>]*>/)?.[0];
+    const secondPath = second.content.match(
+      /<path\b[^>]*id="second"[^>]*>/,
+    )?.[0];
+    expect(firstPath).toBeDefined();
+    expect(secondPath).toBeDefined();
+    for (const [path, gradientId, gradient] of [
+      [
+        firstPath!,
+        "pasted-stroke-gradient",
+        "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+      ],
+      [
+        secondPath!,
+        "pasted-stroke-gradient-2",
+        "linear-gradient(90deg, #00ff00 0%, #0000ff 100%)",
+      ],
+    ] as const) {
+      expect(path.match(/\bstyle=/g)).toHaveLength(1);
+      expect(path).toContain(`stroke: url(#${gradientId})`);
+      expect(path).toContain(`--an-vector-stroke-gradient: ${gradient}`);
+    }
+    expect(second.content).toContain('id="pasted-stroke-gradient"');
+    expect(second.content).toContain('id="pasted-stroke-gradient-2"');
+
+    const refreshedSecondNode = buildCodeLayerProjection(
+      second.content,
+    ).nodes.find((node) => node.attributes.id === "second");
+    const solidSecond = applyVisualEdit(second.content, {
+      kind: "style",
+      target: { nodeId: refreshedSecondNode!.id },
+      property: "stroke",
+      value: "#00ff00",
+    });
+    expect(solidSecond.result.status).toBe("applied");
+    expect(solidSecond.content).toContain('id="pasted-stroke-gradient"');
+    expect(solidSecond.content).not.toContain('id="pasted-stroke-gradient-2"');
+    const solidFirstPath = solidSecond.content.match(
+      /<path\b[^>]*id="first"[^>]*>/,
+    )?.[0];
+    const solidSecondPath = solidSecond.content.match(
+      /<path\b[^>]*id="second"[^>]*>/,
+    )?.[0];
+    expect(solidFirstPath).toContain(
+      "--an-vector-stroke-gradient: linear-gradient(",
+    );
+    expect(solidFirstPath).toContain("stroke: url(#pasted-stroke-gradient)");
+    expect(solidSecondPath).toContain("stroke: #00ff00");
+    expect(solidSecondPath).not.toContain("--an-vector-stroke-gradient");
+  });
+
+  it("inserts a grouped shape's stroke gradient into its owning pasted SVG", () => {
+    const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 20 10" style="width:20px;height:10px"><g><path id="nested" d="M0 0h20v10z" stroke="#111111"/></g></svg>`;
+    const node = buildCodeLayerProjection(html).nodes.find(
+      (candidate) => candidate.attributes.id === "nested",
+    );
+    expect(node).toBeDefined();
+
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: node!.id },
+      property: "stroke",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toMatch(
+      /<svg[^>]*><defs data-an-vector-stroke-gradient="">[\s\S]*<\/defs><g><path[^>]*id="nested"[^>]*style="[^"]*stroke: url\(#pasted-stroke-gradient\)/,
+    );
   });
 
   it("refuses paint edits for marked pasted SVGs with multiple direct shapes", () => {

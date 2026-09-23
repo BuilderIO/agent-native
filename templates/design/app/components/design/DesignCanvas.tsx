@@ -4725,14 +4725,20 @@ export function DesignCanvas({
       if (e.data.type === "figma-clipboard-paste") {
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
+        const svgFileError =
+          e.data.svgFileError === "too-large" ||
+          e.data.svgFileError === "unreadable"
+            ? e.data.svgFileError
+            : undefined;
         const svg = typeof e.data.svg === "string" ? e.data.svg : undefined;
         const html = typeof e.data.html === "string" ? e.data.html : "";
         const text = typeof e.data.text === "string" ? e.data.text : "";
-        if (content || svg || html || text) {
+        if (content || svg || html || text || svgFileError) {
           onFigmaClipboardPaste?.({
             content,
             sourceScreenId: boardSurface ? undefined : screenId,
             svg,
+            svgFileError,
             html,
             text,
           });
@@ -4752,12 +4758,21 @@ export function DesignCanvas({
               if (!f || typeof f !== "object") return false;
               const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
               if (typeof dataUrl !== "string") return false;
-              if (!dataUrl.startsWith("data:image/")) return false;
+              if (
+                !dataUrl.startsWith("data:image/") &&
+                !dataUrl.startsWith("data:video/")
+              )
+                return false;
               if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
               return true;
             },
           );
-        if (files.length > 0) onImagePaste?.({ files });
+        if (files.length > 0) {
+          onImagePaste?.({
+            files,
+            screenId: boardSurface ? undefined : screenId,
+          });
+        }
         return;
       }
       if (e.data.type === "element-contextmenu") {
@@ -7787,6 +7802,7 @@ function SingleScreenCreationOverlay({
       if (continuation) {
         const updated = onUpdatePenPath?.(continuation.nodeId, committed);
         if (!updated) {
+          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -7935,7 +7951,6 @@ function SingleScreenCreationOverlay({
           const continuation = continuationPenPathRef.current;
           const resumed =
             selectedPenPathNodeId === undefined ||
-            selectedPenPathNodeId === null ||
             selectedPenPathNodeId === continuation.nodeId
               ? resumePenPathAtEnd(continuation.path, rawPoint, penHitRadius())
               : null;

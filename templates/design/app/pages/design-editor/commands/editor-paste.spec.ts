@@ -43,7 +43,7 @@ function harness(): Harness {
       handlePasteSelection: async () => {
         state.pasted += 1;
       },
-      handlePastedImageFiles: () => false,
+      handlePastedFiles: () => {},
       handlePastedSvg: (source) => {
         svgs.push(source);
         return true;
@@ -125,9 +125,9 @@ describe("runEditorPaste", () => {
 
   it("routes image files to the immediate image insertion path", () => {
     const file = new File(["image"], "pasted.png", { type: "image/png" });
-    const handlePastedImageFiles = vi.fn(() => true);
+    const handlePastedFiles = vi.fn();
     const h = harness();
-    h.args.handlePastedImageFiles = handlePastedImageFiles;
+    h.args.handlePastedFiles = handlePastedFiles;
     const event = pasteEvent({}, document.body, [
       {
         kind: "file",
@@ -138,7 +138,49 @@ describe("runEditorPaste", () => {
 
     runEditorPaste(h.args, event);
 
-    expect(handlePastedImageFiles).toHaveBeenCalledWith([file]);
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("routes video files to the immediate media insertion path", () => {
+    const file = new File(["video"], "pasted.mp4", { type: "video/mp4" });
+    const handlePastedFiles = vi.fn();
+    const h = harness();
+    h.args.handlePastedFiles = handlePastedFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "video/mp4",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("consumes SVG file paste while the host validates it asynchronously", () => {
+    const file = new File(
+      ['<svg width="17" height="9"><path d="M0 0h17"/></svg>'],
+      "pasted.svg",
+      { type: "image/svg+xml" },
+    );
+    const handlePastedFiles = vi.fn();
+    const h = harness();
+    h.args.handlePastedFiles = handlePastedFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "image/svg+xml",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
     expect(event.defaultPrevented).toBe(true);
   });
 

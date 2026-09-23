@@ -17,7 +17,7 @@ export interface EditorPasteArgs {
   ) => void;
   canEditDesign: boolean;
   handlePasteSelection: (position?: { x: number; y: number }) => Promise<void>;
-  handlePastedImageFiles: (files: File[]) => boolean;
+  handlePastedFiles: (files: File[]) => void | Promise<void>;
   handlePastedSvg: (source: string) => boolean;
   hasCanvasClipboard: boolean;
   importFigmaClipboardIntoDesign: (content: string) => Promise<void>;
@@ -31,7 +31,7 @@ export function runEditorPaste(
     adoptDesignClipboardPayload,
     canEditDesign,
     handlePasteSelection,
-    handlePastedImageFiles,
+    handlePastedFiles,
     handlePastedSvg,
     hasCanvasClipboard,
     importFigmaClipboardIntoDesign,
@@ -64,17 +64,27 @@ export function runEditorPaste(
     event.preventDefault();
     return;
   }
-  // U8/paste-multi: collect every pasted image file, not just the first —
-  // see handlePastedImageFiles' doc comment for the full rationale.
-  const imageFiles = Array.from(event.clipboardData?.items ?? [])
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+  // File SVGs share the markup sanitizer path, not the opaque image layer path.
+  const files = Array.from(event.clipboardData?.items ?? [])
+    .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
     .filter((file): file is File => Boolean(file));
-  if (imageFiles.length > 0 && canEditDesign) {
-    if (handlePastedImageFiles(imageFiles)) {
-      event.preventDefault();
-      return;
-    }
+  const svgFiles = files.filter(
+    (file) =>
+      file.type.toLowerCase() === "image/svg+xml" ||
+      file.name.toLowerCase().endsWith(".svg"),
+  );
+  const mediaFiles = files.filter(
+    (file) =>
+      !svgFiles.includes(file) &&
+      (file.type.startsWith("image/") || file.type.startsWith("video/")),
+  );
+  if (canEditDesign && (svgFiles.length > 0 || mediaFiles.length > 0)) {
+    // Consume file pastes before File.text() yields; otherwise the browser can
+    // insert its own image while the sanitized editable layer is being built.
+    event.preventDefault();
+    void handlePastedFiles([...svgFiles, ...mediaFiles]);
+    return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {

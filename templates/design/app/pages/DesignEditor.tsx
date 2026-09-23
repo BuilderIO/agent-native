@@ -14837,9 +14837,14 @@ function DesignEditor() {
       content,
       sourceScreenId,
       svg,
+      svgFileError,
       html,
       text,
     }: IframeFigmaClipboardPastePayload) => {
+      if (svgFileError) {
+        if (canEditDesign) toast.error(t("common.genericError"));
+        return;
+      }
       if (content) {
         void importFigmaClipboardIntoDesign(content);
         return;
@@ -14863,7 +14868,7 @@ function DesignEditor() {
         description: t("designEditor.import.figmaPasteUnreadable"),
       });
     },
-    [handlePastedSvg, importFigmaClipboardIntoDesign, t],
+    [canEditDesign, handlePastedSvg, importFigmaClipboardIntoDesign, t],
   );
 
   // Reads a File as a data URL, wrapped as a Promise so multi-file paste can
@@ -14936,7 +14941,10 @@ function DesignEditor() {
   // not shared canvas space). No hit falls back to the board file exactly as
   // before.
   const handlePastedImageFiles = useCallback(
-    (files: File[]) =>
+    (
+      files: File[],
+      target?: { fileId: string; point: { x: number; y: number } },
+    ) =>
       runPastedImageFiles(
         {
           activeFile,
@@ -14960,6 +14968,7 @@ function DesignEditor() {
           zoom,
         },
         files,
+        target,
       ),
     [
       activeFile?.id,
@@ -14982,7 +14991,7 @@ function DesignEditor() {
   );
 
   const handleCanvasImagePaste = useCallback(
-    ({ files }: IframeImagePastePayload) => {
+    ({ files, screenId }: IframeImagePastePayload) => {
       if (files.length === 0 || !canEditDesign) return;
       const fileObjects = files.map(({ dataUrl, type, name }) => {
         const comma = dataUrl.indexOf(",");
@@ -14994,9 +15003,29 @@ function DesignEditor() {
           { type },
         );
       });
-      handlePastedImageFiles(fileObjects);
+      const frame = screenId ? canvasFrameGeometryById[screenId] : undefined;
+      const screen = screenId
+        ? overviewScreens.find((candidate) => candidate.id === screenId)
+        : undefined;
+      handlePastedImageFiles(
+        fileObjects,
+        screenId
+          ? {
+              fileId: screenId,
+              point: {
+                x: (frame?.width ?? screen?.width ?? 0) / 2,
+                y: (frame?.height ?? screen?.height ?? 0) / 2,
+              },
+            }
+          : undefined,
+      );
     },
-    [canEditDesign, handlePastedImageFiles],
+    [
+      canEditDesign,
+      canvasFrameGeometryById,
+      handlePastedImageFiles,
+      overviewScreens,
+    ],
   );
 
   const insertDroppedImageFiles = useCallback(
@@ -15137,7 +15166,7 @@ function DesignEditor() {
           adoptDesignClipboardPayload,
           canEditDesign,
           handlePasteSelection,
-          handlePastedImageFiles,
+          handlePastedFiles: handleDesignMediaFiles,
           handlePastedSvg,
           hasCanvasClipboard,
           importFigmaClipboardIntoDesign,
@@ -15151,7 +15180,7 @@ function DesignEditor() {
       adoptDesignClipboardPayload,
       canEditDesign,
       handlePasteSelection,
-      handlePastedImageFiles,
+      handleDesignMediaFiles,
       handlePastedSvg,
       hasCanvasClipboard,
       importFigmaClipboardIntoDesign,

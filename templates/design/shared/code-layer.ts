@@ -4422,24 +4422,54 @@ const VECTOR_SHAPE_TAGS = new Set([
   "use",
 ]);
 
-function uniqueVectorShapeDescendant(
+function vectorShapeDescendants(
   element: ParsedElement,
   elements: ParsedElement[],
-): ParsedElement | null {
-  const pending = [...element.childIndexes];
-  let shape: ParsedElement | null = null;
+): ParsedElement[] {
+  const pending = [...element.childIndexes].reverse();
+  const shapes: ParsedElement[] = [];
   while (pending.length) {
     const childIndex = pending.pop();
     const child = childIndex === undefined ? undefined : elements[childIndex];
     if (!child) continue;
     if (VECTOR_SHAPE_TAGS.has(child.tag)) {
-      if (shape) return null;
-      shape = child;
+      shapes.push(child);
     } else if (child.tag === "g") {
-      for (const nestedIndex of child.childIndexes) pending.push(nestedIndex);
+      for (let index = child.childIndexes.length - 1; index >= 0; index -= 1) {
+        const nestedIndex = child.childIndexes[index];
+        if (nestedIndex !== undefined) pending.push(nestedIndex);
+      }
     }
   }
-  return shape;
+  return shapes;
+}
+
+function uniqueVectorShapeDescendant(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  const shapes = vectorShapeDescendants(element, elements);
+  return shapes.length === 1 ? (shapes[0] ?? null) : null;
+}
+
+function vectorShapeOwnerSvg(
+  shape: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  let parentIndex = shape.parentIndex;
+  let nearestSvg: ParsedElement | null = null;
+  while (parentIndex !== undefined) {
+    const parent = elements[parentIndex];
+    if (!parent) return null;
+    if (parent.tag === "svg") {
+      if (attributeValue(parent, "data-an-primitive") === "pasted-svg") {
+        return parent;
+      }
+      nearestSvg ??= parent;
+    }
+    parentIndex = parent.parentIndex;
+  }
+  return nearestSvg;
 }
 
 const VECTOR_PAINT_PROPERTIES = [
@@ -5272,19 +5302,30 @@ function vectorStrokeGradientId(
 function removeVectorStrokeGradientMarkup(
   html: string,
   wrapper: ParsedElement,
+  strokeValue: string | null,
 ): string {
   const elements = parseHtmlElements(html);
   const current = elements[wrapper.index];
   if (!current || current.start !== wrapper.start) return html;
+  const gradientId = strokeValue?.match(
+    /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)$/i,
+  )?.[2];
+  if (!gradientId) return html;
   const spans = current.childIndexes
     .map((index) => elements[index])
-    .filter((child): child is ParsedElement =>
-      Boolean(
-        child &&
-        child.tag === "defs" &&
-        getAttribute(child, VECTOR_STROKE_GRADIENT_MARKER) !== undefined,
-      ),
-    )
+    .filter((child): child is ParsedElement => {
+      if (
+        !child ||
+        child.tag !== "defs" ||
+        getAttribute(child, VECTOR_STROKE_GRADIENT_MARKER) === undefined
+      ) {
+        return false;
+      }
+      return child.childIndexes.some((childIndex) => {
+        const definition = elements[childIndex];
+        return definition && attributeValue(definition, "id") === gradientId;
+      });
+    })
     .map((child) => ({ start: child.start, end: child.end }));
   let result = html;
   for (const span of spans.sort((a, b) => b.start - a.start)) {
@@ -5300,10 +5341,9 @@ function applyVectorStrokeGradient(
 ): string | PatchResultStatus {
   const elements = parseHtmlElements(html);
   const currentShape = elements[shape.index];
-  const wrapper =
-    currentShape?.parentIndex === undefined
-      ? undefined
-      : elements[currentShape.parentIndex];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
   const gradient = normalizeVectorStrokeGradient(value);
   const stops = gradient ? vectorStrokeGradientStops(gradient.value) : null;
   const svgStops = stops ? vectorStrokeGradientStopsForSvg(stops) : null;
@@ -5317,19 +5357,32 @@ function applyVectorStrokeGradient(
   ) {
     return "unsupported";
   }
+  const initialShapes = vectorShapeDescendants(wrapper, elements);
+  const shapeIndex = initialShapes.indexOf(currentShape);
+  const isOverlay =
+    getAttribute(currentShape, VECTOR_STROKE_OVERLAY) !== undefined;
+  if (shapeIndex < 0) return "unsupported";
   const nodeId = attributeValue(wrapper, "data-agent-native-node-id");
   const kind = attributeValue(wrapper, "data-an-primitive");
   if (!nodeId || (!kind && !vectorShapeChild(wrapper, elements))) {
     return "unsupported";
   }
-  let content = removeVectorStrokeGradientMarkup(html, wrapper);
+  let content = removeVectorStrokeGradientMarkup(
+    html,
+    wrapper,
+    vectorStyleValue(currentShape, "stroke"),
+  );
   const refreshed = parseHtmlElements(content);
   const nextWrapper = refreshed.find(
     (candidate) => candidate.start === wrapper.start,
   );
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
   const target = nextWrapper
-    ? (vectorStrokeOverlay(nextWrapper, refreshed) ??
-      vectorShapeChild(nextWrapper, refreshed))
+    ? isOverlay
+      ? vectorStrokeOverlay(nextWrapper, refreshed)
+      : (nextShapes[shapeIndex] ?? null)
     : null;
   if (!nextWrapper || !target) return "unsupported";
   const id = vectorStrokeGradientId(nextWrapper, refreshed);
@@ -5387,31 +5440,50 @@ function applyVectorStrokeGradient(
   const finalWrapper = finalElements.find(
     (candidate) => candidate.start === wrapper.start,
   );
+  const finalShapes = finalWrapper
+    ? vectorShapeDescendants(finalWrapper, finalElements)
+    : [];
   const finalTarget = finalWrapper
-    ? (vectorStrokeOverlay(finalWrapper, finalElements) ??
-      vectorShapeChild(finalWrapper, finalElements))
+    ? isOverlay
+      ? vectorStrokeOverlay(finalWrapper, finalElements)
+      : (finalShapes[shapeIndex] ?? null)
     : null;
   if (!finalWrapper || !finalTarget) return "unsupported";
+  const authoredShapes = finalShapes.filter(
+    (candidate) => getAttribute(candidate, VECTOR_STROKE_OVERLAY) === undefined,
+  );
+  const gradientMetadataElement =
+    authoredShapes.length === 1 ? finalWrapper : finalTarget;
+  const strokeStyle = setStyleValue(
+    attributeValue(finalTarget, "style"),
+    "stroke",
+    `url(#${id})`,
+  );
+  const metadataStyle = setStyleValue(
+    gradientMetadataElement === finalTarget
+      ? strokeStyle
+      : attributeValue(gradientMetadataElement, "style"),
+    VECTOR_STROKE_GRADIENT_PROPERTY as VisualStyleProperty,
+    value.trim(),
+  );
+  if (gradientMetadataElement === finalTarget) {
+    return patchElementAttributes(content, [
+      {
+        element: finalTarget,
+        attributes: { style: metadataStyle },
+      },
+    ]);
+  }
   return patchElementAttributes(content, [
     {
       element: finalTarget,
       attributes: {
-        style: setStyleValue(
-          attributeValue(finalTarget, "style"),
-          "stroke",
-          `url(#${id})`,
-        ),
+        style: strokeStyle,
       },
     },
     {
-      element: finalWrapper,
-      attributes: {
-        style: setStyleValue(
-          attributeValue(finalWrapper, "style"),
-          VECTOR_STROKE_GRADIENT_PROPERTY as VisualStyleProperty,
-          value.trim(),
-        ),
-      },
+      element: gradientMetadataElement,
+      attributes: { style: metadataStyle },
     },
   ]);
 }
@@ -5419,30 +5491,52 @@ function applyVectorStrokeGradient(
 function clearVectorStrokeGradientState(
   html: string,
   shape: ParsedElement,
+  previousStroke: string | null,
 ): string {
   const elements = parseHtmlElements(html);
   const currentShape = elements[shape.index];
-  const wrapper =
-    currentShape?.parentIndex === undefined
-      ? undefined
-      : elements[currentShape.parentIndex];
+  const wrapper = currentShape
+    ? vectorShapeOwnerSvg(currentShape, elements)
+    : null;
   if (!currentShape || currentShape.start !== shape.start || !wrapper) {
     return html;
   }
-  const withoutDefs = removeVectorStrokeGradientMarkup(html, wrapper);
+  const shapes = vectorShapeDescendants(wrapper, elements);
+  const authoredShapes = shapes.filter(
+    (candidate) => getAttribute(candidate, VECTOR_STROKE_OVERLAY) === undefined,
+  );
+  const metadataOnWrapper = authoredShapes.length === 1;
+  const shapeIndex = shapes.indexOf(currentShape);
+  if (shapeIndex < 0) return html;
+  const withoutDefs = removeVectorStrokeGradientMarkup(
+    html,
+    wrapper,
+    previousStroke,
+  );
   const refreshed = parseHtmlElements(withoutDefs);
   const nextWrapper = refreshed.find(
     (candidate) => candidate.start === wrapper.start,
   );
-  if (!nextWrapper) return withoutDefs;
-  const style = parseStyle(attributeValue(nextWrapper, "style"));
+  const nextShapes = nextWrapper
+    ? vectorShapeDescendants(nextWrapper, refreshed)
+    : [];
+  const nextMetadataElement = metadataOnWrapper
+    ? nextWrapper
+    : (nextShapes[shapeIndex] ?? null);
+  if (!nextWrapper || !nextMetadataElement) return withoutDefs;
+  const style = parseStyle(attributeValue(nextMetadataElement, "style"));
   delete style[VECTOR_STROKE_GRADIENT_PROPERTY];
   const nextStyle = serializeStyleDeclarations(
     Object.entries(style).map(([property, value]) => ({ property, value })),
   );
   return nextStyle
-    ? replaceOrInsertAttribute(withoutDefs, nextWrapper, "style", nextStyle)
-    : removeAttributeFromHtml(withoutDefs, nextWrapper, "style");
+    ? replaceOrInsertAttribute(
+        withoutDefs,
+        nextMetadataElement,
+        "style",
+        nextStyle,
+      )
+    : removeAttributeFromHtml(withoutDefs, nextMetadataElement, "style");
 }
 
 type StyleEditTargetRoute =
@@ -5478,6 +5572,19 @@ function resolveStyleEditTargetRoute(
     return { kind: "released-svg" };
   }
   const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  const useTarget =
+    element.tag === "use"
+      ? element
+      : paintChild?.tag === "use"
+        ? paintChild
+        : null;
+  const isGeneratedStrokeOverlay =
+    intent.property.startsWith("stroke") &&
+    paintChild?.tag === "use" &&
+    getAttribute(paintChild, VECTOR_STROKE_OVERLAY) !== undefined;
+  if (useTarget && !isGeneratedStrokeOverlay) {
+    return { kind: "unsupported" };
+  }
   if (
     node.dataAttributes["data-an-primitive"] === "pasted-svg" &&
     !paintChild
@@ -5675,6 +5782,8 @@ function applyStyleEdit(
       ? scaledSvgLength(logicalWidth, position === "center" ? 1 : 2)
       : logicalWidth;
   if (storedValue === null) return "unsupported";
+  const previousStroke =
+    property === "stroke" ? vectorStyleValue(element, "stroke") : null;
   const nextStyle = setStyleValue(
     attributeValue(element, "style"),
     property,
@@ -5682,7 +5791,7 @@ function applyStyleEdit(
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
   if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {
-    content = clearVectorStrokeGradientState(content, element);
+    content = clearVectorStrokeGradientState(content, element, previousStroke);
   }
   if (alignedOverlay && property === "stroke-width") {
     const current = parseHtmlElements(content)[element.index];
@@ -5766,6 +5875,8 @@ function applyStyleRemoveEdit(
     return "unsupported";
   }
   const currentStyle = attributeValue(styleElement, "style");
+  const previousStroke =
+    property === "stroke" ? vectorStyleValue(styleElement, "stroke") : null;
   if (currentStyle === null) {
     return {
       content: html,
@@ -5787,7 +5898,11 @@ function applyStyleRemoveEdit(
     : removeAttributeFromHtml(html, styleElement, "style");
   if (route.kind === "vector-paint") {
     if (property === "stroke") {
-      content = clearVectorStrokeGradientState(content, styleElement);
+      content = clearVectorStrokeGradientState(
+        content,
+        styleElement,
+        previousStroke,
+      );
     }
     content = clearVectorWrapperPaint(content, element);
   }

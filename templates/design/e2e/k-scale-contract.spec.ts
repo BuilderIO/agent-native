@@ -799,6 +799,7 @@ test("board K scales a selected nested Frame through the reserved board file", a
   page,
   request,
 }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
   const designId = await createDesign(request, "K scale board");
   const board = await action(request, "create-file", {
     designId,

@@ -14598,3 +14598,202 @@ it(
     }
   },
 );
+
+it(
+  "editor chrome bridge relays video clipboard files to the host",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(["video"], "clipboard.mp4", { type: "video/mp4" }),
+        );
+        document.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      });
+
+      const messages = await readBridgeMessages(page);
+      const paste = messages.find(
+        (message) => message.type === "canvas-image-paste",
+      ) as
+        | { files?: Array<{ type?: string; dataUrl?: string; name?: string }> }
+        | undefined;
+      expect(paste?.files).toEqual([
+        expect.objectContaining({
+          type: "video/mp4",
+          name: "clipboard.mp4",
+          dataUrl: expect.stringMatching(/^data:video\/mp4;base64,/),
+        }),
+      ]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "relays SVG clipboard files through the sanitized SVG paste path",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const defaultPrevented = await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(
+            ['<svg width="17" height="9"><path d="M0 0h17"/></svg>'],
+            "clipboard.svg",
+            { type: "image/svg+xml" },
+          ),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(defaultPrevented).toBe(true);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "figma-clipboard-paste" &&
+            message.svg?.includes('<path d="M0 0h17"'),
+        ),
+      );
+
+      const paste = (await readBridgeMessages(page)).find(
+        (message) => message.type === "figma-clipboard-paste",
+      ) as { content?: string; svg?: string } | undefined;
+      expect(paste).toMatchObject({
+        content: "",
+        svg: '<svg width="17" height="9"><path d="M0 0h17"/></svg>',
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "consumes oversized SVG clipboard files and reports the rejection",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const defaultPrevented = await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(["x".repeat(1_000_001)], "large.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(defaultPrevented).toBe(true);
+      const messages = await readBridgeMessages(page);
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          type: "figma-clipboard-paste",
+          content: "",
+          svgFileError: "too-large",
+        }),
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "consumes unreadable SVG clipboard files and reports the read failure",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const defaultPrevented = await page.evaluate(() => {
+        const file = new File(["<svg/>"], "unreadable.svg", {
+          type: "image/svg+xml",
+        });
+        Object.defineProperty(file, "text", {
+          value: () => Promise.reject(new DOMException("Read failed")),
+        });
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(defaultPrevented).toBe(true);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "figma-clipboard-paste" &&
+            message.svgFileError === "unreadable",
+        ),
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);

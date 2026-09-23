@@ -293,3 +293,99 @@ test("toolbar inserts image and video through preview, upload, save, and reload"
     await postAction(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
+
+test("pasting a desktop video file uploads and persists a playable layer", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { designId, screenId } = await createMediaDesign(page);
+  let upload: UploadGate | undefined;
+  try {
+    await gotoEditor(page, designId);
+    const durableUrl = new URL(WEBM_URL, page.url()).href;
+    upload = await gateUpload(
+      page,
+      "**/_agent-native/file-upload",
+      { status: 201, body: { url: durableUrl } },
+      async (route) => {
+        const request = route.request();
+        expect(request.headers()["content-type"]).toContain(
+          "multipart/form-data",
+        );
+        expect(
+          request.postDataBuffer()?.includes("design-media-probe.webm"),
+        ).toBe(true);
+        expect(request.postDataBuffer()?.includes("video/webm")).toBe(true);
+      },
+    );
+    await enterDirectMode(page);
+    const fixtureBytes = [...(await readFile(WEBM_FIXTURE))];
+    const pasteWasPrevented = await designFrame(page, screenId)
+      .locator("body")
+      .evaluate((body, bytes) => {
+        const file = new File(
+          [Uint8Array.from(bytes)],
+          "design-media-probe.webm",
+          { type: "video/webm" },
+        );
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        body.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, fixtureBytes);
+    expect(pasteWasPrevented).toBe(true);
+
+    const media = designFrame(page, screenId).locator(
+      'video[data-agent-native-layer-name="design-media-probe.webm"]',
+    );
+    await upload.started;
+    expect(upload.error()).toBeUndefined();
+    await expect(media).toHaveCount(1);
+    await expect(media).toHaveAttribute("preload", "metadata");
+    await expect
+      .poll(() =>
+        media.evaluate((element) => (element as HTMLVideoElement).videoWidth),
+      )
+      .toBe(32);
+    await expect(media).toHaveAttribute("src", /^blob:/);
+
+    upload.release();
+    await expect.poll(() => media.getAttribute("src")).toBe(durableUrl);
+    await expect
+      .poll(() => readScreenHtml(page, designId, screenId))
+      .toContain(durableUrl);
+    const saved = await readScreenHtml(page, designId, screenId);
+    expect(saved).toContain(
+      'data-agent-native-layer-name="design-media-probe.webm"',
+    );
+    expect(saved).not.toContain("blob:");
+
+    await installAssetRoute(
+      page,
+      WEBM_URL,
+      await readFile(WEBM_FIXTURE),
+      "video/webm",
+    );
+    await page.reload();
+    const reloadedMedia = designFrame(page, screenId).locator(
+      'video[data-agent-native-layer-name="design-media-probe.webm"]',
+    );
+    await expect(reloadedMedia).toHaveAttribute("src", durableUrl);
+    await expect
+      .poll(() =>
+        reloadedMedia.evaluate(
+          (element) => (element as HTMLVideoElement).videoHeight,
+        ),
+      )
+      .toBe(24);
+  } finally {
+    upload?.release();
+    await page.unroute("**/_agent-native/file-upload").catch(() => {});
+    await postAction(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});

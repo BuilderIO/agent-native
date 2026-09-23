@@ -313,8 +313,7 @@ export function isVectorShapeElement(element: ElementInfo): boolean {
     tag === "ellipse" ||
     tag === "circle" ||
     tag === "rect" ||
-    tag === "line" ||
-    tag === "use"
+    tag === "line"
   ) {
     return true;
   }

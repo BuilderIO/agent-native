@@ -23581,6 +23581,53 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         return;
       }
+      var svgFile = Array.from(e.clipboardData?.items ?? [])
+        .filter(function (item) {
+          return (
+            item.kind === "file" &&
+            (item.type.toLowerCase() === "image/svg+xml" ||
+              item.getAsFile()?.name.toLowerCase().endsWith(".svg"))
+          );
+        })
+        .map(function (item) {
+          return item.getAsFile();
+        })
+        .find(function (file): file is File {
+          return Boolean(file);
+        });
+      if (svgFile) {
+        stopNativeInteraction(e);
+        if (svgFile.size > 1000000) {
+          (window.parent as Window).postMessage(
+            {
+              type: "figma-clipboard-paste",
+              content: "",
+              svgFileError: "too-large",
+            },
+            "*",
+          );
+          return;
+        }
+        void svgFile
+          .text()
+          .then(function (source) {
+            (window.parent as Window).postMessage(
+              { type: "figma-clipboard-paste", content: "", svg: source },
+              "*",
+            );
+          })
+          .catch(function () {
+            (window.parent as Window).postMessage(
+              {
+                type: "figma-clipboard-paste",
+                content: "",
+                svgFileError: "unreadable",
+              },
+              "*",
+            );
+          });
+        return;
+      }
       // Relay image files pasted while the canvas has focus (e.g. "Copy as PNG"
       // from Figma, or a screenshot). The parent's handleEditorPaste cannot see
       // these because paste events inside an iframe don't bubble to the parent
@@ -23588,7 +23635,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the parent's handlePastedImageFiles can insert an <img> layer.
       var imageFiles = Array.from(e.clipboardData?.items ?? [])
         .filter(function (item) {
-          return item.kind === "file" && item.type.startsWith("image/");
+          return (
+            item.kind === "file" &&
+            item.type.toLowerCase() !== "image/svg+xml" &&
+            (item.type.startsWith("image/") || item.type.startsWith("video/"))
+          );
         })
         .map(function (item) {
           return item.getAsFile();

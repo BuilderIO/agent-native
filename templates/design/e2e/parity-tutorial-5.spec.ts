@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { e2eBaseURL } from "./base-url";
 import {
   createFixtureDesign,
@@ -275,13 +276,11 @@ function styleOf(html: string, nodeId: string): Record<string, string> {
 }
 
 function layerNameOf(html: string, nodeId: string): string | null {
-  const marker = `data-agent-native-node-id="${nodeId}"`;
-  const openIndex = html.indexOf(marker);
-  if (openIndex < 0) return null;
-  const tagStart = html.lastIndexOf("<", openIndex);
-  const tagEnd = html.indexOf(">", openIndex);
-  const tag = html.slice(tagStart, tagEnd + 1);
-  return /data-agent-native-layer-name="([^"]*)"/.exec(tag)?.[1] ?? null;
+  return (
+    buildCodeLayerProjection(html).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === nodeId,
+    )?.layerName ?? null
+  );
 }
 
 function hasNode(html: string, nodeId: string): boolean {

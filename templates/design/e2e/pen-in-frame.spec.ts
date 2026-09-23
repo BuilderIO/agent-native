@@ -347,9 +347,9 @@ test("Pen continues a selected open path in place and persists undo/redo", async
         return paths.length === 1 && paths[0]?.pathData !== before.pathData;
       })
       .toBe(true);
-    const extended = (await persistedVectors(request, designId))[0]!;
-    expect(extended.id).toBe(before.id);
-    expect(extended.pathData).toContain("L");
+    const firstExtension = (await persistedVectors(request, designId))[0]!;
+    expect(firstExtension.id).toBe(before.id);
+    expect(firstExtension.pathData).toContain("L");
 
     const undoShortcut = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
     const redoShortcut =
@@ -361,17 +361,69 @@ test("Pen continues a selected open path in place and persists undo/redo", async
       )
       .toBe(before.pathData);
     expect((await persistedVectors(request, designId))[0]?.id).toBe(before.id);
+
     await page.keyboard.press(redoShortcut);
     await expect
       .poll(
         async () => (await persistedVectors(request, designId))[0]?.pathData,
       )
-      .toBe(extended.pathData);
+      .toBe(firstExtension.pathData);
     expect((await persistedVectors(request, designId))[0]?.id).toBe(before.id);
+
+    const committedTerminal = await terminalPenPoint(page);
+    await page.keyboard.press(undoShortcut);
+    await expect
+      .poll(
+        async () => (await persistedVectors(request, designId))[0]?.pathData,
+      )
+      .toBe(before.pathData);
+    await page.keyboard.press(undoShortcut);
+    await expect
+      .poll(async () => persistedVectors(request, designId))
+      .toEqual([]);
+    await expect.poll(async () => vectors(page)).toEqual([]);
+    const selectedBeforeRestart = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+      )
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-layer-node-id")),
+      );
+    expect(selectedBeforeRestart).not.toContain(firstExtension.id);
+
+    // Undoing the creation must invalidate its continuation target. Clicking
+    // the old terminal point starts a fresh path instead of appending to the
+    // deleted vector and issuing an update against its missing node id.
+    await page.keyboard.press("p");
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await penClick(page, committedTerminal.x, committedTerminal.y);
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(1);
+    await penClick(
+      page,
+      Math.min(committedTerminal.x + 40, committedTerminal.right - 12),
+      Math.min(committedTerminal.y + 40, committedTerminal.bottom - 12),
+    );
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(2);
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(async () => (await persistedVectors(request, designId)).length)
+      .toBe(1);
+    const restarted = (await persistedVectors(request, designId))[0]!;
+    expect(restarted.id).not.toBe(firstExtension.id);
+    expect(restarted.pathData).not.toBe(firstExtension.pathData);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Vector");
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect.poll(async () => (await vectors(page)).length).toBe(1);
-    expect((await persistedVectors(request, designId))[0]).toEqual(extended);
+    expect((await persistedVectors(request, designId))[0]).toEqual(restarted);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

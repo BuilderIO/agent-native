@@ -9,6 +9,7 @@ import {
 } from "./helpers";
 
 const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"><img data-agent-native-node-id="fit-target" data-agent-native-layer-name="Fit target" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="position:absolute;left:20px;top:20px;width:120px;height:80px" /></main></body></html>`;
+const DUAL_STROKE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"><img data-agent-native-node-id="dual-stroke" data-agent-native-layer-name="Dual stroke image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border:9px solid #fff;outline:9px solid #fff;outline-offset:0" /></main></body></html>`;
 
 async function action(
   page: Page,
@@ -25,7 +26,7 @@ async function action(
   return response.json();
 }
 
-async function createDesign(page: Page) {
+async function createDesign(page: Page, content = HTML) {
   const design = await action(page, "create-design", {
     title: `Pasted SVG image ${Date.now()}`,
     projectType: "prototype",
@@ -36,7 +37,7 @@ async function createDesign(page: Page) {
     designId,
     filename: "screen.html",
     fileType: "html",
-    content: HTML,
+    content,
   });
   const fileId = file.id ?? file.data?.id;
   if (typeof fileId !== "string") throw new Error("missing screen id");
@@ -51,6 +52,196 @@ async function createDesign(page: Page) {
     ],
   });
   return { designId, screenId: fileId };
+}
+
+test("image border and outline remain separate inside and outside strokes", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page, DUAL_STROKE_HTML);
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    await page
+      .getByRole("treeitem")
+      .filter({ hasText: "Dual stroke image" })
+      .first()
+      .locator("[data-layer-row-button]")
+      .click();
+
+    const stroke = page
+      .getByRole("heading", { name: "Stroke", exact: true })
+      .locator("xpath=ancestor::section");
+    const positions = stroke.getByRole("combobox");
+    const weights = stroke.locator('input[aria-label="Weight"]');
+    await expect(positions).toHaveCount(2);
+    await expect(positions.nth(0)).toHaveText("Inside");
+    await expect(positions.nth(1)).toHaveText("Outside");
+    await expect(weights).toHaveCount(2);
+    await expect(weights.nth(0)).toHaveValue("9px");
+    await expect(weights.nth(1)).toHaveValue("9px");
+
+    await stroke.getByRole("button", { name: "Remove layer" }).first().click();
+    const image = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="dual-stroke"]',
+    );
+    await expect
+      .poll(() =>
+        image.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.borderWidth, style.outlineWidth].join("|");
+        }),
+      )
+      .toBe("0px|9px");
+
+    await page.reload();
+    await page
+      .getByRole("treeitem")
+      .filter({ hasText: "Dual stroke image" })
+      .first()
+      .locator("[data-layer-row-button]")
+      .click();
+    const reloadedStroke = page
+      .getByRole("heading", { name: "Stroke", exact: true })
+      .locator("xpath=ancestor::section");
+    await expect(reloadedStroke.getByRole("combobox")).toHaveCount(1);
+    await expect(reloadedStroke.getByRole("combobox")).toHaveText("Outside");
+    await expect(
+      reloadedStroke.locator('input[aria-label="Weight"]'),
+    ).toHaveValue("9px");
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+async function createSecondScreen(page: Page, designId: string) {
+  const file = await action(page, "create-file", {
+    designId,
+    filename: "screen-target.html",
+    fileType: "html",
+    content: HTML,
+  });
+  const fileId = file.id ?? file.data?.id;
+  if (typeof fileId !== "string") throw new Error("missing target screen id");
+  await action(page, "update-design", {
+    id: designId,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["canvasFrames", fileId],
+        value: { x: 900, y: 100, width: 640, height: 480 },
+      },
+    ],
+  });
+  return fileId;
+}
+
+async function createBoardSurface(page: Page, designId: string) {
+  const board = await action(page, "create-file", {
+    designId,
+    filename: "__board__.html",
+    fileType: "html",
+    content:
+      '<!doctype html><html><body style="margin:0"><div data-agent-native-node-id="board-anchor" data-agent-native-layer-name="Board anchor" style="position:absolute;left:120px;top:120px;width:40px;height:40px;background:#ddd"></div></body></html>',
+  });
+  const boardFileId = board.id ?? board.data?.id;
+  if (typeof boardFileId !== "string") throw new Error("missing board file id");
+  await action(page, "update-design", {
+    id: designId,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
+  });
+  return boardFileId;
+}
+
+async function pasteSvgFile(
+  target: import("@playwright/test").Locator,
+  svg: string,
+) {
+  return target.evaluate((body, source) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([source], "clipboard.svg", { type: "image/svg+xml" }),
+    );
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    body.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, svg);
+}
+
+const SVG_FILE =
+  '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
+
+async function recolorNestedPath(page: Page, screenId: string) {
+  const svg = designFrame(page, screenId).locator(
+    'svg[data-agent-native-layer-name="Pasted SVG"]',
+  );
+  const paths = svg.locator("g > path");
+  await expect(paths).toHaveCount(2);
+  const layers = page.getByRole("tree", { name: "Layers" });
+  const svgRow = layers
+    .getByRole("treeitem")
+    .filter({ hasText: "Pasted SVG" })
+    .first();
+  await svgRow.getByRole("button", { name: "Expand layer" }).click();
+  const groupRow = layers.getByRole("treeitem", { level: 3 }).first();
+  await groupRow.getByRole("button", { name: "Expand layer" }).click();
+  const pathRow = layers
+    .getByRole("treeitem", { level: 4 })
+    .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) })
+    // Layers are stacked in reverse SVG document order.
+    .nth(1);
+  await expect(pathRow).toBeVisible();
+  await pathRow.click();
+  await expect(pathRow).toHaveAttribute("aria-selected", "true");
+  const fill = page
+    .getByRole("heading", { name: "Fill", exact: true })
+    .locator("xpath=ancestor::section");
+  await fill.getByRole("button", { name: "Open color picker" }).click();
+  const hex = page.getByRole("textbox", { name: "Hex", exact: true });
+  await hex.fill("3B82F6");
+  await hex.press("Enter");
+  await expect(paths.nth(0)).toHaveCSS("fill", "rgb(59, 130, 246)");
+  await expect(paths.nth(1)).toHaveCSS("fill", "rgb(22, 163, 74)");
+  return svg;
+}
+
+async function assertNestedPathColorPersists(
+  page: Page,
+  designId: string,
+  screenId: string,
+  filePath = "screen.html",
+) {
+  const svg = await recolorNestedPath(page, screenId);
+  await expect
+    .poll(() => readSource(page, designId, filePath))
+    .toMatch(/fill:\s*#3b82f6/i);
+  await page.reload();
+  const reloadedSvg = designFrame(page, screenId).locator(
+    'svg[data-agent-native-layer-name="Pasted SVG"]',
+  );
+  await expect(reloadedSvg.locator("g > path").nth(0)).toHaveCSS(
+    "fill",
+    "rgb(59, 130, 246)",
+  );
+  await expect(reloadedSvg.locator("g > path").nth(1)).toHaveCSS(
+    "fill",
+    "rgb(22, 163, 74)",
+  );
+}
+
+async function readSource(page: Page, designId: string, filePath: string) {
+  const response = await page.request.get(
+    appPath(
+      `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=${encodeURIComponent(filePath)}`,
+    ),
+  );
+  if (!response.ok()) return "";
+  const source = await response.json();
+  return typeof source.content === "string" ? source.content : "";
 }
 
 test("pasted SVG is an editable sized layer and image fit mode writes object-fit", async ({
@@ -246,6 +437,258 @@ test("pasted SVG is an editable sized layer and image fit mode writes object-fit
       ),
     ).toHaveCSS("fill", "rgb(59, 130, 246)");
     await expect(siblingShape).toHaveCSS("fill", "rgb(22, 163, 74)");
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("stroke gradient edits stay on the selected nested pasted-SVG shape", async ({
+  page,
+}, testInfo) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    const pasted = await designFrame(page, screenId)
+      .locator("body")
+      .evaluate((body) => {
+        const transfer = new DataTransfer();
+        transfer.setData(
+          "text/plain",
+          '<svg width="80" height="40" viewBox="0 0 80 40"><g><path id="first" d="M0 0h30v30z" fill="none" stroke="#111827" stroke-width="2"/><path id="second" d="M50 0h30v30z" fill="none" stroke="#7c3aed" stroke-width="2"/></g></svg>',
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        body.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+    expect(pasted).toBe(true);
+
+    const svg = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"]',
+    );
+    const paths = svg.locator("g > path");
+    await expect(paths).toHaveCount(2);
+
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const svgRow = layers
+      .getByRole("treeitem")
+      .filter({ hasText: "Pasted SVG" })
+      .first();
+    await svgRow.getByRole("button", { name: "Expand layer" }).click();
+    const groupRow = layers.getByRole("treeitem", { level: 3 }).first();
+    await groupRow.getByRole("button", { name: "Expand layer" }).click();
+    // Imported SVG paths can have authored IDs, so Layers exposes their
+    // generated copy-ID actions instead of a generic PATH label.
+    const shapeRows = layers.getByRole("treeitem", { level: 4 });
+    await expect(shapeRows).toHaveCount(2);
+    // Layers orders the imported paths in reverse authored order: the first
+    // row is the authored `second` path.
+    await shapeRows.nth(0).click();
+    await expect(shapeRows.nth(0)).toHaveAttribute("aria-selected", "true");
+
+    const stroke = page
+      .getByRole("heading", { name: "Stroke", exact: true })
+      .locator("xpath=ancestor::section");
+    await stroke.getByRole("button", { name: "Add stroke" }).first().click();
+    await stroke.getByRole("button", { name: "Open color picker" }).click();
+    await page.getByRole("button", { name: "Linear", exact: true }).click();
+
+    const paint = async () =>
+      paths.evaluateAll((elements) =>
+        elements.map((element) => ({
+          style: element.getAttribute("style") ?? "",
+          stroke: element.getAttribute("stroke"),
+        })),
+      );
+    await expect
+      .poll(async () => (await paint())[1]?.style ?? "")
+      .toContain("--an-vector-stroke-gradient:");
+    const updated = await paint();
+    expect(updated[0]?.stroke).toBe("#111827");
+    expect(updated[0]?.style).not.toContain("--an-vector-stroke-gradient:");
+    expect(updated[1]?.stroke).toBe("#7c3aed");
+    expect(updated[1]?.style).toMatch(/stroke: url\(["']?#/);
+
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(
+          appPath(
+            `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
+          ),
+        );
+        if (!response.ok()) return "";
+        const source = await response.json();
+        return typeof source.content === "string" ? source.content : "";
+      })
+      .toContain("data-an-vector-stroke-gradient");
+    await page.reload();
+    const reloadedSvg = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"]',
+    );
+    const reloadedPaths = reloadedSvg.locator("g > path");
+    await expect(reloadedPaths).toHaveCount(2);
+    const reloadedPaint = await reloadedPaths.evaluateAll((elements) =>
+      elements.map((element) => ({
+        style: element.getAttribute("style") ?? "",
+        stroke: element.getAttribute("stroke"),
+      })),
+    );
+    expect(reloadedPaint[0]?.stroke).toBe("#111827");
+    expect(reloadedPaint[0]?.style).not.toContain(
+      "--an-vector-stroke-gradient:",
+    );
+    expect(reloadedPaint[1]?.style).toMatch(/stroke: url\(["']?#/);
+    await page.screenshot({
+      path: testInfo.outputPath("nested-svg-stroke-gradient.png"),
+    });
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("clipboard SVG File paste in the parent editor stays editable after reload", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+
+    expect(await pasteSvgFile(page.locator("body"), SVG_FILE)).toBe(true);
+    await expect(
+      designFrame(page, screenId).locator(
+        'svg[data-agent-native-layer-name="Pasted SVG"] g > path',
+      ),
+    ).toHaveCount(2);
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toContain('data-agent-native-layer-name="Pasted SVG"');
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .not.toContain('data-agent-native-layer-name="clipboard.svg"');
+    await expect(
+      designFrame(page, screenId).locator(
+        'img[data-agent-native-layer-name="clipboard.svg"]',
+      ),
+    ).toHaveCount(0);
+    await assertNestedPathColorPersists(page, designId, screenId);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("clipboard SVG File paste relayed from a Screen iframe stays in that Screen", async ({
+  page,
+}) => {
+  const { designId, screenId: firstScreenId } = await createDesign(page);
+  try {
+    const targetScreenId = await createSecondScreen(page, designId);
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+
+    expect(
+      await pasteSvgFile(
+        designFrame(page, targetScreenId).locator("body"),
+        SVG_FILE,
+      ),
+    ).toBe(true);
+    await expect(
+      designFrame(page, targetScreenId).locator(
+        'svg[data-agent-native-layer-name="Pasted SVG"] g > path',
+      ),
+    ).toHaveCount(2);
+    await expect(
+      designFrame(page, firstScreenId).locator(
+        'svg[data-agent-native-layer-name="Pasted SVG"]',
+      ),
+    ).toHaveCount(0);
+    await expect
+      .poll(() => readSource(page, designId, "screen-target.html"))
+      .toContain('data-agent-native-layer-name="Pasted SVG"');
+    await expect
+      .poll(() => readSource(page, designId, "screen-target.html"))
+      .not.toContain('data-agent-native-layer-name="clipboard.svg"');
+    await expect(
+      designFrame(page, targetScreenId).locator(
+        'img[data-agent-native-layer-name="clipboard.svg"]',
+      ),
+    ).toHaveCount(0);
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .not.toContain('data-agent-native-layer-name="Pasted SVG"');
+    await assertNestedPathColorPersists(
+      page,
+      designId,
+      targetScreenId,
+      "screen-target.html",
+    );
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("clipboard SVG File paste from the board iframe targets the selected Screen", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    const boardFileId = await createBoardSurface(page, designId);
+    await gotoEditor(page, designId);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+
+    const boardFrame = page
+      .locator(
+        "iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
+      )
+      .contentFrame();
+    await expect(boardFrame.locator("body")).toBeAttached();
+    expect(await pasteSvgFile(boardFrame.locator("body"), SVG_FILE)).toBe(true);
+
+    await expect(
+      designFrame(page, screenId).locator(
+        'svg[data-agent-native-layer-name="Pasted SVG"] g > path',
+      ),
+    ).toHaveCount(2);
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toContain('data-agent-native-layer-name="Pasted SVG"');
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(
+          appPath(`/_agent-native/actions/get-design?id=${designId}`),
+        );
+        if (!response.ok()) {
+          throw new Error(`get-design failed: ${response.status()}`);
+        }
+        const design = await response.json();
+        const board = design.files?.find(
+          (file: { filename?: string }) => file.filename === "__board__.html",
+        );
+        if (typeof board?.content !== "string") {
+          throw new Error("get-design returned no board file content");
+        }
+        return board.content;
+      })
+      .not.toContain('data-agent-native-layer-name="Pasted SVG"');
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .not.toContain('data-agent-native-layer-name="clipboard.svg"');
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
