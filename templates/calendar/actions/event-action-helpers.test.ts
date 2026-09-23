@@ -14,6 +14,7 @@ vi.mock("../server/lib/google-calendar.js", () => ({
 import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import {
   buildStatusEventFields,
+  googleEventResultId,
   ensureOrganizerInAttendees,
   normalizeGoogleEventId,
   normalizeCreateEventInput,
@@ -46,6 +47,18 @@ describe("normalizeGoogleEventId", () => {
     expect(() =>
       resolveBulkGoogleEventAccountEmail([id, otherId], undefined),
     ).toThrow("one Google account");
+    expect(() =>
+      resolveBulkGoogleEventAccountEmail(
+        [id, "google-other"],
+        "owner@example.com",
+      ),
+    ).toThrow("cannot mix");
+    expect(googleEventResultId(id, "replacement-id", "other@example.com")).toBe(
+      createGoogleAccountEventId({
+        accountEmail: "other@example.com",
+        googleEventId: "replacement-id",
+      }),
+    );
   });
 });
 

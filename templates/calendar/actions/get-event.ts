@@ -203,7 +203,8 @@ export default defineAction({
         };
 
         return calEvent;
-      } catch {
+      } catch (error) {
+        if (accountEvent) throw error;
         // Try next account
         continue;
       }

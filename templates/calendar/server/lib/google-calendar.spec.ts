@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createGoogleAccountEventId } from "../../shared/google-calendar-sources.js";
+
 const getOAuthAccountsMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsMock = vi.hoisted(() =>
@@ -576,7 +578,10 @@ describe("calendar event listing", () => {
 
       expect(result.events).toHaveLength(1);
       expect(result.events[0]).toMatchObject({
-        id: "google-personal-event",
+        id: createGoogleAccountEventId({
+          accountEmail: ownerAccount,
+          googleEventId: "personal-event",
+        }),
         accountEmail: ownerAccount,
         calendarAccessRole: "owner",
         calendarPrimary: true,

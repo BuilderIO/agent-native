@@ -226,15 +226,17 @@ export default defineAction({
       // writes for the same event: one succeeds, the other 404s, and the report
       // claims a failure that never happened.
       const requested = Array.from(
-        new Set(args.ids!.map(normalizeWritableGoogleEventId)),
+        new Map(
+          args.ids!.map((id) => [normalizeWritableGoogleEventId(id), id]),
+        ).entries(),
       );
       // Explicit ids get the same booking protection as a filtered selection:
       // naming the event directly does not make leaving its booking confirmed
       // any less of a silent inconsistency.
-      const booked = await findBookedGoogleEvents(requested);
-      for (const googleEventId of requested) {
+      const booked = await findBookedGoogleEvents(requested.map(([id]) => id));
+      for (const [googleEventId, displayId] of requested) {
         const display: BulkEventResult = {
-          id: `google-${googleEventId}`,
+          id: displayId,
           accountEmail,
           outcome: "matched",
         };
@@ -291,12 +293,7 @@ export default defineAction({
 
       for (const event of matched) {
         const display: BulkEventResult = {
-          id:
-            event.overlayEmail || event.calendarReadOnly
-              ? event.id
-              : event.googleEventId
-                ? `google-${event.googleEventId}`
-                : event.id,
+          id: event.id,
           title: event.title,
           start: event.start,
           weekday: eventWeekday(event.start, range.timezone),

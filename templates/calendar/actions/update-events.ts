@@ -13,6 +13,7 @@ import {
   BULK_EVENT_CONCURRENCY,
   MAX_MATCHED_EVENTS,
   cliBoolean,
+  googleEventResultId,
   isBookedOnAccount,
   mapWithConcurrency,
   normalizeWritableGoogleEventId,
@@ -193,18 +194,20 @@ export default defineAction({
         ownerEmail,
       );
       const requested = Array.from(
-        new Set(args.ids!.map(normalizeWritableGoogleEventId)),
+        new Map(
+          args.ids!.map((id) => [normalizeWritableGoogleEventId(id), id]),
+        ).entries(),
       );
-      for (const id of requested) {
+      for (const [id, displayId] of requested) {
         try {
           const event = await googleCalendar.getEvent(id, {
             ownerEmail,
             accountEmail,
           });
-          events.push({ event, accountEmail });
+          events.push({ event: { ...event, id: displayId }, accountEmail });
         } catch (error) {
           skipped.push({
-            id: `google-${id}`,
+            id: googleEventResultId(displayId, id, accountEmail),
             accountEmail,
             outcome: "failed",
             reason: isGoogleNotFoundError(error)
@@ -244,7 +247,13 @@ export default defineAction({
       );
       for (const event of matched) {
         const result: BulkEventResult = {
-          id: event.googleEventId ? `google-${event.googleEventId}` : event.id,
+          id: event.googleEventId
+            ? googleEventResultId(
+                event.id,
+                event.googleEventId,
+                event.accountEmail ?? ownerEmail,
+              )
+            : event.id,
           title: event.title,
           start: event.start,
           end: event.end,
@@ -292,7 +301,7 @@ export default defineAction({
       }
       if (isBookedOnAccount(booked, event.googleEventId, accountEmail)) {
         skipped.push({
-          id: `google-${event.googleEventId}`,
+          id: googleEventResultId(event.id, event.googleEventId, accountEmail),
           title: event.title,
           start: event.start,
           end: event.end,
@@ -304,7 +313,7 @@ export default defineAction({
       }
       if (args.shiftMinutes !== undefined && event.allDay) {
         skipped.push({
-          id: `google-${event.googleEventId}`,
+          id: googleEventResultId(event.id, event.googleEventId, accountEmail),
           title: event.title,
           start: event.start,
           end: event.end,
@@ -322,7 +331,7 @@ export default defineAction({
       const range = effectiveRange(event, args);
       assertEffectiveRangeOrdered(event, range);
       return {
-        id: `google-${event.googleEventId}`,
+        id: googleEventResultId(event.id, event.googleEventId!, accountEmail),
         title: event.title,
         start: range.start,
         end: range.end,
@@ -361,7 +370,11 @@ export default defineAction({
             },
           );
           return {
-            id: `google-${event.googleEventId}`,
+            id: googleEventResultId(
+              event.id,
+              event.googleEventId!,
+              accountEmail,
+            ),
             title: event.title,
             start,
             end,
@@ -370,7 +383,11 @@ export default defineAction({
           };
         } catch (error) {
           return {
-            id: `google-${event.googleEventId}`,
+            id: googleEventResultId(
+              event.id,
+              event.googleEventId!,
+              accountEmail,
+            ),
             title: event.title,
             start,
             end,

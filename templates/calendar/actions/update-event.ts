@@ -20,6 +20,7 @@ import {
   cliBoolean,
   googleColorIdInput,
   normalizeAttendees,
+  googleEventResultId,
   normalizeWritableGoogleEventId,
   normalizeRecurrence,
   reminderMethodInput,
@@ -446,8 +447,8 @@ export default defineAction({
       );
       return {
         success: true,
-        id: `google-${result.id}`,
-        replacedId: `google-${googleEventId}`,
+        id: googleEventResultId(args.id, result.id, targetAccountEmail!),
+        replacedId: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail: targetAccountEmail,
         updated: ["accountEmail"],
         htmlLink: result.htmlLink,
@@ -586,7 +587,7 @@ export default defineAction({
     if (updatedKeys.length === 0 && zoomAlreadyPresent) {
       return {
         success: true,
-        id: `google-${googleEventId}`,
+        id: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail,
         updated: [],
         meetingLink: zoomMeetingLink,
@@ -747,9 +748,15 @@ export default defineAction({
 
     return {
       success: true,
-      id: `google-${returnedGoogleEventId}`,
+      id: googleEventResultId(args.id, returnedGoogleEventId, accountEmail),
       ...(returnedGoogleEventId !== googleEventId
-        ? { replacedId: `google-${googleEventId}` }
+        ? {
+            replacedId: googleEventResultId(
+              args.id,
+              googleEventId,
+              accountEmail,
+            ),
+          }
         : {}),
       accountEmail,
       updated: updatedKeys,

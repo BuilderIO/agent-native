@@ -96,4 +96,21 @@ describe("get-event shared calendar reads", () => {
       accountEmail: "zulu@example.com",
     });
   });
+
+  it("preserves a provider failure for an account-scoped lookup", async () => {
+    getClientsMock.mockResolvedValue([
+      { email: "zulu@example.com", accessToken: "zulu-token" },
+    ]);
+    calendarGetEventMock.mockRejectedValue(
+      new Error("Google rate limited the request"),
+    );
+    const id = createGoogleAccountEventId({
+      accountEmail: "zulu@example.com",
+      googleEventId: "event-id",
+    });
+
+    await expect(action.run({ id, calendarId: "primary" }, {})).rejects.toThrow(
+      "Google rate limited the request",
+    );
+  });
 });

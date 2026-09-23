@@ -1479,7 +1479,7 @@ export async function listEvents(
             id:
               calendarSource && !calendarSource.primary
                 ? `google-${calendarSource.sourceKey}-${event.id}`
-                : !calendarSource && clients.length > 1
+                : clients.length > 1
                   ? createGoogleAccountEventId({
                       accountEmail: email,
                       googleEventId: event.id,

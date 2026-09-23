@@ -12,7 +12,10 @@ import {
 } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
-import { parseGoogleAccountEventId } from "../shared/google-calendar-sources.js";
+import {
+  createGoogleAccountEventId,
+  parseGoogleAccountEventId,
+} from "../shared/google-calendar-sources.js";
 
 export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -196,6 +199,16 @@ export function normalizeGoogleEventId(id: string): string {
   return id.startsWith("google-") ? id.slice("google-".length) : id;
 }
 
+export function googleEventResultId(
+  inputId: string,
+  googleEventId: string,
+  accountEmail: string,
+): string {
+  return parseGoogleAccountEventId(inputId)
+    ? createGoogleAccountEventId({ accountEmail, googleEventId })
+    : `google-${googleEventId}`;
+}
+
 export function resolveGoogleEventAccountEmail(
   id: string,
   accountEmail: string | undefined,
@@ -215,6 +228,12 @@ export function resolveBulkGoogleEventAccountEmail(
   ids: string[],
   accountEmail: string | undefined,
 ): string | undefined {
+  const scopedCount = ids.filter((id) => parseGoogleAccountEventId(id)).length;
+  if (scopedCount > 0 && scopedCount !== ids.length) {
+    throw new Error(
+      "Bulk event ids cannot mix account-scoped and legacy Google ids",
+    );
+  }
   const accounts = new Set(
     ids
       .map((id) => resolveGoogleEventAccountEmail(id, accountEmail))
