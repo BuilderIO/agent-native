@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-22
+
+### Added
+
+- Captures are now screened by Jev, which returns a calibrated probability per sensitivity category, and Settings lets you pick between Jev, a custom model, and deterministic-only screening.
+
 ## 2026-08-22
 
 ### Fixed

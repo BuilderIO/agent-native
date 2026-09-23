@@ -5,8 +5,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-22
 
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Canvas saves are faster because version checkpoints are taken at most every few minutes while you edit.
+- Large Figma files with hundreds of frames now import in seconds without freezing the editor, keep their Figma canvas layout, and render component slots and instance overrides much more faithfully.
+
 ### Fixed
 
+- Blocks can be selected with one click inside screens
+- Canvas edits on large designs now save even when version history can't be stored, with a one-time notice instead of a lost change.
+- Opening Design signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.
 - Live resize handles keep working at overview zoom
 - Live visual edits can now move layers onto an empty canvas and keep them editable.
 
