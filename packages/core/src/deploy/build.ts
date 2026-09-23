@@ -436,6 +436,17 @@ function cloudflareBindingsInitScript(): string {
 const CF_MODULE_ORIG_SET_INTERVAL_KEY = "__cfModuleOrigSetInterval";
 const CF_MODULE_TIMER_SHIM_MARKER = "__cf_module_timer_shim__";
 
+/**
+ * Restores the real `setInterval`, captured by
+ * `cloudflareModuleTimerShimPrefix`. Callers must invoke this only after the
+ * shimmed dependency graph has actually been evaluated (e.g. after `await
+ * loadHandler()` in the Module entry, or unconditionally in the Pages entry,
+ * whose dependencies are all statically imported and so are already
+ * evaluated by the time any handler body runs) — calling it any earlier is a
+ * no-op on a cold isolate, since nothing has captured the original yet, and
+ * the shim then immediately re-neuters it during that later evaluation with
+ * nothing left to restore it again.
+ */
 function cloudflareModuleTimerRestoreScript(): string {
   return `function __cfRestoreModuleTimers() {
   if (typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY} !== "undefined") {
@@ -478,33 +489,39 @@ export default {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
     initializeBindings(env);
+    const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return (await loadHandler()).fetch(request, env, ctx);
+    return h.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
     initializeBindings(env);
+    const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return (await loadHandler()).scheduled?.(controller, env, ctx);
+    return h.scheduled?.(controller, env, ctx);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
+    const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return (await loadHandler()).email?.(message, env, ctx);
+    return h.email?.(message, env, ctx);
   },
   async queue(batch, env, ctx) {
     initializeBindings(env);
+    const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return (await loadHandler()).queue?.(batch, env, ctx);
+    return h.queue?.(batch, env, ctx);
   },
   async tail(traces, env, ctx) {
     initializeBindings(env);
+    const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return (await loadHandler()).tail?.(traces, env, ctx);
+    return h.tail?.(traces, env, ctx);
   },
   async trace(traces, env, ctx) {
     initializeBindings(env);
+    const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return (await loadHandler()).trace?.(traces, env, ctx);
+    return h.trace?.(traces, env, ctx);
   },
 };
 `;
@@ -2324,6 +2341,8 @@ ${
 
 ${cloudflareBindingsInitScript()}
 
+${cloudflareModuleTimerRestoreScript()}
+
 export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
@@ -2331,6 +2350,12 @@ export default {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
     initializeBindings(env);
+    // Unlike the Module entry, every dependency here is statically imported
+    // (see routeImports/actionImports above), so patchCloudflareModuleServerOutput's
+    // shim has already run — and already re-neutered setInterval — by the
+    // time this handler body executes. No loadHandler()-style deferred
+    // import to wait on: restoring here is always safe and always needed.
+    __cfRestoreModuleTimers();
 
     // Try serving static assets first (CF Pages advanced mode).
     // Only attempt this for GET/HEAD — the ASSETS binding is a static file

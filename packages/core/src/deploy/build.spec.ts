@@ -614,18 +614,71 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
     expect(entry).not.toContain("export * from");
+    // Restore must run AFTER loadHandler() resolves, not before: on a cold
+    // isolate nothing has captured the real setInterval yet until
+    // loadHandler()'s dynamic import actually evaluates the shimmed
+    // dependency graph. Restoring first is a no-op, then the shim re-neuters
+    // setInterval during that import with nothing left to restore it again —
+    // real request-time setInterval calls silently get the no-op stub.
     expect(entry).toContain(
-      "initializeBindings(env);\n    __cfRestoreModuleTimers();\n    return (await loadHandler())",
+      "const h = await loadHandler();\n    __cfRestoreModuleTimers();\n    return h.fetch",
     );
     expect(entry).toContain('await import("./index.mjs")');
-    expect(entry).toContain(
-      "return (await loadHandler()).fetch(request, env, ctx);",
-    );
     expect(entry).toContain("async scheduled(controller, env, ctx)");
     expect(entry).toContain("async queue(batch, env, ctx)");
     expect(entry).toContain("async email(message, env, ctx)");
     expect(entry).toContain("async tail(traces, env, ctx)");
     expect(entry).toContain("async trace(traces, env, ctx)");
+  });
+
+  // Regression for the Builder review finding: restoring before loadHandler()
+  // is a no-op on a cold isolate (nothing has captured the real setInterval
+  // yet), so the shim's neutering during that later import wins and never
+  // gets undone. Proven behaviorally, not just by string-matching the source.
+  it("restores the real setInterval before the loaded handler runs, even on a cold isolate", async () => {
+    const dir = makeTempDir();
+    const marker = "__test_captured_set_interval__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+// A module-scope timer, the same shape patchCloudflareModuleServerOutput
+// shims in a real Nitro dependency chunk.
+setInterval(() => {}, 60_000).unref?.();
+
+export default {
+  async fetch() {
+    globalThis.${marker} = setInterval;
+    return new Response("ok");
+  },
+};
+`,
+    );
+    // Applies the real build-time patch, exactly as buildWithNitro's
+    // post-build step does to server output before worker.mjs ever runs.
+    patchCloudflareModuleServerOutput(dir);
+
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const realSetIntervalBefore = globalThis.setInterval;
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+
+      await worker.fetch(new Request("https://app.test/"), {}, {});
+
+      expect((globalThis as Record<string, unknown>)[marker]).toBe(
+        realSetIntervalBefore,
+      );
+    } finally {
+      globalThis.setInterval = realSetIntervalBefore;
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__cfModuleOrigSetInterval",
+      );
+    }
   });
 
   it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
