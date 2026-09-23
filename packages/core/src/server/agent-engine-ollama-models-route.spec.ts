@@ -73,24 +73,19 @@ describe("agent-engine ollama-models route", () => {
     );
   });
 
-  it("falls back to the localhost default only when there is no signed-in session", async () => {
+  it("rejects with 401 and never fetches when there is no signed-in session", async () => {
     mockGetSession.mockResolvedValue(null);
-    mockSsrfSafeFetch.mockResolvedValue(
-      new Response(JSON.stringify({ models: [] }), { status: 200 }),
-    );
+    mockSsrfSafeFetch.mockClear();
 
     const handler = createAgentEngineOllamaModelsHandler();
-    await handler(
-      makeEvent(
-        "http://localhost:8080/_agent-native/agent-engine/ollama-models",
-      ) as any,
-    );
+    const event = makeEvent(
+      "http://localhost:8080/_agent-native/agent-engine/ollama-models",
+    ) as any;
+    const result = await handler(event);
 
-    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
-      "http://localhost:11434/api/tags",
-      expect.anything(),
-      expect.anything(),
-    );
+    expect(result).toEqual({ error: "Authentication required" });
+    expect(event.res.status).toBe(401);
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("prefers an explicit ?baseUrl= query param over the saved endpoint", async () => {

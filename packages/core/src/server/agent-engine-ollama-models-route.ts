@@ -30,10 +30,7 @@ async function resolveRequestIdentity(
   event: H3Event,
 ): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
   // coercion-ok: a session lookup failure here degrades to the unauthenticated
-  // path (no saved secret, DEFAULT_OLLAMA_BASE_URL) rather than 500ing this
-  // best-effort model-discovery route. The real connectivity/config error still
-  // surfaces from the /api/tags request below, so a session-lookup blip is
-  // never reported to the caller as a clean success.
+  // path (401, same as no session at all) rather than 500ing this route.
   const session = await getSession(event).catch(() => null);
   const userEmail = session?.email;
   if (!userEmail) return { userEmail: undefined, orgId: undefined };
@@ -66,10 +63,19 @@ function parseModelNames(payload: unknown): string[] {
  */
 export function createAgentEngineOllamaModelsHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { userEmail, orgId } = await resolveRequestIdentity(event);
+    // This route lets the caller name an arbitrary `baseUrl` and makes the
+    // server fetch it — a session is required so it can't become an
+    // anonymous SSRF/outbound-request primitive, mirroring the DELETE
+    // handler in `agent-engine-api-key-route.ts`.
+    if (!userEmail) {
+      setResponseStatus(event, 401);
+      return { error: "Authentication required" };
+    }
+
     const query = getQuery(event);
     const requestedBaseUrl =
       typeof query.baseUrl === "string" ? query.baseUrl.trim() : "";
-    const { userEmail, orgId } = await resolveRequestIdentity(event);
 
     return runWithRequestContext({ userEmail, orgId }, async () => {
       const trusted = isTrustedSelfHostedRuntime();
