@@ -674,6 +674,30 @@ describe("calendar event listing", () => {
       accountEmail: "zulu@example.com",
       calendarReadOnly: true,
     });
+
+    calendarListEventsMock.mockClear().mockResolvedValue({
+      items: [
+        {
+          id: "friends-event",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
+    const selectedFallback = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: [fallbackSourceKey!] },
+    );
+    expect(selectedFallback.events).toHaveLength(1);
+    expect(selectedFallback.events[0].id).toBe(result.events[0].id);
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "zulu-token",
+      "alpha@example.com",
+      expect.any(Object),
+    );
   });
 
   it("keeps equal provider ids from distinct primary accounts separate", async () => {
@@ -966,7 +990,15 @@ describe("calendar event listing", () => {
         },
       },
     ]);
-    calendarListEventsMock.mockResolvedValue({ items: [] });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "shared-provider-id",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
 
     const result = await listEvents(
       "2026-07-06T00:00:00Z",
@@ -975,7 +1007,12 @@ describe("calendar event listing", () => {
       { accountEmails: ["QUIET@example.com"] },
     );
 
-    expect(result).toEqual({ events: [], errors: [] });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: expect.stringMatching(/^google-account-event:/),
+      accountEmail: "quiet@example.com",
+    });
+    expect(result.errors).toEqual([]);
     expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
     expect(calendarListEventsMock).toHaveBeenCalledWith(
       "quiet-token",

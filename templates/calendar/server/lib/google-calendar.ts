@@ -1360,6 +1360,8 @@ export async function listEvents(
   // "calendar is empty" and the user sees no error.
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { events: [], errors };
+  const hasMultipleOwnedAccounts =
+    clients.length > 1 || (await getOwnedAccountEmails(forEmail)).length > 1;
 
   const requestedSourceKeys = Array.from(
     new Set((options.calendarSourceKeys ?? []).filter(Boolean)),
@@ -1368,9 +1370,27 @@ export async function listEvents(
   if (requestedSourceKeys.length > 0) {
     const discovered = await listGoogleCalendars(forEmail);
     errors.push(...discovered.errors);
-    const discoveredByKey = new Map(
-      discovered.calendars.map((source) => [source.sourceKey, source]),
-    );
+    const discoveredByKey = new Map<
+      string,
+      {
+        source: GoogleCalendarSource;
+        paths: Array<
+          Pick<
+            GoogleCalendarSource,
+            "sourceKey" | "accountEmail" | "accessRole" | "primary"
+          >
+        >;
+      }
+    >();
+    for (const source of discovered.calendars) {
+      const paths = source.sourcePaths ?? [source];
+      discoveredByKey.set(source.sourceKey, { source, paths });
+      for (const path of paths) {
+        if (path.sourceKey !== source.sourceKey) {
+          discoveredByKey.set(path.sourceKey, { source, paths: [path] });
+        }
+      }
+    }
     const invalid = requestedSourceKeys.filter(
       (sourceKey) => !discoveredByKey.has(sourceKey),
     );
@@ -1380,15 +1400,7 @@ export async function listEvents(
       );
     }
     for (const sourceKey of requestedSourceKeys) {
-      const source = discoveredByKey.get(sourceKey)!;
-      const paths = source.sourcePaths ?? [
-        {
-          sourceKey: source.sourceKey,
-          accountEmail: source.accountEmail,
-          accessRole: source.accessRole,
-          primary: source.primary,
-        },
-      ];
+      const { source, paths } = discoveredByKey.get(sourceKey)!;
       for (const path of paths) {
         const accountKey = path.accountEmail.trim().toLowerCase();
         selectedSourcesByAccount.set(accountKey, [
@@ -1487,7 +1499,7 @@ export async function listEvents(
             id:
               calendarSource && !calendarSource.primary
                 ? `google-${calendarSource.sourceKey}-${event.id}`
-                : clients.length > 1
+                : hasMultipleOwnedAccounts
                   ? createGoogleAccountEventId({
                       accountEmail: email,
                       googleEventId: event.id,
