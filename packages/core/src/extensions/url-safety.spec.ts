@@ -21,14 +21,25 @@ describe("createSsrfSafeDispatcher", () => {
       throw new Error("node:dns unavailable");
     });
     vi.resetModules();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     try {
       const mod = await import("./url-safety.js");
       await expect(mod.createSsrfSafeDispatcher()).resolves.toBeNull();
       await expect(
         mod.createSsrfSafeDispatcher([], undefined, { required: true }),
       ).rejects.toThrow(/dispatcher could not be loaded/);
+      await expect(
+        mod.ssrfSafeFetch(
+          "https://93.184.216.34/data",
+          {},
+          { requireDispatcher: true },
+        ),
+      ).rejects.toThrow(/dispatcher could not be loaded/);
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock("node:dns");
+      vi.unstubAllGlobals();
       vi.resetModules();
     }
   });
@@ -231,6 +242,20 @@ describe("ssrfSafeFetch per-hop policies", () => {
     ).resolves.toBe(redirectResponse);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(redirectResponse.bodyUsed).toBe(false);
+  });
+
+  it("rejects a redirect to a private literal before making the second request", async () => {
+    const redirectResponse = new Response(null, {
+      status: 302,
+      headers: { location: "http://127.0.0.1:43123/secret" },
+    });
+    const fetchMock = vi.fn(async () => redirectResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(ssrfSafeFetch(httpsOrigin)).rejects.toThrow(
+      /SSRF blocked: refusing to fetch private\/internal address/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("allows configured loopback aliases without allowing an unconfigured port", async () => {

@@ -3046,6 +3046,7 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "https://gateway.example/v1",
+        requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
     });
@@ -3077,8 +3078,75 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "http://127.0.0.1:43123/v1",
+        requestFetch: expect.any(Function),
       });
+      const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const requestFetch = openAiCreate.mock.calls[0][0]
+        .requestFetch as typeof fetch;
+      try {
+        await requestFetch("http://127.0.0.1:43123/v1/chat/completions");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await expect(
+          requestFetch("http://127.0.0.1:43124/v1/chat/completions"),
+        ).rejects.toThrow(/escaped its configured origin/);
+      } finally {
+        vi.unstubAllGlobals();
+      }
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("rejects a private camelCase provider endpoint before engine creation", async () => {
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn();
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await expect(
+        resolveEngine({
+          engineOption: {
+            name: "ai-sdk:openai",
+            config: { baseUrl: "http://127.0.0.1:43123/v1" },
+          },
+        }),
+      ).rejects.toThrow(/private\/internal address/);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("guards Ollama's implicit loopback endpoint outside local deployment", async () => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+      vi.stubEnv("OLLAMA_BASE_URL", "");
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:ollama",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:ollama",
+        label: "Ollama",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "llama3.2",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await resolveEngine({ engineOption: "ai-sdk:ollama" });
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      await expect(
+        requestFetch("http://127.0.0.1:11434/api/chat"),
+      ).rejects.toThrow(/private\/internal address/);
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
@@ -3126,6 +3194,7 @@ describe("AgentEngine registry", () => {
         apiKey: "sk-e2e",
         allowEnvFallback: true,
         baseUrl: "https://api.openai.com/v1",
+        requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
     });

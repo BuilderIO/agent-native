@@ -30,6 +30,7 @@ import {
   resolveSecret,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
+import { resolveDeployEnvironment } from "../../server/deploy-environment.js";
 import {
   getRequestOrgId,
   getRequestContext,
@@ -41,12 +42,17 @@ import {
   CHATGPT_SUBSCRIPTION_ENGINE_NAME,
   CHATGPT_SUBSCRIPTION_LAB_KEY,
 } from "../chatgpt-subscription-contract.js";
+import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
+  OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
   isCustomOpenAiBaseUrl,
 } from "./openai-compatible-endpoint.js";
-import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
+import {
+  isLoopbackOllamaEndpoint,
+  validateProviderBaseUrl,
+} from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -465,7 +471,7 @@ export async function resolveEnginePreservesCustomModels(
   if (entry.name !== "ai-sdk:openai") return false;
   try {
     return isCustomOpenAiBaseUrl(
-      await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR),
+      (await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR))?.baseUrl,
     );
   } catch {
     return false;
@@ -854,9 +860,14 @@ function engineCreateConfig(
   };
 }
 
+interface ResolvedProviderBaseUrl {
+  baseUrl: string;
+  allowedPrivateOrigin?: string;
+}
+
 async function resolveProviderBaseUrl(
   envVar: string,
-): Promise<string | undefined> {
+): Promise<ResolvedProviderBaseUrl | undefined> {
   const raw = await resolveSecret(envVar);
   const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
     ? readDeployCredentialEnv(envVar)
@@ -864,23 +875,28 @@ async function resolveProviderBaseUrl(
 
   if (!raw) {
     if (!deployValue) return undefined;
-    return validateProviderBaseUrl(deployValue, {
+    const baseUrl = await validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
     });
+    return { baseUrl, allowedPrivateOrigin: new URL(baseUrl).origin };
   }
 
-  return raw
-    ? validateProviderBaseUrl(raw, {
-        // Deployment configuration is operator-owned. `resolveSecret` may
-        // return that fallback directly, so preserve the same private-network
-        // allowance as the explicit deploy-only branch above without extending
-        // it to user-, org-, or workspace-scoped endpoint values.
-        allowPrivate: deployValue !== undefined && raw === deployValue,
-        allowLocalOllama:
-          envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV !== "production",
-      })
-    : undefined;
+  // Deployment configuration is operator-owned. `resolveSecret` may return
+  // that fallback directly, so preserve the same private-network allowance
+  // without extending it to user-, org-, or workspace-scoped endpoint values.
+  const isDeployValue = deployValue !== undefined && raw === deployValue;
+  const allowLocalOllama =
+    envVar === OLLAMA_BASE_URL_ENV_VAR &&
+    resolveDeployEnvironment() === "local";
+  const baseUrl = await validateProviderBaseUrl(raw, {
+    allowPrivate: isDeployValue,
+    allowLocalOllama,
+  });
+  const allowedPrivateOrigin =
+    isDeployValue || (allowLocalOllama && isLoopbackOllamaEndpoint(baseUrl))
+      ? new URL(baseUrl).origin
+      : undefined;
+  return { baseUrl, allowedPrivateOrigin };
 }
 
 /**
@@ -1089,21 +1105,59 @@ async function engineCreateConfigForEntry(
           : undefined;
     }
   }
-  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
-    if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
-        allowLocalOllama:
-          entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV !== "production",
-      });
-    }
-    if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveProviderBaseUrl(
-        entry.name === "ai-sdk:ollama"
+  const aiSdkProvider = entry.name.startsWith("ai-sdk:")
+    ? entry.name.slice("ai-sdk:".length)
+    : undefined;
+  if (aiSdkProvider) {
+    let resolvedEndpoint: ResolvedProviderBaseUrl | undefined;
+    if (safeExtra.baseUrl == null && typeof safeExtra.baseURL !== "string") {
+      const envVar =
+        aiSdkProvider === "ollama"
           ? OLLAMA_BASE_URL_ENV_VAR
-          : OPENAI_BASE_URL_ENV_VAR,
+          : aiSdkProvider === "openai"
+            ? OPENAI_BASE_URL_ENV_VAR
+            : undefined;
+      if (envVar) resolvedEndpoint = await resolveProviderBaseUrl(envVar);
+      if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
+    }
+
+    if (safeExtra.baseUrl == null && typeof safeExtra.baseURL === "string") {
+      safeExtra.baseUrl = safeExtra.baseURL;
+    }
+
+    if (typeof safeExtra.baseUrl === "string") {
+      const baseUrl = safeExtra.baseUrl;
+      const allowLocalOllama =
+        aiSdkProvider === "ollama" && resolveDeployEnvironment() === "local";
+      const validatedBaseUrl =
+        resolvedEndpoint?.baseUrl ??
+        (await validateProviderBaseUrl(baseUrl, {
+          allowLocalOllama,
+        }));
+      safeExtra.baseUrl = validatedBaseUrl;
+      const allowedPrivateOrigin =
+        resolvedEndpoint?.allowedPrivateOrigin ??
+        (allowLocalOllama && isLoopbackOllamaEndpoint(validatedBaseUrl)
+          ? new URL(validatedBaseUrl).origin
+          : undefined);
+      if (typeof safeExtra.requestFetch !== "function") {
+        safeExtra.requestFetch = createProviderEndpointFetch(
+          validatedBaseUrl,
+          allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
+        );
+      }
+    } else if (
+      aiSdkProvider === "ollama" &&
+      typeof safeExtra.requestFetch !== "function"
+    ) {
+      const allowedPrivateOrigins =
+        resolveDeployEnvironment() === "local"
+          ? [new URL(OLLAMA_DEFAULT_BASE_URL).origin]
+          : [];
+      safeExtra.requestFetch = createProviderEndpointFetch(
+        OLLAMA_DEFAULT_BASE_URL,
+        allowedPrivateOrigins,
       );
-      if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
   if (

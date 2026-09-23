@@ -369,6 +369,7 @@ export async function ssrfSafeFetch(
   options: {
     maxRedirects?: number;
     followRedirects?: boolean;
+    requireDispatcher?: boolean;
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
     /**
@@ -421,6 +422,7 @@ export async function ssrfSafeFetch(
     const dispatcher = await createSsrfSafeDispatcher(
       options.allowedPrivateOrigins,
       currentUrl,
+      { required: options.requireDispatcher },
     );
     if (dispatcher) fetchOpts.dispatcher = dispatcher;
 

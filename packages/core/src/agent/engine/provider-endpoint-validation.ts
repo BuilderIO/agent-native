@@ -1,7 +1,7 @@
 import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
 import { normalizeProviderBaseUrl } from "./openai-compatible-endpoint.js";
 
-function isLoopbackOllamaEndpoint(value: string): boolean {
+export function isLoopbackOllamaEndpoint(value: string): boolean {
   const hostname = new URL(value).hostname.toLowerCase();
   return (
     hostname === "localhost" ||
