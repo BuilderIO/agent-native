@@ -1252,6 +1252,7 @@ export function DocumentSidebar({
       space: (typeof contentSpaces)[number],
       targetDocumentId?: string | null,
     ) => {
+      const previousExplicitSelection = explicitSpaceSelectionRef.current;
       if (targetDocumentId === undefined) {
         explicitSpaceSelectionRef.current = space.id;
       }
@@ -1288,6 +1289,12 @@ export function DocumentSidebar({
         );
         return true;
       } catch (error) {
+        if (
+          targetDocumentId === undefined &&
+          explicitSpaceSelectionRef.current === space.id
+        ) {
+          explicitSpaceSelectionRef.current = previousExplicitSelection;
+        }
         toast.error(error instanceof Error ? error.message : String(error));
         return false;
       }

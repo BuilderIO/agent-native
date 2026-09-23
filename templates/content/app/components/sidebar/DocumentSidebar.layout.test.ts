@@ -294,6 +294,9 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("return handleSelectContentSpace(space, null);");
     expect(sidebar).toContain(
+      "explicitSpaceSelectionRef.current = previousExplicitSelection;",
+    );
+    expect(sidebar).toContain(
       "if (!(await selectSpaceForCreation(space))) return;",
     );
     expect(sidebar).toContain(

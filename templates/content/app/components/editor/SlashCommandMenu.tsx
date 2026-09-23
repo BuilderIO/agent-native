@@ -938,9 +938,6 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      if (slashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
-      }
       const toastId = toast.loading(t("editor.creatingDatabase"));
       let createdBlock: CreateInlineDatabaseResponse["block"] | null = null;
       let parentPersisted = false;
@@ -950,7 +947,11 @@ export function SlashCommandMenu({
           title: t("editor.untitledDatabase"),
         });
         createdBlock = result.block;
-        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        const inserted = insertInlineDatabaseBlock(
+          editor,
+          result.block,
+          slashRange,
+        );
         if (!inserted) throw new Error(t("empty.genericError"));
         await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
