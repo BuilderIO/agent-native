@@ -82,11 +82,21 @@ infrastructure, and add providers only when you need them.
 - The whole panel can be collapsed with the chevron in the top-right, or
   hidden entirely with **Hide setup** at the bottom.
 
+<Callout tone="info">
+
+In a multi-app workspace, set `ONBOARDING_SHARED_COMPLETION` to reuse completed
+onboarding across apps. If you do not set it, each app tracks onboarding
+completion separately.
+
+</Callout>
+
 ### How to complete each step
 
 Steps offer one or more **methods** — different ways to satisfy the same
 requirement. The primary path is shown first; secondary paths are kept compact
 behind a picker or disclosure when a step has several equivalent providers.
+Setup cards show the available setup choices. They do not list every possible
+key or credential.
 
 - **Connect a service (one click)** — e.g. _Connect Builder_ for the managed
   AI gateway. Click the button, a window opens, you sign in, the window closes,
