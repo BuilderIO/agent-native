@@ -767,9 +767,9 @@ export async function runFirstPartyAnalyticsBigQueryDeliveryOnce(): Promise<Firs
     );
     if (!claimed.length) break;
     batches += 1;
-    await renewDeliveryRows(db, claimed, new Date().toISOString());
     const first = claimed[0]!;
     try {
+      await renewDeliveryRows(db, claimed, new Date().toISOString());
       const insertResult = await withDeliveryLeaseHeartbeat(
         db,
         claimed,

@@ -431,6 +431,73 @@ describe("BigQuery delivery queue", () => {
     errorSpy.mockRestore();
   });
 
+  it("schedules a retry when the initial claim renewal fails", async () => {
+    const claimTx = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [queueRow] })
+        .mockResolvedValueOnce({ rowsAffected: 1 }),
+    };
+    const emptyTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const cleanupTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const db = {
+      execute: vi.fn(async (query: { sql: string }) => {
+        if (
+          query.sql.includes("INSERT INTO analytics_bigquery_delivery_queue")
+        ) {
+          return { rowsAffected: 0 };
+        }
+        if (query.sql.includes("lease_expires_at = $1")) {
+          throw new Error("temporary lease renewal failure");
+        }
+        if (query.sql.includes("attempt_count = attempt_count + 1")) {
+          return { rowsAffected: 1 };
+        }
+        if (query.sql.includes("pending_count")) {
+          return {
+            rows: [
+              {
+                pending_count: "1",
+                oldest_pending_at: queueRow.created_at,
+                last_delivered_at: null,
+                last_error: "temporary lease renewal failure",
+              },
+            ],
+          };
+        }
+        return { rowsAffected: 0, rows: [] };
+      }),
+      transaction: vi
+        .fn()
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(claimTx))
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(emptyTx))
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) =>
+          fn(cleanupTx),
+        ),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runFirstPartyAnalyticsBigQueryDeliveryOnce()).resolves.toEqual(
+      expect.objectContaining({
+        status: "retry-scheduled",
+        batches: 1,
+        delivered: 0,
+        pendingCount: 1,
+        lastError: "temporary lease renewal failure",
+      }),
+    );
+
+    expect(mocks.insertWithResults).not.toHaveBeenCalled();
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("attempt_count = attempt_count + 1"),
+        args: expect.arrayContaining(["temporary lease renewal failure"]),
+      }),
+    );
+    errorSpy.mockRestore();
+  });
+
   it("marks repeated failures terminal after the bounded retry budget", async () => {
     const terminalQueueRow = {
       ...queueRow,
