@@ -26,8 +26,17 @@ describe("image scale modes", () => {
     });
     expect(imageScaleModePatch("fill")).toEqual({
       objectFit: "cover",
-      "--an-image-scale": "",
+      "--an-image-scale": "none",
     });
+  });
+
+  it("reads Fill back after leaving Crop", () => {
+    expect(
+      imageScaleModeFromStyles({
+        objectFit: "cover",
+        "--an-image-scale": "none",
+      }),
+    ).toBe("fill");
   });
 });
 

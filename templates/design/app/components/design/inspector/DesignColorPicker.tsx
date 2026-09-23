@@ -641,6 +641,11 @@ export function DesignColorPicker({
   const hexDraftRef = useRef(hexDraft);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
+  // A colour picked here joins the document palette; letting the swatch grid
+  // grow while open re-wraps it and the popover slides under the cursor.
+  const documentColorsAtOpenRef = useRef(documentColors);
+  if (!open) documentColorsAtOpenRef.current = documentColors;
+  const shownDocumentColors = documentColorsAtOpenRef.current;
   const handleOpenChange = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onControlledOpenChange?.(nextOpen);
@@ -1749,8 +1754,8 @@ export function DesignColorPicker({
 
                   {/* Swatch grid: document palette when available, else current color */}
                   <div className="grid grid-cols-8 gap-1">
-                    {(documentColors && documentColors.length > 0
-                      ? documentColors
+                    {(shownDocumentColors && shownDocumentColors.length > 0
+                      ? shownDocumentColors
                       : [rgbaToCss(color)]
                     ).map((docColor) => {
                       const currentHex = rgbaToHex(
@@ -1970,6 +1975,10 @@ function SaturationBrightnessField({
       aria-disabled={disabled}
       onPointerDown={(event) => {
         if (disabled) return;
+        // A default press starts a text selection over the picker, and the
+        // next press inside it becomes a native drag that cancels this one.
+        event.preventDefault();
+        event.currentTarget.focus();
         draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
         updateFromPointer(event);
@@ -2116,10 +2125,12 @@ function ColorTrack({
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
         if (disabled) return;
+        // Same native-drag hazard as the saturation field above.
+        event.preventDefault();
+        event.currentTarget.focus();
         gestureStartValueRef.current = value;
         draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
-        if (onCancel) event.currentTarget.focus();
         updateFromPointer(event);
       }}
       onPointerMove={(event) => {

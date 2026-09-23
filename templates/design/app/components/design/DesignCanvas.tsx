@@ -6777,7 +6777,14 @@ export function DesignCanvas({
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
-    if (textEditingStateRef.current.active) return;
+    // A picker drag ending over the canvas must not take focus from the open
+    // picker: losing it ends the inspector gesture and drops a styled text range.
+    if (
+      textEditingStateRef.current.active ||
+      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+    ) {
+      return;
+    }
     const focusedElement = document.activeElement;
     if (focusedElement instanceof HTMLIFrameElement) {
       try {

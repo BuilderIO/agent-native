@@ -243,3 +243,35 @@ describe("runScreenTextContentChange acceptance after a source transition", () =
     expect(getScreenContent).not.toHaveBeenCalled();
   });
 });
+
+describe("runScreenTextContentChange selection identity", () => {
+  it("keeps the committed text's layer identity so the inspector can size it", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Label">Button</div></body>`;
+    const { args, nodeId } = buildArgs(content, false);
+    let selected: unknown = null;
+    const previous = {
+      selector: `[data-agent-native-node-id="t1"]`,
+      sourceLayerIdentity: { screenId: SCREEN_ID, nodeId },
+    };
+    runScreenTextContentChange(
+      {
+        ...args,
+        setSelectedElement: ((update: (prev: unknown) => unknown) => {
+          selected = update(previous);
+        }) as never,
+      },
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Sign up",
+      {
+        selector: `[data-agent-native-node-id="t1"]`,
+        boundingRect: { x: 0, y: 0, width: 95, height: 19 },
+        computedStyles: { width: "95px" },
+      } as never,
+    );
+    expect(selected).toMatchObject({
+      sourceLayerIdentity: { screenId: SCREEN_ID, nodeId },
+      boundingRect: { width: 95, height: 19 },
+    });
+  });
+});

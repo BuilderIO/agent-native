@@ -47,7 +47,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function mountCanvasWithStyledRange() {
+async function mountCanvasWithStyledRange(active = true) {
   iframeServer = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end("<!doctype html><html><body>Runtime</body></html>");
@@ -123,7 +123,7 @@ async function mountCanvasWithStyledRange() {
   await fromFrame({ type: "agent-native:editor-chrome-ready" });
   await fromFrame({
     type: "text-editing-state",
-    active: true,
+    active,
     selector: "#hero",
     sourceId: "hero",
     hasRange: true,
@@ -184,4 +184,32 @@ it("does not resume the text edit when an inspector trigger is only being opened
   });
   await nextFrame();
   expect(resumes()).toHaveLength(0);
+});
+
+it("keeps focus in an open picker when the pointer moves over the canvas", async () => {
+  await mountCanvasWithStyledRange(false);
+  const iframe = container.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  )!;
+  let surface: HTMLElement | null = iframe.parentElement;
+  while (surface && surface.getAttribute("tabindex") !== "-1")
+    surface = surface.parentElement;
+  expect(surface).not.toBeNull();
+  const popper = document.createElement("div");
+  popper.setAttribute("data-radix-popper-content-wrapper", "");
+  const field = document.createElement("div");
+  field.tabIndex = 0;
+  popper.appendChild(field);
+  document.body.appendChild(popper);
+  field.focus();
+
+  await act(async () => {
+    surface!.dispatchEvent(
+      new PointerEvent("pointerover", { bubbles: true, relatedTarget: field }),
+    );
+    surface!.dispatchEvent(
+      new MouseEvent("mouseover", { bubbles: true, relatedTarget: field }),
+    );
+  });
+  expect(document.activeElement).toBe(field);
 });

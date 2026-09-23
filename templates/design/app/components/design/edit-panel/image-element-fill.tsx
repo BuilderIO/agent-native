@@ -49,7 +49,7 @@ export function imageScaleModePatch(
 ): Record<string, string> {
   return {
     objectFit: mode === "fit" ? "contain" : "cover",
-    [IMAGE_SCALE_MARKER]: mode === "crop" ? "crop" : "",
+    [IMAGE_SCALE_MARKER]: mode === "crop" ? "crop" : "none",
   };
 }
 

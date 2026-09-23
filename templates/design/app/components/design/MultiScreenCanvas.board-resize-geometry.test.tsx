@@ -679,3 +679,54 @@ describe("board text editing", () => {
     ).not.toBeNull();
   });
 });
+
+describe("board selection box click", () => {
+  it("hands a click without movement to the board bridge through its shield", async () => {
+    const boardIframe = await mountBoardCanvas({
+      x: -1000,
+      y: -1000,
+      width: 2000,
+      height: 2000,
+    });
+    const frameDoc = boardIframe.contentDocument!;
+    const shield = frameDoc.createElement("div");
+    shield.setAttribute("data-agent-native-edit-overlay", "shield");
+    const selection = frameDoc.createElement("div");
+    selection.setAttribute("data-agent-native-edit-overlay", "selection");
+    frameDoc.body.append(shield, selection);
+    const received: string[] = [];
+    for (const type of ["mousedown", "mouseup"]) {
+      shield.addEventListener(type, () => received.push(`shield:${type}`));
+      selection.addEventListener(type, () =>
+        received.push(`selection:${type}`),
+      );
+    }
+    await act(async () => {
+      postBoardSelectionRect(boardIframe.contentWindow);
+    });
+    const surface = container.querySelector<HTMLElement>(
+      "[data-board-object-selection-box] [data-frame-drag-surface]",
+    )!;
+    await act(async () => {
+      surface.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX: 30,
+          clientY: 30,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: 31,
+          clientY: 30,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent("mouseup", { bubbles: true, clientX: 31, clientY: 30 }),
+      );
+    });
+    expect(received).toEqual(["shield:mousedown", "shield:mouseup"]);
+  });
+});

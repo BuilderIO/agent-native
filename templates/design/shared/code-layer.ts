@@ -201,6 +201,7 @@ export type VisualStyleProperty =
   | "--an-vector-end-point"
   | "--an-vector-fill-gradient"
   | "--an-vector-stroke-gradient"
+  | "--an-image-scale"
   | "background-origin"
   | "outline"
   | "outline-width"
@@ -921,6 +922,7 @@ const STYLE_PROPERTIES = [
   "--an-vector-end-point",
   "--an-vector-fill-gradient",
   "--an-vector-stroke-gradient",
+  "--an-image-scale",
   "background-origin",
   "outline",
   "outline-width",

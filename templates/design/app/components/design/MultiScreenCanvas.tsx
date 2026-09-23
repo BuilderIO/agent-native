@@ -8798,6 +8798,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       setIsDragging(true);
 
       const handleMouseMove = (ev: MouseEvent) => {
+        // Same 3px slop as the bridge, so a click is never read as a move.
+        if (
+          !bridgeDragStarted &&
+          Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) <= 3
+        ) {
+          return;
+        }
         startBridgeDrag();
         dispatchAt(
           iframeDoc,
@@ -8823,6 +8830,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
       const handleMouseUp = (ev: MouseEvent) => {
         if (!bridgeDragStarted) {
+          // A plain click on the selected object is the bridge's to resolve:
+          // it clicks through into a selected frame's child, as in Figma.
+          // Through the shield (a press on the selection overlay is a move),
+          // and released on it too: the bridge drops a document-targeted up.
+          // Hit testing needs the frame's own client point (unlike the move
+          // above, which only uses deltas).
+          const frameRect = iframe.getBoundingClientRect();
+          const frameScale = frameRect.width / (iframe.offsetWidth || 1);
+          const point = {
+            x: (ev.clientX - frameRect.left) / frameScale,
+            y: (ev.clientY - frameRect.top) / frameScale,
+          };
+          const pressTarget = iframeDoc.querySelector(
+            '[data-agent-native-edit-overlay="shield"]',
+          );
+          if (pressTarget) {
+            dispatchAt(pressTarget, "mousedown", point, ev, 1);
+            dispatchAt(pressTarget, "mouseup", point, ev, 0);
+          }
           finishDrag();
           return;
         }
@@ -13802,7 +13828,10 @@ const Screen = memo(function Screen({
           data-cull-tier={cullTier}
           className={cn(
             // guard:allow-raw-color — preserve the document's white default independently of the editor theme.
-            "relative block h-full w-full overflow-clip rounded-[inherit] bg-white ring-1 ring-inset ring-border transition-colors",
+            "relative block h-full w-full overflow-clip rounded-[inherit] bg-white transition-colors",
+            // Figma draws no outline around a frame without a fill.
+            !screenRootRequiresTransparentHost(screenRootComputedStyles) &&
+              "ring-1 ring-inset ring-border",
             isFileDragOver &&
               "ring-2 ring-[var(--design-editor-accent-color)] ring-inset",
           )}
@@ -14624,10 +14653,11 @@ function BreakpointPreviewRow({
               <span
                 data-screen-content
                 data-cull-tier={cullTier}
-                className={
+                className={cn(
                   // guard:allow-raw-color — preserve the document's white default independently of the editor theme.
-                  "relative block h-full w-full overflow-clip rounded-[inherit] bg-white ring-1 ring-inset ring-border"
-                }
+                  "relative block h-full w-full overflow-clip rounded-[inherit] bg-white",
+                  !transparentHost && "ring-1 ring-inset ring-border",
+                )}
                 style={{
                   backgroundColor: transparentHost ? "transparent" : undefined,
                   borderRadius: rootStyles?.borderRadius,

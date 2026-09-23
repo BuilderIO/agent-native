@@ -327,6 +327,11 @@ export function runScreenTextContentChange(
             ? bridgeSourceIdForCodeLayerNode(nextNode)
             : base.sourceId,
           selector: nextNode ? preferredCodeLayerSelector(nextNode) : selector,
+          // The bridge payload carries no host layer identity; without it the
+          // inspector cannot resolve the layer's measured size.
+          sourceLayerIdentity: nextNode
+            ? { screenId: screenId, nodeId: nextNode.id }
+            : (base.sourceLayerIdentity ?? previous?.sourceLayerIdentity),
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }
