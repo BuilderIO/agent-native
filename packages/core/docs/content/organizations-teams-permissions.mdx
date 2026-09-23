@@ -323,6 +323,22 @@ For the `ownableColumns()` schema helper, the `accessFilter` / `resolveAccess` /
 [Security → Data Scoping](/docs/security#data-scoping) — the single source of
 truth for the scoping pipeline every resource role above rides on.
 
+## User groups {#user-groups}
+
+Organizations can have reusable user groups made up of current organization
+members. Owners and admins manage group membership, and one person can belong
+to multiple groups. Apps can use a group to share a resource that opts into
+group sharing or to limit access to a workspace connection.
+
+A group is an access list, not a child team. It has no separate organization or
+app roles, data boundary, or team-specific settings, instructions, context,
+skills, memory, or work view. A group share applies its resource role to every
+current group member. Access still requires membership in the resource's
+organization.
+
+See [Sharing & Privacy → Group grants](/docs/sharing#group-grants) and
+[Workspace Connections](/docs/workspace-connections) for details.
+
 ## Environment variables: what belongs where
 
 Environment variables configure the deployment. They are not a database for
