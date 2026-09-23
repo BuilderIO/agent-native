@@ -1,6 +1,7 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  PEN_CORNER_RADIUS_ATTRIBUTE,
   type CodeLayerNode,
   type CodeLayerSource,
 } from "@shared/code-layer";
@@ -21,8 +22,9 @@ import {
   createCornerNode,
   createSmoothNode,
   getPenPathGeometry,
+  penCornerRadiusFromAttribute,
   serializePenNodes,
-  serializePenPath,
+  serializeRoundedPenPath,
   type PenPath,
 } from "@shared/pen-path";
 
@@ -116,7 +118,10 @@ export function writeBackVectorEditedPenPath(
     const path = svg.querySelector("path");
     if (!path) return null;
 
-    const d = serializePenPath(penPath);
+    const cornerRadius = penCornerRadiusFromAttribute(
+      svg.getAttribute(PEN_CORNER_RADIUS_ATTRIBUTE),
+    );
+    const d = serializeRoundedPenPath(penPath, cornerRadius);
     const geometry = getPenPathGeometry(penPath);
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
     const oldViewBox = parseViewBox(svg.getAttribute("viewBox"));
@@ -136,13 +141,15 @@ export function writeBackVectorEditedPenPath(
     const strokePosition = svg.getAttribute("data-an-vector-stroke-position");
 
     path.setAttribute("d", d);
+    if (isClosed) path.removeAttribute("fill-opacity");
+    else path.setAttribute("fill-opacity", "0");
     if (isClosed) {
-      if (path.getAttribute("fill") === "none") {
-        path.setAttribute("fill", DEFAULT_SHAPE_FILL);
-      }
-      // Reopening added that stroke to keep the path visible; closing again
-      // must not leave it behind as if the user had chosen it.
+      // Reopening added that stroke to keep a filled shape visible; closing
+      // again restores the shape instead of keeping it as if chosen.
       if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
+        if (path.getAttribute("fill") === "none") {
+          path.setAttribute("fill", DEFAULT_SHAPE_FILL);
+        }
         path.setAttribute("stroke", "none");
         path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
       }
@@ -176,8 +183,8 @@ export function writeBackVectorEditedPenPath(
         svg.removeAttribute("data-an-vector-stroke-original-overflow");
         svg.removeAttribute("data-an-vector-stroke-original-overflow-priority");
       }
-      // An open path is only its stroke, and a path drawn closed commits
-      // with stroke:none — reopening it without this paints nothing at all.
+      // An open path is only its stroke; a filled shape (a converted
+      // rectangle or an older closed path) has stroke:none and would vanish.
       if (path.getAttribute("stroke") === "none") {
         path.setAttribute("stroke", DEFAULT_LINE_STROKE);
         path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -254,6 +261,22 @@ export function penPathScreenContentOffset(svg: SVGSVGElement): {
     y: y + (view?.scrollY ?? 0) - viewBox.y,
   };
   return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
+}
+
+/**
+ * The board surface renders its window by translating each body-level root
+ * (`body > [data-agent-native-node-id]`); board coordinates exclude it.
+ */
+export function boardRenderOffset(element: Element): { x: number; y: number } {
+  let root = element;
+  while (root.parentElement && root.parentElement !== root.ownerDocument.body) {
+    root = root.parentElement;
+  }
+  const view = root.ownerDocument.defaultView;
+  const translate = view?.getComputedStyle(root).translate ?? "none";
+  if (translate === "none") return { x: 0, y: 0 };
+  const [x = 0, y = 0] = translate.split(/\s+/).map((part) => parseFloat(part));
+  return { x, y };
 }
 
 export function penPathForPrimitive(
@@ -475,7 +498,7 @@ export function writeBackPrimitiveAsVector(
     style.width = `${Math.max(1, geometry.width)}px`;
     style.height = `${Math.max(1, geometry.height)}px`;
     const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", serializePenPath(penPath));
+    path.setAttribute("d", serializeRoundedPenPath(penPath, 0));
     path.setAttribute("fill", fill);
     path.setAttribute("stroke", "none");
     svg.appendChild(path);

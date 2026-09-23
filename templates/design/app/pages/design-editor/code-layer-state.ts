@@ -1,3 +1,4 @@
+import { borderAreaSupportedBranch } from "@shared/border-area-fallback";
 import {
   LINKED_COMPONENT_STRUCTURE_REFUSAL,
   buildCodeLayerProjection,
@@ -578,6 +579,10 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     vectorStrokeCanAlign: node.style["--an-vector-stroke-can-align"] === "true",
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
+    imageSource:
+      node.tag === "img" && typeof node.attributes.src === "string"
+        ? node.attributes.src
+        : undefined,
     hasOwnText: node.paintsOwnText,
     wholeTextStyleRoot: node.wholeTextStyleRoot === true,
     // A layers-panel selection is the LAYER, which renders every row, so no
@@ -682,6 +687,21 @@ export function cssStyleAliases(
       ] as const) {
         if (declaration[longhand]) result[longhand] = declaration[longhand];
       }
+    }
+    if (
+      (property === "border" || property === "outline") &&
+      typeof document !== "undefined"
+    ) {
+      const declaration = document.createElement("div").style;
+      declaration.setProperty(property, value);
+      for (const part of ["Width", "Style", "Color"] as const) {
+        const longhand = `${property}${part}` as const;
+        if (declaration[longhand]) result[longhand] = declaration[longhand];
+      }
+    }
+    if (property === "-webkit-background-size") {
+      const realSize = borderAreaSupportedBranch(value);
+      if (realSize) result.backgroundSize = realSize;
     }
     if (property === "font") {
       Object.assign(result, fontShorthandLonghands(value));

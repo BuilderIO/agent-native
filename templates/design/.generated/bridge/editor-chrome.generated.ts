@@ -1089,7 +1089,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -2535,9 +2535,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var scope = selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
         selectionContainerScope = null;
-        scope = document.body;
+        scope = topLevelBoardFrameOwning(resolved) || document.body;
       }
       return containerScopeAncestor(resolved, scope);
+    }
+    function topLevelBoardFrameOwning(el) {
+      if (!designCanvasBoardSurface) return null;
+      var node = el;
+      while (node && node.parentElement && node.parentElement !== document.body) {
+        node = node.parentElement;
+      }
+      return node && node !== el && node.parentElement === document.body && node.getAttribute("data-an-primitive") === "frame" ? node : null;
     }
     function plainClickSelectionTarget(hit) {
       if (!designCanvasBoardSurface) {
@@ -3601,6 +3609,65 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
+    var PORTABLE_TEXT_PROPERTIES = {
+      color: true,
+      font: true,
+      fontFamily: true,
+      fontSize: true,
+      fontStyle: true,
+      fontWeight: true,
+      letterSpacing: true,
+      lineHeight: true,
+      textAlign: true,
+      textDecoration: true,
+      textDecorationColor: true,
+      textDecorationLine: true,
+      textDecorationStyle: true,
+      textShadow: true,
+      textTransform: true,
+      whiteSpace: true,
+      wordBreak: true
+    };
+    function portableBorderSidePaints(cs, side) {
+      var style = cs.getPropertyValue("border-" + side + "-style");
+      return style !== "none" && style !== "hidden" && parseFloat(cs.getPropertyValue("border-" + side + "-width")) > 0;
+    }
+    function portableValueRendersNothing(el, property, cs) {
+      var sides = ["top", "right", "bottom", "left"];
+      if (/^border(Top|Right|Bottom|Left)?(Color|Style|Width)?$/.test(property)) {
+        var sideMatch = /^border(Top|Right|Bottom|Left)/.exec(property);
+        var checked = sideMatch ? [sideMatch[1].toLowerCase()] : sides;
+        return !checked.some(function(side) {
+          return portableBorderSidePaints(cs, side);
+        });
+      }
+      if (/^outline(Color|Style|Width|Offset)?$/.test(property)) {
+        return cs.outlineStyle === "none" || !(parseFloat(cs.outlineWidth) > 0);
+      }
+      if (property === "boxSizing") {
+        return !sides.some(function(side) {
+          return portableBorderSidePaints(cs, side);
+        }) && !sides.some(function(side) {
+          return parseFloat(cs.getPropertyValue("padding-" + side)) > 0;
+        });
+      }
+      if (property === "display") {
+        return cs.display === "block" && (cs.position === "absolute" || cs.position === "fixed");
+      }
+      if (property === "transformOrigin") {
+        return cs.transform === "none" && (cs.rotate || "none") === "none" && (cs.scale || "none") === "none";
+      }
+      if (!PORTABLE_TEXT_PROPERTIES[property]) return false;
+      var tag = el.tagName.toLowerCase();
+      if (tag === "img") return true;
+      if (!(el instanceof SVGElement) || /^(text|tspan|textpath)$/.test(tag)) {
+        return false;
+      }
+      if (property !== "color") return true;
+      return !/currentcolor/i.test(
+        (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
+      );
+    }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
       var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
@@ -3647,7 +3714,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
         var value = cs[property2] || cs.getPropertyValue(property2);
         var inlineValue = hostStyle && hostStyle.getPropertyValue(property2);
-        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2])) {
+        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2] && !portableValueRendersNothing(el, property2, cs))) {
           styles[property2] = value;
         }
       });
@@ -3865,6 +3932,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         textDecorationLine: cs.textDecorationLine,
         display: cs.display,
         overflow: cs.overflow,
+        objectFit: cs.objectFit,
+        "--an-image-scale": cs.getPropertyValue("--an-image-scale").trim(),
         flexDirection: cs.flexDirection,
         justifyContent: cs.justifyContent,
         alignItems: cs.alignItems,
@@ -4057,9 +4126,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         var end = start + text.data.length;
         textOffset = end;
         if (end <= bookmark.start || start >= bookmark.end) continue;
-        var styleTarget = text.parentElement || target;
-        var inlineStyle = styleTarget.style;
-        lineHeights.push(inlineStyle?.lineHeight || "");
+        var lineHeight = "";
+        var styleNode = text.parentElement || target;
+        while (styleNode && !lineHeight) {
+          lineHeight = styleNode.style?.lineHeight || "";
+          if (styleNode === target) break;
+          styleNode = styleNode.parentElement;
+        }
+        lineHeights.push(lineHeight);
       }
       if (lineHeights.length === 0) return void 0;
       var first = lineHeights[0] || "";
@@ -4120,6 +4194,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      var paintShapes = vectorPaintShapes(el);
+      if (paintShapes.length > 1) {
+        ["fill", "stroke", "strokeWidth"].forEach(function(property) {
+          var values = new Set(
+            paintShapes.map(function(shape) {
+              return window.getComputedStyle(shape)[property];
+            })
+          );
+          if (values.size > 1) computed[property] = "Mixed";
+        });
+      }
       if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
         computed.strokeWidth = strokeTarget.getAttribute("data-an-vector-logical-width") || strokeCs.strokeWidth;
       }
@@ -4148,12 +4233,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         ),
         "--an-vector-end-point": el.style.getPropertyValue(
           "--an-vector-end-point"
+        ),
+        "--an-vector-fill-gradient": el.style.getPropertyValue(
+          "--an-vector-fill-gradient"
+        ),
+        "--an-vector-stroke-gradient": el.style.getPropertyValue(
+          "--an-vector-stroke-gradient"
         )
       };
     }
     function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
       var cs = window.getComputedStyle(el);
-      var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
+      var paintShapes = vectorPaintShapes(el);
+      var paintCs = window.getComputedStyle(
+        vectorPaintTarget(el) || paintShapes[0] || el
+      );
       var boundingRect = rectInfoForElement(el);
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
@@ -4261,6 +4355,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
         htmlContentTruncated: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.length > 4e3 : void 0,
+        imageSource: el.tagName === "IMG" ? el.getAttribute("src") || void 0 : void 0,
         childElementCount: el.children ? el.children.length : 0,
         isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
         isGridContainer: cs.display === "grid" || cs.display === "inline-grid",
@@ -5914,11 +6009,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (restoredRange && rangeTargetAfterMorph) {
           suspendedRangeState.target = rangeTargetAfterMorph;
           suspendedRangeState.range = restoredRange;
-          var selection = window.getSelection ? window.getSelection() : null;
-          if (selection) {
-            selection.removeAllRanges();
-            selection.addRange(restoredRange.cloneRange());
-          }
         } else {
           clearSuspendedTextEditRange();
         }
@@ -6635,6 +6725,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
     function supportsCornerRadiusHandles(el) {
       if (!el || el.nodeType !== 1) return false;
+      if (el.namespaceURI === "http://www.w3.org/2000/svg") return false;
       var kind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
       return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
     }
@@ -6734,6 +6825,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
       selectionOverlay.style.borderWidth = 1.5 * line + "px";
       marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
+      if (isTextEditElConnected()) positionTextCaretOverlay(activeTextEditEl);
       passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
       if (selectedEl) updateSpacingOverlay(selectedEl);
       applySelectionHandleHitGeometry(selectedEl);
@@ -7714,108 +7806,107 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
     }
-    function addMeasurementLine(x1, y1, x2, y2, label) {
-      var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
+    function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
+      var horizontal = y1 === y2;
       var line = document.createElement("div");
-      var labelEl = document.createElement("div");
       var scale = chromeLineScale();
-      var lineWidth = 1 * chromeLineScale();
-      var labelChrome = "transform-origin:center;border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
+      var border = scale + "px " + (dashed ? "dashed" : "solid") + " var(--design-editor-measure-color);";
       if (horizontal) {
         var left = Math.min(x1, x2);
-        var width = Math.max(1, Math.abs(x2 - x1));
-        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + lineWidth + "px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (left + width / 2) + "px;top:" + (y1 - 9 * scale) + "px;transform:translateX(-50%);" + labelChrome;
+        var width = Math.abs(x2 - x1);
+        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + border;
       } else {
         var top = Math.min(y1, y2);
-        var height = Math.max(1, Math.abs(y2 - y1));
-        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + lineWidth + "px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (x1 + 5 * scale) + "px;top:" + (top + height / 2) + "px;transform:translateY(-50%);" + labelChrome;
+        var height = Math.abs(y2 - y1);
+        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + border;
       }
-      labelEl.textContent = label;
       measurementOverlay.appendChild(line);
+      if (!label) return;
+      var labelEl = document.createElement("div");
+      labelEl.style.cssText = "position:fixed;left:" + (horizontal ? (x1 + x2) / 2 : x1 + 8 * scale) + "px;top:" + (horizontal ? y1 + 7 * scale : (y1 + y2) / 2) + "px;transform:" + (horizontal ? "translateX(-50%)" : "translateY(-50%)") + ";border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
+      labelEl.textContent = label;
       measurementOverlay.appendChild(labelEl);
+    }
+    function measurementSegments(s, t) {
+      var segments = [];
+      function add(x1, y1, x2, y2, dashed) {
+        var length = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+        if (length < 0.5) return;
+        segments.push({
+          x1,
+          y1,
+          x2,
+          y2,
+          label: dashed ? "" : String(Math.round(length)),
+          dashed
+        });
+      }
+      var apartX = t.left >= s.right || t.right <= s.left;
+      var apartY = t.top >= s.bottom || t.bottom <= s.top;
+      var intersect = !apartX && !apartY;
+      var sCx = (s.left + s.right) / 2;
+      var sCy = (s.top + s.bottom) / 2;
+      var y = intersect ? (Math.max(s.top, t.top) + Math.min(s.bottom, t.bottom)) / 2 : sCy;
+      var x = intersect ? (Math.max(s.left, t.left) + Math.min(s.right, t.right)) / 2 : sCx;
+      var tNearY = t.top >= sCy ? t.top : t.bottom;
+      var tNearX = t.left >= sCx ? t.left : t.right;
+      var yMissesT = y < t.top || y > t.bottom;
+      var xMissesT = x < t.left || x > t.right;
+      if (apartX) {
+        var gapEdge = t.left >= s.right ? t.left : t.right;
+        add(t.left >= s.right ? s.right : s.left, y, gapEdge, y, false);
+        if (yMissesT) add(gapEdge, y, gapEdge, tNearY, true);
+      } else {
+        var sFarY = tNearY === t.top ? s.top : s.bottom;
+        if (intersect || t.left < s.left) {
+          add(t.left, y, s.left, y, false);
+          if (!intersect) add(t.left, sFarY, t.left, tNearY, true);
+        }
+        if (intersect || t.right > s.right) {
+          add(s.right, y, t.right, y, false);
+          if (!intersect) add(t.right, sFarY, t.right, tNearY, true);
+        }
+      }
+      if (apartY) {
+        var gapEdgeY = t.top >= s.bottom ? t.top : t.bottom;
+        add(x, t.top >= s.bottom ? s.bottom : s.top, x, gapEdgeY, false);
+        if (xMissesT) add(x, gapEdgeY, tNearX, gapEdgeY, true);
+      } else {
+        var sFarX = tNearX === t.left ? s.left : s.right;
+        if (intersect || t.top < s.top) {
+          add(x, t.top, x, s.top, false);
+          if (!intersect) add(sFarX, t.top, tNearX, t.top, true);
+        }
+        if (intersect || t.bottom > s.bottom) {
+          add(x, s.bottom, x, t.bottom, false);
+          if (!intersect) add(sFarX, t.bottom, tNearX, t.bottom, true);
+        }
+      }
+      return segments;
     }
     function showMeasurements(a, b) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
       }
-      var selectedRect = a.getBoundingClientRect();
-      var hoverRect = b.getBoundingClientRect();
       if (!measurementOverlay.isConnected) {
         appendEditorChromeNode(measurementOverlay);
       }
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
-      if (hoverRect.right <= selectedRect.left) {
-        var yLeft = Math.max(
-          hoverRect.top,
-          Math.min(hoverRect.bottom, selectedRect.top + selectedRect.height / 2)
-        );
+      measurementSegments(
+        a.getBoundingClientRect(),
+        b.getBoundingClientRect()
+      ).forEach(function(segment) {
         addMeasurementLine(
-          hoverRect.right,
-          yLeft,
-          selectedRect.left,
-          yLeft,
-          Math.round(selectedRect.left - hoverRect.right) + "px"
+          segment.x1,
+          segment.y1,
+          segment.x2,
+          segment.y2,
+          segment.label,
+          segment.dashed
         );
-        return;
-      }
-      if (selectedRect.right <= hoverRect.left) {
-        var yRight = Math.max(
-          selectedRect.top,
-          Math.min(selectedRect.bottom, hoverRect.top + hoverRect.height / 2)
-        );
-        addMeasurementLine(
-          selectedRect.right,
-          yRight,
-          hoverRect.left,
-          yRight,
-          Math.round(hoverRect.left - selectedRect.right) + "px"
-        );
-        return;
-      }
-      if (hoverRect.bottom <= selectedRect.top) {
-        var xTop = Math.max(
-          hoverRect.left,
-          Math.min(hoverRect.right, selectedRect.left + selectedRect.width / 2)
-        );
-        addMeasurementLine(
-          xTop,
-          hoverRect.bottom,
-          xTop,
-          selectedRect.top,
-          Math.round(selectedRect.top - hoverRect.bottom) + "px"
-        );
-        return;
-      }
-      if (selectedRect.bottom <= hoverRect.top) {
-        var xBottom = Math.max(
-          selectedRect.left,
-          Math.min(selectedRect.right, hoverRect.left + hoverRect.width / 2)
-        );
-        addMeasurementLine(
-          xBottom,
-          selectedRect.bottom,
-          xBottom,
-          hoverRect.top,
-          Math.round(hoverRect.top - selectedRect.bottom) + "px"
-        );
-        return;
-      }
-      addMeasurementLine(
-        selectedRect.left + selectedRect.width / 2,
-        selectedRect.top + selectedRect.height / 2,
-        hoverRect.left + hoverRect.width / 2,
-        hoverRect.top + hoverRect.height / 2,
-        Math.round(
-          Math.hypot(
-            hoverRect.left + hoverRect.width / 2 - (selectedRect.left + selectedRect.width / 2),
-            hoverRect.top + hoverRect.height / 2 - (selectedRect.top + selectedRect.height / 2)
-          )
-        ) + "px"
-      );
+      });
     }
     function dragEventNames(e) {
       var pointerGesture = e && e.type && e.type.indexOf("pointer") === 0;
@@ -8154,6 +8245,58 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!(node instanceof HTMLElement)) return;
         node.style.display = visible ? "" : "none";
       });
+      if (visible) applySelectionHandleHitGeometry(selectedEl);
+    }
+    var textCaretOverlay = null;
+    function hideTextCaretOverlay(target) {
+      if (target.hasAttribute("data-agent-native-drawn-caret")) {
+        target.removeAttribute("data-agent-native-drawn-caret");
+      }
+      if (textCaretOverlay) textCaretOverlay.style.display = "none";
+    }
+    function positionTextCaretOverlay(target) {
+      var selection = window.getSelection ? window.getSelection() : null;
+      var range = selection && selection.isCollapsed && selectionBelongsToElement(selection, target) ? selection.getRangeAt(0) : null;
+      var rect = range ? range.getClientRects()[0] : void 0;
+      if (!range || !rect || rect.height <= 0) {
+        hideTextCaretOverlay(target);
+        return;
+      }
+      if (!textCaretOverlay) {
+        textCaretOverlay = document.createElement("div");
+        textCaretOverlay.setAttribute(
+          "data-agent-native-edit-overlay",
+          "text-caret"
+        );
+        textCaretOverlay.style.cssText = "position:fixed;pointer-events:none;z-index:99999;display:none;";
+        appendEditorChromeNode(textCaretOverlay);
+      }
+      var caretHost = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement || target;
+      var width = chromeLineScale();
+      var moved = textCaretOverlay.style.display === "none" || textCaretOverlay.style.left !== rect.left - width / 2 + "px" || textCaretOverlay.style.top !== rect.top + "px";
+      textCaretOverlay.style.left = rect.left - width / 2 + "px";
+      textCaretOverlay.style.top = rect.top + "px";
+      textCaretOverlay.style.width = width + "px";
+      textCaretOverlay.style.height = rect.height + "px";
+      textCaretOverlay.style.background = window.getComputedStyle(caretHost).color;
+      textCaretOverlay.style.display = "block";
+      if (!target.hasAttribute("data-agent-native-drawn-caret")) {
+        target.setAttribute("data-agent-native-drawn-caret", "");
+      }
+      if (moved && textCaretOverlay.animate) {
+        textCaretOverlay.getAnimations().forEach(function(a) {
+          a.cancel();
+        });
+        textCaretOverlay.animate(
+          [
+            { opacity: 1 },
+            { opacity: 1, offset: 0.5 },
+            { opacity: 0, offset: 0.5 },
+            { opacity: 0 }
+          ],
+          { duration: 1060, iterations: Infinity, delay: 500 }
+        );
+      }
     }
     function updateTextEditingChrome(target, originalMinWidth, originalMinHeight) {
       target.style.outline = "none";
@@ -8169,8 +8312,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.minHeight = originalMinHeight;
         positionOverlay(selectionOverlay, target);
         setSelectionOverlayResizeChromeVisible(false);
+        positionTextCaretOverlay(target);
         return;
       }
+      hideTextCaretOverlay(target);
       target.style.minWidth = originalMinWidth || "1px";
       target.style.minHeight = originalMinHeight || "1em";
       document.documentElement.setAttribute(
@@ -9187,7 +9332,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!match) return null;
       var segments = splitGradientTopLevel(match[1]);
       if (segments.length === 0) return null;
-      var angle = 90;
+      var angle = 180;
       var stopStart = 0;
       var first = segments[0];
       var angleMatch = first.match(GRADIENT_ANGLE_RE);
@@ -10076,9 +10221,27 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
       });
     }
+    function vectorPaintShapes(el) {
+      if (el.tagName.toLowerCase() !== "svg" || el.getAttribute("data-an-primitive")) {
+        return [];
+      }
+      return Array.from(
+        el.querySelectorAll(
+          "path, polygon, ellipse, circle, rect, line, polyline, use"
+        )
+      ).filter(function(shape) {
+        return !shape.parentElement?.closest(
+          "defs, clipPath, mask, marker, symbol, pattern, linearGradient, radialGradient, filter, foreignObject"
+        );
+      });
+    }
     function vectorPaintTarget(el) {
       if (!el || el.tagName.toLowerCase() !== "svg") return null;
       var kind = el.getAttribute("data-an-primitive") || "";
+      if (!kind) {
+        var shapes = vectorPaintShapes(el);
+        return shapes.length === 1 ? shapes[0] : null;
+      }
       if (kind === "boolean") {
         return el.querySelector(':scope > use[data-an-boolean-result="true"]');
       }
@@ -10325,6 +10488,130 @@ export const editorChromeBridgeScript: string = `"use strict";
         style.removeProperty(properties[i]);
       }
     }
+    function svgPaintGradientKindForProperty(property) {
+      if (property === "--an-vector-fill-gradient") return "fill";
+      if (property === "--an-vector-stroke-gradient") return "stroke";
+      return null;
+    }
+    function splitGradientArgs(value) {
+      var parts = [];
+      var depth = 0;
+      var start = 0;
+      for (var index = 0; index < value.length; index += 1) {
+        var char = value[index];
+        if (char === "(") depth += 1;
+        else if (char === ")") depth -= 1;
+        else if (char === "," && depth === 0) {
+          parts.push(value.slice(start, index).trim());
+          start = index + 1;
+        }
+      }
+      parts.push(value.slice(start).trim());
+      return parts.filter(Boolean);
+    }
+    function leadingGradientColor(part) {
+      var hex = part.match(/^#[0-9a-f]{3,8}\\b/i);
+      if (hex) return hex[0];
+      if (/^transparent\\b/i.test(part)) return "transparent";
+      if (!/^(?:rgba?|hsla?|color-mix|oklch|oklab|lab|lch|color)\\(/i.test(part)) {
+        return null;
+      }
+      var depth = 0;
+      for (var index = 0; index < part.length; index += 1) {
+        if (part[index] === "(") depth += 1;
+        if (part[index] === ")" && --depth === 0) return part.slice(0, index + 1);
+      }
+      return null;
+    }
+    function vectorPaintGradientElement(id, css, viewBox) {
+      var match = css.trim().match(/^(linear|radial)-gradient\\((.*)\\)$/is);
+      if (!match) return null;
+      var radial = match[1].toLowerCase() === "radial";
+      if (radial && /closest-corner|closest-side/i.test(match[2])) return null;
+      var parts = splitGradientArgs(match[2]);
+      var angle = 180;
+      if (!leadingGradientColor(parts[0] ?? "")) {
+        var degrees = (parts.shift() ?? "").match(/(-?\\d+(?:\\.\\d+)?)deg/);
+        if (degrees) angle = Number(degrees[1]);
+      }
+      var box = (viewBox ?? "").trim().split(/[\\s,]+/).map(Number);
+      var [x, y, width, height] = box.length === 4 && box.every(Number.isFinite) ? box : [0, 0, 100, 100];
+      var round = function(value) {
+        return String(Math.round(value * 1e3) / 1e3);
+      };
+      var ns = "http://www.w3.org/2000/svg";
+      var paintServer = document.createElementNS(
+        ns,
+        radial ? "radialGradient" : "linearGradient"
+      );
+      var radians = angle * Math.PI / 180;
+      var attributes = radial ? {
+        id,
+        gradientUnits: "userSpaceOnUse",
+        cx: round(x + width / 2),
+        cy: round(y + height / 2),
+        r: round(Math.hypot(width, height) / 2)
+      } : {
+        id,
+        gradientUnits: "userSpaceOnUse",
+        x1: round(x + width * (0.5 - Math.sin(radians) / 2)),
+        y1: round(y + height * (0.5 + Math.cos(radians) / 2)),
+        x2: round(x + width * (0.5 + Math.sin(radians) / 2)),
+        y2: round(y + height * (0.5 - Math.cos(radians) / 2))
+      };
+      Object.keys(attributes).forEach(function(name) {
+        paintServer.setAttribute(name, attributes[name]);
+      });
+      var stops = 0;
+      parts.forEach(function(part, index) {
+        var color = leadingGradientColor(part);
+        if (!color) return;
+        var position = part.slice(color.length).match(/(-?\\d+(?:\\.\\d+)?)%/);
+        var offset = position ? Number(position[1]) : parts.length <= 1 ? 0 : index / (parts.length - 1) * 100;
+        var stop = document.createElementNS(ns, "stop");
+        stop.setAttribute(
+          "offset",
+          round(Math.min(100, Math.max(0, offset))) + "%"
+        );
+        stop.setAttribute(
+          "stop-color",
+          // guard:allow-raw-color — SVG stop for the design's own authored "transparent".
+          color.toLowerCase() === "transparent" ? "rgba(0, 0, 0, 0)" : color
+        );
+        paintServer.appendChild(stop);
+        stops += 1;
+      });
+      return stops ? paintServer : null;
+    }
+    function applyVectorPaintGradient(el, kind, value) {
+      var nodeId = el.getAttribute("data-agent-native-node-id");
+      var shape = vectorPaintTarget(el);
+      if (!nodeId || !shape) return false;
+      var id = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") + "-" + kind + "-gradient";
+      var paintServer = value === "none" ? null : vectorPaintGradientElement(id, value, el.getAttribute("viewBox"));
+      if (value !== "none" && !paintServer) return false;
+      var target = kind === "stroke" ? vectorStrokeTarget(el) || shape : shape;
+      el.querySelectorAll(
+        ':scope > defs[data-an-vector-paint-gradient="' + kind + '"]'
+      ).forEach(function(defs2) {
+        defs2.remove();
+      });
+      var paintUrl = "url(#" + id + ")";
+      var wrapperStyle = el.style;
+      if (!paintServer) {
+        wrapperStyle.removeProperty("--an-vector-" + kind + "-gradient");
+        if (target.getAttribute(kind) === paintUrl) target.removeAttribute(kind);
+        return true;
+      }
+      var defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      defs.setAttribute("data-an-vector-paint-gradient", kind);
+      defs.appendChild(paintServer);
+      el.insertBefore(defs, shape);
+      wrapperStyle.setProperty("--an-vector-" + kind + "-gradient", value);
+      target.style.removeProperty(kind);
+      target.setAttribute(kind, paintUrl);
+      return true;
+    }
     function applyInlineStyleProperty(el, property, value) {
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
@@ -10335,9 +10622,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cssProperty === "--an-vector-stroke-position") {
         return applyVectorStrokePosition(el, String(value));
       }
+      var gradientKind = svgPaintGradientKindForProperty(cssProperty);
+      if (gradientKind) {
+        return applyVectorPaintGradient(el, gradientKind, String(value).trim());
+      }
       var target = el;
       var strokeOverlay = null;
       var useOverlay = false;
+      var importedShapes = isVectorPaintProperty(cssProperty) ? vectorPaintShapes(el) : [];
+      if (cssProperty.indexOf("stroke") === 0) {
+        importedShapes.forEach(function(shape2) {
+          shape2.style.setProperty(
+            "vector-effect",
+            "non-scaling-stroke"
+          );
+        });
+      }
+      if (importedShapes.length > 1) {
+        importedShapes.forEach(function(shape2) {
+          shape2.style.setProperty(cssProperty, String(value));
+        });
+        clearVectorWrapperPaint(el);
+        return true;
+      }
       if (isVectorPaintProperty(cssProperty)) {
         var shape = vectorPaintTarget(el);
         if (shape) {
@@ -10414,6 +10721,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeTextEditRange = reusedRange.cloneRange();
         } else if (suspendedTextEditRange?.target === target) {
           suspendedTextEditRange.range = reusedRange.cloneRange();
+          hideSuspendedRangeHighlight(selection);
         }
         return true;
       }
@@ -10435,8 +10743,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeTextEditRange = nextRange.cloneRange();
       } else if (suspendedTextEditRange?.target === target) {
         suspendedTextEditRange.range = nextRange.cloneRange();
+        hideSuspendedRangeHighlight(selection);
       }
       return true;
+    }
+    function hideSuspendedRangeHighlight(selection) {
+      selection.removeAllRanges();
     }
     var TEXT_EDIT_FORMATS = {
       b: {
@@ -10752,10 +11064,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
     function eventEpochMilliseconds(ev) {
+      if (ev?.isTrusted === false) {
+        return performance.timeOrigin + performance.now();
+      }
       if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
         return void 0;
       }
       return ev.timeStamp >= 1e12 ? ev.timeStamp : performance.timeOrigin + ev.timeStamp;
+    }
+    function postLiveDragPosition(el, active) {
+      if (!el) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:live-drag-position",
+          selector: getSelector(el),
+          active,
+          left: el.style.left,
+          top: el.style.top
+        },
+        "*"
+      );
     }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
@@ -14729,6 +15057,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
         if (!isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
+          postLiveDragPosition(dragEl, true);
         }
         if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           cancelAutoLayoutTargetResolution();
@@ -14773,6 +15102,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionOverlay(selectionOverlay, selectedEl);
       }
       function cleanupMoveDrag() {
+        if (!isGroupDrag) postLiveDragPosition(dragEl, false);
         cancelAutoLayoutTargetResolution();
         refreshOverlaysGeneration += 1;
         refreshOverlaysScheduled = false;
@@ -15097,6 +15427,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           el instanceof SVGSVGElement && hasSvgViewBox && !outerSvgViewport?.hasAttribute("viewBox")
         );
         var isSvgViewBoxContent = isInsideScaledSvgViewBox(el);
+        var kScaleStyle = window.getComputedStyle(el);
+        var outlinePaints = kScaleStyle.outlineStyle !== "none";
+        var borderPaints = [
+          kScaleStyle.borderTopStyle,
+          kScaleStyle.borderRightStyle,
+          kScaleStyle.borderBottomStyle,
+          kScaleStyle.borderLeftStyle
+        ].some(function(style) {
+          return style !== "none" && style !== "hidden";
+        });
         var borderWidthProperties = [
           "border-top-width",
           "border-right-width",
@@ -15119,6 +15459,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         for (var propertyIndex = 0; propertyIndex < KSCALE_LENGTH_PROPERTIES.length; propertyIndex += 1) {
           var property = KSCALE_LENGTH_PROPERTIES[propertyIndex];
           if (isSvgViewBoxContent) continue;
+          if (!outlinePaints && (property === "outline-width" || property === "outline-offset")) {
+            continue;
+          }
           if (isSvgViewBoxRoot && (property === "font-size" || property === "line-height" || property === "letter-spacing" || property === "word-spacing")) {
             continue;
           }
@@ -15140,7 +15483,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
           scaledStyles[property] = authoredValue;
         }
-        if (!isSvgViewBoxContent) {
+        if (!isSvgViewBoxContent && borderPaints) {
           var borderWidthValues = borderWidthProperties.map(function(property2) {
             return typedKScaleValue(el, property2, typedStyleMap);
           });
@@ -15268,6 +15611,71 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return [];
     };
+    function scaleSelectionByFactor(factor, anchorX, anchorY) {
+      if (readOnly || !selectedEl) return;
+      if (isLayerInteractionBlocked(selectedEl)) return;
+      if (!(factor > 0) || factor === 1) return;
+      var el = selectedEl;
+      refreshLiveVisualEditOriginalStyles(el);
+      ensurePositionable(el);
+      var cs = window.getComputedStyle(el);
+      var width = readPx(cs.width);
+      var height = readPx(cs.height);
+      var nextWidth = width * factor;
+      var nextHeight = height * factor;
+      var styles = {
+        left: quantizeToLayoutGrid(
+          readPx(el.style.left || cs.left) - (nextWidth - width) * anchorX
+        ) + "px",
+        top: quantizeToLayoutGrid(
+          readPx(el.style.top || cs.top) - (nextHeight - height) * anchorY
+        ) + "px",
+        width: quantizeToLayoutGrid(nextWidth) + "px",
+        height: quantizeToLayoutGrid(nextHeight) + "px"
+      };
+      if (el.style.position) styles.position = el.style.position;
+      var fontSize = readPx(el.style.fontSize || cs.fontSize);
+      var svgViewBoxScalesFont = el instanceof SVGSVGElement && el.hasAttribute("viewBox") || isInsideScaledSvgViewBox(el);
+      if (fontSize > 0 && !svgViewBoxScalesFont) {
+        styles.fontSize = Math.max(1, Math.round(fontSize * factor * 100) / 100) + "px";
+      }
+      var targets = collectKScaleStyleTargets(el, false);
+      Object.keys(styles).forEach(function(property) {
+        el.style[property] = styles[property];
+      });
+      applyKScaleStyleTargets(targets, factor);
+      var changes = kScaleStyleChanges(targets, factor);
+      var rootSelector = getSelector(el);
+      var rootChange = changes.find(function(change) {
+        return change.selector === rootSelector;
+      });
+      if (rootChange) {
+        rootChange.styles = Object.assign({}, rootChange.styles, styles);
+        rootChange.originalStyles = Object.assign(
+          {},
+          rootChange.originalStyles || {},
+          originalInlineStylesForPatch(el, styles)
+        );
+      } else {
+        changes.unshift({
+          selector: rootSelector,
+          sourceId: getSourceId(el) || void 0,
+          styles,
+          originalStyles: originalInlineStylesForPatch(el, styles),
+          preserveSelection: true
+        });
+      }
+      window.parent.postMessage(
+        { type: "visual-style-batch-change", changes },
+        "*"
+      );
+      recordSourceOwnership(el);
+      targets.forEach(function(target) {
+        recordSourceOwnership(target.el);
+      });
+      releaseLiveVisualEditOriginalStyles(el);
+      refreshOverlays();
+    }
     function startResize(handle, e) {
       if (readOnly) return;
       if (!selectedEl) return;
@@ -16172,8 +16580,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var crossScreenClaimedByHost = false;
     var lastPointerDownTimestamp = 0;
+    function isPointerInsideLiveTextEdit(e) {
+      var target = e.target;
+      return !!target && target.nodeType === 1 && isTextEditElConnected() && activeTextEditEl.contains(target);
+    }
     function beginPotentialShieldDrag(e) {
       if (readOnly) return;
+      if (isPointerInsideLiveTextEdit(e)) return;
       if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
         return;
       }
@@ -16183,7 +16596,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       hostIgnoreAutoLayoutAtPointerDown = false;
       pendingMoveCommitRevert = null;
       if (e.button !== 0) return;
-      if (activeTextEditEl && !exitStaleTextEditSession()) return;
+      if (activeTextEditEl && !exitStaleTextEditSession() && finishActiveTextEdit) {
+        finishActiveTextEdit(true);
+      }
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
@@ -16800,29 +17215,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       selection.addRange(range);
       return true;
     }
-    function placeTextCaretFromPoint(target, clientX, clientY) {
-      try {
-        var range = null;
-        if (document.caretRangeFromPoint) {
-          range = document.caretRangeFromPoint(clientX, clientY);
-        } else if (document.caretPositionFromPoint) {
-          var position = document.caretPositionFromPoint(clientX, clientY);
-          if (position) {
-            range = document.createRange();
-            range.setStart(position.offsetNode, position.offset);
-          }
-        }
-        if (!range) {
-          range = document.createRange();
-          range.selectNodeContents(target);
-          range.collapse(false);
-        }
-        var selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-      } catch (err) {
-        collapseSelectionIntoContents(target);
-      }
+    function selectAllTextContents(target) {
+      var range = document.createRange();
+      range.selectNodeContents(target);
+      var selection = window.getSelection();
+      if (!selection) return;
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
     function isRejectedRawTextEditTarget(el) {
       if (!el) return true;
@@ -16863,6 +17262,10 @@ export const editorChromeBridgeScript: string = `"use strict";
               selectionContainerScope = previousSelectedElForDescend;
             }
             var descendTarget = containerFirstSelectionTarget(descendHit, true);
+            if (descendTarget && descendTarget.hasAttribute("data-an-pen-nodes")) {
+              postDesignHotkey({ key: "Enter", code: "Enter" });
+              return;
+            }
             if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
               selectedEl = descendTarget;
               positionOverlay(selectionOverlay, selectedEl);
@@ -16969,10 +17372,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.removeEventListener("input", onInput, true);
         target.removeEventListener("keyup", onKeyUp, true);
         target.removeEventListener("mouseup", onMouseUp, true);
+        target.removeEventListener("mousedown", onMouseDownInSelection, true);
+        target.removeEventListener("dragstart", preventTextDrag, true);
         document.removeEventListener("selectionchange", onSelectionChange);
         window.removeEventListener("blur", onWindowBlur, true);
         target.removeAttribute("contenteditable");
         target.removeAttribute("data-agent-native-text-editing");
+        hideTextCaretOverlay(target);
         document.documentElement.removeAttribute(
           "data-agent-native-empty-text-editing"
         );
@@ -17139,6 +17545,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         scheduleTextEditingChromeUpdate();
       }
+      function onMouseDownInSelection(ev) {
+        if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (!selection || selection.isCollapsed) return;
+        var point = document.caretRangeFromPoint ? document.caretRangeFromPoint(ev.clientX, ev.clientY) : null;
+        if (!point || !rangeBelongsToElement(point, target)) return;
+        selection.removeAllRanges();
+        selection.addRange(point);
+      }
+      function preventTextDrag(ev) {
+        ev.preventDefault();
+      }
       function onMouseUp() {
         captureActiveTextEditRange(target);
         clearActiveTextEditRangeIfCollapsed(target);
@@ -17150,6 +17568,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       target.addEventListener("input", onInput, true);
       target.addEventListener("keyup", onKeyUp, true);
       target.addEventListener("mouseup", onMouseUp, true);
+      target.addEventListener("mousedown", onMouseDownInSelection, true);
+      target.addEventListener("dragstart", preventTextDrag, true);
       document.addEventListener("selectionchange", onSelectionChange);
       window.addEventListener("blur", onWindowBlur, true);
       target.focus();
@@ -17165,7 +17585,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else if (programmaticTextEdit) {
         collapseSelectionIntoContents(target);
       } else {
-        placeTextCaretFromPoint(target, e.clientX, e.clientY);
+        selectAllTextContents(target);
       }
       captureActiveTextEditRange(target);
       postTextEditingState(target, true);
@@ -17796,6 +18216,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:set-space-held") {
         bridgeSpaceKeyPressed = Boolean(e.data.held);
+        return;
+      }
+      if (e.data.type === "agent-native:scale-selection") {
+        if (!selectedEl || getSelector(selectedEl) !== e.data.selector) return;
+        scaleSelectionByFactor(
+          Number(e.data.factor),
+          Number(e.data.anchorX),
+          Number(e.data.anchorY)
+        );
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {
@@ -18565,19 +18994,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       var textEditStyleSelector = activeTextEditEl ? activeTextEditStyleSelector : suspendedTextEditRange?.selector || "";
       var styleChangeTargetsActiveTextEdit = !!textEditStyleTarget && !!el && (el === textEditStyleTarget || el.contains(textEditStyleTarget)) && (!!activeTextEditEl || !textEditStyleSelector || candidatesForStyle.indexOf(textEditStyleSelector) !== -1);
       if (prop && styleChangeTargetsActiveTextEdit && applyTextRangeStyle(prop, val)) {
-        postTextContentChange(
-          textEditStyleTarget,
-          textEditStyleTarget.textContent || "",
-          textEditStyleTarget.innerHTML || "",
-          void 0,
-          void 0
-        );
-        postTextEditingState(
-          textEditStyleTarget,
-          !!activeTextEditEl,
-          textEditStyleSelector,
-          true
-        );
+        if (e.data.phase !== "preview") {
+          postTextContentChange(
+            textEditStyleTarget,
+            textEditStyleTarget.textContent || "",
+            textEditStyleTarget.innerHTML || "",
+            void 0,
+            void 0
+          );
+          postTextEditingState(
+            textEditStyleTarget,
+            !!activeTextEditEl,
+            textEditStyleSelector,
+            true
+          );
+        }
         refreshOverlays();
         return;
       }

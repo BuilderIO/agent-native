@@ -1,12 +1,26 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
+import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 
-export function DeepSelectGuidance({ onDismiss }: { onDismiss: () => void }) {
+const DEEP_SELECT_GUIDANCE_VISIBLE_MS = 5000;
+
+export function DeepSelectGuidance({
+  onDismiss,
+  onExpire,
+}: {
+  onDismiss: () => void;
+  onExpire: () => void;
+}) {
   const t = useT();
   const modifier = useApplePlatform() ? "⌘" : "Ctrl";
+
+  useEffect(() => {
+    const timer = window.setTimeout(onExpire, DEEP_SELECT_GUIDANCE_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [onExpire]);
 
   return (
     <div

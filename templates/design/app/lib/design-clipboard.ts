@@ -2,6 +2,7 @@ import {
   type DesignClipboardPayload,
   parseDesignClipboardMarker,
 } from "./design-import";
+import { extractSvgMarkup } from "./svg-paste";
 
 interface ClipboardItemLike {
   types: readonly string[];
@@ -239,6 +240,57 @@ export async function readDesignClipboardPayloadFromSystem(
   } catch {
     return null;
   }
+}
+
+export interface SystemClipboardContents {
+  design: ReadDesignClipboardPayload | null;
+  /** Images and SVG code, as files the image paste path inserts. */
+  files: File[];
+}
+
+/**
+ * Design layers and pasteable images from one clipboard read: Safari and
+ * Firefox prompt on every `clipboard.read()`. Null means it could not be read.
+ */
+export async function readSystemClipboard(
+  environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
+): Promise<SystemClipboardContents | null> {
+  const clipboard = environment.clipboard;
+  if (!clipboard?.read) {
+    const design = await readDesignClipboardPayloadFromSystem(environment);
+    return clipboard ? { design, files: [] } : null;
+  }
+  let items: ClipboardItemLike[];
+  try {
+    items = await clipboard.read();
+    // coercion-ok: null is "unreadable" (denied), distinct from an empty clipboard
+  } catch {
+    return null;
+  }
+  let design: ReadDesignClipboardPayload | null = null;
+  const files: File[] = [];
+  for (const item of items) {
+    const text = async (type: string) =>
+      item.types.includes(type) ? (await item.getType(type)).text() : "";
+    const plainText = await text("text/plain");
+    for (const markerText of [await text("text/html"), plainText]) {
+      const payload = parseDesignClipboardMarker(
+        markerText,
+        environment.trustToken,
+      );
+      if (payload && !design) design = { payload, markerText, plainText };
+    }
+    const imageType = item.types.find((type) => type.startsWith("image/"));
+    if (imageType) {
+      files.push(
+        new File([await item.getType(imageType)], "", { type: imageType }),
+      );
+      continue;
+    }
+    const svg = design ? null : extractSvgMarkup(plainText);
+    if (svg) files.push(new File([svg], "", { type: "image/svg+xml" }));
+  }
+  return { design, files };
 }
 
 export function plainTextFromDesignHtml(htmlFragments: string[]): string {

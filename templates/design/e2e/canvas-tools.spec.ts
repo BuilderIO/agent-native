@@ -2960,7 +2960,11 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  // Figma: Enter finishes on Move with the new vector selected.
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(selectedLayerRow(page)).toContainText("Vector");
 
   await restoreHome(page);
@@ -2995,6 +2999,8 @@ test("primary undo removes active pen segments without undoing committed vectors
     "index.html",
     /\bL\b/,
   );
+  await toolButton(page, "Pen").click();
+  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
 
   await page.mouse.click(
     cardBox.x + cardBox.width * 0.52,

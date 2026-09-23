@@ -34,6 +34,7 @@ a module breaks those — re-point the spec in the same commit.
 | `paste-to-replace.ts`                   | Replace the selected layer with the clipboard payload                    |
 | `editor-paste.ts`                       | Top-level paste router: image files vs Figma payload vs design clipboard |
 | `pasted-image-files.ts`                 | Upload pasted or dropped image files and insert them as layers           |
+| `system-clipboard-paste.ts`             | Canvas-menu Paste / Paste to replace with OS images and SVG code         |
 | `import-figma-clipboard-into-design.ts` | Convert a Figma clipboard payload into design layers                     |
 | `get-selected-layer-snapshots.ts`       | Snapshot selected layers (HTML + geometry) for copy/duplicate            |
 | `duplicate-selection.ts`                | Duplicate selected layers with offset cascade                            |

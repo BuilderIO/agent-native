@@ -141,6 +141,7 @@ export function runStylesChange(
         sendStyleChange(selector, property, value, {
           selectorCandidates: selectedCanvasSelectorCandidates,
           nodeId: selectedElement?.sourceId,
+          phase: meta?.phase,
         });
       });
       return;

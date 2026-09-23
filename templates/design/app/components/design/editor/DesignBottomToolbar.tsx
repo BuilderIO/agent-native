@@ -52,6 +52,7 @@ export function DesignBottomToolbar({
   frameToolDraws,
   onFrameToolDrawsChange,
   onShape,
+  onImageVideo,
   onText,
   onPen,
   onHand,
@@ -75,6 +76,8 @@ export function DesignBottomToolbar({
   frameToolDraws: "screen" | "frame";
   onFrameToolDrawsChange: (value: "screen" | "frame") => void;
   onShape: (tool: ShapeTool) => void;
+  /** Opens the image file picker; omitted when the design is not editable. */
+  onImageVideo?: () => void;
   onText: () => void;
   onPen: () => void;
   onHand: () => void;
@@ -165,8 +168,9 @@ export function DesignBottomToolbar({
       key: "image-video",
       label: t("designEditor.tools.imageVideo"),
       icon: <IconPhotoVideo className="size-4" />,
-      disabled: true,
-      onSelect: () => {},
+      shortcut: formatShortcutLabel("$mod+shift+k", applePlatform),
+      disabled: !onImageVideo,
+      onSelect: () => onImageVideo?.(),
     },
   ];
   const activeShapeOption =

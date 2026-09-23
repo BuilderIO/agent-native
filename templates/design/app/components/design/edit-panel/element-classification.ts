@@ -35,6 +35,9 @@ export function inspectorObjectTitle(element: ElementInfo): string {
   if (element.isGroup) return "Group";
   const tag = normalizedElementTagName(element.tagName);
   if (isTextElement(element)) return "Text";
+  if (tag === "img" || tag === "picture") return "Image";
+  if (tag === "svg") return "Vector";
+  if (element.primitiveKind === "frame") return "Frame";
   return tag;
 }
 
@@ -308,7 +311,9 @@ export function isVectorShapeElement(element: ElementInfo): boolean {
   // primitiveKind, and their paint really is background/border — only an
   // <svg> has a shape child for `vectorPaintTarget` to redirect to.
   if ((element.tagName || "").toLowerCase() !== "svg") return false;
-  return VECTOR_PRIMITIVE_KINDS.has(element.primitiveKind ?? "");
+  // An imported <svg>'s paint is its drawn shapes' fill/stroke, never a box background.
+  if (!element.primitiveKind) return true;
+  return VECTOR_PRIMITIVE_KINDS.has(element.primitiveKind);
 }
 
 export function isTextElement(element: ElementInfo): boolean {

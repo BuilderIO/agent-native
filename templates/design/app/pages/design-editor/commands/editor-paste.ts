@@ -8,6 +8,7 @@ import {
   getFigmaClipboardContent,
   isAttemptedFigmaPaste,
 } from "@/lib/design-import";
+import { extractSvgMarkup } from "@/lib/svg-paste";
 
 export interface EditorPasteArgs {
   adoptDesignClipboardPayload: (
@@ -62,6 +63,20 @@ export function runEditorPaste(
       event.preventDefault();
       return;
     }
+  }
+  const svgMarkup = extractSvgMarkup(
+    event.clipboardData?.getData("text/plain") ?? "",
+  );
+  if (
+    svgMarkup &&
+    canEditDesign &&
+    !readDesignClipboardPayloadFromDataTransfer(event.clipboardData) &&
+    handlePastedImageFiles([
+      new File([svgMarkup], "", { type: "image/svg+xml" }),
+    ])
+  ) {
+    event.preventDefault();
+    return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {

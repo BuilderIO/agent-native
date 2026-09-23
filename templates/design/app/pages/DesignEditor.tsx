@@ -102,6 +102,7 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  PEN_CORNER_RADIUS_ATTRIBUTE,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
   type CodeLayerProjection,
@@ -144,7 +145,9 @@ import {
 } from "@shared/node-rewrite";
 import {
   parsePenNodes,
+  penCornerRadiusFromAttribute,
   translatePenPath,
+  withoutVertexRadii,
   type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
@@ -231,6 +234,7 @@ import {
 import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
+  type CanvasContextMenuPoint,
 } from "@/components/design/CanvasContextMenu";
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
@@ -269,7 +273,9 @@ import {
 } from "@/components/design/edit-panel/document-colors";
 import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
+import type { ScaleToolControls } from "@/components/design/edit-panel/scale-properties";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
+import { swapFillStrokePatch } from "@/components/design/edit-panel/swap-fill-stroke";
 import {
   mergeRotationValue,
   parseRotationValue,
@@ -337,7 +343,10 @@ import {
   getResponsiveScreenCullGeometry,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
-import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "@/components/design/multi-screen/iframe-targeting";
 import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
 import {
   designPreviewWindows,
@@ -363,6 +372,7 @@ import type {
   ScreenContentRenderOptions,
   ScreenProjectionNodeIdentity,
   VectorEditOverlayState,
+  VisibleCanvasRect,
 } from "@/components/design/multi-screen/types";
 import type {
   KScaleStyleChangesByFrameId,
@@ -498,7 +508,10 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
-import { readDesignClipboardPayloadFromSystem } from "@/lib/design-clipboard";
+import {
+  readDesignClipboardPayloadFromSystem,
+  readSystemClipboard,
+} from "@/lib/design-clipboard";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -572,6 +585,7 @@ import {
 import { createPrimitiveInsertFromSpec } from "./design-editor/canvas-primitives";
 import {
   getElementOuterHtml,
+  boardRenderOffset,
   penPathScreenContentOffset,
   primitiveVectorEditSource,
   writeBackPrimitiveAsVector,
@@ -673,7 +687,11 @@ import { runGeometryCommit } from "./design-editor/commands/geometry-commit";
 import { runGetSelectedLayerSnapshots } from "./design-editor/commands/get-selected-layer-snapshots";
 import { runGroupSelection } from "./design-editor/commands/group-selection";
 import { runIframeContextMenu } from "./design-editor/commands/iframe-context-menu";
-import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
+import {
+  runImportFigmaClipboardIntoDesign,
+  type FigmaPasteLayerInsert,
+} from "./design-editor/commands/import-figma-clipboard-into-design";
+import { runInsertFigmaPasteLayers } from "./design-editor/commands/insert-figma-paste-layers";
 import {
   coalesceMarqueeSelectionHistory,
   runMarqueeSelectionCancellation,
@@ -703,7 +721,10 @@ import { runPasteCopiedScreens } from "./design-editor/commands/paste-copied-scr
 import { runPasteOverSelection } from "./design-editor/commands/paste-over-selection";
 import { runPasteSelection } from "./design-editor/commands/paste-selection";
 import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
-import { runPastedImageFiles } from "./design-editor/commands/pasted-image-files";
+import {
+  type PastedImageFilesClientAnchor,
+  runPastedImageFiles,
+} from "./design-editor/commands/pasted-image-files";
 import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-host-commit";
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
@@ -722,6 +743,7 @@ import {
   runFileContentSaveKeepalive,
   runSaveFileContent,
 } from "./design-editor/commands/save-file-content";
+import { runScaleSelection } from "./design-editor/commands/scale-selection";
 import { runScreenElementSelect } from "./design-editor/commands/screen-element-select";
 import { runScreenTextContentChange } from "./design-editor/commands/screen-text-content-change";
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
@@ -746,6 +768,10 @@ import { runStyleChange } from "./design-editor/commands/style-change";
 import { styleWriteTarget } from "./design-editor/commands/style-write-target";
 import { runStylesChange } from "./design-editor/commands/styles-change";
 import { runSuggestAutoLayout } from "./design-editor/commands/suggest-auto-layout";
+import {
+  runContextMenuPaste,
+  runSystemPasteToReplace,
+} from "./design-editor/commands/system-clipboard-paste";
 import { runTextContentChange } from "./design-editor/commands/text-content-change";
 import { runTidyUp } from "./design-editor/commands/tidy-up";
 import { runToggleLayerHidden } from "./design-editor/commands/toggle-layer-hidden";
@@ -754,6 +780,12 @@ import { runToggleMotionKeyframe } from "./design-editor/commands/toggle-motion-
 import { runTweakPromptSubmit } from "./design-editor/commands/tweak-prompt-submit";
 import { runUndo } from "./design-editor/commands/undo";
 import { runUngroupSelection } from "./design-editor/commands/ungroup-selection";
+import {
+  runVectorVertexStyleChange,
+  selectedVectorVertex,
+  vectorVertexInspectorElement,
+  vectorVertexMirroringControl,
+} from "./design-editor/commands/vector-vertex-inspector";
 import { runVisualDuplicateChange } from "./design-editor/commands/visual-duplicate-change";
 import {
   planVisualGridGroupStructureChange,
@@ -868,6 +900,7 @@ import { runPublishAgentSelectionContext } from "./design-editor/effects/publish
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
 import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -964,6 +997,7 @@ import {
   withMeasuredFrameHeights,
   getBoardSelectionFitBounds,
 } from "./design-editor/overview-camera";
+import { resolvePastePlacementForSelection } from "./design-editor/paste-placement";
 import {
   clearPendingEditSessionMarker,
   readPendingEditSessionMarker,
@@ -1575,6 +1609,10 @@ function DesignEditor() {
     deepSelectGuidanceKeyRef.current = null;
     setDeepSelectGuidanceKey(null);
   }, []);
+  const hideDeepSelectGuidance = useCallback(() => {
+    deepSelectGuidanceKeyRef.current = null;
+    setDeepSelectGuidanceKey(null);
+  }, []);
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -1591,6 +1629,8 @@ function DesignEditor() {
       geometry: PenGeometry;
       fill: string;
     } | null;
+    selectedNodeIndex: number | null;
+    cornerRadius: number;
   } | null>(null);
   const [pendingVisualStyleEdits, setPendingVisualStyleEdits] = useState<
     PendingVisualStyleEdit[]
@@ -2414,6 +2454,11 @@ function DesignEditor() {
   const [overviewClearSelectionRequest, setOverviewClearSelectionRequest] =
     useState(0);
   const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
+  const [hasSystemClipboardImages, setHasSystemClipboardImages] =
+    useState(false);
+  // What the OS clipboard held when the canvas menu last opened; the menu's
+  // Paste items use it instead of prompting for a second clipboard read.
+  const menuClipboardFilesRef = useRef<File[]>([]);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
   // Item 2d: CanvasContextMenu's "Copy animation" / "Paste animation" —
   // a small same-tab clipboard ref, mirroring copiedStylePropsRef's pattern.
@@ -7612,6 +7657,9 @@ function DesignEditor() {
   // layer (see beginRename in LayersPanel.tsx).
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const visibleCanvasRectRef = useRef<(() => VisibleCanvasRect | null) | null>(
+    null,
+  );
   /** Read by primitive creation, which runs far above where the colour is
    *  derived. */
   const canvasBackgroundRef = useRef<string | null>(null);
@@ -7971,6 +8019,80 @@ function DesignEditor() {
     update();
     return () => observer.disconnect();
   }, []);
+
+  // The shields only guard a press that started in editor chrome (a picker
+  // drag wandering over the canvas). A plain canvas click with a popover open
+  // must dismiss it and still select, as in Figma.
+  const [chromePointerHeld, setChromePointerHeld] = useState(false);
+  const chromePointerHeldRef = useRef(false);
+  useEffect(() => {
+    if (!inspectorPopoverOpen) return;
+    const onDown = () => {
+      chromePointerHeldRef.current = true;
+      setChromePointerHeld(true);
+    };
+    const onUp = () => {
+      chromePointerHeldRef.current = false;
+      setChromePointerHeld(false);
+    };
+    // A press inside a canvas iframe never reaches this document, so Radix
+    // cannot see it as an outside press; report one on its behalf.
+    const dismissPopovers = () => {
+      document.body.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerType: "mouse",
+          button: 0,
+        }),
+      );
+      onUp();
+    };
+    const listenedDocuments = new Set<Document>();
+    const listenedFrames = new Set<HTMLIFrameElement>();
+    const listenToFrame = (iframe: HTMLIFrameElement) => {
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+      } catch {
+        doc = null; // coercion-ok: a cross-origin frame cannot be listened to at all.
+      }
+      if (doc && !listenedDocuments.has(doc)) {
+        listenedDocuments.add(doc);
+        doc.addEventListener("pointerdown", dismissPopovers, true);
+      }
+      if (!listenedFrames.has(iframe)) {
+        listenedFrames.add(iframe);
+        iframe.addEventListener("load", onFrameLoad);
+      }
+    };
+    function onFrameLoad(this: HTMLIFrameElement) {
+      listenToFrame(this);
+    }
+    const listenToAllFrames = () =>
+      document.querySelectorAll("iframe").forEach(listenToFrame);
+    listenToAllFrames();
+    const frameObserver = new MutationObserver(listenToAllFrames);
+    frameObserver.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
+    window.addEventListener("blur", onUp);
+    return () => {
+      frameObserver.disconnect();
+      listenedDocuments.forEach((doc) =>
+        doc.removeEventListener("pointerdown", dismissPopovers, true),
+      );
+      listenedFrames.forEach((iframe) =>
+        iframe.removeEventListener("load", onFrameLoad),
+      );
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
+      window.removeEventListener("blur", onUp);
+      onUp();
+    };
+  }, [inspectorPopoverOpen]);
 
   // Broadcast selected element selector via presence so peers can render a ring.
   useEffect(() => {
@@ -11434,6 +11556,57 @@ function DesignEditor() {
   const handleVectorEditExit = useCallback(() => {
     setVectorEditingState(null);
   }, []);
+  // Figma drops the bounding box and resize handles while editing a vector.
+  const vectorEditScreenId = vectorEditingState?.screenId ?? null;
+  const vectorEditHidesChromeRef = useRef(false);
+  useEffect(() => {
+    if (!vectorEditScreenId) return;
+    const iframe = findCanvasIframeForScreen(
+      canvasContainerRef.current,
+      vectorEditScreenId,
+      boardFileId ?? undefined,
+    );
+    const post = (hidden: boolean) =>
+      iframe?.contentWindow?.postMessage(
+        { type: "set-selection-chrome-hidden", hidden },
+        "*",
+      );
+    const hide = () => post(true);
+    vectorEditHidesChromeRef.current = true;
+    hide();
+    // A reloaded document starts with its chrome showing.
+    iframe?.addEventListener("load", hide);
+    return () => {
+      iframe?.removeEventListener("load", hide);
+      vectorEditHidesChromeRef.current = false;
+      post(false);
+    };
+  }, [boardFileId, canvasContainerRef, vectorEditScreenId]);
+  // Selecting something else (or nothing) ends vector edit, as in Figma;
+  // otherwise its handles linger over a deselected path.
+  const vectorEditNodeId = vectorEditingState?.nodeId ?? null;
+  useEffect(() => {
+    if (!vectorEditNodeId) return;
+    const stillSelected = selectedLayerIdsState.some(
+      (layerId) =>
+        codeLayerOwnerByNodeIdRef.current.get(layerId)?.node.dataAttributes[
+          "data-agent-native-node-id"
+        ] === vectorEditNodeId,
+    );
+    if (!stillSelected) setVectorEditingState(null);
+    // Selection changes only: the edited node's own commits re-project it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLayerIdsState]);
+  const handleVectorEditSelectNode = useCallback(
+    (selectedNodeIndex: number | null) => {
+      setVectorEditingState((current) =>
+        current && current.selectedNodeIndex !== selectedNodeIndex
+          ? { ...current, selectedNodeIndex }
+          : current,
+      );
+    },
+    [],
+  );
 
   /**
    * P5/vector-edit: the VectorEditOverlayState prop threaded to
@@ -11457,6 +11630,9 @@ function DesignEditor() {
     return {
       path: vectorEditingState.path,
       originCanvas,
+      selectedNodeIndex: vectorEditingState.selectedNodeIndex,
+      cornerRadius: vectorEditingState.cornerRadius,
+      onSelectNode: handleVectorEditSelectNode,
       onChange: handleVectorEditChange,
       onExit: handleVectorEditExit,
     };
@@ -11465,6 +11641,7 @@ function DesignEditor() {
     canvasFrameGeometryById,
     handleVectorEditChange,
     handleVectorEditExit,
+    handleVectorEditSelectNode,
     overviewScreens,
     vectorEditingState,
   ]);
@@ -11867,6 +12044,23 @@ function DesignEditor() {
     setDrawMode(false);
     setPinMode(false);
   }, [activeFile, canEditDesign]);
+
+  const scaleToolControls = useMemo<ScaleToolControls>(
+    () => ({
+      onScale: (factor, anchor) =>
+        runScaleSelection(
+          {
+            selectedElement: selectedElementRef.current,
+            boardFileId: boardFileIdRef.current,
+            fallbackIframe: canvasIframeRef.current,
+          },
+          factor,
+          anchor,
+        ),
+      onExit: () => setActiveTool("move"),
+    }),
+    [canvasIframeRef],
+  );
 
   const handleDrawTool = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
@@ -13466,6 +13660,82 @@ function DesignEditor() {
     ],
   );
 
+  // ── Vector edit inspector ──
+  const selectedVertex = selectedVectorVertex(vectorEditingState);
+  const selectedLayerData =
+    selectedLayerIdsState.length === 1
+      ? codeLayerOwnerByNodeIdRef.current.get(selectedLayerIdsState[0]!)?.node
+          .dataAttributes
+      : undefined;
+  const selectedPenNodes = selectedLayerData?.["data-an-pen-nodes"];
+  const selectedCornerRadius = selectedLayerData?.[PEN_CORNER_RADIUS_ATTRIBUTE];
+  const inspectorSelectedElement = useMemo(
+    () =>
+      vectorVertexInspectorElement(selectedElement, selectedVertex, {
+        penNodes: selectedPenNodes,
+        cornerRadius: selectedCornerRadius,
+      }),
+    [selectedElement, selectedVertex, selectedPenNodes, selectedCornerRadius],
+  );
+  const handleVectorRadiusChange = useCallback((radius: number) => {
+    setVectorEditingState((current) =>
+      current
+        ? {
+            ...current,
+            cornerRadius: radius,
+            path: withoutVertexRadii(current.path),
+          }
+        : current,
+    );
+  }, []);
+  const handleInspectorStyleChange = useCallback<typeof handleStyleChange>(
+    (property, value, meta) => {
+      const handled = runVectorVertexStyleChange(
+        {
+          state: vectorEditingState,
+          onVectorEditChange: handleVectorEditChange,
+          onVectorRadiusChange: handleVectorRadiusChange,
+        },
+        property,
+        value,
+      );
+      if (!handled) handleStyleChange(property, value, meta);
+    },
+    [
+      handleStyleChange,
+      handleVectorEditChange,
+      handleVectorRadiusChange,
+      vectorEditingState,
+    ],
+  );
+  const handleInspectorStylesChange = useCallback<typeof handleStylesChange>(
+    (styles, meta) => {
+      const handled =
+        "borderRadius" in styles &&
+        runVectorVertexStyleChange(
+          {
+            state: vectorEditingState,
+            onVectorEditChange: handleVectorEditChange,
+            onVectorRadiusChange: handleVectorRadiusChange,
+          },
+          "borderRadius",
+          styles.borderRadius,
+        );
+      if (!handled) handleStylesChange(styles, meta);
+    },
+    [
+      handleStylesChange,
+      handleVectorEditChange,
+      handleVectorRadiusChange,
+      vectorEditingState,
+    ],
+  );
+  const vectorVertexMirroring = useMemo(
+    () =>
+      vectorVertexMirroringControl(vectorEditingState, handleVectorEditChange),
+    [handleVectorEditChange, vectorEditingState],
+  );
+
   const handleFontUploaded = useCallback(
     async (font: UploadedFont) => {
       if (!activeFile?.id || activeCanvasSourceType !== "inline") {
@@ -14626,21 +14896,99 @@ function DesignEditor() {
     ],
   );
 
+  const resolveFigmaPasteSceneForEditor = useCallback(() => {
+    const selectedNodeId =
+      selectedElement?.runtimeSourceId ?? selectedElement?.sourceId ?? null;
+    return resolveFigmaPasteScene({
+      viewMode: viewModeRef.current,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      overviewSelectedScreenIds,
+      selectedNodeId,
+      selectedIsContainer:
+        Boolean(selectedNodeId && activeFile) &&
+        resolvePastePlacementForSelection({
+          content: getScreenContent(activeFile!.id),
+          selectedElement,
+        })?.placement === "inside",
+      canvasRoot: canvasContainerRef.current,
+      screens: getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+      })
+        .filter((entry) => entry.id !== boardFileId)
+        .map((entry) => ({ fileId: entry.id, ...entry.geometry })),
+      visibleCanvasRect: visibleCanvasRectRef.current?.() ?? null,
+    });
+  }, [
+    activeFile,
+    boardFileId,
+    canvasFrameGeometryById,
+    getScreenContent,
+    overviewScreens,
+    overviewSelectedScreenIds,
+    selectedElement,
+  ]);
+
+  const insertFigmaPasteLayers = useCallback(
+    (
+      fileId: string,
+      selector: string | null,
+      layers: FigmaPasteLayerInsert[],
+    ) =>
+      runInsertFigmaPasteLayers(
+        {
+          activeFile,
+          applyFileContentUpdate,
+          applyLocalContentUpdate,
+          canvasContainerRef,
+          getFreshActiveContent,
+          getScreenContent,
+          pendingLocalFileContentsRef,
+          selectInsertedLayers,
+          viewModeRef,
+        },
+        fileId,
+        selector,
+        layers,
+      ),
+    [
+      activeFile,
+      applyFileContentUpdate,
+      applyLocalContentUpdate,
+      getFreshActiveContent,
+      getScreenContent,
+      selectInsertedLayers,
+    ],
+  );
+
   const importFigmaClipboardIntoDesign = useCallback(
     async (content: string) =>
       runImportFigmaClipboardIntoDesign(
         {
+          boardFileId,
           canEditDesign,
           figmaPasteImportingRef,
           id,
+          insertPasteLayers: insertFigmaPasteLayers,
           navigate,
           queryClient,
+          resolvePasteScene: resolveFigmaPasteSceneForEditor,
           showPastedImagesNotice,
           t,
         },
         content,
       ),
-    [canEditDesign, id, navigate, queryClient, t],
+    [
+      boardFileId,
+      canEditDesign,
+      id,
+      insertFigmaPasteLayers,
+      navigate,
+      queryClient,
+      resolveFigmaPasteSceneForEditor,
+      t,
+    ],
   );
 
   // One prompt for every path that can leave image placeholders behind: the
@@ -14758,7 +15106,7 @@ function DesignEditor() {
   // not shared canvas space). No hit falls back to the board file exactly as
   // before.
   const handlePastedImageFiles = useCallback(
-    (files: File[]) =>
+    (files: File[], anchor?: PastedImageFilesClientAnchor) =>
       runPastedImageFiles(
         {
           activeFile,
@@ -14767,6 +15115,7 @@ function DesignEditor() {
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           canvasFrameGeometryById,
           getFreshActiveContent,
           getFreshActivePreviewContent,
@@ -14782,6 +15131,7 @@ function DesignEditor() {
           zoom,
         },
         files,
+        anchor,
       ),
     [
       activeFile?.id,
@@ -14835,6 +15185,7 @@ function DesignEditor() {
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           canvasFrameGeometryById,
           getFreshActiveContent,
           getFreshActivePreviewContent,
@@ -14920,6 +15271,31 @@ function DesignEditor() {
     [activeFile?.id, insertDroppedImageFiles],
   );
 
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const handlePlaceImage = useCallback(() => {
+    imageFileInputRef.current?.click();
+  }, []);
+
+  const handleContextMenuPaste = useCallback(
+    (point?: CanvasContextMenuPoint) =>
+      runContextMenuPaste(
+        {
+          canEditDesign,
+          clipboardFiles: menuClipboardFilesRef.current,
+          handlePasteSelection,
+          handlePastedImageFiles,
+          insertDroppedImageFiles,
+        },
+        point,
+      ),
+    [
+      canEditDesign,
+      handlePasteSelection,
+      handlePastedImageFiles,
+      insertDroppedImageFiles,
+    ],
+  );
+
   const handleEditorPaste = useCallback(
     (event: ClipboardEvent) =>
       runEditorPaste(
@@ -14991,28 +15367,44 @@ function DesignEditor() {
   // step. Distinct from handlePasteOverSelection (Cmd+Shift+V), which pastes
   // ALONGSIDE the selection as new offset layers and never removes anything.
   // Scoped to the common single-target/single-source case (exactly one
-  // selected node, exactly one internal-clipboard entry) — a multi-selection
-  // or multi-node clipboard replace has no unambiguous 1:1 pairing, so this
-  // no-ops rather than guessing.
+  // selected node, and one OS image/SVG or one internal-clipboard entry) — a
+  // multi-selection or multi-node clipboard replace has no unambiguous 1:1
+  // pairing, so this no-ops rather than guessing.
   const handlePasteToReplace = useCallback(
-    () =>
-      runPasteToReplace({
-        activeFile,
-        applyLocalContentUpdate,
-        canEditDesign,
-        getCanvasClipboardEntries,
-        getFreshActiveContent,
-        runtimeStructureInsertRevisionRef,
-        selectInsertedLayers,
-        selectedCanvasSelector,
-        selectedElement,
-        setRuntimeStructureInsertRequest,
+    async (menuClipboardFiles?: File[]) => {
+      if (!canEditDesign) return;
+      const replace = (externalLayerHtml?: string) =>
+        runPasteToReplace(
+          {
+            activeFile,
+            applyLocalContentUpdate,
+            canEditDesign,
+            getCanvasClipboardEntries,
+            getFreshActiveContent,
+            runtimeStructureInsertRevisionRef,
+            selectInsertedLayers,
+            selectedCanvasSelector,
+            selectedElement,
+            setRuntimeStructureInsertRequest,
+            t,
+          },
+          externalLayerHtml,
+        );
+      await runSystemPasteToReplace({
+        clipboardFiles:
+          // coercion-ok: an unreadable and an empty clipboard both fall back to the in-app layer copy
+          menuClipboardFiles ?? (await readSystemClipboard())?.files ?? null,
+        replaceWithLayerCopy: () => replace(),
+        replaceWithHtml: replace,
         t,
-      }),
+        uploadImageFileForHtml,
+      });
+    },
     [
       activeFile,
       applyLocalContentUpdate,
       canEditDesign,
+      uploadImageFileForHtml,
       getCanvasClipboardEntries,
       getFreshActiveContent,
       selectedCanvasSelector,
@@ -17111,19 +17503,16 @@ function DesignEditor() {
     );
   }, [canEditDesign, handleStyleChange, selectedElement]);
 
-  // Figma's Shift+X — swap fill and stroke. Matches Figma even when one side
-  // is empty: an element with a fill and no stroke ends up with a stroke and
-  // no fill (not a no-op). Both properties are committed together via
-  // handleStylesChange so the swap is a single undo step.
+  // Figma's Shift+X, committed as one patch so the swap is a single undo step.
   const handleSwapFillStroke = useCallback(() => {
     if (!canEditDesign || !selectedElement) return;
-    const currentFill = selectedElement.computedStyles.backgroundColor ?? "";
-    const currentStroke = selectedElement.computedStyles.borderColor ?? "";
-    handleStylesChange({
-      backgroundColor: currentStroke || "transparent",
-      borderColor: currentFill || "transparent",
-    });
-  }, [canEditDesign, handleStylesChange, selectedElement]);
+    const swap = swapFillStrokePatch(selectedElement);
+    if (swap.kind === "unsupported-fill-paint") {
+      toast.info(t("designEditor.toasts.swapFillStrokeLayeredFill"));
+      return;
+    }
+    handleStylesChange(swap.patch);
+  }, [canEditDesign, handleStylesChange, selectedElement, t]);
 
   // Figma's Ctrl+C — eyedropper: sample a color from anywhere on screen and
   // apply it to the current selection's fill (shape/frame) or text color
@@ -17260,6 +17649,8 @@ function DesignEditor() {
     }
     if (!selectionChromeHiddenRef.current) return;
     selectionChromeHiddenRef.current = false;
+    // Vector edit owns the chrome until it exits.
+    if (vectorEditHidesChromeRef.current) return;
     canvasIframeRef.current?.contentWindow?.postMessage(
       { type: "set-selection-chrome-hidden", hidden: false },
       "*",
@@ -18570,7 +18961,14 @@ function DesignEditor() {
         toast.error(t("designEditor.toasts.vectorEditUnsupported"));
         return true;
       }
-      const iframe = getOverviewFrameIframe(owner.fileId);
+      const isBoard = owner.fileId === boardFileId;
+      const iframe = isBoard
+        ? findCanvasIframeForScreen(
+            canvasContainerRef.current,
+            owner.fileId,
+            boardFileId ?? undefined,
+          )
+        : getOverviewFrameIframe(owner.fileId);
       const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
       const element = iframe?.contentDocument?.querySelector<
         SVGSVGElement | HTMLElement
@@ -18579,13 +18977,20 @@ function DesignEditor() {
         toast.error(t("designEditor.toasts.vectorEditUnsupported"));
         return true;
       }
+      const contentOrigin = isBoard
+        ? boardRenderOffset(element)
+        : { x: 0, y: 0 };
 
       if (penNodesAttr) {
         const path = parsePenNodes(penNodesAttr);
-        const offset =
+        const viewportOffset =
           element.tagName.toLowerCase() === "svg"
             ? penPathScreenContentOffset(element as SVGSVGElement)
             : null;
+        const offset = viewportOffset && {
+          x: viewportOffset.x - contentOrigin.x,
+          y: viewportOffset.y - contentOrigin.y,
+        };
         if (!path || !offset) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
           return true;
@@ -18596,6 +19001,10 @@ function DesignEditor() {
           path: translatePenPath(path, offset.x, offset.y),
           sourceOffset: offset,
           primitiveSource: null,
+          selectedNodeIndex: null,
+          cornerRadius: penCornerRadiusFromAttribute(
+            element.getAttribute(PEN_CORNER_RADIUS_ATTRIBUTE),
+          ),
         });
         return true;
       }
@@ -18612,14 +19021,24 @@ function DesignEditor() {
       setVectorEditingState({
         screenId: owner.fileId,
         nodeId,
-        path: source.path,
+        path: translatePenPath(source.path, -contentOrigin.x, -contentOrigin.y),
         sourceOffset: { x: 0, y: 0 },
-        primitiveSource: { geometry: source.geometry, fill: source.fill },
+        primitiveSource: {
+          geometry: {
+            ...source.geometry,
+            x: source.geometry.x - contentOrigin.x,
+            y: source.geometry.y - contentOrigin.y,
+          },
+          fill: source.fill,
+        },
+        selectedNodeIndex: null,
+        cornerRadius: 0,
       });
       return true;
     },
     [
       boardFileId,
+      canvasContainerRef,
       canvasFrameGeometryById,
       getOverviewFrameIframe,
       overviewScreens,
@@ -18692,8 +19111,13 @@ function DesignEditor() {
             "[data-radix-portal] [data-state='open']:not([data-agent-native-tooltip])",
           ),
         );
-      iframe.style.pointerEvents = hasOpenOverlay ? "none" : "";
+      iframe.style.pointerEvents =
+        hasOpenOverlay && chromePointerHeldRef.current ? "none" : "";
     };
+    const onPointerHeldChange = () =>
+      requestAnimationFrame(updateIframePointerEvents);
+    document.addEventListener("pointerdown", onPointerHeldChange, true);
+    window.addEventListener("pointerup", onPointerHeldChange, true);
 
     const observer = new MutationObserver(updateIframePointerEvents);
     observer.observe(document.body, {
@@ -18705,6 +19129,8 @@ function DesignEditor() {
 
     return () => {
       observer.disconnect();
+      document.removeEventListener("pointerdown", onPointerHeldChange, true);
+      window.removeEventListener("pointerup", onPointerHeldChange, true);
       // Restore pointer events on unmount in case a popover was left open.
       const iframe = getPreviewIframe();
       if (iframe) iframe.style.pointerEvents = "";
@@ -18942,7 +19368,10 @@ function DesignEditor() {
     onPaste: canEditDesign ? () => void handlePasteSelection() : undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
-    onPasteToReplace: canEditDesign ? handlePasteToReplace : undefined,
+    onPlaceImage: canEditDesign ? handlePlaceImage : undefined,
+    onPasteToReplace: canEditDesign
+      ? () => void handlePasteToReplace()
+      : undefined,
     onCopyProps: canEditActiveVisualScreen ? handleCopyProps : undefined,
     onPasteProps: canEditActiveVisualScreen ? handlePasteProps : undefined,
     onDuplicate: canEditActiveVisualScreen
@@ -23964,122 +24393,130 @@ function DesignEditor() {
     setHoveredElementScreenId(null);
   }, []);
 
-  const hydrateRenderedLayerInfoForIds = useCallback((ids: string[]) => {
-    const hydrationRevision = ++layerSelectionHydrationRevisionRef.current;
-    const renderedRevision = renderedElementInfoRevisionRef.current;
-    const breakpointWidth = activeBreakpointWidthStateRef.current;
-    const ownerByNodeId = codeLayerOwnerByNodeIdRef.current;
-    const currentBoardFileId = boardFileIdRef.current;
-    type RenderedLayerOwner = {
-      fileId: string;
-      node: CodeLayerNode;
-      tree: CodeLayerTreeNode[];
-      runtimeOnly: boolean;
-    };
-    const ownersToMeasure = new Map<string, RenderedLayerOwner>();
-    for (const layerId of ids) {
-      const owner = ownerByNodeId.get(layerId);
-      if (!owner || owner.runtimeOnly) continue;
-      ownersToMeasure.set(layerId, owner);
-      for (const siblingId of findCodeLayerSiblingOrder(owner.tree, layerId)
-        ?.siblingIds ?? []) {
-        const siblingOwner = ownerByNodeId.get(siblingId);
-        if (
-          siblingOwner &&
-          siblingOwner.fileId === owner.fileId &&
-          !siblingOwner.runtimeOnly
-        ) {
-          ownersToMeasure.set(siblingId, siblingOwner);
+  const hydrateRenderedLayerInfoForIds = useCallback(
+    (ids: string[], selectedElementIsFresh = false) => {
+      const hydrationRevision = ++layerSelectionHydrationRevisionRef.current;
+      const renderedRevision = renderedElementInfoRevisionRef.current;
+      const breakpointWidth = activeBreakpointWidthStateRef.current;
+      const ownerByNodeId = codeLayerOwnerByNodeIdRef.current;
+      const currentBoardFileId = boardFileIdRef.current;
+      type RenderedLayerOwner = {
+        fileId: string;
+        node: CodeLayerNode;
+        tree: CodeLayerTreeNode[];
+        runtimeOnly: boolean;
+      };
+      const ownersToMeasure = new Map<string, RenderedLayerOwner>();
+      for (const layerId of ids) {
+        const owner = ownerByNodeId.get(layerId);
+        if (!owner || owner.runtimeOnly) continue;
+        ownersToMeasure.set(layerId, owner);
+        for (const siblingId of findCodeLayerSiblingOrder(owner.tree, layerId)
+          ?.siblingIds ?? []) {
+          const siblingOwner = ownerByNodeId.get(siblingId);
+          if (
+            siblingOwner &&
+            siblingOwner.fileId === owner.fileId &&
+            !siblingOwner.runtimeOnly
+          ) {
+            ownersToMeasure.set(siblingId, siblingOwner);
+          }
+        }
+        const pendingDescendants = [...owner.node.children];
+        while (pendingDescendants.length > 0) {
+          const descendantId = pendingDescendants.pop()!;
+          const descendantOwner = ownerByNodeId.get(descendantId);
+          if (
+            !descendantOwner ||
+            descendantOwner.fileId !== owner.fileId ||
+            descendantOwner.runtimeOnly
+          ) {
+            continue;
+          }
+          ownersToMeasure.set(descendantId, descendantOwner);
+          pendingDescendants.push(...descendantOwner.node.children);
         }
       }
-      const pendingDescendants = [...owner.node.children];
-      while (pendingDescendants.length > 0) {
-        const descendantId = pendingDescendants.pop()!;
-        const descendantOwner = ownerByNodeId.get(descendantId);
+      const cache = (
+        layerId: string,
+        owner: RenderedLayerOwner,
+        measured: ElementInfo,
+      ) => {
+        const currentOwner = codeLayerOwnerByNodeIdRef.current.get(layerId);
         if (
-          !descendantOwner ||
-          descendantOwner.fileId !== owner.fileId ||
-          descendantOwner.runtimeOnly
+          layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
+          renderedElementInfoRevisionRef.current !== renderedRevision ||
+          activeBreakpointWidthStateRef.current !== breakpointWidth ||
+          currentOwner?.fileId !== owner.fileId ||
+          currentOwner?.node.id !== owner.node.id
         ) {
-          continue;
+          return;
         }
-        ownersToMeasure.set(descendantId, descendantOwner);
-        pendingDescendants.push(...descendantOwner.node.children);
-      }
-    }
-    const cache = (
-      layerId: string,
-      owner: RenderedLayerOwner,
-      measured: ElementInfo,
-    ) => {
-      const currentOwner = codeLayerOwnerByNodeIdRef.current.get(layerId);
-      if (
-        layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
-        renderedElementInfoRevisionRef.current !== renderedRevision ||
-        activeBreakpointWidthStateRef.current !== breakpointWidth ||
-        currentOwner?.fileId !== owner.fileId ||
-        currentOwner?.node.id !== owner.node.id
-      ) {
-        return;
-      }
-      const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
-      renderedElementInfoByLayerKeyRef.current.set(
-        `${owner.fileId}:${owner.node.id}`,
-        measured,
-      );
-      if (stableId) {
+        const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
         renderedElementInfoByLayerKeyRef.current.set(
-          `${owner.fileId}:${stableId}`,
+          `${owner.fileId}:${owner.node.id}`,
           measured,
         );
-      }
-      if (selectedLayerIdsStateRef.current.includes(layerId)) {
-        setSelectedElement((current) => {
-          if (!current) return measured;
-          const currentId = current.sourceId ?? current.runtimeSourceId;
-          const ownerId =
-            owner.node.dataAttributes["data-agent-native-node-id"] ??
-            bridgeSourceIdForCodeLayerNode(owner.node);
-          return currentId === ownerId ? measured : current;
+        if (stableId) {
+          renderedElementInfoByLayerKeyRef.current.set(
+            `${owner.fileId}:${stableId}`,
+            measured,
+          );
+        }
+        if (
+          !selectedElementIsFresh &&
+          selectedLayerIdsStateRef.current.includes(layerId)
+        ) {
+          setSelectedElement((current) => {
+            if (!current) return measured;
+            const currentId = current.sourceId ?? current.runtimeSourceId;
+            const ownerId =
+              owner.node.dataAttributes["data-agent-native-node-id"] ??
+              bridgeSourceIdForCodeLayerNode(owner.node);
+            return currentId === ownerId ? measured : current;
+          });
+        }
+        // Keep zero-area measurements associated with the selected node so the
+        // style recorder can reject an invisible wrapper instead of queuing a
+        // pending edit that can never render.
+        if (
+          measured.boundingRect.width <= 0 ||
+          measured.boundingRect.height <= 0
+        ) {
+          return;
+        }
+      };
+      for (const [layerId, owner] of ownersToMeasure) {
+        const synchronouslyMeasured = readRenderedLayerInfo(
+          owner,
+          breakpointWidth,
+          currentBoardFileId,
+        );
+        if (synchronouslyMeasured) {
+          cache(layerId, owner, synchronouslyMeasured);
+          continue;
+        }
+        void requestSelectionMeasurement({
+          targetWindows: () =>
+            designPreviewWindowsForScreen(
+              owner.fileId,
+              breakpointWidth,
+              currentBoardFileId,
+            ),
+          screenId: owner.fileId,
+          selector: preferredCodeLayerSelector(owner.node),
+        }).then((measured) => {
+          if (!measured) return;
+          cache(layerId, owner, measured);
         });
       }
-      // Keep zero-area measurements associated with the selected node so the
-      // style recorder can reject an invisible wrapper instead of queuing a
-      // pending edit that can never render.
-      if (
-        measured.boundingRect.width <= 0 ||
-        measured.boundingRect.height <= 0
-      ) {
-        return;
-      }
-    };
-    for (const [layerId, owner] of ownersToMeasure) {
-      const synchronouslyMeasured = readRenderedLayerInfo(
-        owner,
-        breakpointWidth,
-        currentBoardFileId,
-      );
-      if (synchronouslyMeasured) {
-        cache(layerId, owner, synchronouslyMeasured);
-        continue;
-      }
-      void requestSelectionMeasurement({
-        targetWindows: () =>
-          designPreviewWindowsForScreen(
-            owner.fileId,
-            breakpointWidth,
-            currentBoardFileId,
-          ),
-        screenId: owner.fileId,
-        selector: preferredCodeLayerSelector(owner.node),
-      }).then((measured) => {
-        if (!measured) return;
-        cache(layerId, owner, measured);
-      });
-    }
-  }, []);
+    },
+    [],
+  );
+  // Runs right after a bridge element-select: that payload carries the live
+  // cascade (descendant text runs, hug sizing) this source projection lacks.
   rehydrateRenderedElementInfoRef.current = () =>
-    hydrateRenderedLayerInfoForIds(selectedLayerIdsStateRef.current);
+    hydrateRenderedLayerInfoForIds(selectedLayerIdsStateRef.current, true);
 
   const handleLayerSelectionChange = useCallback(
     (
@@ -24394,7 +24831,7 @@ function DesignEditor() {
     onGroupSelection: handleGroupSelection,
     onUngroupSelection: handleUngroupSelection,
     onReorderLayer: changeSelectedZIndex,
-    onPasteToReplace: handlePasteToReplace,
+    onPasteToReplace: () => void handlePasteToReplace(),
     onFrameSelection: handleFrameSelection,
     onFlipHorizontal: handleFlipHorizontal,
     onFlipVertical: handleFlipVertical,
@@ -26652,14 +27089,20 @@ function DesignEditor() {
   // set; only `width` differs. One shared object keeps a prop added here from
   // silently reaching just one of them.
   const editPanelProps = {
-    selectedElement,
+    vectorVertexMirroring,
+    selectedElement: inspectorSelectedElement,
     textEditingState,
     selectionHidden: activeLayerHidden,
     onToggleSelectionHidden: canEditActiveVisualScreen
       ? handleToggleHiddenForSelection
       : undefined,
     readOnly: !canEditActiveVisualScreen,
-    selectedElements: selectedInspectorElements,
+    selectedElements:
+      inspectorSelectedElement !== selectedElement &&
+      selectedInspectorElements.length === 1 &&
+      inspectorSelectedElement
+        ? [inspectorSelectedElement]
+        : selectedInspectorElements,
     selectedScreenGeometry,
     selectedScreenLayoutGrid,
     onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
@@ -26711,6 +27154,7 @@ function DesignEditor() {
     mode,
     files: documentColorFiles,
     activeTool,
+    scaleTool: canEditActiveVisualScreen ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign
       ? handleCreateScreenFromPreset
       : undefined,
@@ -26744,8 +27188,8 @@ function DesignEditor() {
         : undefined,
     onTweakChange: handleTweakChange,
     onRequestTweaks: handleRequestTweaks,
-    onStyleChange: handleStyleChange,
-    onStylesChange: handleStylesChange,
+    onStyleChange: handleInspectorStyleChange,
+    onStylesChange: handleInspectorStylesChange,
     motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
       ? motionKeyframeState
       : undefined,
@@ -27174,6 +27618,7 @@ function DesignEditor() {
               frameToolDraws={frameToolDraws}
               onFrameToolDrawsChange={setFrameToolDraws}
               onShape={handleShapeTool}
+              onImageVideo={canEditDesign ? handlePlaceImage : undefined}
               onText={handleTextTool}
               onPen={handlePenTool}
               onHand={handleHandTool}
@@ -27184,6 +27629,19 @@ function DesignEditor() {
               shortcutsPanelOpen={keyboardShortcutsOpen}
             />
           )}
+
+        <input
+          ref={imageFileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length > 0) handlePastedImageFiles(files);
+          }}
+        />
 
         {!hostOwnsChrome && keyboardShortcutsOpen ? (
           <KeyboardShortcutsPanel
@@ -27243,10 +27701,28 @@ function DesignEditor() {
             // clipboard payload is already sitting in the OS clipboard.
             onOpenChange={(open) => {
               if (!open) setCanvasLayerHitCandidates([]);
-              if (open) void refreshClipboardFromSystemClipboard();
+              if (open) {
+                void readSystemClipboard().then((contents) => {
+                  if (
+                    contents?.design &&
+                    contents.design.markerText !==
+                      lastWrittenClipboardMarkerRef.current
+                  ) {
+                    adoptDesignClipboardPayload(
+                      contents.design.payload,
+                      contents.design.markerText,
+                      contents.design.plainText,
+                    );
+                  }
+                  menuClipboardFilesRef.current = contents?.files ?? [];
+                  setHasSystemClipboardImages(Boolean(contents?.files.length));
+                });
+              }
             }}
             canPasteHere={
-              canEditDesign && hasCanvasClipboard && Boolean(activeFile)
+              canEditDesign &&
+              (hasCanvasClipboard || hasSystemClipboardImages) &&
+              Boolean(activeFile)
             }
             canSelectAll={files.length > 0}
             canZoomToFit={Boolean(activeFile)}
@@ -27263,7 +27739,9 @@ function DesignEditor() {
               selectedElement?.selector || selectedScreenIds.length > 0,
             )}
             canPaste={
-              canEditDesign && hasCanvasClipboard && Boolean(activeFile)
+              canEditDesign &&
+              (hasCanvasClipboard || hasSystemClipboardImages) &&
+              Boolean(activeFile)
             }
             canPasteOver={
               canEditDesign && hasCanvasClipboard && Boolean(activeFile)
@@ -27329,7 +27807,8 @@ function DesignEditor() {
             canUngroup={canUngroup}
             canPasteToReplace={
               canEditDesign &&
-              getCanvasClipboardEntries().length === 1 &&
+              (getCanvasClipboardEntries().length === 1 ||
+                hasSystemClipboardImages) &&
               Boolean(selectedElement)
             }
             canFrameSelection={
@@ -27387,12 +27866,7 @@ function DesignEditor() {
             isCommentsHidden={commentsHidden}
             getCanvasPoint={getContextCanvasPoint}
             onPasteHere={(details) =>
-              void handlePasteSelection(
-                details.point?.canvasX !== undefined &&
-                  details.point.canvasY !== undefined
-                  ? { x: details.point.canvasX, y: details.point.canvasY }
-                  : undefined,
-              )
+              void handleContextMenuPaste(details.point ?? undefined)
             }
             onSelectAll={handleSelectAllFrames}
             onZoomToFit={handleZoomToFit}
@@ -27406,7 +27880,7 @@ function DesignEditor() {
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onCopy={handleCopySelection}
-            onPaste={() => void handlePasteSelection()}
+            onPaste={() => void handleContextMenuPaste()}
             onPasteOver={handlePasteOverSelection}
             onDuplicate={handleDuplicateSelection}
             onDelete={handleDeleteSelection}
@@ -27442,7 +27916,11 @@ function DesignEditor() {
             onCopyAsPng={() => void handleCopyAsPng()}
             onCopyAsSvg={() => void handleCopyAsFigmaSvg()}
             onRotateClockwise={handleRotateSelectionClockwise}
-            onPasteToReplace={canEditDesign ? handlePasteToReplace : undefined}
+            onPasteToReplace={
+              canEditDesign
+                ? () => void handlePasteToReplace(menuClipboardFilesRef.current)
+                : undefined
+            }
             onFrameSelection={canEditDesign ? handleFrameSelection : undefined}
             onCreateComponent={
               canEditDesign ? handleCreateComponentHotkey : undefined
@@ -27539,7 +28017,7 @@ function DesignEditor() {
                     iframe when a portaled Radix popover (e.g. color picker) is
                     open. The iframe has its own event context so it receives
                     pointer events even when visually covered by the popover. */}
-                  {inspectorPopoverOpen && (
+                  {inspectorPopoverOpen && chromePointerHeld && (
                     <div
                       aria-hidden="true"
                       style={{
@@ -27667,7 +28145,10 @@ function DesignEditor() {
                     </div>
                   ) : null}
                   {deepSelectGuidanceKey !== null ? (
-                    <DeepSelectGuidance onDismiss={dismissDeepSelectGuidance} />
+                    <DeepSelectGuidance
+                      onDismiss={dismissDeepSelectGuidance}
+                      onExpire={hideDeepSelectGuidance}
+                    />
                   ) : null}
                   {viewMode === "overview" ? (
                     <>
@@ -27687,6 +28168,7 @@ function DesignEditor() {
                         }
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
+                        visibleCanvasRectRef={visibleCanvasRectRef}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
                         exportPreviewScreenId={exportPreviewScreenId}

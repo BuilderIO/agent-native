@@ -257,6 +257,8 @@ export interface ElementInfo {
   /** Capped at 4000 chars; same overwrite hazard as `textContent`. */
   htmlContent?: string;
   htmlContentTruncated?: boolean;
+  /** An `<img>`'s authored src, for the Image fill thumbnail. */
+  imageSource?: string;
   /** Direct element children; text nodes are ignored. */
   childElementCount?: number;
   isFlexChild: boolean;

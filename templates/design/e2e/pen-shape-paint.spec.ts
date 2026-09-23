@@ -250,6 +250,16 @@ function inspectorSection(page: Page, title: RegExp) {
     .first();
 }
 
+/** Alpha of a computed colour: `rgb()` is opaque, `rgba()`/`color()` carry it. */
+function cssAlpha(color: string | undefined): number | null {
+  if (!color) return null;
+  const slash = color.match(/\/\s*([\d.]+)\s*\)$/);
+  if (slash) return Number(slash[1]);
+  const rgba = color.match(/^rgba\((?:[^,]+,){3}\s*([\d.]+)\s*\)$/);
+  if (rgba) return Number(rgba[1]);
+  return color.startsWith("rgb(") ? 1 : null;
+}
+
 /** Draws a closed triangle with the pen tool and selects it with the move tool. */
 async function drawClosedTriangle(page: Page, designId: string) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
@@ -279,7 +289,7 @@ async function drawClosedTriangle(page: Page, designId: string) {
   return { centroid: { x: card.x + 127, y: card.y + 207 } };
 }
 
-test("a closed pen path commits filled and unstroked, like a drawn rectangle", async ({
+test("a closed pen path commits stroke-only, as Figma does on close", async ({
   page,
   request,
 }) => {
@@ -289,9 +299,9 @@ test("a closed pen path commits filled and unstroked, like a drawn rectangle", a
 
     const paint = await vectorPaint(page);
     expect(paint).not.toBeNull();
-    expect(paint!.fillAttribute).toBe("rgb(218 218 218)");
-    expect(paint!.strokeAttribute).toBe("none");
-    expect(paint!.shapeStroke).toBe("none");
+    expect(paint!.fillAttribute).toBe("none");
+    expect(paint!.strokeAttribute).toBe("#000000");
+    expect(paint!.shapeStroke).toBe("rgb(0, 0, 0)");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -312,16 +322,21 @@ test("fill and stroke edits paint the pen shape, not its selection bounds", asyn
 
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(fillSection).toBeVisible();
-    await fillSection.locator('button[aria-label="Hide layer"]').click();
+    await fillSection.locator('button[aria-label="Add fill"]').click();
+    await page.keyboard.press("Escape");
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeFill)
-      .toBe("rgba(218, 218, 218, 0)");
-
-    const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.locator('button[aria-label="Add stroke"]').click();
+      .toBe("rgb(217, 217, 217)");
+    // A hidden fill keeps its colour at zero alpha, so showing it restores it.
+    await fillSection.locator('button[aria-label="Hide layer"]').click();
     await expect
-      .poll(async () => (await vectorPaint(page))?.shapeStroke)
-      .toBe("rgb(0, 0, 0)");
+      .poll(async () => cssAlpha((await vectorPaint(page))?.shapeFill))
+      .toBe(0);
+    await fillSection.locator('button[aria-label="Show layer"]').click();
+    await expect
+      .poll(async () => (await vectorPaint(page))?.shapeFill)
+      .toBe("rgb(217, 217, 217)");
+    expect((await vectorPaint(page))?.shapeStroke).toBe("rgb(0, 0, 0)");
 
     // The wrapper is the geometry box; painting it would tint the whole
     // bounding rectangle instead of the triangle.
@@ -345,13 +360,10 @@ test("closed vector strokes render inside, center, and outside", async ({
     await page.waitForTimeout(400);
     await page.mouse.click(centroid.x, centroid.y);
 
+    // A pen-closed path already carries its stroke.
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    const addStroke = strokeSection.getByRole("button", { name: "Add stroke" });
-    await expect(addStroke).toBeVisible();
-    await addStroke.click();
-    const position = strokeSection.getByRole("combobox");
+    const position = strokeSection.getByRole("combobox", { name: "Position" });
     await expect(position).toBeVisible();
-    await expect(position).toHaveAccessibleName("Position");
 
     await position.click();
     await page.getByRole("option", { name: "Inside" }).click();
@@ -435,8 +447,8 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
     await page.mouse.click(bounds.x + 50, bounds.y + 50);
     const strokeSection = inspectorSection(page, /^Stroke$/i);
     await strokeSection.getByRole("button", { name: "Add stroke" }).click();
-    const position = strokeSection.getByRole("combobox");
-    await expect(position).toHaveAccessibleName("Position");
+    const position = strokeSection.getByRole("combobox", { name: "Position" });
+    await expect(position).toBeVisible();
     await position.click();
     await page.getByRole("option", { name: "Outside" }).click();
 
@@ -551,7 +563,9 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
         name: "Position",
       });
       if (!item.position) {
-        await expect(position).toHaveCount(0);
+        // Figma shows an open path's stroke as a fixed Center.
+        await expect(position).toBeDisabled();
+        await expect(position).toHaveText("Center");
         continue;
       }
 

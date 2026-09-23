@@ -638,3 +638,44 @@ describe("beginBoardElementResize point mapping", () => {
     },
   );
 });
+
+describe("board text editing", () => {
+  it("drops the host drag surface while a board text edit owns the pointer", async () => {
+    const boardIframe = await mountBoardCanvas({
+      x: -1000,
+      y: -1000,
+      width: 2000,
+      height: 2000,
+    });
+    const postTextEditingState = (active: boolean) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "text-editing-state",
+            active,
+            selector: BOARD_SELECTOR,
+            sourceId: "rect-1",
+            hasRange: false,
+          },
+          origin: window.location.origin,
+          source: boardIframe.contentWindow,
+        }),
+      );
+    await act(async () => {
+      postBoardSelectionRect(boardIframe.contentWindow);
+    });
+    expect(
+      container.querySelector("[data-board-object-selection-box]"),
+    ).not.toBeNull();
+
+    await act(async () => postTextEditingState(true));
+    expect(
+      container.querySelector("[data-board-object-selection-box]"),
+    ).toBeNull();
+
+    await act(async () => postTextEditingState(false));
+    expect(
+      container.querySelector("[data-board-object-selection-box]"),
+    ).not.toBeNull();
+  });
+});

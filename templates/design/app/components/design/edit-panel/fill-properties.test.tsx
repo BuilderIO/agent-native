@@ -158,6 +158,47 @@ describe("baseFillLayerSourceProps", () => {
     });
   });
 
+  it("shows a vector's gradient fill right after a swap, before the authored fill is known", () => {
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          computedStyles: {
+            fill: 'url("#v-fill-gradient")',
+            fillOpacity: "0",
+            "--an-vector-fill-gradient":
+              "linear-gradient(180deg, #782f2f 50%, #666666 100%)",
+          },
+        }),
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+    expect(markup).toContain('data-inspector-layout="paint-row"');
+    expect(markup).toContain('aria-label="editPanel.labels.removeLayer"');
+    expect(markup).toContain('aria-label="editPanel.labels.hideLayer"');
+  });
+
+  it("reads a vector gradient as hidden from its stops, not fill-opacity", () => {
+    const hidden = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          computedStyles: {
+            fill: 'url("#v-fill-gradient")',
+            "--an-vector-fill-gradient":
+              "linear-gradient(180deg, color-mix(in srgb, #782f2f 0%, transparent) 0%, color-mix(in srgb, #666666 0%, transparent) 100%)",
+          },
+        }),
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+    expect(hidden).toContain('aria-label="editPanel.labels.showLayer"');
+  });
+
   it("keeps SVG shape fills solid-only", () => {
     expect(
       baseFillLayerSourceProps(
@@ -409,6 +450,22 @@ describe("FillProperties base row — image layer prop wiring", () => {
 
     expect(markup).toContain('aria-label="editPanel.labels.addFill"');
     expect(markup).toContain("Click + to replace mixed content");
+  });
+
+  it("keeps the replace action for a mixed text-only selection that hides add", () => {
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "span",
+          computedStyles: { color: "Mixed" },
+        }),
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+        hideAddFill: true,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="editPanel.labels.addFill"');
   });
 });
 

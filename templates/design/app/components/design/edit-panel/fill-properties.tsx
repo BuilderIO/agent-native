@@ -10,6 +10,11 @@ import {
   readGradientFillOpacity,
 } from "@shared/gradient-opacity";
 import {
+  SVG_FILL_GRADIENT_PROPERTY,
+  svgPaintGradientOpacity,
+  svgPaintGradientWithOpacity,
+} from "@shared/svg-paint-gradient";
+import {
   IconEye,
   IconEyeOff,
   IconLayoutGrid,
@@ -27,6 +32,11 @@ import {
 } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
+import {
+  boxGradientStroke,
+  withBoxStrokeLayer,
+  withoutBoxStrokeLayer,
+} from "./box-gradient-stroke";
 import { selectionColorValues } from "./document-colors";
 import { isTextElement, isVectorShapeElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -37,6 +47,7 @@ import {
   buildSolidFillLayer,
   buildGradientLayer,
   gradientLabel,
+  gradientShortLabel,
   isLayerHiddenBySize,
   joinCssLayers,
   parseGradientLayer,
@@ -48,6 +59,7 @@ import {
   splitCssLayers,
   withLayerSizeMarker,
 } from "./fill-gradient-helpers";
+import { ImageElementFill } from "./image-element-fill";
 import {
   RowDragHandle,
   SectionIconButton,
@@ -55,6 +67,7 @@ import {
 } from "./inspector-controls";
 import { InspectorGridCell, InspectorPaintRow } from "./inspector-grid";
 import { authoredStyleValue } from "./interaction-state-helpers";
+import { PaintInput, SVG_PAINT_TYPES } from "./paint-input";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
@@ -182,7 +195,57 @@ export function shouldUseTextFill(
   );
 }
 
-export function FillProperties({
+type FillPropertiesProps = Parameters<typeof FillLayers>[0];
+
+const BACKGROUND_LAYER_PROPERTIES = new Set([
+  "backgroundImage",
+  "backgroundSize",
+  "backgroundRepeat",
+  "backgroundPosition",
+  "backgroundClip",
+  "backgroundOrigin",
+]);
+
+export function FillProperties(props: FillPropertiesProps) {
+  const { element, onStyleChange, onStylesChange } = props;
+  const styles = {
+    ...element.computedStyles,
+    backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
+  };
+  if (!boxGradientStroke(styles)) return <FillLayers {...props} />;
+  const fillStyles = withoutBoxStrokeLayer(styles);
+  const commit = (
+    patch: Record<string, string>,
+    meta?: Parameters<StyleChangeHandler>[2],
+  ) =>
+    commitStylePatch(
+      withBoxStrokeLayer(styles, patch),
+      onStyleChange,
+      onStylesChange,
+      meta,
+    );
+  return (
+    <FillLayers
+      {...props}
+      element={{
+        ...element,
+        computedStyles: fillStyles,
+        inlineStyles: element.inlineStyles && {
+          ...element.inlineStyles,
+          backgroundImage: fillStyles.backgroundImage,
+        },
+      }}
+      onStyleChange={(property, value, meta) =>
+        BACKGROUND_LAYER_PROPERTIES.has(property)
+          ? commit({ [property]: value }, meta)
+          : onStyleChange(property, value, meta)
+      }
+      onStylesChange={commit}
+    />
+  );
+}
+
+function FillLayers({
   element,
   onStyleChange,
   onStylesChange,
@@ -302,8 +365,20 @@ export function FillProperties({
   const storedPaint = readGradientFillOpacity([
     { color: authoredFillValue ?? renderedFillValue },
   ]);
-  const isHidden = storedPaint.opacity === 0;
-  const fillValue = isHidden ? storedPaint.stops[0]!.color : renderedFillValue;
+  const storedVectorFillGradient = isVectorFillElement
+    ? styles[SVG_FILL_GRADIENT_PROPERTY]?.trim() || null
+    : null;
+  const vectorGradientPaint = storedVectorFillGradient
+    ? svgPaintGradientOpacity(storedVectorFillGradient)
+    : null;
+  const vectorFillGradient = vectorGradientPaint?.gradient ?? null;
+  const isHidden = vectorGradientPaint
+    ? vectorGradientPaint.opacity === 0
+    : storedPaint.opacity === 0;
+  const fillValue =
+    isHidden && !vectorFillGradient
+      ? storedPaint.stops[0]!.color
+      : renderedFillValue;
   const backgroundLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
@@ -334,6 +409,7 @@ export function FillProperties({
     .toLowerCase();
   const hasBaseFill =
     isTextFillElement ||
+    Boolean(vectorFillGradient) ||
     colorHasVisibleAlpha(fillValue) ||
     Boolean(
       authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
@@ -372,6 +448,13 @@ export function FillProperties({
   // The native CSS wrapper preserves the original paint, including zero alpha,
   // across reload. Plain zero-alpha paint remains distinct from a hidden fill.
   const handleFillVisibilityToggle = () => {
+    if (vectorFillGradient) {
+      onStyleChange(
+        SVG_FILL_GRADIENT_PROPERTY,
+        svgPaintGradientWithOpacity(vectorFillGradient, isHidden ? 100 : 0),
+      );
+      return;
+    }
     onStyleChange(
       fillProperty,
       isHidden
@@ -467,9 +550,77 @@ export function FillProperties({
     );
   };
 
+  const addFill = () => {
+    if (onAddFill) {
+      const added = onAddFill();
+      if (added === "base") {
+        setOpenFillPickerKey(fillStashKey + ":base");
+      } else if (added === "layer") {
+        const key = nextLayerKey();
+        pendingConvertedLayerRef.current = {
+          elementKey: fillStashKey,
+          key,
+          index: 0,
+          previousLayerCount: backgroundLayers.length,
+        };
+        setOpenFillPickerKey(fillStashKey + ":" + key);
+      }
+      return;
+    }
+    if (fillIsMixed) {
+      const replacement: Record<string, string> = isTextFillElement
+        ? {
+            color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
+            backgroundImage: "none",
+            backgroundClip: "border-box",
+          }
+        : {
+            color: "#000000", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
+            backgroundColor: "#d9d9d9", // guard:allow-raw-color — Figma's new-fill paint seeds a mixed selection.
+            backgroundImage: "none",
+          };
+      commitStylePatch(replacement, onStyleChange, onStylesChange);
+      return;
+    }
+    if (isTextFillElement) {
+      onStyleChange(
+        "color",
+        cssColorOrFallback(
+          styles.color,
+          "#000000", // guard:allow-raw-color — restores a concrete authored text fill.
+        ),
+      );
+      return;
+    }
+    if (isVectorFillElement) {
+      onStyleChange(
+        "fill",
+        cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+      );
+      setOpenFillPickerKey(`${fillStashKey}:base`);
+      return;
+    }
+    const addFillPatch = addFillLayerPatch({
+      backgroundColor: styles.backgroundColor,
+      backgroundLayers,
+      backgroundSizeLayers,
+      backgroundRepeatLayers,
+      backgroundPositionLayers,
+    });
+    if (addFillPatch.backgroundImage !== undefined) {
+      const key = nextLayerKey();
+      layerKeysRef.current.keys = [key, ...layerKeysRef.current.keys];
+      setOpenFillPickerKey(`${fillStashKey}:${key}`);
+    } else {
+      setOpenFillPickerKey(`${fillStashKey}:base`);
+    }
+    commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
+  };
+
   return (
     <PanelSection
       title={t("editPanel.sections.fill")}
+      onEmptyTitleClick={hideAddFill ? undefined : addFill}
       actions={
         <>
           {/* design color-styles affordance (grid icon) to the left of "+".
@@ -481,73 +632,11 @@ export function FillProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
+          {fillIsMixed ||
+          (!hideAddFill && (onAddFill || !isTextFillElement)) ? (
             <SectionIconButton
               label={t("editPanel.labels.addFill")}
-              onClick={() => {
-                if (onAddFill) {
-                  const added = onAddFill();
-                  if (added === "base") {
-                    setOpenFillPickerKey(fillStashKey + ":base");
-                  } else if (added === "layer") {
-                    const key = nextLayerKey();
-                    pendingConvertedLayerRef.current = {
-                      elementKey: fillStashKey,
-                      key,
-                      index: 0,
-                      previousLayerCount: backgroundLayers.length,
-                    };
-                    setOpenFillPickerKey(fillStashKey + ":" + key);
-                  }
-                  return;
-                }
-                if (fillIsMixed) {
-                  const replacement: Record<string, string> = isTextFillElement
-                    ? {
-                        color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
-                        backgroundImage: "none",
-                        backgroundClip: "border-box",
-                      }
-                    : {
-                        color: "#000000", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
-                        backgroundColor: "#ffffff", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
-                        backgroundImage: "none",
-                      };
-                  commitStylePatch(replacement, onStyleChange, onStylesChange);
-                  return;
-                }
-                if (isTextFillElement) {
-                  onStyleChange(
-                    "color",
-                    cssColorOrFallback(
-                      styles.color,
-                      "#000000", // guard:allow-raw-color — restores a concrete authored text fill.
-                    ),
-                  );
-                  return;
-                }
-                if (isVectorFillElement) {
-                  onStyleChange(
-                    "fill",
-                    cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
-                  );
-                  return;
-                }
-                const addFillPatch = addFillLayerPatch({
-                  backgroundColor: styles.backgroundColor,
-                  backgroundLayers,
-                  backgroundSizeLayers,
-                  backgroundRepeatLayers,
-                  backgroundPositionLayers,
-                });
-                if (addFillPatch.backgroundImage !== undefined) {
-                  layerKeysRef.current.keys = [
-                    nextLayerKey(),
-                    ...layerKeysRef.current.keys,
-                  ];
-                }
-                commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
-              }}
+              onClick={addFill}
             >
               <IconPlus className="size-3.5" />
             </SectionIconButton>
@@ -555,6 +644,13 @@ export function FillProperties({
         </>
       }
     >
+      {element.tagName.toLowerCase() === "img" ? (
+        <ImageElementFill
+          element={element}
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+        />
+      ) : null}
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
@@ -567,107 +663,149 @@ export function FillProperties({
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
-                <ColorInput
-                  label=""
-                  value={fillValue}
-                  onChange={(v, meta) =>
-                    onStyleChange(
-                      fillProperty,
-                      isHidden ? gradientStopWithFillOpacity(v, 0) : v,
-                      meta,
-                    )
-                  }
-                  onChangeCancel={
-                    cancelOpacityGestureOnHistoryUndo
-                      ? (v) =>
-                          onStyleChange(fillProperty, v, { phase: "cancel" })
-                      : undefined
-                  }
-                  // Pass the real layer stack (not "") so that switching this
-                  // swatch's paint type to gradient/image composes a new
-                  // layer on top of any existing backgroundImage layers
-                  // (rendered as their own rows below) instead of clobbering
-                  // them — ColorInput derives its add/replace-layer logic
-                  // from this prop. The size/repeat/position siblings must
-                  // come along too (same as PageProperties' background row in
-                  // EditPanel.tsx) — see `baseFillLayerSourceProps` above for
-                  // why all four are sourced together.
-                  {...baseFillLayerProps}
-                  open={openFillPickerKey === `${fillStashKey}:base`}
-                  onOpenChange={(open) =>
-                    setFillPickerOpen(`${fillStashKey}:base`, open)
-                  }
-                  blendMode={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : styles.backgroundBlendMode || "normal"
-                  }
-                  onBlendModeChange={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : (v) => onStyleChange("backgroundBlendMode", v)
-                  }
-                  // Text gradients are backgrounds clipped to glyphs; SVG
-                  // shapes continue to use their dedicated fill paint.
-                  supportsLayeredFills={!isVectorFillElement}
-                  onBackgroundImageChange={
-                    isVectorFillElement
-                      ? undefined
-                      : commitBackgroundImageChange
-                  }
-                  onSolidToGradientChange={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : (patch) => {
-                          const convertedLayerKey = nextLayerKey();
-                          pendingConvertedLayerRef.current = {
-                            elementKey: fillStashKey,
-                            key: convertedLayerKey,
-                            index: backgroundLayers.length,
-                            previousLayerCount: backgroundLayers.length,
-                          };
-                          setOpenFillPickerKey(
-                            `${fillStashKey}:${convertedLayerKey}`,
-                          );
-                          commitStylePatch(
-                            patch,
+                {isVectorFillElement ? (
+                  <PaintInput
+                    solidColor={cssColorOrFallback(
+                      fillValue,
+                      DEFAULT_SHAPE_FILL,
+                    )}
+                    gradient={vectorFillGradient}
+                    supportedPaintTypes={SVG_PAINT_TYPES}
+                    open={openFillPickerKey === `${fillStashKey}:base`}
+                    onOpenChange={(open) =>
+                      setFillPickerOpen(`${fillStashKey}:base`, open)
+                    }
+                    onSolidChange={(value, meta) =>
+                      vectorFillGradient
+                        ? commitStylePatch(
+                            {
+                              [SVG_FILL_GRADIENT_PROPERTY]: "none",
+                              fill: value,
+                            },
                             onStyleChange,
                             onStylesChange,
-                          );
-                        }
-                  }
-                  // Layer-index-aware: ColorInput merges the edited image
-                  // into the correct backgroundImage/backgroundSize/
-                  // backgroundRepeat/backgroundPosition index and hands back
-                  // the full four-property patch here, already preserving
-                  // every other stacked gradient/image layer (see
-                  // `imageFillChangePatch`) — commit it as-is instead of
-                  // rebuilding a single-layer patch that would silently wipe
-                  // those siblings.
-                  onImageFillLayerChange={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : commitImageFillPatch
-                  }
-                  supportedPaintTypes={
-                    isTextFillElement ? TEXT_BASE_PAINT_TYPES : undefined
-                  }
-                  documentColors={documentColors}
-                  pickerKey={[
-                    element.sourceId ??
-                      element.id ??
-                      element.selector ??
-                      element.tagName,
-                    fillProperty,
-                  ].join(":")}
-                  // Code-backed GLSL Shader paint type — text fills can't
-                  // host a shader canvas, so only container fills get it.
-                  glslShaderContext={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : glslShaderContext
-                  }
-                />
+                            meta,
+                          )
+                        : onStyleChange(
+                            "fill",
+                            isHidden
+                              ? gradientStopWithFillOpacity(value, 0)
+                              : value,
+                            meta,
+                          )
+                    }
+                    onGradientChange={(gradient) =>
+                      onStyleChange(
+                        SVG_FILL_GRADIENT_PROPERTY,
+                        isHidden
+                          ? svgPaintGradientWithOpacity(gradient, 0)
+                          : gradient,
+                      )
+                    }
+                  />
+                ) : (
+                  <ColorInput
+                    label=""
+                    value={fillValue}
+                    onChange={(v, meta) =>
+                      onStyleChange(
+                        fillProperty,
+                        isHidden ? gradientStopWithFillOpacity(v, 0) : v,
+                        meta,
+                      )
+                    }
+                    onChangeCancel={
+                      cancelOpacityGestureOnHistoryUndo
+                        ? (v) =>
+                            onStyleChange(fillProperty, v, { phase: "cancel" })
+                        : undefined
+                    }
+                    // Pass the real layer stack (not "") so that switching this
+                    // swatch's paint type to gradient/image composes a new
+                    // layer on top of any existing backgroundImage layers
+                    // (rendered as their own rows below) instead of clobbering
+                    // them — ColorInput derives its add/replace-layer logic
+                    // from this prop. The size/repeat/position siblings must
+                    // come along too (same as PageProperties' background row in
+                    // EditPanel.tsx) — see `baseFillLayerSourceProps` above for
+                    // why all four are sourced together.
+                    {...baseFillLayerProps}
+                    open={openFillPickerKey === `${fillStashKey}:base`}
+                    onOpenChange={(open) =>
+                      setFillPickerOpen(`${fillStashKey}:base`, open)
+                    }
+                    blendMode={
+                      isVectorFillElement || isTextFillElement
+                        ? undefined
+                        : styles.backgroundBlendMode || "normal"
+                    }
+                    onBlendModeChange={
+                      isVectorFillElement || isTextFillElement
+                        ? undefined
+                        : (v) => onStyleChange("backgroundBlendMode", v)
+                    }
+                    // Text gradients are backgrounds clipped to glyphs; SVG
+                    // shapes continue to use their dedicated fill paint.
+                    supportsLayeredFills={!isVectorFillElement}
+                    onBackgroundImageChange={
+                      isVectorFillElement
+                        ? undefined
+                        : commitBackgroundImageChange
+                    }
+                    onSolidToGradientChange={
+                      isVectorFillElement || isTextFillElement
+                        ? undefined
+                        : (patch) => {
+                            const convertedLayerKey = nextLayerKey();
+                            pendingConvertedLayerRef.current = {
+                              elementKey: fillStashKey,
+                              key: convertedLayerKey,
+                              index: backgroundLayers.length,
+                              previousLayerCount: backgroundLayers.length,
+                            };
+                            setOpenFillPickerKey(
+                              `${fillStashKey}:${convertedLayerKey}`,
+                            );
+                            commitStylePatch(
+                              patch,
+                              onStyleChange,
+                              onStylesChange,
+                            );
+                          }
+                    }
+                    // Layer-index-aware: ColorInput merges the edited image
+                    // into the correct backgroundImage/backgroundSize/
+                    // backgroundRepeat/backgroundPosition index and hands back
+                    // the full four-property patch here, already preserving
+                    // every other stacked gradient/image layer (see
+                    // `imageFillChangePatch`) — commit it as-is instead of
+                    // rebuilding a single-layer patch that would silently wipe
+                    // those siblings.
+                    onImageFillLayerChange={
+                      isVectorFillElement || isTextFillElement
+                        ? undefined
+                        : commitImageFillPatch
+                    }
+                    supportedPaintTypes={
+                      isTextFillElement ? TEXT_BASE_PAINT_TYPES : undefined
+                    }
+                    documentColors={documentColors}
+                    pickerKey={[
+                      element.sourceId ??
+                        element.id ??
+                        element.selector ??
+                        element.tagName,
+                      fillProperty,
+                    ].join(":")}
+                    // Code-backed GLSL Shader paint type — text fills can't
+                    // host a shader canvas, so only container fills get it.
+                    glslShaderContext={
+                      isVectorFillElement || isTextFillElement
+                        ? undefined
+                        : glslShaderContext
+                    }
+                  />
+                )}
               </InspectorGridCell>
               <InspectorGridCell span={4} className="flex justify-center">
                 <SectionIconButton
@@ -691,7 +829,12 @@ export function FillProperties({
                   label={t("editPanel.labels.removeLayer")}
                   onClick={() =>
                     commitStylePatch(
-                      removeBaseFillPatch(fillProperty),
+                      vectorFillGradient
+                        ? {
+                            [SVG_FILL_GRADIENT_PROPERTY]: "none",
+                            ...removeBaseFillPatch(fillProperty),
+                          }
+                        : removeBaseFillPatch(fillProperty),
                       onStyleChange,
                       onStylesChange,
                     )
@@ -749,6 +892,9 @@ export function FillProperties({
                     : `${"Image" /* i18n-ignore design inspector paint row */} ${
                         index + 1
                       }`;
+                const visibleLabel = gradient
+                  ? gradientShortLabel(gradient.type)
+                  : label;
                 const replaceLayer = (
                   nextLayer: string,
                   meta?: Parameters<StyleChangeHandler>[2],
@@ -929,14 +1075,15 @@ export function FillProperties({
                         trigger={
                           <button
                             type="button"
-                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 pl-8 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                            aria-label={label}
+                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                           >
                             <span
                               className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
                               style={swatchStyle(layer)}
                             />
                             <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                              {label}
+                              {visibleLabel}
                             </span>
                             {!gradient && (
                               <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -1108,7 +1255,7 @@ export function FillProperties({
                         selectedFillId={`layer-${index}`}
                       />
                       {gradient && (
-                        <div className="w-12 shrink-0">
+                        <div className="w-14 shrink-0">
                           <ScrubInput
                             label={t("editPanel.labels.opacity")}
                             labelClassName="hidden"

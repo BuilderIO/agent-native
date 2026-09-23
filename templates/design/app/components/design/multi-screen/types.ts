@@ -768,6 +768,16 @@ export interface MultiScreenCanvasProps {
    */
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
+  /** Receives a reader for the canvas-space rect visible between the chrome
+   * insets, read at call time by commands that place new content. */
+  visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
+}
+
+export interface VisibleCanvasRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface FrameGeometry {
@@ -830,6 +840,11 @@ export interface Point {
 export interface VectorEditOverlayState {
   path: PenPath;
   originCanvas: Point;
+  /** The vertex the inspector's corner radius applies to, as in Figma. */
+  selectedNodeIndex: number | null;
+  /** The vector's own corner radius, so the edit path shows the real shape. */
+  cornerRadius: number;
+  onSelectNode: (nodeIndex: number | null) => void;
   onChange: (nextPath: PenPath, phase: "preview" | "commit") => void;
   onExit: () => void;
 }
@@ -1081,6 +1096,17 @@ export interface VectorEditAnchorDragState {
   hasMoved: boolean;
 }
 
+/** Dragging a segment of a `vectorEdit` overlay path bends it (Figma). */
+export interface VectorEditSegmentDragState {
+  type: "vector-segment";
+  originClient: Point;
+  originLocal: Point;
+  segmentIndex: number;
+  t: number;
+  pathBefore: PenPath;
+  hasMoved: boolean;
+}
+
 /** Dragging a control-handle circle of a `vectorEdit` overlay path (P-VE1).
  *  Alt/Option held during the drag breaks handle symmetry into a cusp
  *  (movePenHandle's breakSymmetry), matching the pen tool's own alt
@@ -1115,7 +1141,8 @@ export type DragState =
   | DraftCreateDragState
   | PenNodeDragState
   | VectorEditAnchorDragState
-  | VectorEditHandleDragState;
+  | VectorEditHandleDragState
+  | VectorEditSegmentDragState;
 
 export type PendingWheelGesture =
   | {

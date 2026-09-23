@@ -4,6 +4,7 @@ import {
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
+import { SVG_STROKE_GRADIENT_PROPERTY } from "@shared/svg-paint-gradient";
 import {
   isVectorEndpointStyle,
   isVectorEndpointPrimitiveKind,
@@ -37,7 +38,9 @@ import {
 import { ScrubInput } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
+import { boxGradientStroke, boxStrokeLayerPatch } from "./box-gradient-stroke";
 import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
 import {
@@ -50,6 +53,12 @@ import {
   InspectorGridCell,
   InspectorPaintRow,
 } from "./inspector-grid";
+import { authoredStyleValue } from "./interaction-state-helpers";
+import {
+  BOX_STROKE_PAINT_TYPES,
+  PaintInput,
+  SVG_PAINT_TYPES,
+} from "./paint-input";
 import { ColorInput, PanelSection, SubsectionLabel } from "./panel-primitives";
 import {
   cssColorOrFallback,
@@ -73,6 +82,7 @@ import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
   StyleChangeHandler,
+  StyleChangeMeta,
   StylesChangeHandler,
 } from "./style-change-types";
 import { STROKE_POSITION_OPTIONS } from "./style-options";
@@ -106,6 +116,13 @@ function StrokeLayerControl({
   element,
   motionKeyframeContext,
   breakpointOverrideContext,
+  pickerOpen,
+  onPickerOpenChange,
+  gradient = null,
+  paintTypes,
+  onSolidPaint,
+  onGradientPaint,
+  onVisibilityToggle,
 }: {
   kind: StrokeLayerKind;
   visible: boolean;
@@ -127,6 +144,13 @@ function StrokeLayerControl({
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  pickerOpen?: boolean;
+  onPickerOpenChange?: (open: boolean) => void;
+  gradient?: string | null;
+  paintTypes: DesignPaintType[];
+  onSolidPaint?: (color: string, meta?: StyleChangeMeta) => void;
+  onGradientPaint: (gradient: string) => void;
+  onVisibilityToggle?: () => void;
 }) {
   const t = useT();
   const strokePositionOptions = STROKE_POSITION_OPTIONS.map((option) => ({
@@ -190,13 +214,17 @@ function StrokeLayerControl({
       {/* design stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
       <InspectorPaintRow>
         <InspectorGridCell span={20}>
-          <ColorInput
-            label=""
-            value={cssColorOrFallback(color, DEFAULT_STROKE_COLOR)}
-            onChange={(value, meta) =>
-              onStyleChange(`${prefix}Color`, value, meta)
+          <PaintInput
+            solidColor={cssColorOrFallback(color, DEFAULT_STROKE_COLOR)}
+            gradient={gradient}
+            supportedPaintTypes={paintTypes}
+            open={pickerOpen}
+            onOpenChange={onPickerOpenChange}
+            onSolidChange={
+              onSolidPaint ??
+              ((value, meta) => onStyleChange(`${prefix}Color`, value, meta))
             }
-            supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+            onGradientChange={onGradientPaint}
           />
         </InspectorGridCell>
         <InspectorGridCell span={4} className="flex justify-center">
@@ -207,6 +235,10 @@ function StrokeLayerControl({
                 : t("editPanel.labels.showLayer")
             }
             onClick={() => {
+              if (onVisibilityToggle) {
+                onVisibilityToggle();
+                return;
+              }
               // Hide/show by zeroing the stroke color's alpha (preserving its
               // RGB channels — same durable, comment-free technique as the
               // fill visibility toggle) instead of forcing borderStyle to
@@ -261,25 +293,13 @@ function StrokeLayerControl({
         ) : null}
       </InspectorPaintRow>
       <div className="design-sidebar-property-group">
-        <InspectorGrid
-          className="design-sidebar-property-grid items-end"
-          layout="stroke-details"
-        >
-          <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-            <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-          </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-            <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-          </InspectorGridCell>
-        </InspectorGrid>
         <InspectorGrid className="items-center" layout="stroke-details">
           <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
             <Select value={position} onValueChange={movePosition}>
-              <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+              <SelectTrigger
+                aria-label={t("editPanel.labels.position")}
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -287,6 +307,8 @@ function StrokeLayerControl({
                   <SelectItem
                     key={option.value}
                     value={option.value}
+                    // `border-area` only clips to a border, so a gradient stroke stays inside.
+                    disabled={Boolean(gradient) && option.value !== "inside"}
                     className="!text-[11px]"
                   >
                     {option.label}
@@ -387,6 +409,10 @@ export function StrokeProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  const [openPicker, setOpenPicker] = useState<{
+    elementKey: string;
+    kind: StrokeLayerKind;
+  } | null>(null);
   // R94 fix — Figma semantics: a text node's "Stroke" is the glyph outline
   // (-webkit-text-stroke), never a box border. Route text nodes to their own
   // control entirely so the border/outline logic below (and its `styles.color`
@@ -416,9 +442,18 @@ export function StrokeProperties({
   }
   // Visible requires: real width, style not "none" (legacy hide path), and
   // color not zero-alpha (current hide path — see strokeHiddenByColor).
+  const boxStyles = {
+    ...styles,
+    backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
+  };
+  const gradientStroke = strokeIsVisible(styles.borderWidth, styles.borderStyle)
+    ? boxGradientStroke(boxStyles)
+    : null;
   const borderVisible =
     strokeIsVisible(styles.borderWidth, styles.borderStyle) &&
-    !strokeHiddenByColor(styles.borderColor);
+    (gradientStroke
+      ? !gradientStroke.hidden
+      : !strokeHiddenByColor(styles.borderColor));
   const outlineVisible =
     strokeIsVisible(styles.outlineWidth, styles.outlineStyle) &&
     !strokeHiddenByColor(styles.outlineColor);
@@ -447,10 +482,101 @@ export function StrokeProperties({
   // a truthy array of `null`s as `children`, rendering an empty spacer div
   // under the header instead of staying collapsed like Fill's empty state.
   const hasStrokeContent = strokeIsMixed || borderExists || outlineExists;
+  const elementKey = elementStableKey(element);
+  const pickerOpenFor = (kind: StrokeLayerKind) =>
+    openPicker?.elementKey === elementKey && openPicker.kind === kind;
+  const setPickerOpenFor = (kind: StrokeLayerKind) => (open: boolean) =>
+    setOpenPicker(open ? { elementKey, kind } : null);
+  const addStroke = () => {
+    if (strokeIsMixed) {
+      commitStylePatch(
+        {
+          borderWidth: "1px",
+          borderStyle: "solid",
+          borderColor: DEFAULT_STROKE_COLOR,
+          outlineWidth: "0px",
+          outlineStyle: "none",
+        },
+        onStyleChange,
+        onStylesChange,
+      );
+      setOpenPicker({ elementKey, kind: "border" });
+      return;
+    }
+    if (!borderVisible) {
+      // Restore full alpha before falling back to cssColorOrFallback
+      // — a border previously hidden via the eye toggle (zero-alpha,
+      // real RGB preserved) is not "transparent" by that helper's
+      // narrow literal check, so without this an "Add" click here
+      // could silently re-add an invisible border.
+      // An absent border reports currentColor; only a hidden one keeps its own paint.
+      const existingBorderColor = borderExists ? styles.borderColor : "";
+      const existingParsed = parseCssColor(existingBorderColor || "");
+      const borderColor = cssColorOrFallback(
+        existingParsed
+          ? rgbaToCss(withColorOpacity(existingParsed, 100))
+          : existingBorderColor,
+        DEFAULT_STROKE_COLOR,
+      );
+      commitStylePatch(
+        {
+          borderWidth: "1px",
+          // Preserve a real style (dashed/dotted/etc) that survived
+          // on a hidden-via-alpha border — only the outline branch
+          // below used to do this; the border branch hardcoded
+          // "solid" unconditionally, silently discarding it. See
+          // resolveRestoredStrokeStyle's doc comment.
+          borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
+          borderColor,
+        },
+        onStyleChange,
+        onStylesChange,
+      );
+      setOpenPicker({ elementKey, kind: "border" });
+      return;
+    }
+    if (outlineVisible) {
+      const outlineWidth = `${
+        Math.max(1, cssLengthNumber(styles.outlineWidth, 1)) + 1
+      }px`;
+      const outlineStyle = resolveRestoredStrokeStyle(styles.outlineStyle);
+      const outlineColor = cssColorOrFallback(
+        styles.outlineColor || styles.borderColor,
+        DEFAULT_STROKE_COLOR,
+      );
+      commitStylePatch(
+        {
+          outlineWidth,
+          outlineStyle,
+          outlineColor,
+          outlineOffset: styles.outlineOffset || "0px",
+        },
+        onStyleChange,
+        onStylesChange,
+      );
+      setOpenPicker({ elementKey, kind: "outline" });
+      return;
+    }
+    commitStylePatch(
+      {
+        outlineWidth: "1px",
+        outlineStyle: "solid",
+        outlineColor: cssColorOrFallback(
+          styles.borderColor,
+          DEFAULT_STROKE_COLOR,
+        ),
+        outlineOffset: "0px",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+    setOpenPicker({ elementKey, kind: "outline" });
+  };
 
   return (
     <PanelSection
       title={t("editPanel.sections.stroke")}
+      onEmptyTitleClick={addStroke}
       actions={
         <>
           <SectionIconButton
@@ -461,88 +587,7 @@ export function StrokeProperties({
           </SectionIconButton>
           <SectionIconButton
             label={t("editPanel.labels.addStroke")}
-            onClick={() => {
-              if (strokeIsMixed) {
-                commitStylePatch(
-                  {
-                    borderWidth: "1px",
-                    borderStyle: "solid",
-                    borderColor: DEFAULT_STROKE_COLOR,
-                    outlineWidth: "0px",
-                    outlineStyle: "none",
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              if (!borderVisible) {
-                // Restore full alpha before falling back to cssColorOrFallback
-                // — a border previously hidden via the eye toggle (zero-alpha,
-                // real RGB preserved) is not "transparent" by that helper's
-                // narrow literal check, so without this an "Add" click here
-                // could silently re-add an invisible border.
-                const existingBorderColor = styles.borderColor || styles.color;
-                const existingParsed = parseCssColor(existingBorderColor || "");
-                const borderColor = cssColorOrFallback(
-                  existingParsed
-                    ? rgbaToCss(withColorOpacity(existingParsed, 100))
-                    : existingBorderColor,
-                  DEFAULT_STROKE_COLOR,
-                );
-                commitStylePatch(
-                  {
-                    borderWidth: "1px",
-                    // Preserve a real style (dashed/dotted/etc) that survived
-                    // on a hidden-via-alpha border — only the outline branch
-                    // below used to do this; the border branch hardcoded
-                    // "solid" unconditionally, silently discarding it. See
-                    // resolveRestoredStrokeStyle's doc comment.
-                    borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
-                    borderColor,
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              if (outlineVisible) {
-                const outlineWidth = `${
-                  Math.max(1, cssLengthNumber(styles.outlineWidth, 1)) + 1
-                }px`;
-                const outlineStyle = resolveRestoredStrokeStyle(
-                  styles.outlineStyle,
-                );
-                const outlineColor = cssColorOrFallback(
-                  styles.outlineColor || styles.borderColor,
-                  DEFAULT_STROKE_COLOR,
-                );
-                commitStylePatch(
-                  {
-                    outlineWidth,
-                    outlineStyle,
-                    outlineColor,
-                    outlineOffset: styles.outlineOffset || "0px",
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              commitStylePatch(
-                {
-                  outlineWidth: "1px",
-                  outlineStyle: "solid",
-                  outlineColor: cssColorOrFallback(
-                    styles.borderColor,
-                    DEFAULT_STROKE_COLOR,
-                  ),
-                  outlineOffset: "0px",
-                },
-                onStyleChange,
-                onStylesChange,
-              );
-            }}
+            onClick={addStroke}
           >
             <IconPlus className="size-3.5" />
           </SectionIconButton>
@@ -566,16 +611,68 @@ export function StrokeProperties({
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
               onStylesChange={onStylesChange}
-              onRemove={() => {
-                if (onStylesChange) {
-                  onStylesChange({ borderWidth: "0px", borderStyle: "none" });
-                } else {
-                  onStyleChange("borderWidth", "0px");
-                }
-              }}
+              onRemove={() =>
+                commitStylePatch(
+                  {
+                    borderWidth: "0px",
+                    borderStyle: "none",
+                    ...(gradientStroke
+                      ? boxStrokeLayerPatch(boxStyles, null)
+                      : {}),
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                )
+              }
               element={element}
               motionKeyframeContext={motionKeyframeContext}
               breakpointOverrideContext={breakpointOverrideContext}
+              pickerOpen={pickerOpenFor("border")}
+              onPickerOpenChange={setPickerOpenFor("border")}
+              gradient={gradientStroke?.layer ?? null}
+              paintTypes={BOX_STROKE_PAINT_TYPES}
+              onSolidPaint={
+                gradientStroke
+                  ? (color, meta) =>
+                      commitStylePatch(
+                        {
+                          ...boxStrokeLayerPatch(boxStyles, null),
+                          borderColor: color,
+                        },
+                        onStyleChange,
+                        onStylesChange,
+                        meta,
+                      )
+                  : undefined
+              }
+              onGradientPaint={(gradient) =>
+                commitStylePatch(
+                  {
+                    ...boxStrokeLayerPatch(
+                      boxStyles,
+                      gradient,
+                      gradientStroke?.hidden,
+                    ),
+                    borderColor: "transparent",
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                )
+              }
+              onVisibilityToggle={
+                gradientStroke
+                  ? () =>
+                      commitStylePatch(
+                        boxStrokeLayerPatch(
+                          boxStyles,
+                          gradientStroke.layer,
+                          !gradientStroke.hidden,
+                        ),
+                        onStyleChange,
+                        onStylesChange,
+                      )
+                  : undefined
+              }
             />
           ) : null}
           {outlineExists ? (
@@ -602,6 +699,28 @@ export function StrokeProperties({
               element={element}
               motionKeyframeContext={motionKeyframeContext}
               breakpointOverrideContext={breakpointOverrideContext}
+              pickerOpen={pickerOpenFor("outline")}
+              onPickerOpenChange={setPickerOpenFor("outline")}
+              paintTypes={
+                borderExists ? SOLID_ONLY_PAINT_TYPES : BOX_STROKE_PAINT_TYPES
+              }
+              onGradientPaint={(gradient) => {
+                commitStylePatch(
+                  {
+                    ...boxStrokeLayerPatch(boxStyles, gradient),
+                    borderColor: "transparent",
+                    borderWidth: styles.outlineWidth || "1px",
+                    borderStyle: resolveRestoredStrokeStyle(
+                      styles.outlineStyle,
+                    ),
+                    outlineWidth: "0px",
+                    outlineStyle: "none",
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                );
+                setOpenPicker({ elementKey, kind: "border" });
+              }}
             />
           ) : null}
         </>
@@ -647,23 +766,20 @@ function TextStrokeProperties({
   ].some(isMixedValue);
   const strokeExists = cssLengthNumber(width) > 0;
   const visible = textStrokeIsVisible(width, color);
+  // Kebab-case keys required: camelCase webkit props get mangled by
+  // normalizeStyleProperty (camel→kebab drops the leading dash) and
+  // silently fail the persist allow-list — see textStrokeAddPatch.
+  const addStroke = () =>
+    commitStylePatch(textStrokeAddPatch(color), onStyleChange, onStylesChange);
 
   return (
     <PanelSection
       title={t("editPanel.sections.stroke")}
+      onEmptyTitleClick={addStroke}
       actions={
         <SectionIconButton
           label={t("editPanel.labels.addStroke")}
-          onClick={() => {
-            // Kebab-case keys required: camelCase webkit props get mangled by
-            // normalizeStyleProperty (camel→kebab drops the leading dash) and
-            // silently fail the persist allow-list — see textStrokeAddPatch.
-            commitStylePatch(
-              textStrokeAddPatch(color),
-              onStyleChange,
-              onStylesChange,
-            );
-          }}
+          onClick={addStroke}
         >
           <IconPlus className="size-3.5" />
         </SectionIconButton>
@@ -964,12 +1080,16 @@ function VectorStrokeProperties({
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const styles = element.computedStyles;
   const stroke = styles.stroke || "none";
   const width = styles.strokeWidth || "0px";
   const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
+  const gradient = styles[SVG_STROKE_GRADIENT_PROPERTY]?.trim() || null;
   const strokeExists = vectorStrokeExists(stroke);
-  const visible = vectorStrokeIsVisible(stroke, width);
+  const visible = gradient
+    ? cssLengthNumber(width) > 0 && Number(styles.strokeOpacity ?? 1) > 0
+    : vectorStrokeIsVisible(stroke, width);
   const canAlignStroke =
     element.vectorStrokeCanAlign ??
     styles["--an-vector-stroke-can-align"] === "true";
@@ -988,23 +1108,41 @@ function VectorStrokeProperties({
     // Marker choices require a structural SVG rewrite. Keep them out of a
     // responsive scope until the marker DOM can be scoped with the value.
     breakpointOverrideContext?.activeWidthPx == null;
+  const strokePositionPatch = (next: string) => ({
+    stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+    strokeWidth: width === "0px" ? "1px" : width,
+    strokeOpacity: styles.strokeOpacity,
+    strokeDasharray: styles.strokeDasharray,
+    strokeDashoffset: styles.strokeDashoffset,
+    strokeLinecap: styles.strokeLinecap,
+    strokeLinejoin: styles.strokeLinejoin,
+    strokeMiterlimit: styles.strokeMiterlimit,
+    opacity: styles.vectorOpacity,
+    transform: styles.vectorTransform,
+    transformOrigin: styles.vectorTransformOrigin,
+    transformBox: styles.vectorTransformBox,
+    "--an-vector-stroke-position": next,
+  });
+  const addStroke = () => {
+    commitStylePatch(
+      {
+        stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+        strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+    setPickerOpen(true);
+  };
 
   return (
     <PanelSection
       title={t("editPanel.sections.stroke")}
+      onEmptyTitleClick={addStroke}
       actions={
         <SectionIconButton
           label={t("editPanel.labels.addStroke")}
-          onClick={() => {
-            commitStylePatch(
-              {
-                stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
-                strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
-              },
-              onStyleChange,
-              onStylesChange,
-            );
-          }}
+          onClick={addStroke}
         >
           <IconPlus className="size-3.5" />
         </SectionIconButton>
@@ -1020,11 +1158,35 @@ function VectorStrokeProperties({
         <div className="space-y-2">
           <InspectorPaintRow>
             <InspectorGridCell span={20}>
-              <ColorInput
-                label=""
-                value={cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)}
-                onChange={(value, meta) => onStyleChange("stroke", value, meta)}
-                supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+              <PaintInput
+                solidColor={cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)}
+                gradient={gradient}
+                supportedPaintTypes={SVG_PAINT_TYPES}
+                open={pickerOpen}
+                onOpenChange={setPickerOpen}
+                onSolidChange={(value, meta) =>
+                  gradient
+                    ? commitStylePatch(
+                        {
+                          [SVG_STROKE_GRADIENT_PROPERTY]: "none",
+                          stroke: value,
+                        },
+                        onStyleChange,
+                        onStylesChange,
+                        meta,
+                      )
+                    : onStyleChange("stroke", value, meta)
+                }
+                onGradientChange={(next) =>
+                  commitStylePatch(
+                    {
+                      strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
+                      [SVG_STROKE_GRADIENT_PROPERTY]: next,
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
               />
             </InspectorGridCell>
             <InspectorGridCell span={4} className="flex justify-center">
@@ -1035,6 +1197,10 @@ function VectorStrokeProperties({
                     : t("editPanel.labels.showLayer")
                 }
                 onClick={() => {
+                  if (gradient) {
+                    onStyleChange("strokeOpacity", visible ? "0" : "1");
+                    return;
+                  }
                   const parsed = parseCssColor(stroke);
                   if (visible) {
                     onStyleChange(
@@ -1067,36 +1233,23 @@ function VectorStrokeProperties({
             <InspectorGridCell span={4} className="flex justify-center">
               <SectionIconButton
                 label={t("editPanel.labels.removeLayer")}
-                onClick={() => onStyleChange("stroke", "none")}
+                onClick={() =>
+                  gradient
+                    ? commitStylePatch(
+                        {
+                          [SVG_STROKE_GRADIENT_PROPERTY]: "none",
+                          stroke: "none",
+                        },
+                        onStyleChange,
+                        onStylesChange,
+                      )
+                    : onStyleChange("stroke", "none")
+                }
               >
                 <IconMinus className="size-3.5" />
               </SectionIconButton>
             </InspectorGridCell>
           </InspectorPaintRow>
-          {supportsEndpointControls ? (
-            <VectorEndpointControls
-              element={element}
-              styles={styles}
-              onStyleChange={onStyleChange}
-              onStylesChange={onStylesChange}
-            />
-          ) : null}
-          <InspectorGrid className="items-center" layout="stroke-details">
-            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-              {canAlignStroke ? (
-                <SubsectionLabel>
-                  {t("editPanel.labels.position")}
-                </SubsectionLabel>
-              ) : null}
-            </InspectorGridCell>
-            <InspectorGridCell
-              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-              ariaHidden
-            />
-            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-              <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-            </InspectorGridCell>
-          </InspectorGrid>
           <InspectorGrid className="items-center" layout="stroke-details">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
               {canAlignStroke ? (
@@ -1105,21 +1258,7 @@ function VectorStrokeProperties({
                   onValueChange={(next) => {
                     if (!STROKE_POSITION_OPTIONS.some((o) => o.value === next))
                       return;
-                    const patch = {
-                      stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
-                      strokeWidth: width === "0px" ? "1px" : width,
-                      strokeOpacity: styles.strokeOpacity,
-                      strokeDasharray: styles.strokeDasharray,
-                      strokeDashoffset: styles.strokeDashoffset,
-                      strokeLinecap: styles.strokeLinecap,
-                      strokeLinejoin: styles.strokeLinejoin,
-                      strokeMiterlimit: styles.strokeMiterlimit,
-                      opacity: styles.vectorOpacity,
-                      transform: styles.vectorTransform,
-                      transformOrigin: styles.vectorTransformOrigin,
-                      transformBox: styles.vectorTransformBox,
-                      "--an-vector-stroke-position": next,
-                    };
+                    const patch = strokePositionPatch(next);
                     if (onStylesChange) onStylesChange(patch);
                     else
                       Object.entries(patch).forEach(([property, value]) =>
@@ -1145,7 +1284,27 @@ function VectorStrokeProperties({
                     ))}
                   </SelectContent>
                 </Select>
-              ) : null}
+              ) : (
+                <Select value="center" disabled>
+                  <SelectTrigger
+                    aria-label={t("editPanel.labels.position")}
+                    className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {positionOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="!text-[11px]"
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </InspectorGridCell>
             <InspectorGridCell
               span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
@@ -1173,6 +1332,14 @@ function VectorStrokeProperties({
               />
             </InspectorGridCell>
           </InspectorGrid>
+          {supportsEndpointControls ? (
+            <VectorEndpointControls
+              element={element}
+              styles={styles}
+              onStyleChange={onStyleChange}
+              onStylesChange={onStylesChange}
+            />
+          ) : null}
         </div>
       ) : null}
     </PanelSection>

@@ -1,4 +1,9 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import type {
+  FigmaPasteLayer,
+  FigmaPastePlan,
+  FigmaPasteScene,
+} from "@shared/figma-paste-plan";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import type { NavigateFunction } from "react-router";
@@ -7,13 +12,30 @@ import { toast } from "sonner";
 import type { ImportResult } from "@/lib/design-import";
 import { importResultSummary } from "@/lib/design-import";
 import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
+import { figmaPasteLayerHtml } from "@/lib/figma-paste-layers";
+
+export interface FigmaPasteLayerInsert {
+  html: string;
+  headLinks: string[];
+  /** null: append as a flow child of an auto-layout container. */
+  position: { x: number; y: number } | null;
+}
 
 export interface ImportFigmaClipboardIntoDesignArgs {
   canEditDesign: boolean;
+  boardFileId: string | undefined;
   figmaPasteImportingRef: RefObject<boolean>;
   id: string | undefined;
+  /** Inserts the layers into the file (inside `selector` when given) and
+   * selects them; false if refused. */
+  insertPasteLayers: (
+    fileId: string,
+    selector: string | null,
+    layers: FigmaPasteLayerInsert[],
+  ) => boolean;
   navigate: NavigateFunction;
   queryClient: QueryClient;
+  resolvePasteScene: () => FigmaPasteScene;
   /** Prompts about image fills the clipboard could not carry. */
   showPastedImagesNotice: (args: { count: number; fileIds: string[] }) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -21,11 +43,14 @@ export interface ImportFigmaClipboardIntoDesignArgs {
 
 export async function runImportFigmaClipboardIntoDesign(
   {
+    boardFileId,
     canEditDesign,
     figmaPasteImportingRef,
     id,
+    insertPasteLayers,
     navigate,
     queryClient,
+    resolvePasteScene,
     showPastedImagesNotice,
     t,
   }: ImportFigmaClipboardIntoDesignArgs,
@@ -56,8 +81,37 @@ export async function runImportFigmaClipboardIntoDesign(
     const result = (await callAction(figmaPasteCall.action, {
       designId: id,
       ...figmaPasteCall.payload,
-    })) as ImportResult;
+      ...(figmaPasteCall.action === "import-figma-clipboard"
+        ? { pasteScene: resolvePasteScene() }
+        : {}),
+    })) as ImportResult & {
+      layers?: FigmaPasteLayer[];
+      plan?: Exclude<FigmaPastePlan, { kind: "screens" }>;
+    };
     if (result?.error) throw new Error(result.error);
+    const { layers, plan } = result;
+    if (plan && layers?.length) {
+      const fileId = plan.kind === "layers" ? plan.fileId : boardFileId;
+      const inserts = layers.map((layer, index) => {
+        const fragment = figmaPasteLayerHtml(layer);
+        return fragment
+          ? { ...fragment, position: plan.positions[index] ?? null }
+          : null;
+      });
+      if (
+        !fileId ||
+        inserts.some((insert) => insert === null) ||
+        !insertPasteLayers(
+          fileId,
+          plan.kind === "layers" ? plan.selector : null,
+          inserts as FigmaPasteLayerInsert[],
+        )
+      ) {
+        throw new Error(t("designEditor.toasts.primitiveInsertFailed"));
+      }
+      announceImport(result, [fileId]);
+      return;
+    }
     if (!result?.files?.length) {
       toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
         description:
@@ -69,6 +123,28 @@ export async function runImportFigmaClipboardIntoDesign(
       queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
       queryClient.invalidateQueries({ queryKey: ["action"] }),
     ]);
+    announceImport(
+      result,
+      result.files.map((f) => f.id),
+    );
+    const overviewPath = `/design/${result?.designId ?? id}?editorView=overview`;
+    const firstImportedFileId = result.files[0]?.id;
+    void navigate(
+      firstImportedFileId
+        ? `${overviewPath}&screen=${encodeURIComponent(firstImportedFileId)}`
+        : overviewPath,
+    );
+  } catch (error) {
+    toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+      description:
+        error instanceof Error ? error.message : t("common.genericError"),
+    });
+  } finally {
+    figmaPasteImportingRef.current = false;
+    toast.dismiss(loadingToastId);
+  }
+
+  function announceImport(result: ImportResult, fileIds: string[]) {
     const figmaStrategyLabel =
       result?.strategy === "restNodes"
         ? t("designEditor.import.figmaPasteRestLabel")
@@ -85,12 +161,12 @@ export async function runImportFigmaClipboardIntoDesign(
     if (
       result?.strategy === "localKiwi" &&
       (result?.unresolvedImages ?? 0) > 0 &&
-      result?.files?.length
+      fileIds.length
     ) {
       handledUnresolvedImages = true;
       showPastedImagesNotice({
         count: result.unresolvedImages!,
-        fileIds: result.files.map((f) => f.id),
+        fileIds,
       });
     } else if (result?.figmaApiKeyMissing) {
       toast.info(t("designEditor.import.figmaPasteApiKeyHint"));
@@ -113,20 +189,5 @@ export async function runImportFigmaClipboardIntoDesign(
         description: remainingWarnings[0],
       });
     }
-    const overviewPath = `/design/${result?.designId ?? id}?editorView=overview`;
-    const firstImportedFileId = result.files[0]?.id;
-    void navigate(
-      firstImportedFileId
-        ? `${overviewPath}&screen=${encodeURIComponent(firstImportedFileId)}`
-        : overviewPath,
-    );
-  } catch (error) {
-    toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
-      description:
-        error instanceof Error ? error.message : t("common.genericError"),
-    });
-  } finally {
-    figmaPasteImportingRef.current = false;
-    toast.dismiss(loadingToastId);
   }
 }

@@ -756,15 +756,29 @@ export function PanelSection({
   title,
   actions,
   children,
+  onEmptyTitleClick,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
+  /** Figma: an empty Fill/Stroke/Effects title adds its first entry, like "+". */
+  onEmptyTitleClick?: () => void;
 }) {
   const hasContent = Children.toArray(children).length > 0;
+  const titleClick = hasContent ? undefined : onEmptyTitleClick;
   const heading = (
     <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
-      {title}
+      {titleClick ? (
+        <button
+          type="button"
+          className="max-w-full truncate text-left"
+          onClick={titleClick}
+        >
+          {title}
+        </button>
+      ) : (
+        title
+      )}
     </h3>
   );
 

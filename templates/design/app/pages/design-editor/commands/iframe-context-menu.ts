@@ -154,9 +154,16 @@ export function runIframeContextMenu(
     iframeRect: iframeForPoint?.getBoundingClientRect() ?? null,
     zoomPercent: viewMode === "single" ? zoom : liveOverviewZoom,
   });
+  const scroll = (iframeForPoint as HTMLIFrameElement | null)?.contentWindow;
   menu.openAt({
     clientX,
     clientY,
-    ...(canvasPoint ? { canvasX: canvasPoint.x, canvasY: canvasPoint.y } : {}),
+    ...(canvasPoint
+      ? {
+          canvasX: canvasPoint.x + (scroll?.scrollX ?? 0),
+          canvasY: canvasPoint.y + (scroll?.scrollY ?? 0),
+          ...(contextScreenId ? { screenId: contextScreenId } : {}),
+        }
+      : {}),
   });
 }

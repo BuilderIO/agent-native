@@ -175,8 +175,14 @@ export function shouldShowDeepSelectGuidance(
     !intent.metaKey &&
     !intent.ctrlKey &&
     !isScreenRootElementInfo(info) &&
+    !isLeafLayerElementInfo(info) &&
     (info.childElementCount ?? 0) > 0,
   );
+}
+
+/** Text spans and SVG paths are DOM children, not layers a deep pick reaches. */
+function isLeafLayerElementInfo(info: ElementInfo): boolean {
+  return info.primitiveKind === "text" || info.tagName?.toUpperCase() === "SVG";
 }
 
 /**

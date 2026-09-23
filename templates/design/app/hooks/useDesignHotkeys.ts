@@ -109,6 +109,7 @@ export interface UseDesignHotkeysProps {
   onCut?: DesignHotkeyHandler;
   onPaste?: DesignHotkeyHandler;
   onPasteOver?: DesignHotkeyHandler;
+  onPlaceImage?: DesignHotkeyHandler;
   onCopyProps?: DesignHotkeyHandler;
   onPasteProps?: DesignHotkeyHandler;
   onDuplicate?: DesignHotkeyHandler;
@@ -729,6 +730,9 @@ export function handleDesignHotkey(
   }
   if (primary && event.shiftKey && key === "r") {
     return run(props.onPasteToReplace);
+  }
+  if (primary && event.shiftKey && !event.altKey && key === "k") {
+    return claim(props.onPlaceImage);
   }
   // Cmd+Shift+H/L (hide/lock the current selection) must take precedence over
   // the unmodified/shift-only h/l transform and alignment families.

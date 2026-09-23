@@ -462,6 +462,21 @@ describe("shouldShowDeepSelectGuidance", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not show for text or vector layers whose children are not layers", () => {
+    expect(
+      shouldShowDeepSelectGuidance(
+        { ...container, primitiveKind: "text" },
+        { source: "pointer" },
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowDeepSelectGuidance(
+        { ...container, tagName: "svg" },
+        { source: "pointer" },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("resolveMarqueeAdditive", () => {

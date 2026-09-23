@@ -38,20 +38,24 @@ import { parseCssColorExtended } from "@shared/color-utils";
 import { resolveLayoutGridSnapStep } from "@shared/layout-grid";
 import {
   appendPenNode,
+  bendPenSegment,
   clonePenPath,
   closePenPath,
   constrainPointTo45Degrees,
+  continuePenPathFromEndpoint,
   createCornerNode,
   createPenCuspLatch,
   createPenDragNode,
   getPenPathGeometry,
   hitTestPenAnchor,
   hitTestPenHandle,
+  hitTestPenSegment,
   isClosedPathData,
   isPenCloseTarget,
   movePenAnchor,
   movePenHandle,
   serializePenPath,
+  serializeRoundedPenPath,
   setPenNodeType,
   snapPenAnchorPoint,
   translatePenPath,
@@ -259,6 +263,10 @@ const EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN: Record<
 > = {};
 const EMPTY_SCREEN_IDS: readonly string[] = [];
 const EMPTY_TWEAK_VALUES: Record<string, string> = {};
+// The board canvas replays its whole editor state when any of these props
+// changes identity, and that replay echoes a selection rect back into state.
+const EMPTY_SELECTORS: string[] = [];
+const EMPTY_SELECTOR_GROUPS: string[][] = [];
 const STATIC_PREVIEW_TWEAK_BRIDGE = `<script data-agent-native-tweak-bridge>${tweakBridgeScript}</script>`;
 // Shared with canvas-math.ts (DEFAULT_CANVAS_MIN_ZOOM/DEFAULT_CANVAS_MAX_ZOOM)
 // so this surface's zoom clamp lives in one place instead of being
@@ -719,6 +727,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   deferLineupZoomChange = false,
   chromeInsetLeft = 0,
   chromeInsetRight = 0,
+  visibleCanvasRectRef,
 }: MultiScreenCanvasProps) {
   const { resolvedTheme } = useTheme();
   const t = useT();
@@ -836,6 +845,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     useState<DraftCreationPreview | null>(null);
   const [activePenPath, setActivePenPath] = useState<PenPath | null>(null);
   const activePenPathRef = useRef<PenPath | null>(activePenPath);
+  // The active pen path extends the vector being edited instead of drawing a
+  // new one; it commits back through vectorEdit.onChange.
+  const penContinuesVectorEditRef = useRef(false);
+  // Undo while continuing stops at the vector's own vertices.
+  const penContinuationBaseCountRef = useRef(0);
   const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
     null,
   );
@@ -1358,6 +1372,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     styleSnapshotCaptureFailed?: boolean;
   } | null>(null);
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
+  const crossScreenSourceFrameAtStartRef = useRef<{
+    screenId: string;
+    width: number;
+    height: number;
+    viewportW: number;
+    viewportH: number;
+  } | null>(null);
   /** Board-space point from the last cross-screen-drag "move" message. */
   const crossScreenLastBoardPointRef = useRef<{ x: number; y: number } | null>(
     null,
@@ -2568,6 +2589,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     );
   }, []);
 
+  const readVisibleCanvasRect = useCallback(() => {
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    const left = rect.left + Math.min(rect.width, Math.max(0, chromeInsetLeft));
+    const right =
+      rect.right - Math.min(rect.width, Math.max(0, chromeInsetRight));
+    if (right <= left) return null;
+    const topLeft = getCanvasPoint(left, rect.top);
+    const bottomRight = getCanvasPoint(right, rect.bottom);
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y,
+    };
+  }, [chromeInsetLeft, chromeInsetRight, getCanvasPoint]);
+  if (visibleCanvasRectRef)
+    visibleCanvasRectRef.current = readVisibleCanvasRect;
+
   const getCurrentFrameEntries = useCallback(
     () =>
       renderedScreens.map((screen) => {
@@ -2915,6 +2955,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       clearCrossScreenDropGuide();
       crossScreenTargetRef.current = null;
       crossScreenDragMsgRef.current = null;
+      crossScreenSourceFrameAtStartRef.current = null;
       if (!options?.keepBoardMounted) {
         finishBoardCrossScreenDrop();
         setCrossScreenDragActive(false);
@@ -3310,6 +3351,41 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       crossScreenClaimSentRef.current = { sourceScreenId, claimed };
       postCrossScreenClaim(sourceScreenId, claimed);
+    };
+
+    // Measured against the source frame as it was when the drag began: a hug
+    // screen grows under a child dragged past its edge, and measuring the live
+    // frame keeps the pointer "inside" so the drop never leaves the screen.
+    const isPointerInsideCrossScreenSource = (
+      sourceScreenId: string,
+      iframeX: number,
+      iframeY: number,
+      viewportW: number,
+      viewportH: number,
+    ) => {
+      const atStart = crossScreenSourceFrameAtStartRef.current;
+      if (atStart?.screenId === sourceScreenId) {
+        return isPointerInsideSourceIframe({
+          iframeX,
+          iframeY,
+          viewportW: atStart.viewportW,
+          viewportH: atStart.viewportH,
+          frameWidth: atStart.width,
+          frameHeight: atStart.height,
+        });
+      }
+      return isPointerInsideSourceIframe({
+        iframeX,
+        iframeY,
+        viewportW,
+        viewportH,
+        frameWidth:
+          renderedFrameGeometryRef.current[sourceScreenId]?.width ??
+          frameGeometryRef.current[sourceScreenId]?.width,
+        frameHeight:
+          renderedFrameGeometryRef.current[sourceScreenId]?.height ??
+          frameGeometryRef.current[sourceScreenId]?.height,
+      });
     };
 
     const updateCrossScreenTargetFromBoardPoint = (
@@ -3789,6 +3865,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       if (msg.phase === "start") {
         setCrossScreenDragActive(true);
+        const startFrame =
+          renderedFrameGeometryRef.current[sourceScreenId] ??
+          frameGeometryRef.current[sourceScreenId];
+        crossScreenSourceFrameAtStartRef.current =
+          startFrame &&
+          Number.isFinite(msg.viewportW) &&
+          Number.isFinite(msg.viewportH)
+            ? {
+                screenId: sourceScreenId,
+                width: startFrame.width,
+                height: startFrame.height,
+                viewportW: msg.viewportW!,
+                viewportH: msg.viewportH!,
+              }
+            : null;
         // A new gesture invalidates any commit hit-test still in flight from
         // the previous one. Only a start does — the bridge posts "cancel"
         // immediately after "end", so clearing must not count.
@@ -4021,18 +4112,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // become negative or otherwise out of range. The parent window drag
         // listener has the real board point then; stale iframe coordinates
         // must not clear a valid board target.
-        const localPointerInside = isPointerInsideSourceIframe({
+        const localPointerInside = isPointerInsideCrossScreenSource(
+          sourceScreenId,
           iframeX,
           iframeY,
           viewportW,
           viewportH,
-          frameWidth:
-            renderedFrameGeometryRef.current[sourceScreenId]?.width ??
-            frameGeometryRef.current[sourceScreenId]?.width,
-          frameHeight:
-            renderedFrameGeometryRef.current[sourceScreenId]?.height ??
-            frameGeometryRef.current[sourceScreenId]?.height,
-        });
+        );
         if (sourceScreenId !== boardFileId && !localPointerInside) {
           const previewPoint =
             boardPointFromParentPointer(
@@ -4190,18 +4276,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           Number.isFinite(msg.iframeY) &&
           Number.isFinite(msg.viewportW) &&
           Number.isFinite(msg.viewportH) &&
-          !isPointerInsideSourceIframe({
-            iframeX: msg.iframeX!,
-            iframeY: msg.iframeY!,
-            viewportW: msg.viewportW!,
-            viewportH: msg.viewportH!,
-            frameWidth:
-              renderedFrameGeometryRef.current[sourceScreenId]?.width ??
-              frameGeometryRef.current[sourceScreenId]?.width,
-            frameHeight:
-              renderedFrameGeometryRef.current[sourceScreenId]?.height ??
-              frameGeometryRef.current[sourceScreenId]?.height,
-          });
+          !isPointerInsideCrossScreenSource(
+            sourceScreenId,
+            msg.iframeX!,
+            msg.iframeY!,
+            msg.viewportW!,
+            msg.viewportH!,
+          );
         const lastBoardPoint =
           (endPointOutsideSource
             ? boardPointFromParentPointer(
@@ -4291,6 +4372,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     rotationDeg: number;
     sourceId: string;
   } | null>(null);
+  const [boardTextEditing, setBoardTextEditing] = useState(false);
+  const handleBoardTextEditingStateChange = useCallback(
+    (
+      state: Parameters<NonNullable<typeof onBoardTextEditingStateChange>>[0],
+    ) => {
+      setBoardTextEditing(state.active);
+      onBoardTextEditingStateChange?.(state);
+    },
+    [onBoardTextEditingStateChange],
+  );
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const isBoundsOnly =
@@ -5289,7 +5380,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setPenCloseHover(false);
       } else if (
         state.type === "vector-anchor" ||
-        state.type === "vector-handle"
+        state.type === "vector-handle" ||
+        state.type === "vector-segment"
       ) {
         // vectorEdit's path is parent-owned (unlike activePenPath above),
         // so reverting on cancel means reporting the pre-drag snapshot back
@@ -5377,7 +5469,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       // No in-flight drag to cancel: Escape while in vector edit mode exits
       // the mode entirely (matches Figma), rather than being a no-op.
-      if (vectorEdit) {
+      if (vectorEdit && !activePenPathRef.current) {
         vectorEdit.onExit();
         event.preventDefault();
         event.stopPropagation();
@@ -6056,6 +6148,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [frameGeometry, retryPersistedDraftPrimitives, screens]);
 
   const clearActivePenPath = useCallback(() => {
+    penContinuesVectorEditRef.current = false;
     activePenPathRef.current = null;
     setActivePenPath(null);
     setPenGesturePreview(null);
@@ -6064,11 +6157,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, []);
 
   const finishPenPath = useCallback(
-    (path = activePenPathRef.current) => {
+    (path = activePenPathRef.current, nextTool: "pen" | "move" = "pen") => {
+      const continuing = penContinuesVectorEditRef.current;
+      const continuedVectorEdit = continuing ? vectorEditRef.current : null;
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
       clearActivePenPath();
       if (!path || path.nodes.length < 2) return;
+
+      if (continuing) {
+        // The vector edit ended under the continuation: nothing to extend.
+        if (!continuedVectorEdit) return;
+        continuedVectorEdit.onChange(
+          translatePenPath(
+            path,
+            -continuedVectorEdit.originCanvas.x,
+            -continuedVectorEdit.originCanvas.y,
+          ),
+          "commit",
+        );
+        continuedVectorEdit.onSelectNode(null);
+        if (nextTool === "move") continuedVectorEdit.onExit();
+        onActiveToolChange?.(nextTool);
+        return;
+      }
 
       commitDraftPrimitive(
         createPenDraftPrimitive(path, {
@@ -6076,24 +6188,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           strokeWidth: toolProps?.strokeWidth,
         }),
         undefined,
-        { nextTool: "pen" },
+        { nextTool },
       );
-      // Keep the Pen tool armed after Enter/Escape/closing a path, matching
-      // Figma. The parent selection callback also receives nextTool="pen",
-      // but board primitives intentionally bypass that generic callback and
-      // asynchronous selection reconciliation can otherwise paint Move for a
-      // frame. Drive the controlled tool explicitly at the commit boundary.
-      onActiveToolChange?.("pen");
+      // Figma: Enter lands on Move with the vector selected; Escape and
+      // closing keep the Pen armed. Board primitives bypass the parent's
+      // selection callback, so drive the controlled tool here as well.
+      onActiveToolChange?.(nextTool);
     },
     [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
   );
+
+  // Leaving vector edit (Escape, the layers panel) abandons a continuation;
+  // committing it later would add a duplicate vector instead.
+  useEffect(() => {
+    if (!vectorEdit && penContinuesVectorEditRef.current) clearActivePenPath();
+  }, [clearActivePenPath, vectorEdit]);
 
   const undoActivePenPathSegment = useCallback(() => {
     const path = activePenPathRef.current;
     if (!path) return false;
 
     const remainingNodes = path.nodes.slice(0, -1);
-    if (remainingNodes.length === 0) {
+    if (
+      remainingNodes.length === 0 ||
+      (penContinuesVectorEditRef.current &&
+        remainingNodes.length < penContinuationBaseCountRef.current)
+    ) {
       clearActivePenPath();
       return true;
     }
@@ -6380,6 +6500,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ) {
           state.hasMoved = true;
         }
+        // A click selects the vertex; it must not nudge it.
+        if (!state.hasMoved) return;
         const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
         const localPoint = vectorEditCanvasToLocalPoint(
           canvasPoint,
@@ -6409,10 +6531,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canvasPoint,
           active.originCanvas,
         );
-        const nextPath = state.hasMoved
-          ? movePenAnchor(state.pathBefore, state.nodeIndex, localPoint)
-          : state.pathBefore;
-        active.onChange(nextPath, "commit");
+        if (!state.hasMoved) {
+          active.onSelectNode(state.nodeIndex);
+          finishDrag();
+          return;
+        }
+        active.onChange(
+          movePenAnchor(state.pathBefore, state.nodeIndex, localPoint),
+          "commit",
+        );
+        active.onSelectNode(state.nodeIndex);
         finishDrag();
       };
 
@@ -6425,6 +6553,86 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         finishDrag();
       };
 
+      installDragListeners(handleMouseMove, handleMouseUp, cancelGesture);
+    },
+    [
+      claimKeyboardFocus,
+      finishDrag,
+      getCanvasPoint,
+      installDragListeners,
+      vectorEdit,
+    ],
+  );
+
+  const beginVectorSegmentBend = useCallback(
+    (segmentIndex: number, t: number, e: React.MouseEvent) => {
+      if (!vectorEdit || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      claimKeyboardFocus();
+      dragState.current = {
+        type: "vector-segment",
+        originClient: { x: e.clientX, y: e.clientY },
+        originLocal: vectorEditCanvasToLocalPoint(
+          getCanvasPoint(e.clientX, e.clientY),
+          vectorEdit.originCanvas,
+        ),
+        segmentIndex,
+        t,
+        pathBefore: clonePenPath(vectorEdit.path),
+        hasMoved: false,
+      };
+      setIsDragging(true);
+      setDragCursor("move");
+
+      const bentPath = (ev: MouseEvent) => {
+        const state = dragState.current;
+        const active = vectorEditRef.current;
+        if (!state || state.type !== "vector-segment" || !active) return null;
+        const local = vectorEditCanvasToLocalPoint(
+          getCanvasPoint(ev.clientX, ev.clientY),
+          active.originCanvas,
+        );
+        return bendPenSegment(state.pathBefore, state.segmentIndex, state.t, {
+          x: local.x - state.originLocal.x,
+          y: local.y - state.originLocal.y,
+        });
+      };
+      const handleMouseMove = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "vector-segment") return;
+        if (
+          !state.hasMoved &&
+          Math.hypot(
+            ev.clientX - state.originClient.x,
+            ev.clientY - state.originClient.y,
+          ) >= DRAG_THRESHOLD
+        ) {
+          state.hasMoved = true;
+        }
+        const next = state.hasMoved ? bentPath(ev) : null;
+        if (next) vectorEditRef.current?.onChange(next, "preview");
+      };
+      const handleMouseUp = (ev: MouseEvent) => {
+        const state = dragState.current;
+        const active = vectorEditRef.current;
+        if (state?.type === "vector-segment" && active) {
+          const next = state.hasMoved ? bentPath(ev) : null;
+          // A plain click only deselects: committing would rewrite (and,
+          // for a rectangle, convert) the shape with no change.
+          if (next) active.onChange(next, "commit");
+          else active.onSelectNode(null);
+        }
+        finishDrag();
+      };
+      const cancelGesture = () => {
+        const state = dragState.current;
+        const active = vectorEditRef.current;
+        if (state?.type === "vector-segment" && active) {
+          active.onChange(clonePenPath(state.pathBefore), "commit");
+        }
+        finishDrag();
+      };
       installDragListeners(handleMouseMove, handleMouseUp, cancelGesture);
     },
     [
@@ -8463,6 +8671,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ],
   );
 
+  // The host box covers the board element, so its double-click (text edit,
+  // vector edit, drill-in) has to be replayed inside the board document.
+  const forwardBoardElementDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (readOnly || !boardFileId || !boardSurfaceRenderGeometry) return;
+      const iframeDoc = findCanvasIframeForScreen(
+        surfaceRef.current,
+        boardFileId,
+        boardFileId,
+      )?.contentWindow?.document;
+      if (!iframeDoc) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const point = boardPointToBoardSurfaceLocalPoint(
+        getCanvasPoint(e.clientX, e.clientY),
+        boardSurfaceRenderGeometry,
+      );
+      const target = iframeDoc.elementFromPoint(point.x, point.y);
+      (target ?? iframeDoc.body).dispatchEvent(
+        new MouseEvent("dblclick", {
+          clientX: point.x,
+          clientY: point.y,
+          detail: 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    [boardFileId, boardSurfaceRenderGeometry, getCanvasPoint, readOnly],
+  );
+
   const beginBoardElementDrag = useCallback(
     (e: React.MouseEvent) => {
       if (readOnly) return;
@@ -9036,6 +9275,43 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         return;
       }
+      if (vectorEdit && e.button === 0 && tool === "pen") {
+        if (penContinuesVectorEditRef.current) {
+          beginPenNodeCreation(e);
+          return;
+        }
+        const continued = activePenPathRef.current
+          ? null
+          : continuePenPathFromEndpoint(
+              vectorEdit.path,
+              vectorEditCanvasToLocalPoint(
+                getCanvasPoint(e.clientX, e.clientY),
+                vectorEdit.originCanvas,
+              ),
+              screenPxToCanvasPx(
+                VECTOR_EDIT_HIT_RADIUS_SCREEN_PX,
+                zoomRef.current,
+              ),
+            );
+        if (!continued) {
+          vectorEdit.onExit();
+          beginPenNodeCreation(e);
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        suppressNextPick.current = true;
+        const canvasPath = translatePenPath(
+          continued,
+          vectorEdit.originCanvas.x,
+          vectorEdit.originCanvas.y,
+        );
+        penContinuesVectorEditRef.current = true;
+        penContinuationBaseCountRef.current = canvasPath.nodes.length;
+        activePenPathRef.current = canvasPath;
+        setActivePenPath(canvasPath);
+        return;
+      }
       if (vectorEdit) {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -9075,6 +9351,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             return;
           }
           beginVectorAnchorDrag(anchorHit.nodeIndex, e);
+          return;
+        }
+        const segmentHit = hitTestPenSegment(
+          vectorEdit.path,
+          localPoint,
+          hitRadius,
+        );
+        if (segmentHit) {
+          beginVectorSegmentBend(segmentHit.segmentIndex, segmentHit.t, e);
+          return;
+        }
+        // Rounded corners draw an arc off the sharp segments tested above.
+        if (
+          isNearVectorEditOutline(surfaceRef.current, canvasPoint, hitRadius)
+        ) {
+          vectorEdit.onSelectNode(null);
           return;
         }
         // Missed everything: an empty-canvas click while in vector edit mode
@@ -9136,6 +9428,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       beginPenNodeCreation,
       beginVectorAnchorDrag,
       beginVectorHandleDrag,
+      beginVectorSegmentBend,
       boardStaticPrimitives,
       boardSurfaceRenderGeometry,
       claimKeyboardFocus,
@@ -9948,7 +10241,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        finishPenPath(path);
+        finishPenPath(path, "move");
         return;
       }
 
@@ -10952,7 +11245,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
       ? selectedDraftEntries[0]
       : null;
+  // Its drag surface sits above the board frame, so during a text edit it
+  // would take the clicks that place the caret or select text.
   const boardSelectionBoxVisible =
+    !boardTextEditing &&
     (boardFileId
       ? (selectedLayerSelectorGroupsByScreen[boardFileId]?.length ?? 0)
       : 0) <= 1 &&
@@ -11229,17 +11525,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}
                   selectedSelectorCandidates={
-                    boardSelectedSelectorCandidates ?? []
+                    boardSelectedSelectorCandidates ?? EMPTY_SELECTORS
                   }
                   selectedSelectorGroups={
-                    selectedLayerSelectorGroupsByScreen[boardFileId] ?? []
+                    selectedLayerSelectorGroupsByScreen[boardFileId] ??
+                    EMPTY_SELECTOR_GROUPS
                   }
                   hoveredSelector={boardHoveredSelector ?? null}
                   hoveredSelectorCandidates={
-                    boardHoveredSelectorCandidates ?? []
+                    boardHoveredSelectorCandidates ?? EMPTY_SELECTORS
                   }
-                  lockedSelectors={boardLockedSelectors ?? []}
-                  hiddenSelectors={boardHiddenSelectors ?? []}
+                  lockedSelectors={boardLockedSelectors ?? EMPTY_SELECTORS}
+                  hiddenSelectors={boardHiddenSelectors ?? EMPTY_SELECTORS}
                   // Board owns the global window runtime bridge only when it is
                   // the active surface (activeFileId === boardFileId). This is
                   // the XOR counterpart to the active screen's
@@ -11264,7 +11561,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onVisualStyleBatchChange={onBoardVisualStyleBatchChange}
                   onVisualDuplicateChange={onBoardVisualDuplicateChange}
                   onTextContentChange={onBoardTextContentChange}
-                  onTextEditingStateChange={onBoardTextEditingStateChange}
+                  onTextEditingStateChange={handleBoardTextEditingStateChange}
                   onElementDblClickText={onBoardElementDblClickText}
                   pinMode={reviewPinMode}
                   commentPinsHidden={reviewCommentsHidden}
@@ -11286,7 +11583,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       ? `${reviewResourceId}:${boardFileId}`
                       : undefined
                   }
-                  tweakValues={{}}
+                  tweakValues={EMPTY_TWEAK_VALUES}
                 />
               </div>
             );
@@ -11481,6 +11778,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             path={displayedPenPath}
             closeHover={penCloseHover}
             chromeScale={chromeScale}
+            zIndex={vectorEditOverlayZIndex}
+            paint={canvasVectorPaint({
+              outline: "open-path",
+              stroke: toolProps?.stroke,
+              strokeWidth: toolProps?.strokeWidth,
+            })}
           />
         ) : null}
 
@@ -11539,6 +11842,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ) : null}
 
         {boardSelectionBoxVisible &&
+        !vectorEdit &&
         boardSelectionRect &&
         boardSurfaceRenderGeometry ? (
           // Additive host-level chrome for the selected board-surface
@@ -11573,6 +11877,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
+            onDoubleClick={forwardBoardElementDoubleClick}
           />
         ) : null}
 
@@ -12081,7 +12386,7 @@ function DraftPrimitiveContent({
         ? serializePenPath(draft.penPath)
         : pointsToPath(draft.points ?? []));
     const paint = canvasVectorPaint({
-      closed: isClosedPathData(pathData),
+      outline: isClosedPathData(pathData) ? "closed-path" : "open-path",
       fill: draft.fill,
       stroke: draft.stroke,
       strokeWidth: draft.strokeWidth,
@@ -12241,7 +12546,7 @@ function DraftPrimitiveContent({
 
   if (draft.kind === "polygon" || draft.kind === "star") {
     const polygonPaint = canvasVectorPaint({
-      closed: true,
+      outline: "shape",
       fill: draft.fill,
       stroke: draft.stroke,
       strokeWidth: draft.strokeWidth,
@@ -12282,10 +12587,15 @@ function PenPathOverlay({
   path,
   closeHover,
   chromeScale,
+  zIndex,
+  paint,
 }: {
   path: PenPath;
   closeHover: boolean;
   chromeScale: number;
+  zIndex: number;
+  /** The stroke the path will commit with, so the preview is the result. */
+  paint: { stroke: string; strokeWidth: number };
 }) {
   const geometry = getPenPathGeometry(path);
   const pathData = serializePenPath(path);
@@ -12299,14 +12609,14 @@ function PenPathOverlay({
   const handleSize = 6 * chromeScale;
   const anchorBorderWidth = Math.max(1, chromeScale);
   const handleBorderWidth = Math.max(1, chromeScale);
-  const outlineStrokeWidth = 5 * chromeScale;
-  const strokeWidth = 2 * chromeScale;
+  const guideStrokeWidth = chromeScale;
   const handleLineStrokeWidth = Math.max(1, chromeScale);
   return (
     <div
       data-pen-path-overlay
-      className="pointer-events-none absolute z-[90]"
+      className="pointer-events-none absolute"
       style={{
+        zIndex,
         left: SURFACE_PADDING + geometry.x,
         top: SURFACE_PADDING + geometry.y,
         width: geometry.width,
@@ -12346,18 +12656,19 @@ function PenPathOverlay({
         <path
           d={pathData}
           fill="none"
-          stroke="rgba(255,255,255,0.95)"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={outlineStrokeWidth}
-        />
-        <path
-          d={pathData}
-          fill="none"
           stroke="var(--design-editor-accent-color)"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={strokeWidth}
+          strokeWidth={guideStrokeWidth}
+        />
+        <path
+          data-pen-path-paint
+          d={pathData}
+          fill="none"
+          stroke={paint.stroke}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={paint.strokeWidth}
         />
       </svg>
       {path.nodes.map((node, index) => (
@@ -12440,7 +12751,7 @@ function VectorEditOverlay({
     [path, originCanvas.x, originCanvas.y],
   );
   const geometry = getPenPathGeometry(canvasPath);
-  const pathData = serializePenPath(canvasPath);
+  const pathData = serializeRoundedPenPath(canvasPath, vectorEdit.cornerRadius);
 
   const anchorSize = 9 * chromeScale;
   const handleSize = 7 * chromeScale;
@@ -12449,6 +12760,9 @@ function VectorEditOverlay({
   const outlineStrokeWidth = 5 * chromeScale;
   const strokeWidth = 2 * chromeScale;
   const handleLineStrokeWidth = Math.max(1, chromeScale);
+  // Endpoints sit on the path's bounds, so the capture box must reach a full
+  // hit radius past them or half of every extreme anchor falls to the iframe.
+  const hitPadding = VECTOR_EDIT_HIT_RADIUS_SCREEN_PX * chromeScale;
 
   return (
     <div
@@ -12461,99 +12775,143 @@ function VectorEditOverlay({
       // per-element listeners.
       className="pointer-events-auto absolute"
       style={{
-        left: SURFACE_PADDING + geometry.x,
-        top: SURFACE_PADDING + geometry.y,
-        width: geometry.width,
-        height: geometry.height,
+        left: SURFACE_PADDING + geometry.x - hitPadding,
+        top: SURFACE_PADDING + geometry.y - hitPadding,
+        width: geometry.width + hitPadding * 2,
+        height: geometry.height + hitPadding * 2,
         zIndex,
       }}
     >
-      <svg
-        className="pointer-events-none absolute inset-0 size-full overflow-visible"
-        viewBox={`${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`}
+      <div
+        className="pointer-events-none absolute"
+        style={{
+          left: hitPadding,
+          top: hitPadding,
+          width: geometry.width,
+          height: geometry.height,
+        }}
       >
+        <svg
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+          viewBox={`${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`}
+        >
+          {canvasPath.nodes.map((node, index) => (
+            <g key={`vector-handle-lines-${index}`}>
+              {node.handleIn ? (
+                <line
+                  x1={node.point.x}
+                  y1={node.point.y}
+                  x2={node.handleIn.x}
+                  y2={node.handleIn.y}
+                  stroke="var(--design-editor-accent-color)"
+                  strokeDasharray="3 3"
+                  strokeWidth={handleLineStrokeWidth}
+                />
+              ) : null}
+              {node.handleOut ? (
+                <line
+                  x1={node.point.x}
+                  y1={node.point.y}
+                  x2={node.handleOut.x}
+                  y2={node.handleOut.y}
+                  stroke="var(--design-editor-accent-color)"
+                  strokeDasharray="3 3"
+                  strokeWidth={handleLineStrokeWidth}
+                />
+              ) : null}
+            </g>
+          ))}
+          <path
+            d={pathData}
+            fill="none"
+            // guard:allow-raw-color — white halo keeps the outline visible on any fill, same as the edit overlay below.
+            stroke="rgba(255,255,255,0.95)"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={outlineStrokeWidth}
+          />
+          <path
+            data-vector-edit-outline
+            d={pathData}
+            fill="none"
+            stroke="var(--design-editor-accent-color)"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={strokeWidth}
+          />
+        </svg>
         {canvasPath.nodes.map((node, index) => (
-          <g key={`vector-handle-lines-${index}`}>
-            {node.handleIn ? (
-              <line
-                x1={node.point.x}
-                y1={node.point.y}
-                x2={node.handleIn.x}
-                y2={node.handleIn.y}
-                stroke="var(--design-editor-accent-color)"
-                strokeDasharray="3 3"
-                strokeWidth={handleLineStrokeWidth}
-              />
-            ) : null}
-            {node.handleOut ? (
-              <line
-                x1={node.point.x}
-                y1={node.point.y}
-                x2={node.handleOut.x}
-                y2={node.handleOut.y}
-                stroke="var(--design-editor-accent-color)"
-                strokeDasharray="3 3"
-                strokeWidth={handleLineStrokeWidth}
-              />
-            ) : null}
-          </g>
+          <span
+            key={`vector-anchor-${index}`}
+            data-vector-anchor
+            data-selected={
+              index === vectorEdit.selectedNodeIndex ? "true" : undefined
+            }
+            className={cn(
+              "pointer-events-none absolute rounded-[2px] border shadow-sm border-[var(--design-editor-accent-color)]",
+              index === vectorEdit.selectedNodeIndex
+                ? "bg-[var(--design-editor-accent-color)]"
+                : "bg-[var(--design-editor-accent-contrast-color)]",
+            )}
+            style={{
+              left: node.point.x - geometry.x - anchorSize / 2,
+              top: node.point.y - geometry.y - anchorSize / 2,
+              width: anchorSize,
+              height: anchorSize,
+              borderWidth: anchorBorderWidth,
+            }}
+          />
         ))}
-        <path
-          d={pathData}
-          fill="none"
-          stroke="rgba(255,255,255,0.95)"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={outlineStrokeWidth}
-        />
-        <path
-          d={pathData}
-          fill="none"
-          stroke="var(--design-editor-accent-color)"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={strokeWidth}
-        />
-      </svg>
-      {canvasPath.nodes.map((node, index) => (
-        <span
-          key={`vector-anchor-${index}`}
-          data-vector-anchor
-          className="pointer-events-none absolute rounded-[2px] border shadow-sm border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)]"
-          style={{
-            left: node.point.x - geometry.x - anchorSize / 2,
-            top: node.point.y - geometry.y - anchorSize / 2,
-            width: anchorSize,
-            height: anchorSize,
-            borderWidth: anchorBorderWidth,
-          }}
-        />
-      ))}
-      {canvasPath.nodes.flatMap((node, index) =>
-        (
-          [
-            ["in", node.handleIn] as const,
-            ["out", node.handleOut] as const,
-          ] as const
-        )
-          .filter((entry): entry is ["in" | "out", Point] => isPoint(entry[1]))
-          .map(([which, handle]) => (
-            <span
-              key={`vector-handle-${index}-${which}`}
-              data-vector-handle
-              className="pointer-events-none absolute rounded-full border border-[var(--design-editor-accent-color)] bg-background shadow-sm"
-              style={{
-                left: handle.x - geometry.x - handleSize / 2,
-                top: handle.y - geometry.y - handleSize / 2,
-                width: handleSize,
-                height: handleSize,
-                borderWidth: handleBorderWidth,
-              }}
-            />
-          )),
-      )}
+        {canvasPath.nodes.flatMap((node, index) =>
+          (
+            [
+              ["in", node.handleIn] as const,
+              ["out", node.handleOut] as const,
+            ] as const
+          )
+            .filter((entry): entry is ["in" | "out", Point] =>
+              isPoint(entry[1]),
+            )
+            .map(([which, handle]) => (
+              <span
+                key={`vector-handle-${index}-${which}`}
+                data-vector-handle
+                className="pointer-events-none absolute rounded-full border border-[var(--design-editor-accent-color)] bg-background shadow-sm"
+                style={{
+                  left: handle.x - geometry.x - handleSize / 2,
+                  top: handle.y - geometry.y - handleSize / 2,
+                  width: handleSize,
+                  height: handleSize,
+                  borderWidth: handleBorderWidth,
+                }}
+              />
+            )),
+        )}
+      </div>
     </div>
   );
+}
+
+function isNearVectorEditOutline(
+  root: HTMLElement | null,
+  canvasPoint: Point,
+  radius: number,
+): boolean {
+  const outline = root?.querySelector<SVGPathElement>(
+    "[data-vector-edit-outline]",
+  );
+  if (!outline) return false;
+  const length = outline.getTotalLength();
+  const steps = Math.min(2000, Math.max(64, Math.ceil(length / radius)));
+  for (let step = 0; step <= steps; step++) {
+    const point = outline.getPointAtLength((length * step) / steps);
+    if (
+      Math.hypot(point.x - canvasPoint.x, point.y - canvasPoint.y) <= radius
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Which part of the gradient the user is currently dragging on canvas. */
@@ -14616,6 +14974,7 @@ function SelectionBox({
   onStartResize,
   onStartRotate,
   onStartDrag,
+  onDoubleClick,
   boardObject = false,
 }: {
   geometry: FrameGeometry;
@@ -14627,6 +14986,7 @@ function SelectionBox({
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
   onStartDrag?: (e: React.MouseEvent) => void;
+  onDoubleClick?: (e: React.MouseEvent) => void;
   /** Distinguishes the board-surface-element box from a Screen/draft one —
    *  both can be on screen at once (a Screen stays selected at the top level
    *  while a board element is independently selected), so tests need a way
@@ -14661,6 +15021,7 @@ function SelectionBox({
           data-frame-drag-surface
           className="pointer-events-auto absolute inset-0 z-[5] cursor-move"
           onMouseDown={onStartDrag}
+          onDoubleClick={onDoubleClick}
         />
       ) : null}
       <ResizeHandles

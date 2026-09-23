@@ -53,6 +53,9 @@ interface DeclarationValueSpan {
 const STYLE_ATTRIBUTE_PATTERN =
   /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
 
+const SVG_PAINT_ATTRIBUTE_PATTERN =
+  /\s(fill|stroke|stop-color)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
 function maskCssComments(css: string): string {
   const masked = css.split("");
   let quote: string | null = null;
@@ -504,11 +507,29 @@ function colorTokenSpansInHtml(
 
   for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {
     if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) continue;
+    const styledProperties = new Set<string>();
     for (const attribute of tag.matchAll(STYLE_ATTRIBUTE_PATTERN)) {
       const value = attribute[1] ?? attribute[2] ?? attribute[3] ?? "";
       const valueOffset =
         tagOffset + (attribute.index ?? 0) + attribute[0].indexOf(value);
+      declarationValueSpans(maskCssComments(value)).forEach(({ property }) =>
+        styledProperties.add(property),
+      );
       tokens.push(...colorTokenSpansInCss(value, valueOffset, properties));
+    }
+    // SVG presentation attributes paint too, unless an inline declaration overrides them.
+    for (const attribute of tag.matchAll(SVG_PAINT_ATTRIBUTE_PATTERN)) {
+      const property = attribute[1]!.toLowerCase();
+      if (styledProperties.has(property)) continue;
+      if (properties && !properties.has(property)) continue;
+      const value = attribute[2] ?? attribute[3] ?? attribute[4] ?? "";
+      const valueOffset =
+        tagOffset + (attribute.index ?? 0) + attribute[0].lastIndexOf(value);
+      const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
+      for (const match of value.matchAll(matcher)) {
+        const start = valueOffset + (match.index ?? 0);
+        tokens.push({ value: match[0], start, end: start + match[0].length });
+      }
     }
   }
 

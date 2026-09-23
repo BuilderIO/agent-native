@@ -134,6 +134,22 @@ describe("runEditorPaste", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("inserts SVG code copied as text instead of dropping the paste", async () => {
+    const handlePastedImageFiles = vi.fn((_files: File[]) => true);
+    const h = harness();
+    h.args.handlePastedImageFiles = handlePastedImageFiles;
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0H1"/></svg>';
+    const event = pasteEvent({ "text/plain": `\n${svg}\n` });
+
+    runEditorPaste(h.args, event);
+
+    const [pasted] = handlePastedImageFiles.mock.calls[0]![0];
+    expect(pasted!.type).toBe("image/svg+xml");
+    expect(await pasted!.text()).toBe(svg);
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(0);
+  });
+
   it("says why a Figma link paste produced no screen", () => {
     const h = harness();
     runEditorPaste(

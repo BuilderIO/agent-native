@@ -49,7 +49,7 @@ describe("DeepSelectGuidance", () => {
     await act(async () => {
       root.render(
         <div onClick={onCanvasClick}>
-          <DeepSelectGuidance onDismiss={onDismiss} />
+          <DeepSelectGuidance onDismiss={onDismiss} onExpire={() => {}} />
         </div>,
       );
     });
@@ -62,5 +62,27 @@ describe("DeepSelectGuidance", () => {
 
     expect(onCanvasClick).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("expires on its own instead of staying pinned", async () => {
+    vi.useFakeTimers();
+    try {
+      const onExpire = vi.fn();
+      await act(async () => {
+        root.render(
+          <DeepSelectGuidance onDismiss={() => {}} onExpire={onExpire} />,
+        );
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(4999);
+      });
+      expect(onExpire).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(onExpire).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

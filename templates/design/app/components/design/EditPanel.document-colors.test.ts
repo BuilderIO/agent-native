@@ -144,6 +144,24 @@ describe("extractDocumentColorPalette", () => {
     ).toContain("--color-bg: #000000");
   });
 
+  it("reads and rewrites svg paint attributes that an inline style does not override", () => {
+    const content = `<svg fill="none" viewBox="0 0 20 20"><path d="M0 0" fill="rgb(255, 255, 255)"></path><path d="M1 1" stroke="#000000" style="stroke: #a62e2e"></path></svg>`;
+    const scopes = [{ fileId: "file-1", content, wholeDocument: true }];
+
+    expect(selectionColorValues([], scopes).map((c) => c.value)).toEqual([
+      "rgb(255, 255, 255)",
+      "#a62e2e",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        scopes,
+        "rgb(255, 255, 255)",
+        "#ff0000",
+      ),
+    ).toContain('fill="#ff0000"');
+  });
+
   it("orders results by descending frequency (most-used colors first)", () => {
     const palette = extractDocumentColorPalette([
       {

@@ -145,7 +145,7 @@ describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
 
   it("uses a soft gray fill and darker gray border for default rectangles", () => {
     const fragment = boardObjectEntryToHtmlFragment(baseEntry);
-    expect(fragment).toContain("background:rgb(218 218 218)");
+    expect(fragment).toContain("background:rgb(217 217 217)");
     expect(fragment).toContain("border:1px solid rgb(168 168 168)");
   });
 

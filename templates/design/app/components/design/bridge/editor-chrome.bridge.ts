@@ -322,6 +322,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
+      "[data-agent-native-drawn-caret]{caret-color:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       // A selection SWITCHING to a different element must not ease the
       // handle spans through their old target's geometry: the singleton
@@ -2561,9 +2562,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       // Falling back out of a stale/unrelated scope IS exiting drill mode.
       selectionContainerScope = null;
-      scope = document.body;
+      scope = topLevelBoardFrameOwning(resolved) || document.body;
     }
     return containerScopeAncestor(resolved, scope);
+  }
+
+  // Figma treats a top-level frame like an artboard: its direct children are
+  // picked by a plain click, only nested frames need a drill-in.
+  function topLevelBoardFrameOwning(el: Element): Element | null {
+    if (!designCanvasBoardSurface) return null;
+    var node: Element | null = el;
+    while (node && node.parentElement && node.parentElement !== document.body) {
+      node = node.parentElement;
+    }
+    return node &&
+      node !== el &&
+      node.parentElement === document.body &&
+      node.getAttribute("data-an-primitive") === "frame"
+      ? node
+      : null;
   }
 
   /*
@@ -4026,6 +4043,94 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
+  var PORTABLE_TEXT_PROPERTIES: Record<string, boolean> = {
+    color: true,
+    font: true,
+    fontFamily: true,
+    fontSize: true,
+    fontStyle: true,
+    fontWeight: true,
+    letterSpacing: true,
+    lineHeight: true,
+    textAlign: true,
+    textDecoration: true,
+    textDecorationColor: true,
+    textDecorationLine: true,
+    textDecorationStyle: true,
+    textShadow: true,
+    textTransform: true,
+    whiteSpace: true,
+    wordBreak: true,
+  };
+
+  function portableBorderSidePaints(cs: CSSStyleDeclaration, side: string) {
+    var style = cs.getPropertyValue("border-" + side + "-style");
+    return (
+      style !== "none" &&
+      style !== "hidden" &&
+      parseFloat(cs.getPropertyValue("border-" + side + "-width")) > 0
+    );
+  }
+
+  // A computed value can differ from the bare-tag probe only through an
+  // inherited colour or font (a 0px border, an outline with style none) and
+  // still paint nothing. Carrying those makes phantom strokes and fills in the
+  // inspector, so a move keeps only values that change how the node renders.
+  function portableValueRendersNothing(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+  ): boolean {
+    var sides = ["top", "right", "bottom", "left"];
+    if (/^border(Top|Right|Bottom|Left)?(Color|Style|Width)?$/.test(property)) {
+      var sideMatch = /^border(Top|Right|Bottom|Left)/.exec(property);
+      var checked = sideMatch ? [sideMatch[1].toLowerCase()] : sides;
+      return !checked.some(function (side) {
+        return portableBorderSidePaints(cs, side);
+      });
+    }
+    if (/^outline(Color|Style|Width|Offset)?$/.test(property)) {
+      return cs.outlineStyle === "none" || !(parseFloat(cs.outlineWidth) > 0);
+    }
+    if (property === "boxSizing") {
+      return (
+        !sides.some(function (side) {
+          return portableBorderSidePaints(cs, side);
+        }) &&
+        !sides.some(function (side) {
+          return parseFloat(cs.getPropertyValue("padding-" + side)) > 0;
+        })
+      );
+    }
+    // Absolute positioning blockifies an inline box, so the difference from
+    // the inline probe is the cascade's doing, not the author's.
+    if (property === "display") {
+      return (
+        cs.display === "block" &&
+        (cs.position === "absolute" || cs.position === "fixed")
+      );
+    }
+    if (property === "transformOrigin") {
+      return (
+        cs.transform === "none" &&
+        (cs.rotate || "none") === "none" &&
+        (cs.scale || "none") === "none"
+      );
+    }
+    if (!PORTABLE_TEXT_PROPERTIES[property]) return false;
+    var tag = el.tagName.toLowerCase();
+    if (tag === "img") return true;
+    if (!(el instanceof SVGElement) || /^(text|tspan|textpath)$/.test(tag)) {
+      return false;
+    }
+    if (property !== "color") return true;
+    return !/currentcolor/i.test(
+      (el.getAttribute("fill") || "") +
+        (el.getAttribute("stroke") || "") +
+        ((el as SVGElement).style.cssText || ""),
+    );
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
     cache?: PortableStyleComputedStylesCache,
@@ -4094,7 +4199,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         typeof value === "string" &&
         value.trim() &&
-        (inlineValue || value !== defaults[property])
+        (inlineValue ||
+          (value !== defaults[property] &&
+            !portableValueRendersNothing(el, property, cs)))
       ) {
         styles[property] = value;
       }
@@ -4399,6 +4506,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textDecorationLine: cs.textDecorationLine,
       display: cs.display,
       overflow: cs.overflow,
+      objectFit: cs.objectFit,
+      "--an-image-scale": cs.getPropertyValue("--an-image-scale").trim(),
       flexDirection: cs.flexDirection,
       justifyContent: cs.justifyContent,
       alignItems: cs.alignItems,
@@ -4623,9 +4732,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var end = start + text.data.length;
       textOffset = end;
       if (end <= bookmark.start || start >= bookmark.end) continue;
-      var styleTarget = text.parentElement || target;
-      var inlineStyle = (styleTarget as HTMLElement).style;
-      lineHeights.push(inlineStyle?.lineHeight || "");
+      // Inherited from the text root when the run has none of its own, so the
+      // inspector reads the same authored value in and out of edit mode.
+      var lineHeight = "";
+      var styleNode: Element | null = text.parentElement || target;
+      while (styleNode && !lineHeight) {
+        lineHeight = (styleNode as HTMLElement).style?.lineHeight || "";
+        if (styleNode === target) break;
+        styleNode = styleNode.parentElement;
+      }
+      lineHeights.push(lineHeight);
     }
     if (lineHeights.length === 0) return undefined;
     var first = lineHeights[0] || "";
@@ -4708,6 +4824,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    var paintShapes = vectorPaintShapes(el);
+    if (paintShapes.length > 1) {
+      ["fill", "stroke", "strokeWidth"].forEach(function (property) {
+        var values = new Set(
+          paintShapes.map(function (shape) {
+            return (window.getComputedStyle(shape) as any)[property];
+          }),
+        );
+        if (values.size > 1) (computed as any)[property] = "Mixed";
+      });
+    }
     if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
       computed.strokeWidth =
         strokeTarget.getAttribute("data-an-vector-logical-width") ||
@@ -4740,6 +4867,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "--an-vector-end-point": (el as HTMLElement).style.getPropertyValue(
         "--an-vector-end-point",
       ),
+      "--an-vector-fill-gradient": (el as HTMLElement).style.getPropertyValue(
+        "--an-vector-fill-gradient",
+      ),
+      "--an-vector-stroke-gradient": (el as HTMLElement).style.getPropertyValue(
+        "--an-vector-stroke-gradient",
+      ),
     };
   }
 
@@ -4749,7 +4882,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     includePortableStyleSnapshot = true,
   ): unknown {
     var cs = window.getComputedStyle(el);
-    var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
+    var paintShapes = vectorPaintShapes(el);
+    var paintCs = window.getComputedStyle(
+      vectorPaintTarget(el) || paintShapes[0] || el,
+    );
     var boundingRect = rectInfoForElement(el);
     // A clone inherits nothing editable from its stamped ancestor: source
     // holds one template body, not this row. Claiming source-backed handed
@@ -4909,6 +5045,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         el.innerHTML && el.innerHTML !== el.textContent
           ? el.innerHTML.length > 4000
           : undefined,
+      imageSource:
+        el.tagName === "IMG" ? el.getAttribute("src") || undefined : undefined,
       childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
       isGridContainer: cs.display === "grid" || cs.display === "inline-grid",
@@ -7750,11 +7888,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (restoredRange && rangeTargetAfterMorph) {
         suspendedRangeState.target = rangeTargetAfterMorph;
         suspendedRangeState.range = restoredRange;
-        var selection = window.getSelection ? window.getSelection() : null;
-        if (selection) {
-          selection.removeAllRanges();
-          selection.addRange(restoredRange.cloneRange());
-        }
       } else {
         clearSuspendedTextEditRange();
       }
@@ -8877,6 +9010,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   };
   function supportsCornerRadiusHandles(el) {
     if (!el || el.nodeType !== 1) return false;
+    // Figma shows no radius handles on a vector's box, pasted or drawn.
+    if (el.namespaceURI === "http://www.w3.org/2000/svg") return false;
     var kind = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
@@ -9037,6 +9172,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
     selectionOverlay.style.borderWidth = 1.5 * line + "px";
     marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
+    if (isTextEditElConnected()) positionTextCaretOverlay(activeTextEditEl!);
     passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
     if (selectedEl) updateSpacingOverlay(selectedEl);
 
@@ -10335,28 +10471,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     measurementOverlay.innerHTML = "";
   }
 
-  function addMeasurementLine(x1, y1, x2, y2, label) {
-    var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
+  function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
+    var horizontal = y1 === y2;
     var line = document.createElement("div");
-    var labelEl = document.createElement("div");
     // Constant-screen-size chrome: line thickness, label font/padding, and
     // label offsets all compensate for the host's iframe scale so the
     // measurement readout looks identical at any canvas zoom.
     var scale = chromeLineScale();
-    var lineWidth = 1 * chromeLineScale();
-    var labelChrome =
-      "transform-origin:center;border-radius:" +
-      3 * scale +
-      "px;background:var(--design-editor-measure-color);color:white;padding:" +
-      1 * scale +
+    var border =
+      scale +
       "px " +
-      4 * scale +
-      "px;font-size:" +
-      11 * scale +
-      "px;";
+      (dashed ? "dashed" : "solid") +
+      " var(--design-editor-measure-color);";
     if (horizontal) {
       var left = Math.min(x1, x2);
-      var width = Math.max(1, Math.abs(x2 - x1));
+      var width = Math.abs(x2 - x1);
       line.style.cssText =
         "position:fixed;left:" +
         left +
@@ -10365,18 +10494,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "px;width:" +
         width +
         "px;border-top:" +
-        lineWidth +
-        "px dashed var(--design-editor-measure-color);";
-      labelEl.style.cssText =
-        "position:fixed;left:" +
-        (left + width / 2) +
-        "px;top:" +
-        (y1 - 9 * scale) +
-        "px;transform:translateX(-50%);" +
-        labelChrome;
+        border;
     } else {
       var top = Math.min(y1, y2);
-      var height = Math.max(1, Math.abs(y2 - y1));
+      var height = Math.abs(y2 - y1);
       line.style.cssText =
         "position:fixed;left:" +
         x1 +
@@ -10385,19 +10506,101 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "px;height:" +
         height +
         "px;border-left:" +
-        lineWidth +
-        "px dashed var(--design-editor-measure-color);";
-      labelEl.style.cssText =
-        "position:fixed;left:" +
-        (x1 + 5 * scale) +
-        "px;top:" +
-        (top + height / 2) +
-        "px;transform:translateY(-50%);" +
-        labelChrome;
+        border;
     }
-    labelEl.textContent = label;
     measurementOverlay.appendChild(line);
+    if (!label) return;
+    var labelEl = document.createElement("div");
+    labelEl.style.cssText =
+      "position:fixed;left:" +
+      (horizontal ? (x1 + x2) / 2 : x1 + 8 * scale) +
+      "px;top:" +
+      (horizontal ? y1 + 7 * scale : (y1 + y2) / 2) +
+      "px;transform:" +
+      (horizontal ? "translateX(-50%)" : "translateY(-50%)") +
+      ";border-radius:" +
+      3 * scale +
+      "px;background:var(--design-editor-measure-color);color:white;padding:" +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px;font-size:" +
+      11 * scale +
+      "px;";
+    labelEl.textContent = label;
     measurementOverlay.appendChild(labelEl);
+  }
+
+  // Figma's Alt-hover rules per axis: apart → one gap line through the
+  // selection's centre; overlapping → lines between differing same-side edges.
+  function measurementSegments(s, t) {
+    var segments: Array<{
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      label: string;
+      dashed: boolean;
+    }> = [];
+    function add(x1, y1, x2, y2, dashed) {
+      var length = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+      if (length < 0.5) return;
+      segments.push({
+        x1: x1,
+        y1: y1,
+        x2: x2,
+        y2: y2,
+        label: dashed ? "" : String(Math.round(length)),
+        dashed: dashed,
+      });
+    }
+    var apartX = t.left >= s.right || t.right <= s.left;
+    var apartY = t.top >= s.bottom || t.bottom <= s.top;
+    var intersect = !apartX && !apartY;
+    var sCx = (s.left + s.right) / 2;
+    var sCy = (s.top + s.bottom) / 2;
+    var y = intersect
+      ? (Math.max(s.top, t.top) + Math.min(s.bottom, t.bottom)) / 2
+      : sCy;
+    var x = intersect
+      ? (Math.max(s.left, t.left) + Math.min(s.right, t.right)) / 2
+      : sCx;
+    var tNearY = t.top >= sCy ? t.top : t.bottom;
+    var tNearX = t.left >= sCx ? t.left : t.right;
+    var yMissesT = y < t.top || y > t.bottom;
+    var xMissesT = x < t.left || x > t.right;
+
+    if (apartX) {
+      var gapEdge = t.left >= s.right ? t.left : t.right;
+      add(t.left >= s.right ? s.right : s.left, y, gapEdge, y, false);
+      if (yMissesT) add(gapEdge, y, gapEdge, tNearY, true);
+    } else {
+      var sFarY = tNearY === t.top ? s.top : s.bottom;
+      if (intersect || t.left < s.left) {
+        add(t.left, y, s.left, y, false);
+        if (!intersect) add(t.left, sFarY, t.left, tNearY, true);
+      }
+      if (intersect || t.right > s.right) {
+        add(s.right, y, t.right, y, false);
+        if (!intersect) add(t.right, sFarY, t.right, tNearY, true);
+      }
+    }
+    if (apartY) {
+      var gapEdgeY = t.top >= s.bottom ? t.top : t.bottom;
+      add(x, t.top >= s.bottom ? s.bottom : s.top, x, gapEdgeY, false);
+      if (xMissesT) add(x, gapEdgeY, tNearX, gapEdgeY, true);
+    } else {
+      var sFarX = tNearX === t.left ? s.left : s.right;
+      if (intersect || t.top < s.top) {
+        add(x, t.top, x, s.top, false);
+        if (!intersect) add(sFarX, t.top, tNearX, t.top, true);
+      }
+      if (intersect || t.bottom > s.bottom) {
+        add(x, s.bottom, x, t.bottom, false);
+        if (!intersect) add(sFarX, t.bottom, tNearX, t.bottom, true);
+      }
+    }
+    return segments;
   }
 
   function showMeasurements(a, b) {
@@ -10405,8 +10608,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideMeasurements();
       return;
     }
-    var selectedRect = a.getBoundingClientRect();
-    var hoverRect = b.getBoundingClientRect();
     // A content re-render can rebuild document.body and drop this overlay;
     // re-attach it before drawing so the lines always render.
     if (!measurementOverlay.isConnected) {
@@ -10414,79 +10615,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
-
-    if (hoverRect.right <= selectedRect.left) {
-      var yLeft = Math.max(
-        hoverRect.top,
-        Math.min(hoverRect.bottom, selectedRect.top + selectedRect.height / 2),
-      );
+    measurementSegments(
+      a.getBoundingClientRect(),
+      b.getBoundingClientRect(),
+    ).forEach(function (segment) {
       addMeasurementLine(
-        hoverRect.right,
-        yLeft,
-        selectedRect.left,
-        yLeft,
-        Math.round(selectedRect.left - hoverRect.right) + "px",
+        segment.x1,
+        segment.y1,
+        segment.x2,
+        segment.y2,
+        segment.label,
+        segment.dashed,
       );
-      return;
-    }
-    if (selectedRect.right <= hoverRect.left) {
-      var yRight = Math.max(
-        selectedRect.top,
-        Math.min(selectedRect.bottom, hoverRect.top + hoverRect.height / 2),
-      );
-      addMeasurementLine(
-        selectedRect.right,
-        yRight,
-        hoverRect.left,
-        yRight,
-        Math.round(hoverRect.left - selectedRect.right) + "px",
-      );
-      return;
-    }
-    if (hoverRect.bottom <= selectedRect.top) {
-      var xTop = Math.max(
-        hoverRect.left,
-        Math.min(hoverRect.right, selectedRect.left + selectedRect.width / 2),
-      );
-      addMeasurementLine(
-        xTop,
-        hoverRect.bottom,
-        xTop,
-        selectedRect.top,
-        Math.round(selectedRect.top - hoverRect.bottom) + "px",
-      );
-      return;
-    }
-    if (selectedRect.bottom <= hoverRect.top) {
-      var xBottom = Math.max(
-        selectedRect.left,
-        Math.min(selectedRect.right, hoverRect.left + hoverRect.width / 2),
-      );
-      addMeasurementLine(
-        xBottom,
-        selectedRect.bottom,
-        xBottom,
-        hoverRect.top,
-        Math.round(hoverRect.top - selectedRect.bottom) + "px",
-      );
-      return;
-    }
-    addMeasurementLine(
-      selectedRect.left + selectedRect.width / 2,
-      selectedRect.top + selectedRect.height / 2,
-      hoverRect.left + hoverRect.width / 2,
-      hoverRect.top + hoverRect.height / 2,
-      Math.round(
-        Math.hypot(
-          hoverRect.left +
-            hoverRect.width / 2 -
-            (selectedRect.left + selectedRect.width / 2),
-          hoverRect.top +
-            hoverRect.height / 2 -
-            (selectedRect.top + selectedRect.height / 2),
-        ),
-      ) + "px",
-    );
+    });
   }
 
   function dragEventNames(e) {
@@ -11000,6 +11141,79 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(node instanceof HTMLElement)) return;
         node.style.display = visible ? "" : "none";
       });
+    // Re-decide per-element handles (radius handles are hidden on vectors).
+    if (visible) applySelectionHandleHitGeometry(selectedEl);
+  }
+
+  // The native caret is 1 document px, so a zoomed-out screen scales it to a
+  // sub-pixel hairline; this one stays 1 screen px at every zoom.
+  var textCaretOverlay: HTMLElement | null = null;
+
+  function hideTextCaretOverlay(target: Element): void {
+    if (target.hasAttribute("data-agent-native-drawn-caret")) {
+      target.removeAttribute("data-agent-native-drawn-caret");
+    }
+    if (textCaretOverlay) textCaretOverlay.style.display = "none";
+  }
+
+  function positionTextCaretOverlay(target: HTMLElement): void {
+    var selection = window.getSelection ? window.getSelection() : null;
+    var range =
+      selection &&
+      selection.isCollapsed &&
+      selectionBelongsToElement(selection, target)
+        ? selection.getRangeAt(0)
+        : null;
+    var rect = range ? range.getClientRects()[0] : undefined;
+    if (!range || !rect || rect.height <= 0) {
+      hideTextCaretOverlay(target);
+      return;
+    }
+    if (!textCaretOverlay) {
+      textCaretOverlay = document.createElement("div");
+      textCaretOverlay.setAttribute(
+        "data-agent-native-edit-overlay",
+        "text-caret",
+      );
+      textCaretOverlay.style.cssText =
+        "position:fixed;pointer-events:none;z-index:99999;display:none;";
+      appendEditorChromeNode(textCaretOverlay);
+    }
+    var caretHost =
+      range.startContainer.nodeType === 1
+        ? (range.startContainer as Element)
+        : range.startContainer.parentElement || target;
+    var width = chromeLineScale();
+    var moved =
+      textCaretOverlay.style.display === "none" ||
+      textCaretOverlay.style.left !== rect.left - width / 2 + "px" ||
+      textCaretOverlay.style.top !== rect.top + "px";
+    textCaretOverlay.style.left = rect.left - width / 2 + "px";
+    textCaretOverlay.style.top = rect.top + "px";
+    textCaretOverlay.style.width = width + "px";
+    textCaretOverlay.style.height = rect.height + "px";
+    textCaretOverlay.style.background =
+      window.getComputedStyle(caretHost).color;
+    textCaretOverlay.style.display = "block";
+    // The document MutationObserver refreshes this overlay, so an
+    // unconditional write here would re-trigger it every frame.
+    if (!target.hasAttribute("data-agent-native-drawn-caret")) {
+      target.setAttribute("data-agent-native-drawn-caret", "");
+    }
+    if (moved && textCaretOverlay.animate) {
+      textCaretOverlay.getAnimations().forEach(function (a) {
+        a.cancel();
+      });
+      textCaretOverlay.animate(
+        [
+          { opacity: 1 },
+          { opacity: 1, offset: 0.5 },
+          { opacity: 0, offset: 0.5 },
+          { opacity: 0 },
+        ],
+        { duration: 1060, iterations: Infinity, delay: 500 },
+      );
+    }
   }
 
   function updateTextEditingChrome(
@@ -11020,8 +11234,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
       setSelectionOverlayResizeChromeVisible(false);
+      positionTextCaretOverlay(target);
       return;
     }
+    hideTextCaretOverlay(target);
     target.style.minWidth = originalMinWidth || "1px";
     target.style.minHeight = originalMinHeight || "1em";
     document.documentElement.setAttribute(
@@ -12418,7 +12634,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!match) return null;
     var segments = splitGradientTopLevel(match[1]);
     if (segments.length === 0) return null;
-    var angle = 90;
+    // CSS's default direction is "to bottom", which Chrome omits when serializing.
+    var angle = 180;
     var stopStart = 0;
     var first = segments[0];
     var angleMatch = first.match(GRADIENT_ANGLE_RE);
@@ -13659,9 +13876,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * child carries the paint, so fill/stroke aimed at the wrapper tints the
    * bounding box instead. Mirrored by `vectorPaintChild` in code-layer.ts.
    */
+  // keep in sync with code-layer's vectorShapeDescendants: an imported
+  // `<svg>`'s drawn shapes, through `<g>`, never inside defs/clipPath/mask.
+  function vectorPaintShapes(el: Element): Element[] {
+    if (
+      el.tagName.toLowerCase() !== "svg" ||
+      el.getAttribute("data-an-primitive")
+    ) {
+      return [];
+    }
+    return Array.from(
+      el.querySelectorAll(
+        "path, polygon, ellipse, circle, rect, line, polyline, use",
+      ),
+    ).filter(function (shape) {
+      return !shape.parentElement?.closest(
+        "defs, clipPath, mask, marker, symbol, pattern, linearGradient, radialGradient, filter, foreignObject",
+      );
+    });
+  }
+
   function vectorPaintTarget(el: Element | null): Element | null {
     if (!el || el.tagName.toLowerCase() !== "svg") return null;
     var kind = el.getAttribute("data-an-primitive") || "";
+    if (!kind) {
+      var shapes = vectorPaintShapes(el);
+      return shapes.length === 1 ? shapes[0]! : null;
+    }
     if (kind === "boolean") {
       return el.querySelector(':scope > use[data-an-boolean-result="true"]');
     }
@@ -13981,6 +14222,158 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  // keep in sync with shared/svg-paint-gradient.ts (the source writer's copy).
+  function svgPaintGradientKindForProperty(property: string) {
+    if (property === "--an-vector-fill-gradient") return "fill";
+    if (property === "--an-vector-stroke-gradient") return "stroke";
+    return null;
+  }
+
+  function splitGradientArgs(value: string): string[] {
+    var parts: string[] = [];
+    var depth = 0;
+    var start = 0;
+    for (var index = 0; index < value.length; index += 1) {
+      var char = value[index];
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      else if (char === "," && depth === 0) {
+        parts.push(value.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    parts.push(value.slice(start).trim());
+    return parts.filter(Boolean);
+  }
+
+  function leadingGradientColor(part: string): string | null {
+    var hex = part.match(/^#[0-9a-f]{3,8}\b/i);
+    if (hex) return hex[0];
+    if (/^transparent\b/i.test(part)) return "transparent";
+    if (!/^(?:rgba?|hsla?|color-mix|oklch|oklab|lab|lch|color)\(/i.test(part)) {
+      return null;
+    }
+    var depth = 0;
+    for (var index = 0; index < part.length; index += 1) {
+      if (part[index] === "(") depth += 1;
+      if (part[index] === ")" && --depth === 0) return part.slice(0, index + 1);
+    }
+    return null;
+  }
+
+  function vectorPaintGradientElement(
+    id: string,
+    css: string,
+    viewBox: string | null,
+  ): SVGElement | null {
+    var match = css.trim().match(/^(linear|radial)-gradient\((.*)\)$/is);
+    if (!match) return null;
+    var radial = match[1]!.toLowerCase() === "radial";
+    if (radial && /closest-corner|closest-side/i.test(match[2]!)) return null;
+    var parts = splitGradientArgs(match[2]!);
+    var angle = 180;
+    if (!leadingGradientColor(parts[0] ?? "")) {
+      var degrees = (parts.shift() ?? "").match(/(-?\d+(?:\.\d+)?)deg/);
+      if (degrees) angle = Number(degrees[1]);
+    }
+    var box = (viewBox ?? "")
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    var [x, y, width, height] =
+      box.length === 4 && box.every(Number.isFinite) ? box : [0, 0, 100, 100];
+    var round = function (value: number) {
+      return String(Math.round(value * 1000) / 1000);
+    };
+    var ns = "http://www.w3.org/2000/svg";
+    var paintServer = document.createElementNS(
+      ns,
+      radial ? "radialGradient" : "linearGradient",
+    );
+    var radians = (angle * Math.PI) / 180;
+    var attributes: Record<string, string> = radial
+      ? {
+          id: id,
+          gradientUnits: "userSpaceOnUse",
+          cx: round(x + width / 2),
+          cy: round(y + height / 2),
+          r: round(Math.hypot(width, height) / 2),
+        }
+      : {
+          id: id,
+          gradientUnits: "userSpaceOnUse",
+          x1: round(x + width * (0.5 - Math.sin(radians) / 2)),
+          y1: round(y + height * (0.5 + Math.cos(radians) / 2)),
+          x2: round(x + width * (0.5 + Math.sin(radians) / 2)),
+          y2: round(y + height * (0.5 - Math.cos(radians) / 2)),
+        };
+    Object.keys(attributes).forEach(function (name) {
+      paintServer.setAttribute(name, attributes[name]!);
+    });
+    var stops = 0;
+    parts.forEach(function (part, index) {
+      var color = leadingGradientColor(part);
+      if (!color) return;
+      var position = part.slice(color.length).match(/(-?\d+(?:\.\d+)?)%/);
+      var offset = position
+        ? Number(position[1])
+        : parts.length <= 1
+          ? 0
+          : (index / (parts.length - 1)) * 100;
+      var stop = document.createElementNS(ns, "stop");
+      stop.setAttribute(
+        "offset",
+        round(Math.min(100, Math.max(0, offset))) + "%",
+      );
+      stop.setAttribute(
+        "stop-color",
+        // guard:allow-raw-color — SVG stop for the design's own authored "transparent".
+        color.toLowerCase() === "transparent" ? "rgba(0, 0, 0, 0)" : color,
+      );
+      paintServer.appendChild(stop);
+      stops += 1;
+    });
+    return stops ? paintServer : null;
+  }
+
+  /** Live mirror of code-layer's applySvgPaintGradientEdit. */
+  function applyVectorPaintGradient(
+    el: Element,
+    kind: "fill" | "stroke",
+    value: string,
+  ): boolean {
+    var nodeId = el.getAttribute("data-agent-native-node-id");
+    var shape = vectorPaintTarget(el);
+    if (!nodeId || !shape) return false;
+    var id = nodeId.replace(/[^A-Za-z0-9_-]/g, "-") + "-" + kind + "-gradient";
+    var paintServer =
+      value === "none"
+        ? null
+        : vectorPaintGradientElement(id, value, el.getAttribute("viewBox"));
+    if (value !== "none" && !paintServer) return false;
+    var target = kind === "stroke" ? vectorStrokeTarget(el) || shape : shape;
+    el.querySelectorAll(
+      ':scope > defs[data-an-vector-paint-gradient="' + kind + '"]',
+    ).forEach(function (defs) {
+      defs.remove();
+    });
+    var paintUrl = "url(#" + id + ")";
+    var wrapperStyle = (el as HTMLElement).style;
+    if (!paintServer) {
+      wrapperStyle.removeProperty("--an-vector-" + kind + "-gradient");
+      if (target.getAttribute(kind) === paintUrl) target.removeAttribute(kind);
+      return true;
+    }
+    var defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    defs.setAttribute("data-an-vector-paint-gradient", kind);
+    defs.appendChild(paintServer);
+    el.insertBefore(defs, shape);
+    wrapperStyle.setProperty("--an-vector-" + kind + "-gradient", value);
+    (target as SVGElement).style.removeProperty(kind);
+    target.setAttribute(kind, paintUrl);
+    return true;
+  }
+
   function applyInlineStyleProperty(
     el: HTMLElement | null,
     property: unknown,
@@ -13998,9 +14391,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (cssProperty === "--an-vector-stroke-position") {
       return applyVectorStrokePosition(el, String(value));
     }
+    var gradientKind = svgPaintGradientKindForProperty(cssProperty);
+    if (gradientKind) {
+      return applyVectorPaintGradient(el, gradientKind, String(value).trim());
+    }
     var target: Element = el;
     var strokeOverlay: Element | null = null;
     var useOverlay = false;
+    var importedShapes = isVectorPaintProperty(cssProperty)
+      ? vectorPaintShapes(el)
+      : [];
+    if (cssProperty.indexOf("stroke") === 0) {
+      // keep in sync with code-layer's withImportedSvgNonScalingStroke.
+      importedShapes.forEach(function (shape) {
+        (shape as SVGElement).style.setProperty(
+          "vector-effect",
+          "non-scaling-stroke",
+        );
+      });
+    }
+    if (importedShapes.length > 1) {
+      importedShapes.forEach(function (shape) {
+        (shape as SVGElement).style.setProperty(cssProperty, String(value));
+      });
+      clearVectorWrapperPaint(el);
+      return true;
+    }
     if (isVectorPaintProperty(cssProperty)) {
       var shape = vectorPaintTarget(el);
       if (shape) {
@@ -14124,6 +14540,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeTextEditRange = reusedRange.cloneRange();
       } else if (suspendedTextEditRange?.target === target) {
         suspendedTextEditRange.range = reusedRange.cloneRange();
+        hideSuspendedRangeHighlight(selection);
       }
       return true;
     }
@@ -14145,8 +14562,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeTextEditRange = nextRange.cloneRange();
     } else if (suspendedTextEditRange?.target === target) {
       suspendedTextEditRange.range = nextRange.cloneRange();
+      hideSuspendedRangeHighlight(selection);
     }
     return true;
+  }
+
+  // Figma keeps the range but hides its highlight after a recolour so the new
+  // colour is visible; an unfocused frame would paint it as an opaque block.
+  function hideSuspendedRangeHighlight(selection: Selection): void {
+    selection.removeAllRanges();
   }
 
   // Chromium's execCommand emits legacy <b>/<i>/<u> tags, which persist into
@@ -14680,14 +15104,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
   function eventEpochMilliseconds(
-    ev?: { timeStamp?: number } | null,
+    ev?: { timeStamp?: number; isTrusted?: boolean } | null,
   ): number | undefined {
+    // The host forwards board drags as events built in ITS realm, so their
+    // timeStamp counts from the host's earlier time origin, not this one.
+    // dispatchEvent is synchronous, so "now" is their creation time.
+    if (ev?.isTrusted === false) {
+      return performance.timeOrigin + performance.now();
+    }
     if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
       return undefined;
     }
     return ev.timeStamp >= 1_000_000_000_000
       ? ev.timeStamp
       : performance.timeOrigin + ev.timeStamp;
+  }
+
+  // Inspector X/Y follow the drag before the release commits; `active: false`
+  // hands them back to the authored value once the gesture ends.
+  function postLiveDragPosition(el: Element | null, active: boolean): void {
+    if (!el) return;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:live-drag-position",
+        selector: getSelector(el),
+        active: active,
+        left: (el as HTMLElement).style.left,
+        top: (el as HTMLElement).style.top,
+      },
+      "*",
+    );
   }
 
   function postCrossScreenDrag(
@@ -20931,6 +21377,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
       if (!isGroupDrag) {
         scheduleCrossScreenDragMove(ev);
+        postLiveDragPosition(dragEl, true);
       }
       if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
         cancelAutoLayoutTargetResolution();
@@ -21004,6 +21451,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       positionOverlay(selectionOverlay, selectedEl);
     }
     function cleanupMoveDrag() {
+      if (!isGroupDrag) postLiveDragPosition(dragEl, false);
       cancelAutoLayoutTargetResolution();
       refreshOverlaysGeneration += 1;
       refreshOverlaysScheduled = false;
@@ -21440,6 +21888,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         !outerSvgViewport?.hasAttribute("viewBox"),
       );
       var isSvgViewBoxContent = isInsideScaledSvgViewBox(el);
+      // Typed OM reports the 3px `medium` width even when the style is none;
+      // scaling it would write a stroke weight the layer never had.
+      var kScaleStyle = window.getComputedStyle(el);
+      var outlinePaints = kScaleStyle.outlineStyle !== "none";
+      var borderPaints = [
+        kScaleStyle.borderTopStyle,
+        kScaleStyle.borderRightStyle,
+        kScaleStyle.borderBottomStyle,
+        kScaleStyle.borderLeftStyle,
+      ].some(function (style) {
+        return style !== "none" && style !== "hidden";
+      });
       var borderWidthProperties = [
         "border-top-width",
         "border-right-width",
@@ -21466,6 +21926,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         var property = KSCALE_LENGTH_PROPERTIES[propertyIndex];
         if (isSvgViewBoxContent) continue;
+        if (
+          !outlinePaints &&
+          (property === "outline-width" || property === "outline-offset")
+        ) {
+          continue;
+        }
         if (
           isSvgViewBoxRoot &&
           (property === "font-size" ||
@@ -21506,7 +21972,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         scaledStyles[property] = authoredValue;
       }
 
-      if (!isSvgViewBoxContent) {
+      if (!isSvgViewBoxContent && borderPaints) {
         var borderWidthValues = borderWidthProperties.map(function (property) {
           return typedKScaleValue(el, property, typedStyleMap);
         });
@@ -21656,6 +22122,83 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     return [];
   };
+
+  // The inspector's Scale section: the same K-scale write as a handle drag,
+  // sized by a factor and pinned at an anchor (0, 0.5 or 1 on each axis).
+  function scaleSelectionByFactor(
+    factor: number,
+    anchorX: number,
+    anchorY: number,
+  ): void {
+    if (readOnly || !selectedEl) return;
+    if (isLayerInteractionBlocked(selectedEl)) return;
+    if (!(factor > 0) || factor === 1) return;
+    var el = selectedEl as HTMLElement;
+    refreshLiveVisualEditOriginalStyles(el);
+    ensurePositionable(el);
+    var cs = window.getComputedStyle(el);
+    var width = readPx(cs.width);
+    var height = readPx(cs.height);
+    var nextWidth = width * factor;
+    var nextHeight = height * factor;
+    var styles: Record<string, string> = {
+      left:
+        quantizeToLayoutGrid(
+          readPx(el.style.left || cs.left) - (nextWidth - width) * anchorX,
+        ) + "px",
+      top:
+        quantizeToLayoutGrid(
+          readPx(el.style.top || cs.top) - (nextHeight - height) * anchorY,
+        ) + "px",
+      width: quantizeToLayoutGrid(nextWidth) + "px",
+      height: quantizeToLayoutGrid(nextHeight) + "px",
+    };
+    if (el.style.position) styles.position = el.style.position;
+    var fontSize = readPx(el.style.fontSize || cs.fontSize);
+    var svgViewBoxScalesFont =
+      (el instanceof SVGSVGElement && el.hasAttribute("viewBox")) ||
+      isInsideScaledSvgViewBox(el);
+    if (fontSize > 0 && !svgViewBoxScalesFont) {
+      styles.fontSize =
+        Math.max(1, Math.round(fontSize * factor * 100) / 100) + "px";
+    }
+    var targets = collectKScaleStyleTargets(el, false);
+    Object.keys(styles).forEach(function (property) {
+      (el.style as any)[property] = styles[property];
+    });
+    applyKScaleStyleTargets(targets, factor);
+    var changes = kScaleStyleChanges(targets, factor);
+    var rootSelector = getSelector(el);
+    var rootChange = changes.find(function (change) {
+      return change.selector === rootSelector;
+    });
+    if (rootChange) {
+      rootChange.styles = Object.assign({}, rootChange.styles, styles);
+      rootChange.originalStyles = Object.assign(
+        {},
+        rootChange.originalStyles || {},
+        originalInlineStylesForPatch(el, styles),
+      );
+    } else {
+      changes.unshift({
+        selector: rootSelector,
+        sourceId: getSourceId(el) || undefined,
+        styles: styles,
+        originalStyles: originalInlineStylesForPatch(el, styles),
+        preserveSelection: true,
+      });
+    }
+    (window.parent as Window).postMessage(
+      { type: "visual-style-batch-change", changes: changes },
+      "*",
+    );
+    recordSourceOwnership(el);
+    targets.forEach(function (target) {
+      recordSourceOwnership(target.el);
+    });
+    releaseLiveVisualEditOriginalStyles(el);
+    refreshOverlays();
+  }
 
   function startResize(handle, e) {
     if (readOnly) return;
@@ -22796,12 +23339,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var crossScreenClaimedByHost = false;
   var lastPointerDownTimestamp = 0;
 
+  function isPointerInsideLiveTextEdit(e: Event): boolean {
+    var target = e.target as Node | null;
+    return (
+      !!target &&
+      target.nodeType === 1 &&
+      isTextEditElConnected() &&
+      activeTextEditEl!.contains(target)
+    );
+  }
+
   function beginPotentialShieldDrag(e) {
     // A read-only bridge may still expose passive inspection chrome, but it
     // must never become a document-level interaction blocker. In particular,
     // the host is intentionally below high-z app portals in this mode, so
     // this fallback sees the app's real target and must leave it untouched.
     if (readOnly) return;
+    // Native caret placement and drag/word/line selection need this pointer
+    // gesture's default action.
+    if (isPointerInsideLiveTextEdit(e)) return;
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
     }
@@ -22816,9 +23372,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // whatever this new one turns out to be.
     pendingMoveCommitRevert = null;
     if (e.button !== 0) return;
-    // T23: a stale session self-heals and the drag proceeds; only a LIVE
-    // session (connected element) blocks shield drags.
-    if (activeTextEditEl && !exitStaleTextEditSession()) return;
+    // Presses inside a live edit returned above, so this one is outside it:
+    // commit the edit and let the press select, deselect, or drag (Figma).
+    if (
+      activeTextEditEl &&
+      !exitStaleTextEditSession() &&
+      finishActiveTextEdit
+    ) {
+      finishActiveTextEdit(true);
+    }
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
@@ -23746,29 +24308,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function placeTextCaretFromPoint(target, clientX, clientY) {
-    try {
-      var range = null;
-      if (document.caretRangeFromPoint) {
-        range = document.caretRangeFromPoint(clientX, clientY);
-      } else if (document.caretPositionFromPoint) {
-        var position = document.caretPositionFromPoint(clientX, clientY);
-        if (position) {
-          range = document.createRange();
-          range.setStart(position.offsetNode, position.offset);
-        }
-      }
-      if (!range) {
-        range = document.createRange();
-        range.selectNodeContents(target);
-        range.collapse(false);
-      }
-      var selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-    } catch (err) {
-      collapseSelectionIntoContents(target);
-    }
+  function selectAllTextContents(target: HTMLElement): void {
+    var range = document.createRange();
+    range.selectNodeContents(target);
+    var selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(range);
   }
 
   // T5: elements that must never become contenteditable via the raw-target
@@ -23872,6 +24418,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             selectionContainerScope = previousSelectedElForDescend;
           }
           var descendTarget = containerFirstSelectionTarget(descendHit, true);
+          // Double-clicking a pen vector opens vector edit, which the host
+          // enters through the same path as Enter on its selection.
+          if (
+            descendTarget &&
+            descendTarget.hasAttribute("data-an-pen-nodes")
+          ) {
+            postDesignHotkey({ key: "Enter", code: "Enter" });
+            return;
+          }
           if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
             selectedEl = descendTarget;
             positionOverlay(selectionOverlay, selectedEl);
@@ -24045,10 +24600,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.removeEventListener("input", onInput, true);
       target.removeEventListener("keyup", onKeyUp, true);
       target.removeEventListener("mouseup", onMouseUp, true);
+      target.removeEventListener("mousedown", onMouseDownInSelection, true);
+      target.removeEventListener("dragstart", preventTextDrag, true);
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
+      hideTextCaretOverlay(target);
       document.documentElement.removeAttribute(
         "data-agent-native-empty-text-editing",
       );
@@ -24280,6 +24838,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       scheduleTextEditingChromeUpdate();
     }
 
+    // A press inside selected text would start a native text drag (which can
+    // move the text); a design-tool press starts a new selection there.
+    function onMouseDownInSelection(ev: MouseEvent) {
+      if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
+      var selection = window.getSelection ? window.getSelection() : null;
+      if (!selection || selection.isCollapsed) return;
+      var point = document.caretRangeFromPoint
+        ? document.caretRangeFromPoint(ev.clientX, ev.clientY)
+        : null;
+      if (!point || !rangeBelongsToElement(point, target)) return;
+      selection.removeAllRanges();
+      selection.addRange(point);
+    }
+
+    function preventTextDrag(ev: DragEvent) {
+      ev.preventDefault();
+    }
+
     function onMouseUp() {
       captureActiveTextEditRange(target);
       clearActiveTextEditRangeIfCollapsed(target);
@@ -24292,6 +24868,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target.addEventListener("input", onInput, true);
     target.addEventListener("keyup", onKeyUp, true);
     target.addEventListener("mouseup", onMouseUp, true);
+    target.addEventListener("mousedown", onMouseDownInSelection, true);
+    target.addEventListener("dragstart", preventTextDrag, true);
     document.addEventListener("selectionchange", onSelectionChange);
     window.addEventListener("blur", onWindowBlur, true);
     target.focus();
@@ -24310,7 +24888,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // editable node. Collapse to the end of the target's own contents instead.
       collapseSelectionIntoContents(target);
     } else {
-      placeTextCaretFromPoint(target, e.clientX, e.clientY);
+      selectAllTextContents(target);
     }
     captureActiveTextEditRange(target);
     postTextEditingState(target, true);
@@ -25230,6 +25808,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // bridgeSpaceKeyPressed on every move/commit tick, so this has the
       // same effect as this document's own keydown/keyup listener seeing it.
       bridgeSpaceKeyPressed = Boolean(e.data.held);
+      return;
+    }
+    if (e.data.type === "agent-native:scale-selection") {
+      if (!selectedEl || getSelector(selectedEl) !== e.data.selector) return;
+      scaleSelectionByFactor(
+        Number(e.data.factor),
+        Number(e.data.anchorX),
+        Number(e.data.anchorY),
+      );
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {
@@ -26332,19 +26919,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       styleChangeTargetsActiveTextEdit &&
       applyTextRangeStyle(prop, val)
     ) {
-      postTextContentChange(
-        textEditStyleTarget,
-        textEditStyleTarget!.textContent || "",
-        textEditStyleTarget!.innerHTML || "",
-        undefined,
-        undefined,
-      );
-      postTextEditingState(
-        textEditStyleTarget,
-        !!activeTextEditEl,
-        textEditStyleSelector,
-        true,
-      );
+      // A drag previews every tick; only its commit becomes a source write,
+      // or a queue of stale writes echoes back over the live range.
+      if (e.data.phase !== "preview") {
+        postTextContentChange(
+          textEditStyleTarget,
+          textEditStyleTarget!.textContent || "",
+          textEditStyleTarget!.innerHTML || "",
+          undefined,
+          undefined,
+        );
+        postTextEditingState(
+          textEditStyleTarget,
+          !!activeTextEditEl,
+          textEditStyleSelector,
+          true,
+        );
+      }
       refreshOverlays();
       return;
     }
