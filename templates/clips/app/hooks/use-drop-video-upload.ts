@@ -28,6 +28,11 @@ export interface DropUploadItem {
   recordingId?: string;
 }
 
+type QueuedDropUpload = {
+  file: File;
+  scope: { spaceId?: string | null; folderId?: string | null };
+};
+
 function defaultTitleFor(file: File): string {
   return file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle();
 }
@@ -46,8 +51,6 @@ export function useDropVideoUpload(scope: {
   const t = useT();
   const queryClient = useQueryClient();
   const [uploads, setUploads] = useState<DropUploadItem[]>([]);
-  const scopeRef = useRef(scope);
-  scopeRef.current = scope;
 
   const invalidateRecordings = useCallback(
     () =>
@@ -60,7 +63,10 @@ export function useDropVideoUpload(scope: {
   );
 
   const uploadOne = useCallback(
-    async (file: File) => {
+    async (
+      file: File,
+      scope: { spaceId?: string | null; folderId?: string | null },
+    ) => {
       const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
       setUploads((prev) => [
         ...prev,
@@ -96,7 +102,7 @@ export function useDropVideoUpload(scope: {
       const abort = new AbortController();
       try {
         const meta = await probeVideoMetadata(file);
-        const { spaceId, folderId } = scopeRef.current;
+        const { spaceId, folderId } = scope;
 
         const created = (await callAction(
           "create-recording" as any,
@@ -285,7 +291,7 @@ export function useDropVideoUpload(scope: {
     [invalidateRecordings, t],
   );
 
-  const fileQueueRef = useRef<File[]>([]);
+  const fileQueueRef = useRef<QueuedDropUpload[]>([]);
   const drainingQueueRef = useRef(false);
   // ponytail: one file at a time bounds upload pressure; allow multiple files when measured throughput needs it.
   const drainFileQueue = useCallback(async () => {
@@ -293,8 +299,8 @@ export function useDropVideoUpload(scope: {
     drainingQueueRef.current = true;
     try {
       while (fileQueueRef.current.length > 0) {
-        const file = fileQueueRef.current.shift();
-        if (file) await uploadOne(file);
+        const item = fileQueueRef.current.shift();
+        if (item) await uploadOne(item.file, item.scope);
       }
     } catch (error) {
       toast.error(t("recordRoute.uploadFailed"), {
@@ -310,10 +316,16 @@ export function useDropVideoUpload(scope: {
   }, [t, uploadOne]);
   const uploadFiles = useCallback(
     (files: Iterable<File>) => {
-      fileQueueRef.current.push(...files);
+      const uploadScope = {
+        spaceId: scope.spaceId,
+        folderId: scope.folderId,
+      };
+      fileQueueRef.current.push(
+        ...Array.from(files, (file) => ({ file, scope: uploadScope })),
+      );
       void drainFileQueue();
     },
-    [drainFileQueue],
+    [drainFileQueue, scope.folderId, scope.spaceId],
   );
 
   return { uploads, uploadFiles };

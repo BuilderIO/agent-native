@@ -55,8 +55,12 @@ let container: HTMLDivElement;
 let root: Root;
 let uploadFiles: (files: Iterable<File>) => void;
 
-function Probe() {
-  uploadFiles = useDropVideoUpload({}).uploadFiles;
+function Probe({
+  scope = {},
+}: {
+  scope?: { spaceId?: string | null; folderId?: string | null };
+}) {
+  uploadFiles = useDropVideoUpload(scope).uploadFiles;
   return null;
 }
 
@@ -118,5 +122,69 @@ describe("useDropVideoUpload", () => {
       expect(mocks.toast.success).toHaveBeenCalledTimes(2),
     );
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the drop scope when navigation happens during metadata probing", async () => {
+    let finishMetadata!: (metadata: {
+      durationMs: number;
+      width: number;
+      height: number;
+    }) => void;
+    const metadata = new Promise<{
+      durationMs: number;
+      width: number;
+      height: number;
+    }>((resolve) => {
+      finishMetadata = resolve;
+    });
+    mocks.callAction.mockImplementation(async () => ({
+      id: `recording-${mocks.callAction.mock.calls.length}`,
+      uploadChunkUrl: "/api/uploads/chunk",
+    }));
+    mocks.probeVideoMetadata.mockReturnValue(metadata);
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+    mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+    mocks.invalidateQueries.mockResolvedValue(undefined);
+    mocks.uploadChunkRequest.mockImplementation(
+      async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() =>
+      root.render(
+        <Probe scope={{ spaceId: "space-a", folderId: "folder-a" }} />,
+      ),
+    );
+    act(() =>
+      uploadFiles([
+        new File(["first"], "first.mp4", { type: "video/mp4" }),
+        new File(["second"], "second.mp4", { type: "video/mp4" }),
+      ]),
+    );
+
+    await vi.waitFor(() => expect(mocks.probeVideoMetadata).toHaveBeenCalled());
+    act(() =>
+      root.render(
+        <Probe scope={{ spaceId: "space-b", folderId: "folder-b" }} />,
+      ),
+    );
+    await act(async () => {
+      finishMetadata({ durationMs: 1000, width: 640, height: 480 });
+    });
+
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(2));
+    expect(
+      mocks.callAction.mock.calls.map(([, input]) => {
+        const scope = input as { spaceIds?: string[]; folderId?: string };
+        return { spaceIds: scope.spaceIds, folderId: scope.folderId };
+      }),
+    ).toEqual([
+      { spaceIds: ["space-a"], folderId: "folder-a" },
+      { spaceIds: ["space-a"], folderId: "folder-a" },
+    ]);
+    await vi.waitFor(() =>
+      expect(mocks.toast.success).toHaveBeenCalledTimes(2),
+    );
   });
 });
