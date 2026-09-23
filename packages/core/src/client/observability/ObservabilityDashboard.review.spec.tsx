@@ -34,6 +34,24 @@ vi.mock("./useObservability.js", () => ({
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
   useOutputReviews: () => mockOutputReviews(),
+  useOutputReviewApp: (runId: string | null) => ({
+    data:
+      runId === "run-2"
+        ? {
+            serverId: "slides",
+            toolName: "render",
+            originalToolName: "render",
+            resourceUri: "ui://slides/render",
+            toolInput: {},
+            toolResult: {},
+            resource: {
+              uri: "ui://slides/render",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<html><body>Saved slide preview</body></html>",
+            },
+          }
+        : undefined,
+  }),
   useSaveInstructionUpdate: () => ({
     mutate: mockSaveInstructionUpdate,
     isPending: false,
@@ -92,19 +110,8 @@ describe("ObservabilityDashboard human review", () => {
           createdAt: Date.now() - 1,
           feedback: [],
           instructionUpdate: null,
-          inlineApp: {
-            serverId: "slides",
-            toolName: "render",
-            originalToolName: "render",
-            resourceUri: "ui://slides/render",
-            toolInput: {},
-            toolResult: {},
-            resource: {
-              uri: "ui://slides/render",
-              mimeType: "text/html;profile=mcp-app",
-              text: "<html><body>Saved slide preview</body></html>",
-            },
-          },
+          hasInlineApp: true,
+          inlineAppTitle: "render",
         },
       ],
     });
@@ -233,7 +240,7 @@ describe("ObservabilityDashboard human review", () => {
     const secondFeedbackInput =
       document.body.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="What should change or stay the same?"]',
-    );
+      );
     expect(secondFeedbackInput?.value).toBe("");
     await act(async () =>
       dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
@@ -266,5 +273,120 @@ describe("ObservabilityDashboard human review", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("keeps a newer row's drafts open when an earlier save completes", async () => {
+    let finishFeedbackA: (() => void) | undefined;
+    let finishInstructionA: (() => void) | undefined;
+    mockSubmitFeedback.mockImplementation((_input, callbacks) => {
+      finishFeedbackA = () => callbacks?.onSuccess?.();
+    });
+    mockSaveInstructionUpdate.mockImplementation((_input, callbacks) => {
+      finishInstructionA = () => callbacks?.onSuccess?.();
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+
+    const openRun = async (runId: string) => {
+      const closeButton = document.body.querySelector<HTMLButtonElement>(
+        '[role="dialog"] [aria-label="Close"]',
+      );
+      if (closeButton) {
+        await act(async () => closeButton.click());
+      }
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(`[data-review-run-id="${runId}"]`)
+          ?.click();
+      });
+    };
+    const setText = async (input: HTMLTextAreaElement, value: string) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          "value",
+        )?.set;
+        setter?.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
+        ?.click(),
+    );
+    let input = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="What should change or stay the same?"]',
+    );
+    expect(input).not.toBeNull();
+    await setText(input!, "Feedback for A");
+    await act(async () => {
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Save feedback"))
+        ?.click();
+    });
+
+    await openRun("run-2");
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
+        ?.click(),
+    );
+    input = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="What should change or stay the same?"]',
+    );
+    expect(input).not.toBeNull();
+    await setText(input!, "Feedback for B");
+    await act(async () => finishFeedbackA?.());
+    expect(input?.value).toBe("Feedback for B");
+
+    await openRun("run-1");
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
+        ?.click(),
+    );
+    input = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Write the instruction change for a human to review."]',
+    );
+    expect(input).not.toBeNull();
+    await setText(input!, "Instruction for A");
+    await act(async () => {
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Save draft update"))
+        ?.click();
+    });
+
+    await openRun("run-2");
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
+        ?.click(),
+    );
+    input = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Write the instruction change for a human to review."]',
+    );
+    expect(input).not.toBeNull();
+    await setText(input!, "Instruction for B");
+    await act(async () => finishInstructionA?.());
+    expect(input?.value).toBe("Instruction for B");
   });
 });

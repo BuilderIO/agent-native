@@ -14,6 +14,7 @@ import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
   buildMcpAppCsp,
   clampMcpAppHeight,
+  createReadOnlyMcpAppSrcDoc,
   DEFAULT_MCP_APP_IFRAME_HEIGHT,
   isMcpAppReadyMessage,
   MCP_APP_INITIALIZE_TIMEOUT_MS,
@@ -202,9 +203,10 @@ describe("McpAppRenderer security helpers", () => {
     );
   });
 
-  it("replays saved MCP Apps without granting network, tool, or navigation access", async () => {
+  it("renders saved app markup as a sanitized non-scripted snapshot", async () => {
     const payload = mcpAppPayload({
-      resourceHtml: "<!doctype html><html><body>Saved app</body></html>",
+      resourceHtml:
+        '<!doctype html><script>window.leak = true</script><html><head><meta http-equiv="refresh" content="0;url=https://tracker.example"></head><body onload="window.leak = true"><a href="https://tracker.example">Saved app</a><img src="https://tracker.example/image.png"></body></html>',
       openUrl: "https://plan.agent-native.com/plans/plan-123",
     });
     payload.resource!._meta = {
@@ -221,10 +223,30 @@ describe("McpAppRenderer security helpers", () => {
     });
 
     const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toBe("");
     expect(iframe?.srcdoc).toContain("connect-src 'none'");
+    expect(iframe?.srcdoc).toContain("script-src 'none'");
+    expect(iframe?.srcdoc).toContain("navigate-to 'none'");
+    expect(iframe?.srcdoc?.indexOf("Content-Security-Policy")).toBeLessThan(
+      iframe?.srcdoc?.indexOf("<body") ?? -1,
+    );
+    expect(iframe?.srcdoc).toContain("Saved app");
+    expect(iframe?.srcdoc).not.toContain("window.leak");
+    expect(iframe?.srcdoc).not.toContain("tracker.example");
     expect(iframe?.srcdoc).not.toContain("untrusted-cdn.example.com");
     expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("places the read-only policy before any replayed markup", () => {
+    const srcDoc = createReadOnlyMcpAppSrcDoc(
+      "<script>window.early = true</script><p>Replay</p>",
+    );
+
+    expect(srcDoc.indexOf("Content-Security-Policy")).toBeLessThan(
+      srcDoc.indexOf("<body"),
+    );
+    expect(srcDoc).not.toContain("window.early");
+    expect(srcDoc).toContain("Replay");
   });
 });
 

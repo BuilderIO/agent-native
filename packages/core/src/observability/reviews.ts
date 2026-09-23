@@ -3,14 +3,17 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import {
   getFeedback,
   getInstructionUpdates,
+  getTraceSummary,
   getTraceSummaries,
 } from "./store.js";
 import type {
   FeedbackEntry,
   InstructionUpdate,
-  OutputReviewRow,
+  OutputReviewListRow,
   TraceSummary,
 } from "./types.js";
+
+const MAX_INLINE_APP_TITLE_LENGTH = 120;
 
 function unwrapMessage(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -170,11 +173,44 @@ function askAndAnswer(
   };
 }
 
+function inlineAppTitle(app: AgentMcpAppPayload): string | undefined {
+  const title =
+    app.tool?.title?.trim() || app.tool?.name?.trim() || app.toolName.trim();
+  return title ? title.slice(0, MAX_INLINE_APP_TITLE_LENGTH) : undefined;
+}
+
+function getInlineAppForRun(
+  summary: TraceSummary,
+  threadData: string | null,
+): AgentMcpAppPayload | null {
+  return askAndAnswer(summary, threadData).inlineApp ?? null;
+}
+
+export async function getOutputReviewAppForRun(opts: {
+  runId: string;
+  userId: string;
+}): Promise<
+  { found: false } | { found: true; app: AgentMcpAppPayload | null }
+> {
+  const summary = await getTraceSummary(opts.runId, { userId: opts.userId });
+  if (!summary) return { found: false };
+  if (!summary.threadId) return { found: true, app: null };
+
+  const threads = await resolveThreadsAccess(opts.userId, [summary.threadId]);
+  const thread = threads.get(summary.threadId);
+  if (!thread) return { found: false };
+
+  return {
+    found: true,
+    app: getInlineAppForRun(summary, thread.threadData ?? null),
+  };
+}
+
 export async function listOutputReviews(opts: {
   sinceMs: number;
   limit: number;
   userId: string;
-}): Promise<OutputReviewRow[]> {
+}): Promise<OutputReviewListRow[]> {
   const summaries = await getTraceSummaries({
     sinceMs: opts.sinceMs,
     limit: opts.limit,
@@ -213,19 +249,21 @@ export async function listOutputReviews(opts: {
         summary,
         thread?.threadData ?? null,
       );
+      const title = inlineApp ? inlineAppTitle(inlineApp) : undefined;
       return {
         runId: summary.runId,
         threadId: summary.threadId,
         ask,
         answer,
-        ...(inlineApp ? { inlineApp } : {}),
+        hasInlineApp: Boolean(inlineApp),
+        ...(title ? { inlineAppTitle: title } : {}),
         model: summary.model,
         createdAt: summary.createdAt,
         feedback: feedbackByRun.get(summary.runId) ?? [],
         instructionUpdate: updateByRun.get(summary.runId) ?? null,
-      } satisfies OutputReviewRow;
+      } satisfies OutputReviewListRow;
     })
-    .filter((row): row is OutputReviewRow => row !== null);
+    .filter((row): row is OutputReviewListRow => row !== null);
 }
 
 function groupByRun(entries: FeedbackEntry[]): Map<string, FeedbackEntry[]> {

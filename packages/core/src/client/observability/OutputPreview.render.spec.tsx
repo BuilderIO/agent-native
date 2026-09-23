@@ -88,9 +88,7 @@ describe("OutputPreview saved MCP Apps", () => {
       );
     });
 
-    expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe(
-      "allow-scripts",
-    );
+    expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
     expect(container.querySelector("iframe")?.style.maxHeight).toBe("420px");
     expect(container.querySelector("iframe")?.srcdoc).toContain("Saved design");
     expect(
@@ -125,6 +123,59 @@ describe("OutputPreview saved MCP Apps", () => {
     expect(
       container.querySelector('[data-preview-kind="app-thumbnail"]'),
     ).not.toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("prefers an app thumbnail over answer text in compact mode", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="A saved answer"
+          compact
+          inlineAppTitle="Design preview"
+          previewLabel="Agent output"
+          inlineApp={{
+            serverId: "design",
+            toolName: "render",
+            originalToolName: "render",
+            resourceUri: "ui://design",
+            toolInput: {},
+            toolResult: {},
+            resource: {
+              uri: "ui://design",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<html><body>Saved design</body></html>",
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-preview-kind="app-thumbnail"]')
+        ?.textContent,
+    ).toBe("Design preview");
+    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("shows a descriptor-only app thumbnail over answer text", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="A saved answer"
+          compact
+          inlineAppTitle="Slides deck"
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-preview-kind="app-thumbnail"]')
+        ?.textContent,
+    ).toBe("Slides deck");
+    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
     expect(container.querySelector("iframe")).toBeNull();
   });
 

@@ -307,12 +307,14 @@ export function OutputPreview({
   answer,
   previewLabel,
   inlineApp,
+  inlineAppTitle,
   compact = false,
   maxAppHeight,
 }: {
   answer: string;
   previewLabel: string;
   inlineApp?: AgentMcpAppPayload;
+  inlineAppTitle?: string;
   compact?: boolean;
   maxAppHeight?: number;
 }) {
@@ -336,7 +338,7 @@ export function OutputPreview({
 
   const contentClassName = "text-sm text-foreground";
 
-  if (compact && inlineApp && !answer.trim()) {
+  if (compact && (inlineApp || inlineAppTitle)) {
     return (
       <div
         aria-label={previewLabel}
@@ -345,7 +347,10 @@ export function OutputPreview({
         role="img"
       >
         <span className="truncate text-[10px] font-medium text-foreground">
-          {inlineApp.tool?.title ?? inlineApp.tool?.name ?? inlineApp.toolName}
+          {inlineAppTitle ??
+            inlineApp?.tool?.title ??
+            inlineApp?.tool?.name ??
+            inlineApp?.toolName}
         </span>
       </div>
     );

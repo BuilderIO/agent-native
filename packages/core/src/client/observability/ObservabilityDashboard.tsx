@@ -46,6 +46,7 @@ import {
   useExperimentDetail,
   useExperimentResults,
   useOutputReviews,
+  useOutputReviewApp,
   useSaveInstructionUpdate,
   useSubmitFeedback,
   type TraceSummary,
@@ -725,9 +726,16 @@ function ReviewTab({ days }: { days: number }) {
     runId: string;
     value: string;
   } | null>(null);
-  const [instruction, setInstruction] = useState("");
-  const [target, setTarget] = useState<"agent" | "developer" | "skill">(
-    "agent",
+  const [instructionDraft, setInstructionDraft] = useState<{
+    runId: string;
+    value: string;
+    target: "agent" | "developer" | "skill";
+  } | null>(null);
+  const selectedReview = reviews?.find(
+    (review) => review.runId === selectedRunId,
+  );
+  const reviewAppQuery = useOutputReviewApp(
+    selectedReview?.hasInlineApp ? selectedReview.runId : null,
   );
 
   if (isLoading) return <LoadingState />;
@@ -768,9 +776,15 @@ function ReviewTab({ days }: { days: number }) {
       {
         onSuccess: () => {
           setFeedbackNote((current) =>
-            current?.runId === runId ? null : current,
+            current?.runId === runId && current.value.trim() === note
+              ? null
+              : current,
           );
-          setOpenPopover(null);
+          setOpenPopover((current) =>
+            current?.runId === runId && current.kind === "feedback"
+              ? null
+              : current,
+          );
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-observability-reviews"],
           });
@@ -780,19 +794,32 @@ function ReviewTab({ days }: { days: number }) {
   };
 
   const saveInstruction = (runId: string, threadId: string | null) => {
-    if (!instruction.trim()) return;
+    const draft =
+      instructionDraft?.runId === runId ? instructionDraft : undefined;
+    if (!draft) return;
+    const savedInstruction = draft.value.trim();
+    if (!savedInstruction) return;
     instructionMutation.mutate(
       {
         runId,
         threadId,
-        target,
-        instruction: instruction.trim(),
+        target: draft.target,
+        instruction: savedInstruction,
       },
       {
         onSuccess: () => {
-          setInstruction("");
-          setOpenPopover(null);
-          setTarget("agent");
+          setInstructionDraft((current) =>
+            current?.runId === runId &&
+            current.value.trim() === savedInstruction &&
+            current.target === draft.target
+              ? null
+              : current,
+          );
+          setOpenPopover((current) =>
+            current?.runId === runId && current.kind === "instruction"
+              ? null
+              : current,
+          );
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-observability-reviews"],
           });
@@ -801,9 +828,6 @@ function ReviewTab({ days }: { days: number }) {
     );
   };
 
-  const selectedReview = reviews.find(
-    (review) => review.runId === selectedRunId,
-  );
   const selectedVote = selectedReview?.feedback.find(
     (entry) =>
       entry.feedbackType === "thumbs_up" ||
@@ -820,6 +844,14 @@ function ReviewTab({ days }: { days: number }) {
     selectedReview !== undefined &&
     openPopover?.runId === selectedReview.runId &&
     openPopover.kind === "instruction";
+  const activeInstructionDraft =
+    selectedReview && instructionDraft?.runId === selectedReview.runId
+      ? instructionDraft
+      : {
+          runId: selectedReview?.runId ?? "",
+          value: "",
+          target: "agent" as const,
+        };
 
   return (
     <>
@@ -835,7 +867,7 @@ function ReviewTab({ days }: { days: number }) {
             <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
               <OutputPreview
                 answer={review.answer}
-                inlineApp={review.inlineApp}
+                inlineAppTitle={review.inlineAppTitle}
                 previewLabel={t("observability.reviewPreview")}
                 compact
               />
@@ -860,10 +892,14 @@ function ReviewTab({ days }: { days: number }) {
         open={Boolean(selectedReview)}
         onOpenChange={(open) => {
           if (open) return;
+          const closingRunId = selectedRunId;
           setSelectedRunId(null);
-          setOpenPopover(null);
-          setInstruction("");
-          setTarget("agent");
+          setOpenPopover((current) =>
+            current?.runId === closingRunId ? null : current,
+          );
+          setInstructionDraft((current) =>
+            current?.runId === closingRunId ? null : current,
+          );
         }}
       >
         {selectedReview && (
@@ -883,7 +919,7 @@ function ReviewTab({ days }: { days: number }) {
               <div className="min-w-0 max-w-full overflow-hidden">
                 <OutputPreview
                   answer={selectedReview.answer}
-                  inlineApp={selectedReview.inlineApp}
+                  inlineApp={reviewAppQuery.data ?? undefined}
                   maxAppHeight={420}
                   previewLabel={t("observability.reviewPreview")}
                 />
@@ -1020,7 +1056,17 @@ function ReviewTab({ days }: { days: number }) {
               <Popover
                 open={instructionOpen}
                 onOpenChange={(open) => {
-                  if (open) setInstruction("");
+                  if (open) {
+                    setInstructionDraft((current) =>
+                      current?.runId === selectedReview.runId
+                        ? current
+                        : {
+                            runId: selectedReview.runId,
+                            value: "",
+                            target: "agent",
+                          },
+                    );
+                  }
                   setOpenPopover((current) => {
                     if (open) {
                       return {
@@ -1057,9 +1103,13 @@ function ReviewTab({ days }: { days: number }) {
                     {t("observability.draftNotice")}
                   </p>
                   <select
-                    value={target}
+                    value={activeInstructionDraft.target}
                     onChange={(event) =>
-                      setTarget(event.target.value as typeof target)
+                      setInstructionDraft({
+                        ...activeInstructionDraft,
+                        target: event.target
+                          .value as typeof activeInstructionDraft.target,
+                      })
                     }
                     className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground"
                     aria-label={t("observability.instructionTarget")}
@@ -1075,8 +1125,13 @@ function ReviewTab({ days }: { days: number }) {
                     </option>
                   </select>
                   <textarea
-                    value={instruction}
-                    onChange={(event) => setInstruction(event.target.value)}
+                    value={activeInstructionDraft.value}
+                    onChange={(event) =>
+                      setInstructionDraft({
+                        ...activeInstructionDraft,
+                        value: event.target.value,
+                      })
+                    }
                     rows={4}
                     className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                     placeholder={t("observability.instructionPlaceholder")}
@@ -1090,7 +1145,8 @@ function ReviewTab({ days }: { days: number }) {
                       )
                     }
                     disabled={
-                      !instruction.trim() || instructionMutation.isPending
+                      !activeInstructionDraft.value.trim() ||
+                      instructionMutation.isPending
                     }
                     className="mt-2 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
                   >

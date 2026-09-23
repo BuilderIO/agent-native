@@ -87,8 +87,13 @@ export function McpAppRenderer({
   const appCsp = readOnly ? undefined : uiMeta.csp;
   const csp = buildMcpAppCsp(appCsp);
   const srcDoc = useMemo(
-    () => (resourceHtml ? injectCsp(resourceHtml, csp) : ""),
-    [resourceHtml, csp],
+    () =>
+      resourceHtml
+        ? readOnly
+          ? createReadOnlyMcpAppSrcDoc(resourceHtml)
+          : injectCsp(resourceHtml, csp)
+        : "",
+    [readOnly, resourceHtml, csp],
   );
   const externalOpenUrl = useMemo(() => openUrlFromMcpApp(app), [app]);
 
@@ -203,6 +208,7 @@ export function McpAppRenderer({
   }, [markReady, srcDoc]);
 
   useBrowserLayoutEffect(() => {
+    if (readOnly) return;
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !srcDoc) return;
 
@@ -366,6 +372,23 @@ export function McpAppRenderer({
     );
   }
 
+  if (readOnly) {
+    return (
+      <div className={cn("agent-mcp-app", className)}>
+        <iframe
+          ref={iframeRef}
+          title={app.tool?.title ?? app.originalToolName}
+          srcDoc={srcDoc}
+          sandbox=""
+          style={{
+            height,
+            ...(finitePositiveNumber(maxHeight) ? { maxHeight } : {}),
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -403,7 +426,7 @@ export function McpAppRenderer({
         ref={iframeRef}
         title={app.tool?.title ?? app.originalToolName}
         srcDoc={srcDoc}
-        sandbox={readOnly ? "allow-scripts" : SANDBOX_FLAGS}
+        sandbox={SANDBOX_FLAGS}
         allow={buildAllowAttribute(supportedPermissions)}
         style={{
           height,
@@ -585,6 +608,64 @@ export function buildMcpAppCsp(csp: McpUiResourceCsp | undefined): string {
     `script-src 'unsafe-inline'${resources.length ? ` ${resources.join(" ")}` : ""}`,
     `frame-src ${frames.length ? frames.join(" ") : "'none'"}`,
   ].join("; ");
+}
+
+const READ_ONLY_MCP_APP_CSP = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "connect-src 'none'",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "img-src data: blob:",
+  "media-src data: blob:",
+  "font-src data:",
+  "object-src 'none'",
+  "script-src 'none'",
+  "style-src 'unsafe-inline'",
+  "navigate-to 'none'",
+].join("; ");
+
+export function createReadOnlyMcpAppSrcDoc(html: string): string {
+  const sanitizedHtml = sanitizeReadOnlyMcpAppHtml(html);
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(READ_ONLY_MCP_APP_CSP)}">`;
+  return `<!doctype html><html><head>${policy}</head><body>${sanitizedHtml}</body></html>`;
+}
+
+function sanitizeReadOnlyMcpAppHtml(html: string): string {
+  if (typeof DOMParser === "undefined") return "";
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const inlineStyles = Array.from(document.head.querySelectorAll("style"))
+    .map((style) => style.outerHTML)
+    .join("");
+  document
+    .querySelectorAll(
+      "script, iframe, frame, object, embed, form, base, meta, link",
+    )
+    .forEach((element) => element.remove());
+  document.body.querySelectorAll("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      if (
+        name.startsWith("on") ||
+        [
+          "action",
+          "formaction",
+          "href",
+          "srcdoc",
+          "srcset",
+          "xlink:href",
+        ].includes(name)
+      ) {
+        element.removeAttribute(attribute.name);
+      } else if (
+        name === "src" &&
+        !/^(?:data:|blob:)/i.test(attribute.value.trim())
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  return `${inlineStyles}${document.body.innerHTML}`;
 }
 
 function sanitizeCspSources(values: string[] | undefined): string[] {
