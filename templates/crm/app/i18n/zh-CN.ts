@@ -579,6 +579,17 @@ const messages = {
     evaluatedThroughAsk: "通过 Ask CRM 评估。",
   },
   recordActions: {
+    reviewDuplicates: "检查重复记录",
+    duplicateReviewTitle: "可能重复的记录",
+    duplicateReviewDescription:
+      "检查此记录与可访问的候选记录。运行 Jev 会将最多五条候选记录的名称和匹配信号发送给 TypeSafe。概率仅供参考，合并仍需单独审核。",
+    duplicateReviewRun: "检查重复记录",
+    duplicateReviewLoading: "检查中…",
+    duplicateReviewFailed: "无法完成重复记录检查。",
+    duplicateReviewEmpty: "未发现可能重复的记录。",
+    duplicateRuleConfidence: "规则匹配度：{{percent}}%",
+    duplicateJevProbability: "Jev 同一实体概率：{{percent}}%",
+    duplicateMatchedOn: "匹配依据：{{values}}",
     evidenceAttached: "已附加通话证据。",
     evidenceAttachFailed: "无法附加证据。",
     addEvidence: "添加证据",

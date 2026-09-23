@@ -614,6 +614,19 @@ const messages = {
     evaluatedThroughAsk: "Über Ask CRM ausgewertet.",
   },
   recordActions: {
+    reviewDuplicates: "Duplikate prüfen",
+    duplicateReviewTitle: "Mögliche doppelte Datensätze",
+    duplicateReviewDescription:
+      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Jev sendet Namen und Treffermerkmale von höchstens fünf Kandidaten an TypeSafe. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
+    duplicateReviewRun: "Duplikate suchen",
+    duplicateReviewLoading: "Prüfung läuft…",
+    duplicateReviewFailed:
+      "Die Duplikatprüfung konnte nicht abgeschlossen werden.",
+    duplicateReviewEmpty: "Keine wahrscheinlichen Duplikate gefunden.",
+    duplicateRuleConfidence: "Regelbasierte Übereinstimmung: {{percent}} %",
+    duplicateJevProbability:
+      "Jev-Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
+    duplicateMatchedOn: "Treffermerkmale: {{values}}",
     evidenceAttached: "Anrufbeleg angehängt.",
     evidenceAttachFailed: "Beleg konnte nicht angehängt werden.",
     addEvidence: "Beleg hinzufügen",

@@ -72,6 +72,71 @@ describe("preloadJevTools", () => {
     expect(systemOne).not.toHaveBeenCalled();
   });
 
+  it("keeps curated tools when even the only deferred tool is irrelevant", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_tool: {
+          choice: "__no_match__",
+          probabilities: { __no_match__: 0.95, "search-customers": 0.05 },
+        },
+      },
+    });
+    const initialTools = [tool("tool-search", "Find tools")];
+
+    const result = await preloadJevTools({
+      apiKey: "jev-test-key",
+      request: "Write a poem",
+      registry: { "search-customers": action("Search customer records") },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+      ],
+    });
+
+    expect(result).toBe(initialTools);
+    expect(systemOne).toHaveBeenCalledTimes(1);
+    expect(
+      systemOne.mock.calls[0][0].questions.best_tool.criteria,
+    ).toHaveProperty("__no_match__");
+  });
+
+  it("prefetches only candidates more likely than no match", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_tool: {
+          choice: "search-customers",
+          probabilities: {
+            "search-customers": 0.6,
+            __no_match__: 0.3,
+            "send-email": 0.1,
+          },
+        },
+      },
+    });
+    const initialTools = [tool("tool-search", "Find tools")];
+
+    const result = await preloadJevTools({
+      apiKey: "jev-test-key",
+      request: "Find a customer record",
+      registry: {
+        "search-customers": action("Search customer records"),
+        "send-email": action("Send an email"),
+      },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+        tool("send-email", "Send an email"),
+      ],
+    });
+
+    expect(result.map((item) => item.name)).toEqual([
+      "search-customers",
+      "tool-search",
+    ]);
+  });
+
   it("prefetches tools through the Builder proxy without a direct key", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
     vi.stubGlobal(
@@ -82,7 +147,11 @@ describe("preloadJevTools", () => {
             answers: {
               best_tool: {
                 choice: "search-customers",
-                probabilities: { "search-customers": 0.9, "send-email": 0.1 },
+                probabilities: {
+                  "search-customers": 0.9,
+                  "send-email": 0.1,
+                  __no_match__: 0,
+                },
               },
             },
           }),
@@ -125,6 +194,7 @@ describe("preloadJevTools", () => {
             "search-crm": 0.7,
             "send-email": 0.2,
             "create-task": 0.1,
+            __no_match__: 0,
           },
         },
       },
@@ -198,7 +268,11 @@ describe("preloadJevTools", () => {
               best_tool: {
                 type: "choice",
                 choice: "search-crm",
-                probabilities: { "search-crm": 0.9, "send-email": 0.1 },
+                probabilities: {
+                  "search-crm": 0.9,
+                  "send-email": 0.1,
+                  __no_match__: 0,
+                },
                 confidence: 0.9,
               },
             },
@@ -253,7 +327,11 @@ describe("preloadJevTools", () => {
             answers: {
               best_tool: {
                 choice: "search-crm",
-                probabilities: { "search-crm": 0.8, "send-email": 0.2 },
+                probabilities: {
+                  "search-crm": 0.8,
+                  "send-email": 0.2,
+                  __no_match__: 0,
+                },
               },
             },
           }),
@@ -289,7 +367,11 @@ describe("preloadJevTools", () => {
       answers: {
         best_context: {
           choice: "context-1",
-          probabilities: { "context-1": 0.9, "context-0": 0.1 },
+          probabilities: {
+            "context-1": 0.9,
+            "context-0": 0.1,
+            __no_match__: 0,
+          },
         },
       },
     });
@@ -338,7 +420,7 @@ describe("preloadJevTools", () => {
     systemOne.mockResolvedValue({
       answers: {
         best_context: {
-          probabilities: { "context-1": 0.9 },
+          probabilities: { "context-1": 0.9, __no_match__: 0.1 },
         },
       },
     });
@@ -357,5 +439,30 @@ describe("preloadJevTools", () => {
         limit: 3,
       }),
     ).resolves.toEqual(["context-1"]);
+  });
+
+  it("keeps the existing context when Jev omits the no-match probability", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_context: {
+          choice: "context-1",
+          probabilities: { "context-1": 0.9, "context-0": 0.1 },
+        },
+      },
+    });
+
+    await expect(
+      rankJevCandidates({
+        apiKey: "jev-test-key",
+        request: "draft a launch email",
+        candidates: [
+          { id: "context-0", description: "Brand guidelines" },
+          { id: "context-1", description: "Launch messaging skill" },
+        ],
+        candidateStateKey: "candidate_context",
+        answerKey: "best_context",
+        question: "Which context applies?",
+      }),
+    ).resolves.toEqual([]);
   });
 });

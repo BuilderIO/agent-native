@@ -606,6 +606,17 @@ const messages = {
     evaluatedThroughAsk: "Evaluated through Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Review duplicates",
+    duplicateReviewTitle: "Possible duplicate records",
+    duplicateReviewDescription:
+      "Check this record against accessible candidates. Running Jev sends up to five candidate names and match signals to TypeSafe. Its probability is a suggestion; merging always requires a separate review.",
+    duplicateReviewRun: "Check duplicates",
+    duplicateReviewLoading: "Checking…",
+    duplicateReviewFailed: "Duplicate review could not be completed.",
+    duplicateReviewEmpty: "No likely duplicates found.",
+    duplicateRuleConfidence: "Rule-based match: {{percent}}%",
+    duplicateJevProbability: "Jev same-entity probability: {{percent}}%",
+    duplicateMatchedOn: "Matched on: {{values}}",
     evidenceAttached: "Call evidence attached.",
     evidenceAttachFailed: "Evidence could not be attached.",
     addEvidence: "Add evidence",

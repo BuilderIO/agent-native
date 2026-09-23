@@ -640,7 +640,7 @@ async function evaluateRulesWithJev(
       ruleId: question.ruleId,
       match: true,
       confidence: Math.min(1, Math.max(0, probability)),
-      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+      reason: `Jev match probability ${Math.round(probability * 100)}%`,
     });
     results.set(question.emailId, matches);
   }
@@ -882,7 +882,7 @@ async function evaluatePriorityWithJev(
     }
     results.set(email.id, {
       score: probability,
-      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+      reason: `Jev priority probability ${Math.round(probability * 100)}%`,
     });
   });
   return results;

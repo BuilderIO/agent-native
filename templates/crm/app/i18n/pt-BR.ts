@@ -611,6 +611,18 @@ const messages = {
     evaluatedThroughAsk: "Avaliado pelo Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Revisar duplicatas",
+    duplicateReviewTitle: "Possíveis registros duplicados",
+    duplicateReviewDescription:
+      "Compara este registro com candidatos acessíveis. O Jev envia à TypeSafe nomes e sinais de até cinco candidatos. A probabilidade é apenas uma sugestão; a mesclagem exige revisão separada.",
+    duplicateReviewRun: "Verificar duplicatas",
+    duplicateReviewLoading: "Verificando…",
+    duplicateReviewFailed: "Não foi possível concluir a revisão de duplicatas.",
+    duplicateReviewEmpty: "Nenhuma duplicata provável encontrada.",
+    duplicateRuleConfidence: "Correspondência por regras: {{percent}}%",
+    duplicateJevProbability:
+      "Probabilidade Jev de mesma entidade: {{percent}}%",
+    duplicateMatchedOn: "Sinais em comum: {{values}}",
     evidenceAttached: "Evidência de chamada anexada.",
     evidenceAttachFailed: "Não foi possível anexar a evidência.",
     addEvidence: "Adicionar evidência",

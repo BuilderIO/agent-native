@@ -119,6 +119,10 @@ program linked to one view.
 company domain, shared email root domain, and normalized name plus location, and
 returns a reason and confidence per candidate. A shared company domain is a
 signal between accounts only — colleagues are a relationship, not a duplicate.
+For a user-requested second opinion on one record, pass its `recordIds` and
+`semanticReview: true`. Jev reviews at most five ambiguous, accessible pairs;
+its same-entity probability is a suggestion separate from rule confidence.
+Do not run this for an automatic recent-record scan or treat it as merge approval.
 
 `merge-crm-records` needs an explicit survivor. It promotes only the values the
 survivor lacks, moves list entries, tasks, interactions, evidence, signals, and
