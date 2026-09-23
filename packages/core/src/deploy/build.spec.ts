@@ -315,6 +315,35 @@ describe("AWS Lambda streaming runtime output", () => {
 });
 
 describe("AWS Amplify runtime output", () => {
+  it("keeps workspace app-scoped database URLs in the runtime env", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      AGENT_NATIVE_WORKSPACE_APP_ID: "account-expert",
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_ID="account-expert"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
   it("loads declared env keys before Nitro's compute entry", () => {
     const appDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-native-amplify-test-"),

@@ -321,7 +321,9 @@ function configureAwsRuntimeOutput(
     ...declaredEnvKeys(),
     ...readEnvExampleKeys(path.join(appDir, ".env.example")),
   ]);
-  for (const key of appScopedRuntimeEnvKeys(env.APP_NAME)) {
+  for (const key of appScopedRuntimeEnvKeys(
+    env.AGENT_NATIVE_WORKSPACE_APP_ID || env.APP_NAME,
+  )) {
     declaredKeys.add(key);
   }
   const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
