@@ -1,8 +1,8 @@
 pr=5710
 owner_thread=01a0b187-6af0-7a21-b176-db0616414d23
-version=1
-claimed_at=1790175524
-expires_at=1790176424
+version=2
+claimed_at=1790178664
+expires_at=1790179564
 legacy_heartbeat_version=absent
 legacy_retired=true
 status=active
