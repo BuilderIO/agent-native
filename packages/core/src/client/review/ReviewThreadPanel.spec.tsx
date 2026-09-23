@@ -590,8 +590,10 @@ describe("ReviewThreadPanel sidebar layout", () => {
     );
     act(() => {
       resolveButtons[0]?.click();
+      resolveButtons[0]?.click();
       resolveButtons[1]?.click();
     });
+    expect(mutate).toHaveBeenCalledTimes(2);
     expect(resolveButtons[0]?.disabled).toBe(true);
     expect(resolveButtons[1]?.disabled).toBe(true);
 

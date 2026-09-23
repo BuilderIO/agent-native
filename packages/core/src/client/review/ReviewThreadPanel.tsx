@@ -294,6 +294,7 @@ export function ReviewThreadPanel({
   const [resolvingThreadIds, setResolvingThreadIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const resolvingThreadIdsRef = useRef(new Set<string>());
   const [commentFilter, setCommentFilter] = useState<ReviewCommentFilter>(
     showFilter ? "open" : "all",
   );
@@ -579,7 +580,8 @@ export function ReviewThreadPanel({
     status: "open" | "resolved",
   ) => {
     const threadId = thread.root.threadId;
-    if (resolvingThreadIds.has(threadId)) return;
+    if (resolvingThreadIdsRef.current.has(threadId)) return;
+    resolvingThreadIdsRef.current.add(threadId);
     setResolvingThreadIds((current) => new Set(current).add(threadId));
     try {
       await resolveThread.mutateAsync({
@@ -594,6 +596,7 @@ export function ReviewThreadPanel({
     } catch (error) {
       console.error("Failed to update review thread status", error);
     } finally {
+      resolvingThreadIdsRef.current.delete(threadId);
       setResolvingThreadIds((current) => {
         const next = new Set(current);
         next.delete(threadId);
