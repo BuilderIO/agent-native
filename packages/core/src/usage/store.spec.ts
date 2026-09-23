@@ -722,7 +722,7 @@ describe("recordUsage refId + cost override", () => {
       .prepare(
         `INSERT INTO token_usage
           (id, owner_email, input_tokens, output_tokens, model, label, ref_id, org_id, created_at)
-         VALUES (1, 'legacy@example.com', 100, 10, 'gpt-5.6-sol', 'visual-recap', 'legacy-recap', NULL, ?)`,
+         VALUES (1, 'owner@example.com', 100, 10, 'gpt-5.6-sol', 'visual-recap', 'legacy-recap', NULL, ?)`,
       )
       .run(Date.now());
 
@@ -745,6 +745,36 @@ describe("recordUsage refId + cost override", () => {
       )
       .all()) as Array<{ org_id: string | null; input_tokens: number }>;
     expect(rows).toEqual([{ org_id: "org-a", input_tokens: 200 }]);
+  });
+
+  it("does not delete another owner's usage sharing the same refId in one organization", async () => {
+    for (const [ownerEmail, inputTokens] of [
+      ["a@example.com", 100],
+      ["b@example.com", 200],
+    ] as const) {
+      await runWithRequestContext(
+        { userEmail: ownerEmail, orgId: "org-a" },
+        () =>
+          recordUsage({
+            ownerEmail,
+            inputTokens,
+            outputTokens: 10,
+            model: "gpt-5.6-sol",
+            label: "visual-recap",
+            refId: "team-recap",
+          }),
+      );
+    }
+
+    const rows = (await pglite
+      .prepare(
+        "SELECT owner_email, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'team-recap' ORDER BY owner_email",
+      )
+      .all()) as Array<{ owner_email: string; input_tokens: number }>;
+    expect(rows).toEqual([
+      { owner_email: "a@example.com", input_tokens: 100 },
+      { owner_email: "b@example.com", input_tokens: 200 },
+    ]);
   });
 
   it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {

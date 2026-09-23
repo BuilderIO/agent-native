@@ -446,15 +446,19 @@ export async function recordUsage(
   const resolvedRef = refId ?? "";
   const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  // Replace any prior usage for this (org, label, refId) so re-recording the
-  // same run — e.g. a recap regenerated on a PR re-push — overwrites instead
-  // of double-counting. No-op when refId is unset (the common per-call path).
+  // Replace any prior usage for this (owner, org, label, refId) so re-recording
+  // the same run — e.g. a recap regenerated on a PR re-push — overwrites
+  // instead of double-counting. No-op when refId is unset (the common per-call
+  // path). refId is caller-supplied and not globally unique, so without the
+  // owner predicate one caller's re-record deletes another caller's usage; the
+  // `org_id IS NULL` branch is only safe because it is scoped to this owner.
   if (resolvedRef) {
     await client.execute({
       sql: `DELETE FROM token_usage
-        WHERE label = ? AND ref_id = ?
+        WHERE LOWER(owner_email) = LOWER(?)
+          AND label = ? AND ref_id = ?
           AND (org_id IS NULL OR org_id = ?)`,
-      args: [resolvedLabel, resolvedRef, resolvedOrgId],
+      args: [ownerEmail, resolvedLabel, resolvedRef, resolvedOrgId],
     });
   }
 

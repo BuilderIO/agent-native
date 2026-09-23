@@ -63,6 +63,10 @@ async function persistBuilderDocCount(
   }
   if (parsed.docCount === docCount) return;
   const db = getDb();
+  // guard:allow-unscoped — `row` is `resolveAccess("design-system", id).resource`,
+  // so the caller is already access-checked; this writes only the derived
+  // docCount cache back onto that same row, compare-and-set on the exact data
+  // snapshot it read.
   await db
     .update(schema.designSystems)
     .set({ data: JSON.stringify({ ...parsed, docCount }) })
