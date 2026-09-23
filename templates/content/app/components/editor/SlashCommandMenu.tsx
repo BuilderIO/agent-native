@@ -85,10 +85,9 @@ interface SlashCommandMenuProps {
    * registry-derived block slash items are filtered to specs that round-trip to
    * Notion-Flavored Markdown (`spec.notionCompatible`), so authors can't add a
    * structured block that would silently drop on the next Notion push. When
-   * unset (the common case), all registry blocks are offered.
+   * unset (the common case), Content's Labs and authoring policy applies.
    */
   notionPageId?: string | null;
-  builderBlocks?: boolean;
 }
 
 interface EditorMenuPosition {
@@ -669,7 +668,6 @@ export function SlashCommandMenu({
   documentId,
   suggesting = false,
   notionPageId,
-  builderBlocks = false,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
@@ -1005,10 +1003,9 @@ export function SlashCommandMenu({
               layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
               visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
               developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
-              builderBlocks,
             },
           }) as unknown as CommandItem[]),
-    [builderBlocks, isTurnInto, labs, notionPageId],
+    [isTurnInto, labs, notionPageId],
   );
   const localComponentCommands = useMemo<CommandItem[]>(
     () =>

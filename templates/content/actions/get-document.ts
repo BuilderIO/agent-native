@@ -49,29 +49,6 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
-async function resolveDocumentAuthoringContext(parentId: string | null) {
-  if (!parentId) return { builderBlocks: false };
-
-  const [builderSource] = await getDb()
-    .select({ id: schema.contentDatabaseSources.id })
-    .from(schema.contentDatabases)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(schema.contentDatabaseSources.databaseId, schema.contentDatabases.id),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabases.documentId, parentId),
-        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    )
-    .limit(1);
-
-  if (!builderSource) return { builderBlocks: false };
-  return { builderBlocks: Boolean(await resolveDocumentAccess(parentId)) };
-}
-
 export default defineAction({
   description:
     "Read one access-scoped document by its stable ID, including the full Markdown body and metadata. Use list-documents or search-documents first when the ID is unknown.",
@@ -167,9 +144,6 @@ export default defineAction({
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
     const userEmail = getRequestUserEmail();
-    const authoringContext = await resolveDocumentAuthoringContext(
-      doc.parentId,
-    );
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
       : new Set<string>();
@@ -311,7 +285,6 @@ export default defineAction({
               : {}),
           }
         : undefined,
-      authoringContext,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       properties: propertyDatabaseAccess

@@ -39,20 +39,19 @@ const ALWAYS_HIDDEN_TYPES = [
   "inline-database",
   "callout",
   "source-component",
+  ...BUILDER_TYPES,
 ];
 const ALL_POLICY_TYPES = [
   ...ADVANCED_CODE_TYPES,
   ...LAYOUT_TYPES,
   ...VISUAL_TYPES,
   ...DEVELOPER_DOC_TYPES,
-  ...BUILDER_TYPES,
 ];
 const ALL_ENABLED_POLICY = {
   advancedCode: true,
   layouts: true,
   visuals: true,
   developerDocs: true,
-  builderBlocks: true,
 };
 
 function offeredTypes(options: Parameters<typeof buildRegistrySlashItems>[1]) {
@@ -64,11 +63,10 @@ function offeredTypes(options: Parameters<typeof buildRegistrySlashItems>[1]) {
 /**
  * T7 — registry-derived slash items + Notion gating for content's slash menu.
  *
- * Each registry `BlockSpec` with block placement becomes one slash item that
- * inserts a `registryBlock` atom seeded with a fresh id and the spec's `empty()`
- * data (encoded inline on the node's `__raw`, matching how a saved block
- * hydrates). When the open document is linked to a Notion page, only specs that
- * round-trip to NFM (`spec.notionCompatible`) are offered.
+ * Authorable registry specs become slash items that insert a `registryBlock`
+ * atom seeded with a fresh id and inline `__raw` data. Builder preservation
+ * formats remain registered for saved content but cannot be inserted without
+ * their source sidecars.
  */
 
 /** A fake editor that records the last `insertContent` payload. */
@@ -109,9 +107,16 @@ describe("buildRegistrySlashItems", () => {
     ["layouts", { layouts: true }, LAYOUT_TYPES],
     ["visuals", { visuals: true }, VISUAL_TYPES],
     ["developer docs", { developerDocs: true }, DEVELOPER_DOC_TYPES],
-    ["Builder", { builderBlocks: true }, BUILDER_TYPES],
   ])("offers only the %s policy group", (_name, policy, expected) => {
     expect(offeredTypes({ policy })).toEqual(expected);
+  });
+
+  it("keeps Builder formats registered for existing content but out of insertion", () => {
+    const offered = offeredTypes({ policy: ALL_ENABLED_POLICY });
+    for (const type of BUILDER_TYPES) {
+      expect(contentBlockRegistry.get(type)).toBeDefined();
+      expect(offered).not.toContain(type);
+    }
   });
 
   it("keeps API and schema aliases searchable when developer docs are enabled", () => {

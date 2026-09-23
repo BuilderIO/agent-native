@@ -30,7 +30,7 @@ import { createContentBlockId } from "./extensions/registryBlocks";
  * to a Notion page), only specs that round-trip to Notion-Flavored Markdown
  * (`spec.notionCompatible`, the single registry-level allowlist from T3) are
  * offered, so authors can't add blocks that would silently drop on push. When it
- * is unset, all registry blocks are offered.
+ * is unset, Content's authorable registry blocks are offered.
  */
 
 /** The shape content's `SlashCommandMenu` consumes (mirrors its `CommandItem`). */
@@ -47,7 +47,6 @@ export interface ContentRegistrySlashPolicy {
   layouts?: boolean;
   visuals?: boolean;
   developerDocs?: boolean;
-  builderBlocks?: boolean;
 }
 
 const ALWAYS_HIDDEN_BLOCK_TYPES = new Set([
@@ -59,6 +58,12 @@ const ALWAYS_HIDDEN_BLOCK_TYPES = new Set([
   "inline-database",
   "callout",
   "source-component",
+  "builder-text",
+  "builder-code-block",
+  "builder-code-snippets-v2",
+  "builder-tabbed-content",
+  "builder-symbol",
+  "builder-raw-block",
 ]);
 const ADVANCED_CODE_BLOCK_TYPES = new Set(["code", "code-tabs"]);
 const LAYOUT_BLOCK_TYPES = new Set(["custom-html", "tabs"]);
@@ -72,15 +77,6 @@ const DEVELOPER_DOC_BLOCK_TYPES = new Set([
   "json-explorer",
   "annotated-code",
 ]);
-const BUILDER_BLOCK_TYPES = new Set([
-  "builder-text",
-  "builder-code-block",
-  "builder-code-snippets-v2",
-  "builder-tabbed-content",
-  "builder-symbol",
-  "builder-raw-block",
-]);
-
 export function contentRegistryBlockIsAuthorable(
   blockType: string,
   policy: ContentRegistrySlashPolicy = {},
@@ -90,7 +86,6 @@ export function contentRegistryBlockIsAuthorable(
   if (LAYOUT_BLOCK_TYPES.has(blockType)) return !!policy.layouts;
   if (VISUAL_BLOCK_TYPES.has(blockType)) return !!policy.visuals;
   if (DEVELOPER_DOC_BLOCK_TYPES.has(blockType)) return !!policy.developerDocs;
-  if (BUILDER_BLOCK_TYPES.has(blockType)) return !!policy.builderBlocks;
   return false;
 }
 
@@ -128,7 +123,7 @@ export function seedRegistryBlockRaw(spec: BlockSpec, blockId: string): string {
 
 /**
  * Build Content's policy-filtered registry slash items. The caller supplies
- * evaluated feature flags plus document context; unknown types fail closed.
+ * evaluated Labs settings; unknown types fail closed.
  */
 export function buildRegistrySlashItems(
   registry: BlockRegistry,

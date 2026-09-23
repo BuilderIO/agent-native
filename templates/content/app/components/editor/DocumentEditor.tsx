@@ -5735,9 +5735,6 @@ function PageEditorSessionBody({
                             notionPageLinks={notionPageLinks}
                             onOpenNotionPageLink={handleOpenNotionPageLink}
                             notionPageId={document.notionPageId}
-                            builderBlocks={
-                              document.authoringContext?.builderBlocks === true
-                            }
                             onHistoryControllerChange={
                               handleHistoryControllerChange
                             }

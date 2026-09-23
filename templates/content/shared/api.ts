@@ -46,7 +46,6 @@ export interface Document {
   database?: ContentDatabase;
   databaseMembership?: ContentDatabaseMembership;
   bodyHydration?: ContentDocumentBodyHydration;
-  authoringContext?: ContentDocumentAuthoringContext;
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
@@ -56,10 +55,6 @@ export interface Document {
   collabContentRevision?: string | null;
   contentHash?: string;
   contentFidelity?: NfmFidelityReport;
-}
-
-export interface ContentDocumentAuthoringContext {
-  builderBlocks: boolean;
 }
 
 export interface DocumentSourceInfo {
