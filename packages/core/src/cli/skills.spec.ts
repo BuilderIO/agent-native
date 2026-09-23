@@ -2228,6 +2228,101 @@ describe("agent-native skills", () => {
     expect(allContext?.initialTargets).toEqual(PLANS_SKILL_NAMES);
   });
 
+  it("preselects installer groups and installs only the selected subset", async () => {
+    const root = tmpDir();
+    const calls: string[] = [];
+    const commands: { cmd: string; args: string[] }[] = [];
+    const contexts: Array<{
+      message?: string;
+      initialTargets: string[];
+      required?: boolean;
+      options: { value: string }[];
+    }> = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add"], {
+      baseDir: root,
+      catalogMode: "all",
+      publicSkillSource: "BuilderIO/skills",
+      publicSkillEntries: [
+        {
+          name: "factory",
+          description: "Factory root skill.",
+          installerGroup: "factory",
+        },
+        {
+          name: "factory-review-prs",
+          description: "Review Factory PRs.",
+          installerGroup: "factory",
+        },
+        {
+          name: "factory-ship",
+          description: "Ship Factory work.",
+          installerGroup: "factory",
+        },
+        {
+          name: "quick-recap",
+          description: "Use final response status blocks.",
+        },
+      ],
+      isInteractive: () => true,
+      promptSkills: async (promptContext) => {
+        contexts.push(promptContext);
+        calls.push("skills");
+        return contexts.length === 1
+          ? ["factory", "factory-ship", "quick-recap"]
+          : ["factory-review-prs"];
+      },
+      promptClients: async () => {
+        calls.push("clients");
+        return ["codex"];
+      },
+      promptScope: async () => {
+        calls.push("scope");
+        return "project";
+      },
+      promptUpdateInstructions: async () => {
+        calls.push("instructions");
+        return false;
+      },
+      runCommand: async (cmd, args) => {
+        calls.push("install");
+        commands.push({ cmd, args });
+        return 0;
+      },
+    });
+
+    expect(contexts).toHaveLength(2);
+    expect(contexts[0]?.initialTargets).toEqual(PLANS_SKILL_NAMES);
+    expect(contexts[1]).toMatchObject({
+      message:
+        "Which Factory skills do you want to install?\n" +
+        "  (all selected; deselect any you want to skip)",
+      initialTargets: ["factory-review-prs", "factory-ship"],
+      required: false,
+      options: [{ value: "factory-review-prs" }, { value: "factory-ship" }],
+    });
+    expect(calls).toEqual([
+      "skills",
+      "skills",
+      "clients",
+      "scope",
+      "instructions",
+      "install",
+    ]);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.args).toContain("@agent-native/skills@latest");
+    const installedSkillNames = commands[0]!.args.flatMap((arg, index, args) =>
+      arg === "--skill" ? [args[index + 1]] : [],
+    );
+    expect(installedSkillNames).toEqual([
+      "factory",
+      "quick-recap",
+      "factory-review-prs",
+    ]);
+    expect(installedSkillNames).not.toContain("factory-ship");
+  });
+
   it("asks for plan mode before clients and skips MCP for local-files", async () => {
     const root = tmpDir();
     const calls: string[] = [];

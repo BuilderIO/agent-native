@@ -27,7 +27,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
   schema: {
-    designSystems: { id: "id", data: "data" },
+    designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
     designSystemShares: {},
   },
 }));
@@ -40,6 +40,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
@@ -114,6 +115,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
