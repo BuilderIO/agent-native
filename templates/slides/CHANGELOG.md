@@ -3,6 +3,19 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Design system indexing checks now back off instead of polling every few seconds indefinitely.
+- Moving and resizing slide content now works like Google Slides: boxes drag from anywhere on them, a second click edits their text, containers outline on hover, and resizing AI-generated text works even while editing.
+- An open deck no longer reloads every deck your teammates change.
+
+### Fixed
+
+- AI-generated bullets keep their markers when you add, indent, or undo bullet rows.
+
 ## 2026-09-21
 
 ### Fixed

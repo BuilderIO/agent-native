@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-21
+
+### Improved
+
+- Search now ranks exact and partial title matches above incidental matches in document bodies.
+
 ## 2026-09-16
 
 ### Fixed
