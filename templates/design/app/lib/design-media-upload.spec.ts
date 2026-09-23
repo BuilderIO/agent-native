@@ -62,4 +62,17 @@ describe("uploadDesignVideoFile", () => {
       ),
     ).rejects.toThrow("invalid URL");
   });
+
+  it("reports unreadable upload responses instead of treating them as empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("not-json", { status: 503 })),
+    );
+
+    await expect(
+      uploadDesignVideoFile(
+        new File(["video"], "demo.mp4", { type: "video/mp4" }),
+      ),
+    ).rejects.toThrow("invalid JSON (503)");
+  });
 });

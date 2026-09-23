@@ -4422,6 +4422,26 @@ const VECTOR_SHAPE_TAGS = new Set([
   "use",
 ]);
 
+function uniqueVectorShapeDescendant(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  const pending = [...element.childIndexes];
+  let shape: ParsedElement | null = null;
+  while (pending.length) {
+    const childIndex = pending.pop();
+    const child = childIndex === undefined ? undefined : elements[childIndex];
+    if (!child) continue;
+    if (VECTOR_SHAPE_TAGS.has(child.tag)) {
+      if (shape) return null;
+      shape = child;
+    } else if (child.tag === "g") {
+      for (const nestedIndex of child.childIndexes) pending.push(nestedIndex);
+    }
+  }
+  return shape;
+}
+
 const VECTOR_PAINT_PROPERTIES = [
   "fill",
   "fill-opacity",
@@ -4878,12 +4898,7 @@ function vectorShapeChild(
     return null;
   }
   if (kind === "pasted-svg") {
-    const directShapes = element.childIndexes
-      .map((index) => elements[index])
-      .filter((child): child is ParsedElement =>
-        Boolean(child && VECTOR_SHAPE_TAGS.has(child.tag)),
-      );
-    return directShapes.length === 1 ? (directShapes[0] ?? null) : null;
+    return uniqueVectorShapeDescendant(element, elements);
   }
   for (const childIndex of element.childIndexes) {
     const child = elements[childIndex];

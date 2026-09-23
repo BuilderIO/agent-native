@@ -13676,26 +13676,43 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return null;
     }
+    // A pasted SVG may wrap its sole editable shape in <g>. Walk groups only;
+    // never search <defs>, where an arrowhead or gradient geometry can live.
+    if (kind === "pasted-svg") {
+      var pendingShapes = Array.from(el.children);
+      var pastedShape: Element | null = null;
+      while (pendingShapes.length) {
+        var candidate = pendingShapes.pop();
+        if (!candidate) continue;
+        var candidateTag = candidate.tagName.toLowerCase();
+        if (
+          [
+            "path",
+            "polygon",
+            "ellipse",
+            "circle",
+            "rect",
+            "line",
+            "polyline",
+            "use",
+          ].includes(candidateTag)
+        ) {
+          if (pastedShape) return null;
+          pastedShape = candidate;
+        } else if (candidateTag === "g") {
+          Array.from(candidate.children).forEach(function (child) {
+            pendingShapes.push(child);
+          });
+        }
+      }
+      return pastedShape;
+    }
     // Direct children only: an arrow's marker <path> sits inside <defs>
     // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
     // this in step with code-layer's childIndexes walk.
-    var directShapes = Array.from(el.children).filter(function (child) {
-      return [
-        "path",
-        "polygon",
-        "ellipse",
-        "circle",
-        "rect",
-        "line",
-        "polyline",
-      ].includes(child.tagName.toLowerCase());
-    });
-    if (kind === "pasted-svg" && directShapes.length !== 1) return null;
-    return kind === "pasted-svg"
-      ? directShapes[0] || null
-      : el.querySelector(
-          ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
-        );
+    return el.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
+    );
   }
 
   function collectElementInlineStyles(el: Element): Record<string, string> {

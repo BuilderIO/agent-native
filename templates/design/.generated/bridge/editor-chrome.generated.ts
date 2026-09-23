@@ -10088,19 +10088,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle" && kind !== "pasted-svg") {
         return null;
       }
-      var directShapes = Array.from(el.children).filter(function(child) {
-        return [
-          "path",
-          "polygon",
-          "ellipse",
-          "circle",
-          "rect",
-          "line",
-          "polyline"
-        ].includes(child.tagName.toLowerCase());
-      });
-      if (kind === "pasted-svg" && directShapes.length !== 1) return null;
-      return kind === "pasted-svg" ? directShapes[0] || null : el.querySelector(
+      if (kind === "pasted-svg") {
+        var pendingShapes = Array.from(el.children);
+        var pastedShape = null;
+        while (pendingShapes.length) {
+          var candidate = pendingShapes.pop();
+          if (!candidate) continue;
+          var candidateTag = candidate.tagName.toLowerCase();
+          if ([
+            "path",
+            "polygon",
+            "ellipse",
+            "circle",
+            "rect",
+            "line",
+            "polyline",
+            "use"
+          ].includes(candidateTag)) {
+            if (pastedShape) return null;
+            pastedShape = candidate;
+          } else if (candidateTag === "g") {
+            Array.from(candidate.children).forEach(function(child) {
+              pendingShapes.push(child);
+            });
+          }
+        }
+        return pastedShape;
+      }
+      return el.querySelector(
         ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline"
       );
     }

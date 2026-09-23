@@ -12,10 +12,19 @@ export async function uploadDesignVideoFile(file: File): Promise<string> {
     credentials: "include",
     body,
   });
-  const result = (await response.json().catch(() => null)) as {
-    url?: unknown;
-    error?: unknown;
-  } | null;
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : "";
+    throw new Error(
+      `Video upload returned invalid JSON (${response.status}).${detail}`,
+    );
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Video upload returned an invalid response.");
+  }
+  const result = payload as { url?: unknown; error?: unknown };
 
   if (!response.ok) {
     throw new Error(

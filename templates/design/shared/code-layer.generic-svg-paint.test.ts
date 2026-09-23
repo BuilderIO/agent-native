@@ -64,6 +64,35 @@ describe("generic inline SVG fill edits", () => {
     expect(result.content).not.toMatch(/<svg[^>]*style="[^\"]*fill: #3b82f6/);
   });
 
+  it("routes a marked pasted SVG fill through a group with one drawable shape", () => {
+    const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"><g><path d="M0 0h20v20z" fill="#f97316"/></g></svg>`;
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pasted" },
+      property: "fill",
+      value: "#3b82f6",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toMatch(
+      /<path[^>]*fill="#f97316"[^>]*style="[^\"]*fill: #3b82f6/,
+    );
+    expect(result.content).not.toMatch(/<svg[^>]*style="[^\"]*fill: #3b82f6/);
+  });
+
+  it("keeps a grouped multi-shape pasted SVG wrapper paint ambiguous", () => {
+    const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"><g><path d="M0 0h20v20z"/><circle cx="10" cy="10" r="4"/></g></svg>`;
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pasted" },
+      property: "fill",
+      value: "#3b82f6",
+    });
+
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(html);
+  });
+
   it("refuses paint edits for marked pasted SVGs with multiple direct shapes", () => {
     const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"><path d="M0 0h20v20z"/><circle cx="10" cy="10" r="4"/></svg>`;
     const result = applyVisualEdit(html, {
