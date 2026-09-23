@@ -162,6 +162,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "جارٍ التحميل...",
   "common.no": "لا",
   "common.retry": "إعادة المحاولة",
+  "common.chunkLoadFailed": "تعذّر التحميل. يُرجى المحاولة مرة أخرى.",
   "common.save": "حفظ",
   "agents.hostedAgent": "وكيل مستضاف",
   "agents.provider": "المزوّد",

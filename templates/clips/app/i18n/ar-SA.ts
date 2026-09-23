@@ -137,7 +137,6 @@ const messages = {
     createFolderError: "فشل الإنشاء",
     folderCreated: "تم إنشاء المجلد",
     folderNamePlaceholder: "اسم المجلد",
-    breadcrumbBack: "العودة إلى {{label}}",
   },
   empty: {
     library: {
@@ -1632,7 +1631,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (مترجم)",
     loomImported: "Loom imported (مترجم)",
-    couldNotImportLoom: "Could not import that Loom. (مترجم)",
+    couldNotImportLoom: "تعذّر استيراد مقطع Loom هذا.",
     recordingReadyToUpload: "Recording is ready to upload (مترجم)",
     recordingSaved: "Recording saved (مترجم)",
     linkCopied: "تم نسخ الرابط",

@@ -1,3 +1,4 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
@@ -10,6 +11,7 @@ import { inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
@@ -350,6 +352,18 @@ export function InboxPage() {
     isLoading: settingsLoading,
     isError: settingsError,
   } = useSettings();
+  const jevAvailability = useActionQuery(
+    "get-jev-availability",
+    {},
+    {
+      enabled: view === "inbox" || navState.command.data?.sort === "priority",
+      staleTime: 60_000,
+      retry: 2,
+    },
+  );
+  const jevConfigured = jevAvailability.data?.configured === true;
+  const showPrioritySort =
+    jevConfigured || (jevAvailability.isError && sortMode === "priority");
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -443,6 +457,15 @@ export function InboxPage() {
   // for a plain /inbox with no `q`.
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
+    if (!jevAvailability.isSuccess) return;
+    if (!jevConfigured && sortMode === "priority") setSortMode("newest");
+  }, [jevAvailability.isSuccess, jevConfigured, sortMode]);
+  useEffect(() => {
+    if (jevAvailability.isError && sortMode === "priority") {
+      toast.error(t("mail.sort.priorityFailed"));
+    }
+  }, [jevAvailability.isError, sortMode, t]);
+  useEffect(() => {
     if (!isInboxView || activeLabel || searchQuery) setSortMode("newest");
   }, [activeLabel, isInboxView, searchQuery]);
   const resolvedInboxTab = resolveInboxTabId(searchParams);
@@ -470,9 +493,17 @@ export function InboxPage() {
       Math.ceil(AI_PRIORITY_MAX_EMAILS / INBOX_PAGE_SIZE) - 1,
     );
     setInboxExtraPageCount(
-      isInboxView && sortMode === "priority" ? priorityExtraPages : 0,
+      showPrioritySort && isInboxView && sortMode === "priority"
+        ? priorityExtraPages
+        : 0,
     );
-  }, [activeAccounts, isInboxView, resolvedInboxTab, sortMode]);
+  }, [
+    activeAccounts,
+    isInboxView,
+    showPrioritySort,
+    resolvedInboxTab,
+    sortMode,
+  ]);
   const inboxExtraOffsets = useMemo(
     () =>
       Array.from(
@@ -828,7 +859,7 @@ export function InboxPage() {
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
-      sort: sortMode === "priority" ? sortMode : undefined,
+      sort: sortMode === "priority" && showPrioritySort ? sortMode : undefined,
     });
   }, [
     view,
@@ -843,6 +874,8 @@ export function InboxPage() {
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,
+    showPrioritySort,
+    jevAvailability.isError,
     sortMode,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -851,6 +884,9 @@ export function InboxPage() {
   const lastCommandRef = useRef<string>("");
   useEffect(() => {
     if (!navCommand) return;
+    if (navCommand.sort === "priority" && jevAvailability.isLoading) {
+      return;
+    }
     const key = JSON.stringify(navCommand);
     if (key === lastCommandRef.current) return;
     lastCommandRef.current = key;
@@ -859,8 +895,12 @@ export function InboxPage() {
     const targetFilter = navCommand.filter;
     const targetThread = navCommand.threadId;
 
-    if (navCommand.sort === "priority" || navCommand.sort === "newest") {
-      setSortMode(navCommand.sort);
+    if (navCommand.sort === "newest") {
+      setSortMode("newest");
+    } else if (navCommand.sort === "priority") {
+      setSortMode(
+        jevAvailability.isError || jevConfigured ? "priority" : "newest",
+      );
     }
 
     if (navCommand.composeDraftId && !targetThread) {
@@ -898,7 +938,7 @@ export function InboxPage() {
 
     // Delete the command file so it doesn't re-trigger
     void navState.clearCommand();
-  }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navCommand, view, navigate, jevAvailability.isLoading, jevConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stable-identity pattern: keep the previous array reference when the
   // content hasn't meaningfully changed. Without this, markThreadRead's
   // optimistic update (which rebuilds the emails array for a single isRead
@@ -1117,6 +1157,7 @@ export function InboxPage() {
             isFetchingNextPage={isFetchingNextPage}
             isFetchNextPageError={isFetchNextPageError}
             sortMode={sortMode}
+            showPrioritySort={showPrioritySort}
             onSortModeChange={setSortMode}
           />
         )}

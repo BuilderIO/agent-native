@@ -655,6 +655,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   layoutGrids,
   onZoomChange,
   renderScreenContent,
+  screenContentRenderKey,
   screenSnapshotsById,
   tweakValues = EMPTY_TWEAK_VALUES,
   renderBreakpointContent,
@@ -10863,6 +10864,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           {
             onBootReady: getScreenBootReadyCallback(screen.id),
             onBootStart: getScreenBootStartCallback(screen.id),
+            cacheKey: screenContentRenderKey,
           },
         ),
       );
@@ -10879,6 +10881,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     getScreenBootReadyCallback,
     getScreenBootStartCallback,
     renderScreenContent,
+    screenContentRenderKey,
     retainedEditorScreenIds,
   ]);
   // PF19: filters/maps over canvasFrames + a getFrameGroupBounds pass — cheap

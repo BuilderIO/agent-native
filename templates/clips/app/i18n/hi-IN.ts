@@ -138,7 +138,6 @@ const messages = {
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
-    breadcrumbBack: "{{label}} पर वापस जाएँ",
   },
   empty: {
     library: {
@@ -1609,7 +1608,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (स्थानीयकृत)",
     loomImported: "Loom imported (स्थानीयकृत)",
-    couldNotImportLoom: "Could not import that Loom. (स्थानीयकृत)",
+    couldNotImportLoom: "उस Loom को आयात नहीं किया जा सका।",
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
     linkCopied: "लिंक कॉपी हो गया",

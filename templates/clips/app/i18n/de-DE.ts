@@ -145,7 +145,6 @@ const messages = {
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
-    breadcrumbBack: "Zurück zu {{label}}",
   },
   empty: {
     library: {
@@ -1674,7 +1673,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (Lokalisiert)",
     loomImported: "Loom imported (Lokalisiert)",
-    couldNotImportLoom: "Could not import that Loom. (Lokalisiert)",
+    couldNotImportLoom: "Dieser Loom konnte nicht importiert werden.",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
     linkCopied: "Link kopiert",

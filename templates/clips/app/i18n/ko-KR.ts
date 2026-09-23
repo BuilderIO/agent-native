@@ -140,7 +140,6 @@ const messages = {
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
-    breadcrumbBack: "{{label}}(으)로 돌아가기",
   },
   empty: {
     library: {
@@ -1629,7 +1628,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (현지화됨)",
     loomImported: "Loom imported (현지화됨)",
-    couldNotImportLoom: "Could not import that Loom. (현지화됨)",
+    couldNotImportLoom: "이 Loom을 가져오지 못했습니다.",
     recordingReadyToUpload: "Recording is ready to upload (현지화됨)",
     recordingSaved: "Recording saved (현지화됨)",
     linkCopied: "링크가 복사되었습니다",

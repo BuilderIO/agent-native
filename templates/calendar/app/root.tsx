@@ -18,10 +18,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import {
-  DefaultSpinner,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -308,7 +305,6 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         sessionBypass={computeSessionBypass()}
-        clientOnlyFallback={<DefaultSpinner />}
         toaster={<Toaster richColors position="bottom-center" />}
         i18n={{
           catalog: i18nCatalog,

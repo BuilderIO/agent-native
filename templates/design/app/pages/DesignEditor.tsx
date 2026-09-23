@@ -402,11 +402,14 @@ import {
   DesignAccessState,
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "@/components/editor/FigmaLinkComposerBubble";
-import PromptPopover from "@/components/editor/PromptDialog";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -4945,6 +4948,10 @@ function DesignEditor() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems(isSignedIn && showPrompt);
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -5040,6 +5047,7 @@ function DesignEditor() {
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
+      if (open) preloadPromptComposer();
       setShowPrompt(open);
       if (open) {
         setPromptDesignSystemId(design?.designSystemId ?? undefined);
@@ -5053,6 +5061,7 @@ function DesignEditor() {
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && (!canEditDesign || !tweaksEnabled)) return;
+      if (open) preloadPromptComposer();
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
@@ -5064,6 +5073,7 @@ function DesignEditor() {
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
       if (!canEditDesign || !tweaksEnabled) return;
+      preloadPromptComposer();
       tweakPromptAnchorRef.current = anchor;
       setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);
@@ -25127,6 +25137,20 @@ function DesignEditor() {
     [renderEditableScreenContent],
   );
 
+  // Runtime structure requests are delivered through each screen's
+  // DesignCanvas element. Keep the iframe document mounted while still
+  // invalidating the overview's React-element cache so a request created after
+  // the initial render reaches its live destination. Without this explicit
+  // key, a cached screen node can retain the old null request and a board to
+  // live drop appears to complete while the destination never changes.
+  const overviewScreenContentRenderKey = [
+    runtimeStructureMoveRequest?.requestId ?? "",
+    runtimeStructureInsertRequest?.requestId ?? "",
+    runtimeStructureInsertRequest?.transactionId ?? "",
+    runtimeStructureDeleteRequest?.requestId ?? "",
+    runtimeStructureRollbackRequest?.requestId ?? "",
+  ].join("|");
+
   // ── Board element handlers ─────────────────────────────────────────────────
   // PF8: the board <DesignCanvas> callbacks below curry `boardFileId` into the
   // shared `handleScreen*` handlers. Previously these were inline arrows
@@ -27913,6 +27937,7 @@ function DesignEditor() {
                         }
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
+                        screenContentRenderKey={overviewScreenContentRenderKey}
                         screenSnapshotsById={liveScreenSnapshotsById}
                         tweakValues={cssVarValues}
                         renderBreakpointContent={renderBreakpointContent}
@@ -28624,7 +28649,7 @@ function DesignEditor() {
           (designSystemsLoading && promptDesignSystemId === undefined)
         }
         anchorRef={promptAnchorRef}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}

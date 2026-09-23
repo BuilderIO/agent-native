@@ -545,6 +545,20 @@ function I18nRuntime({
         if (!cancelled) {
           await i18n.changeLanguage(locale);
         }
+      } catch (error) {
+        if (!cancelled) {
+          console.error(
+            `[agent-native] Failed to load ${locale} messages; falling back to ${sourceLocale}`,
+            error,
+          );
+          setLocale(sourceLocale);
+          await i18n.changeLanguage(sourceLocale).catch((fallbackError) => {
+            console.error(
+              `[agent-native] Failed to switch to source locale ${sourceLocale}`,
+              fallbackError,
+            );
+          });
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

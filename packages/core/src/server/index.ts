@@ -164,14 +164,21 @@ export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
+  getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
   resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,
   type ExecuteAgentToolCallOptions,
+  type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export {
+  isJevEnabled,
+  requestJevThroughBuilder,
+  type JevResponse,
+} from "../agent/jev-tool-prefetch.js";
 export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
 export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
@@ -636,17 +643,22 @@ export {
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 export {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   builderDesignSystemUrl,
   builderProjectBranchUrl,
   buildBuilderDesignSystemIndexFiles,
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
+  designSystemTierUpgradeUrl,
   fetchBuilderDesignSystemDecodeJobStatus,
   fetchBuilderDesignSystemDocs,
+  fetchBuilderDesignSystemDocumentCount,
   fetchBuilderDesignSystemRecord,
+  fetchBuilderDesignSystemTierLimit,
   getBuilderDesignSystemsBaseUrl,
   hydrateBuilderDesignSystemReference,
   indexBuilderDesignSystem,
+  isBuilderDesignSystemReadyByCount,
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
@@ -657,6 +669,7 @@ export {
   type BuilderDesignSystemDecodeJobStatus,
   type BuilderDesignSystemDocsOptions,
   type BuilderDesignSystemDocument,
+  type BuilderDesignSystemDocumentCountResult,
   type BuilderDesignSystemHydratedReference,
   type BuilderDesignSystemIndexFile,
   type BuilderDesignSystemIndexFromSourcesOptions,
@@ -664,6 +677,7 @@ export {
   type BuilderDesignSystemIndexResult,
   type BuilderDesignSystemRecord,
   type BuilderDesignSystemStatus,
+  type BuilderDesignSystemTierLimit,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,
   type BuilderDesignSystemGitHubSource,

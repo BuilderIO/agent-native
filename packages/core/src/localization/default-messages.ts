@@ -4,10 +4,10 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
-import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
+import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 
 const messages = {
-  environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
+  environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
   },
@@ -724,9 +724,17 @@ const messages = {
     modelId: "Model ID",
     endpointUrl: "Endpoint URL",
     optional: "Optional",
-    ollamaEndpointHint: "Defaults to Ollama at http://localhost:11434.",
     compatibleEndpointHint:
       "Use this for LiteLLM or another OpenAI-compatible gateway.",
+    findModels: "Find models",
+    ollamaModelsChecking: "Checking installed models…",
+    ollamaModelsFound_one: "Found {{count}} installed model.",
+    ollamaModelsFound_other: "Found {{count}} installed models.",
+    ollamaModelsNone:
+      "Connected, but no models are pulled yet — run `ollama pull llama3.1`.",
+    ollamaModelsError: "{{error}} Showing example model names below.",
+    ollamaModelsPrompt:
+      'Click "Find models" above to list what your Ollama server actually has installed.',
     savingProvider: "Saving...",
     providerSaved: "Connected",
     useProvider: "Use {{provider}}",

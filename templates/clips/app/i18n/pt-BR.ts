@@ -142,7 +142,6 @@ const messages = {
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
-    breadcrumbBack: "Voltar para {{label}}",
   },
   empty: {
     library: {
@@ -1651,9 +1650,10 @@ const messages = {
     videoReadyToUpload: "Video is ready to upload",
     videoUploaded: "Video uploaded",
     videoTooLarge: "Video is too large",
-    storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
+    storageNeededToFinishLoomImport:
+      "É necessário conectar o armazenamento para concluir a importação do Loom",
     loomImported: "Loom imported",
-    couldNotImportLoom: "Could not import that Loom.",
+    couldNotImportLoom: "Não foi possível importar esse Loom.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copiado",

@@ -135,7 +135,6 @@ const messages = {
     createFolderError: "创建失败",
     folderCreated: "文件夹已创建",
     folderNamePlaceholder: "文件夹名称",
-    breadcrumbBack: "返回 {{label}}",
   },
   empty: {
     library: {
@@ -1565,7 +1564,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (已本地化)",
     loomImported: "Loom imported (已本地化)",
-    couldNotImportLoom: "Could not import that Loom. (已本地化)",
+    couldNotImportLoom: "无法导入此 Loom。",
     recordingReadyToUpload: "Recording is ready to upload (已本地化)",
     recordingSaved: "Recording saved (已本地化)",
     linkCopied: "已复制链接",

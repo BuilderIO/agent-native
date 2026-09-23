@@ -1494,6 +1494,18 @@ const overrides = {
     labCreativeContext: "Contexto creativo",
     labCreativeContextDescription:
       "Conecta y reutiliza contexto de referencia regulado en Content.",
+    labSlashAdvancedCode: "Bloques de código avanzados",
+    labSlashAdvancedCodeDescription:
+      "Añade bloques de código y pestañas de código al menú de comandos.",
+    labSlashLayouts: "Bloques de diseño",
+    labSlashLayoutsDescription:
+      "Añade bloques de HTML personalizado y pestañas al menú de comandos.",
+    labSlashVisuals: "Bloques visuales",
+    labSlashVisualsDescription:
+      "Añade diagramas, Mermaid y wireframes al menú de comandos.",
+    labSlashDeveloperDocs: "Bloques de documentación técnica",
+    labSlashDeveloperDocsDescription:
+      "Añade bloques de API y documentación técnica al menú de comandos.",
   },
   chat: {
     publicEmptyState: "Pregúntame cualquier cosa sobre este documento",

@@ -316,6 +316,24 @@ export function isProductionLikeRuntime(): boolean {
 }
 
 /**
+ * Whether this process is a genuinely self-hosted, single-tenant deployment
+ * rather than the hosted multi-tenant workspace runtime — the same bar
+ * `canUseDeployCredentialFallbackForRequest` uses to decide whether relaxing
+ * a security boundary for "this is the operator's own machine" is safe.
+ * `NODE_ENV` alone proves nothing (it travels with a copied `.env`), so a
+ * production-shaped runtime still counts as trusted when it is backed by the
+ * local embedded database, which has no cross-tenant blast radius.
+ *
+ * Used to allow a user-supplied Ollama endpoint to target a LAN address
+ * instead of only loopback — see `provider-endpoint-validation.ts`.
+ */
+export function isTrustedSelfHostedRuntime(): boolean {
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
+}
+
+/**
  * Whether deployment-level Builder env keys may back the current request.
  *
  * This is intentionally self-contained rather than delegating to
@@ -1192,9 +1210,13 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
  * needs reconnect) reports "not configured" rather than falling through to a
  * key-based credential that could belong to a different Builder identity.
  */
-export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
-  const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+export async function resolveBuilderGatewayAuth(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderGatewayAuth | null> {
+  const ownerEmail = identity?.userEmail?.trim() || getRequestUserEmail();
+  // undefined resolves the owner's org; null deliberately pins the lookup to Personal.
+  const orgId =
+    identity === undefined ? (getRequestOrgId() ?? null) : identity.orgId;
   if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
     try {
       const session = await getBuilderOAuthSession(

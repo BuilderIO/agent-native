@@ -35,6 +35,12 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
+vi.mock("../settings/deferred-builder-connect-popover.js", async () => {
+  const { BuilderConnectPopover } =
+    await import("../settings/BuilderConnectPopover.js");
+  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
+});
+
 describe("FirstRunOnboarding", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -79,9 +85,18 @@ describe("FirstRunOnboarding", () => {
             id: "images",
             label: "Images",
             required: false,
+            suggested: true,
             builderIncluded: true,
             keySummary: "Image provider key",
             why: "Needed for image generation",
+          },
+          {
+            id: "figma",
+            label: "Figma",
+            required: false,
+            builderIncluded: false,
+            keySummary: "Figma personal access token",
+            why: "Only needed to read or update files in Figma.",
           },
           {
             id: "design-system-intelligence",
@@ -374,6 +389,29 @@ describe("FirstRunOnboarding", () => {
         button.textContent?.trim().endsWith("more"),
       ),
     ).toBeUndefined();
+  });
+
+  it("keeps per-app optional keys off both setup cards", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain("LLM provider key");
+    expect(document.body.textContent).toContain("Image provider key");
+    expect(document.body.textContent).not.toContain(
+      "Figma personal access token",
+    );
+    expect(document.body.textContent).not.toContain("Optional");
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
