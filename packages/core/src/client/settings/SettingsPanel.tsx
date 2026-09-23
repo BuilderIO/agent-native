@@ -109,13 +109,13 @@ import {
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
 } from "./agent-settings-search.js";
+import { AgentProviderPicker } from "./AgentProviderPicker.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
-import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
-import { AgentProviderPicker } from "./ProviderSetupForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -388,7 +388,7 @@ function UseBuilderCard({
 
   if (compact) {
     return (
-      <BuilderConnectPopover
+      <DeferredBuilderConnectPopover
         flow={builderFlow}
         onConnect={(provisionAccount) =>
           builderFlow.start({
@@ -410,7 +410,7 @@ function UseBuilderCard({
             <IconLoader2 size={14} className="animate-spin" />
           ) : null}
         </Button>
-      </BuilderConnectPopover>
+      </DeferredBuilderConnectPopover>
     );
   }
 
@@ -463,7 +463,7 @@ function UseBuilderCard({
           )}
         </div>
       </div>
-      <BuilderConnectPopover
+      <DeferredBuilderConnectPopover
         flow={builderFlow}
         onConnect={(provisionAccount) =>
           builderFlow.start({
@@ -488,7 +488,7 @@ function UseBuilderCard({
             <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
           ) : null}
         </Button>
-      </BuilderConnectPopover>
+      </DeferredBuilderConnectPopover>
     </div>
   );
 }

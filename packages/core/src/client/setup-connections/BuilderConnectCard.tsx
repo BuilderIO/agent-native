@@ -27,7 +27,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import type {
   BuilderConnectFlow,
   BuilderStatus,
@@ -346,7 +346,7 @@ export function DefaultBuilderConnectCardView({
           {action ? (
             <div className="mt-3">
               {viewModel.connectFlow ? (
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={viewModel.connectFlow}
                   onConnect={action.onPress}
                 >
@@ -361,7 +361,7 @@ export function DefaultBuilderConnectCardView({
                   >
                     {action.label}
                   </ActionButton>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               ) : (
                 <ActionButton
                   type="button"
