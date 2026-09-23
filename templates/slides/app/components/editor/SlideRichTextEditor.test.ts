@@ -271,6 +271,23 @@ describe("slide rich text normalization", () => {
     expect(element.textContent).not.toContain("•");
   });
 
+  it("strips editor-only legacy marker styling from a numbered list", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ol style="--slide-legacy-list:1;list-style:none;padding-left:0"><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>Only item</p></li></ol>',
+      source,
+    );
+
+    const list = element.querySelector("ol");
+    expect(list?.querySelectorAll("li")).toHaveLength(1);
+    expect(list?.style.listStyle).toBe("");
+    expect(element.innerHTML).not.toContain("--slide-legacy");
+  });
+
   it("flattens a Tab-nested item in a multi-row AI bullet block into marker rows", () => {
     const element = document.createElement("div");
     const row = (text: string) =>

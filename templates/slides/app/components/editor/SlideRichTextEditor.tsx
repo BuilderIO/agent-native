@@ -788,10 +788,8 @@ function restoreLegacyBulletRowContent(
     // leaking that editor-only markup into saved content.
     // A numbered list is the user's explicit choice; it persists as a real
     // <ol> rather than as copies of the source row's bullet glyph.
-    if (
-      currentRoot.tagName === "OL" &&
-      (currentItems.length > 1 || hasNestedList)
-    ) {
+    if (currentRoot.tagName === "OL") {
+      stripLegacyListStyles(currentRoot);
       return currentRoot.outerHTML;
     }
     if (currentItems.length > 1 || hasNestedList) {
@@ -817,6 +815,29 @@ function restoreLegacyBulletRowContent(
   );
   if (target) applyRestoredLegacyBulletRow(target, restored);
   return restored.innerHTML;
+}
+
+/**
+ * The editor draws legacy glyph markers with `list-style: none` and
+ * `--slide-legacy-*` variables; left on a real list they hide its numbers.
+ */
+function stripLegacyListStyles(list: HTMLElement): void {
+  if (list.style.getPropertyValue("--slide-legacy-list")) {
+    list.style.removeProperty("list-style");
+    list.style.removeProperty("padding-left");
+  }
+  for (const element of [
+    list,
+    ...Array.from(list.querySelectorAll<HTMLElement>("[style]")),
+  ]) {
+    const legacy: string[] = [];
+    for (let index = 0; index < element.style.length; index += 1) {
+      const property = element.style.item(index);
+      if (property.startsWith("--slide-legacy-")) legacy.push(property);
+    }
+    for (const property of legacy) element.style.removeProperty(property);
+    if (!element.style.length) element.removeAttribute("style");
+  }
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {
