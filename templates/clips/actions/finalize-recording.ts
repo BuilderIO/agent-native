@@ -323,8 +323,35 @@ async function failStoredButUnservableRecording(params: {
         eq(schema.recordings.status, "processing"),
       ),
     )
-    .returning({ id: schema.recordings.id });
+    .returning({
+      id: schema.recordings.id,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+    });
   if (failed.length !== 1) return false;
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "media_verification",
+        stage: "media_verification",
+        outcome: "failed",
+        failure_type: "media_verification",
+        failure_code: "media_verification_failed",
+        output_id: id,
+        output_type: "clip",
+        recording_id: id,
+        recording_attempt_id: id,
+        ...(failed[0]?.uploadAttemptId
+          ? { upload_attempt_id: failed[0].uploadAttemptId }
+          : {}),
+      },
+      { userId: ownerEmail },
+    );
+  } catch {
+    // coercion-ok: analytics is best-effort and must not change media recovery behavior.
+  }
   const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
     () => null,
   );
@@ -718,7 +745,8 @@ async function markRecordingReady(params: {
       template_name: "clips",
       output_id: id,
       output_type: "clip",
-      recording_attempt_id: recordingAttemptId ?? id,
+      recording_attempt_id: id,
+      ...(recordingAttemptId ? { upload_attempt_id: recordingAttemptId } : {}),
       duration_s: Math.round(finalDurationMs / 1000),
       video_format: videoFormat,
       has_audio: finalHasAudio,

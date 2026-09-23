@@ -194,7 +194,9 @@ function trackUploadBlockingFailure(
         output_id: recordingId,
         output_type: "clip",
         recording_id: recordingId,
-        recording_attempt_id: attemptId ?? recordingId,
+        // Keep this stable for the recording lifecycle; upload_attempt_id
+        // disambiguates resumable retries without breaking the join to start.
+        recording_attempt_id: recordingId,
         ...(attemptId ? { upload_attempt_id: attemptId } : {}),
         failure_code: properties.failure_code ?? properties.failure_type,
         ...properties,
