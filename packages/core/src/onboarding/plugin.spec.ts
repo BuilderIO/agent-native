@@ -59,16 +59,18 @@ import {
   FIRST_RUN_ONBOARDING_COMPLETED_KEY,
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
-  SHARED_ONBOARDING_COOKIE,
-  decodeSharedOnboardingCookie,
-  encodeSharedOnboardingCookie,
-  hashOnboardingEmail,
 } from "../shared/first-run-onboarding.js";
 import { createOnboardingPlugin } from "./plugin.js";
 import {
   __resetOnboardingRegistry,
   registerOnboardingStep,
 } from "./registry.js";
+import {
+  SHARED_ONBOARDING_COOKIE,
+  decodeSharedOnboardingCookie,
+  encodeSharedOnboardingCookie,
+  hashOnboardingEmail,
+} from "./shared-cookie.js";
 
 function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };

@@ -40,11 +40,6 @@ import {
   FIRST_RUN_ONBOARDING_COMPLETED_KEY,
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
-  SHARED_ONBOARDING_COOKIE,
-  SHARED_ONBOARDING_COOKIE_MAX_AGE,
-  decodeSharedOnboardingCookie,
-  encodeSharedOnboardingCookie,
-  hashOnboardingEmail,
 } from "../shared/first-run-onboarding.js";
 import { classifyTrackingFailure, track } from "../tracking/index.js";
 import {
@@ -58,6 +53,13 @@ import {
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
+import {
+  SHARED_ONBOARDING_COOKIE,
+  SHARED_ONBOARDING_COOKIE_MAX_AGE,
+  decodeSharedOnboardingCookie,
+  encodeSharedOnboardingCookie,
+  hashOnboardingEmail,
+} from "./shared-cookie.js";
 import type {
   OnboardingResolveContext,
   OnboardingStepStatus,

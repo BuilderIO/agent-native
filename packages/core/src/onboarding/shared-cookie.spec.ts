@@ -5,7 +5,7 @@ import {
   decodeSharedOnboardingCookie,
   encodeSharedOnboardingCookie,
   hashOnboardingEmail,
-} from "./first-run-onboarding.js";
+} from "./shared-cookie.js";
 
 /** Build a cookie value from an arbitrary payload, bypassing `encode`. */
 function encodePayload(payload: unknown): string {
