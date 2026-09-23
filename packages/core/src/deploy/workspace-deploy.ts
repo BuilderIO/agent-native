@@ -750,6 +750,10 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
   for (const app of apps) {
     if (app !== "dispatch") {
       routes.push({ src: `/${app}`, dest: `/${app}-server` });
+      routes.push({
+        src: vercelRouteSrc(`/${app}.data`),
+        dest: `/${app}-server`,
+      });
     }
     routes.push({ src: `/${app}/(.*)`, dest: `/${app}-server` });
   }
@@ -1348,6 +1352,10 @@ function normalizeBasePathArgs(args) {
     return args;
   }
   const url = new URL(request.url);
+  if (url.pathname === basePath + ".data") {
+    url.pathname = basePath + "/.data";
+    return [new Request(url, request), ...args.slice(1)];
+  }
   if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
     url.pathname = \`\${basePath}//\`;
     return [new Request(url, request), ...args.slice(1)];
@@ -1467,6 +1475,10 @@ function normalizeBasePathArgs(args) {
 
   if (typeof Request === "function" && request instanceof Request) {
     const url = new URL(request.url);
+    if (url.pathname === basePath + ".data") {
+      url.pathname = basePath + "/.data";
+      return [new Request(url, request), ...args.slice(1)];
+    }
     if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
       url.pathname = \`\${basePath}//\`;
       return [new Request(url, request), ...args.slice(1)];
@@ -1476,6 +1488,10 @@ function normalizeBasePathArgs(args) {
 
   if (typeof request.url !== "string") return args;
   const url = new URL(request.url, "http://agent-native.local");
+  if (url.pathname === basePath + ".data") {
+    request.url = basePath + "/.data" + url.search;
+    return args;
+  }
   if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
     request.url = \`\${basePath}//\${url.search}\`;
   }
