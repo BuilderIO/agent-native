@@ -19,7 +19,6 @@ describe("validateRecordingScope", () => {
     const db = {
       select: vi
         .fn()
-        .mockReturnValueOnce(query([{ id: "space-1" }]))
         .mockReturnValueOnce(
           query([
             {
@@ -28,7 +27,8 @@ describe("validateRecordingScope", () => {
               spaceId: "space-1",
             },
           ]),
-        ),
+        )
+        .mockReturnValueOnce(query([{ id: "space-1" }])),
     };
 
     await expect(
@@ -49,17 +49,14 @@ describe("validateRecordingScope", () => {
     ).rejects.toThrow("One or more spaces were not found.");
 
     const mismatchedFolderDb = {
-      select: vi
-        .fn()
-        .mockReturnValueOnce(query([{ id: "space-1" }]))
-        .mockReturnValueOnce(
-          query([
-            {
-              ownerEmail: "owner@example.com",
-              spaceId: "space-2",
-            },
-          ]),
-        ),
+      select: vi.fn().mockReturnValueOnce(
+        query([
+          {
+            ownerEmail: "owner@example.com",
+            spaceId: "space-2",
+          },
+        ]),
+      ),
     };
     await expect(
       validateRecordingScope(mismatchedFolderDb as any, {
@@ -69,5 +66,30 @@ describe("validateRecordingScope", () => {
         folderId: "folder-1",
       }),
     ).rejects.toThrow("Target folder must belong to the same organization");
+  });
+
+  it("infers the space from a space folder when no space was provided", async () => {
+    const db = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce(
+          query([
+            {
+              ownerEmail: "owner@example.com",
+              spaceId: "space-1",
+            },
+          ]),
+        )
+        .mockReturnValueOnce(query([{ id: "space-1" }])),
+    };
+
+    await expect(
+      validateRecordingScope(db as any, {
+        organizationId: "org-1",
+        ownerEmail: "owner@example.com",
+        spaceIds: [],
+        folderId: "folder-1",
+      }),
+    ).resolves.toEqual(["space-1"]);
   });
 });

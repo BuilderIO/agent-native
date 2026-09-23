@@ -20,23 +20,6 @@ export async function validateRecordingScope(
 ): Promise<string[]> {
   const uniqueSpaceIds = [...new Set(spaceIds.filter(Boolean))];
 
-  if (uniqueSpaceIds.length > 0) {
-    const spaces = await db
-      .select({ id: schema.spaces.id })
-      .from(schema.spaces)
-      .where(
-        and(
-          eq(schema.spaces.organizationId, organizationId),
-          inArray(schema.spaces.id, uniqueSpaceIds),
-        ),
-      )
-      .limit(uniqueSpaceIds.length);
-
-    if (spaces.length !== uniqueSpaceIds.length) {
-      throw new Error("One or more spaces were not found.");
-    }
-  }
-
   if (folderId !== null && folderId !== undefined) {
     const [folder] = await db
       .select({
@@ -58,10 +41,34 @@ export async function validateRecordingScope(
     ) {
       throw new Error(`Folder not found: ${folderId}`);
     }
-    if (folder.spaceId && !uniqueSpaceIds.includes(folder.spaceId)) {
+    if (
+      folder.spaceId &&
+      uniqueSpaceIds.length > 0 &&
+      !uniqueSpaceIds.includes(folder.spaceId)
+    ) {
       throw new Error(
         "Target folder must belong to the same organization and space as the recording.",
       );
+    }
+    if (folder.spaceId && uniqueSpaceIds.length === 0) {
+      uniqueSpaceIds.push(folder.spaceId);
+    }
+  }
+
+  if (uniqueSpaceIds.length > 0) {
+    const spaces = await db
+      .select({ id: schema.spaces.id })
+      .from(schema.spaces)
+      .where(
+        and(
+          eq(schema.spaces.organizationId, organizationId),
+          inArray(schema.spaces.id, uniqueSpaceIds),
+        ),
+      )
+      .limit(uniqueSpaceIds.length);
+
+    if (spaces.length !== uniqueSpaceIds.length) {
+      throw new Error("One or more spaces were not found.");
     }
   }
 
