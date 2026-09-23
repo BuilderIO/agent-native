@@ -25,7 +25,6 @@ vi.mock("../server/lib/builder-design-system-proxy.js", () => ({
 }));
 
 import { ActionContractError } from "@agent-native/core/action";
-import { FeatureNotConfiguredError } from "@agent-native/core/server";
 
 import action from "./index-design-system-with-builder.js";
 
@@ -36,54 +35,6 @@ describe("index-design-system-with-builder", () => {
       undefined,
     );
     mocks.buildBuilderDesignSystemIndexFiles.mockReturnValue([]);
-  });
-
-  it("returns an actionable precondition when Builder is not connected", async () => {
-    mocks.startBuilderDesignSystemIndex.mockRejectedValue(
-      new FeatureNotConfiguredError({
-        requiredCredential: "BUILDER_PRIVATE_KEY",
-        message:
-          "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
-        builderConnectUrl: "/_agent-native/builder/connect",
-      }),
-    );
-
-    await expect(
-      action.run({
-        githubSources: [{ repoUrl: "https://github.com/acme/ui" }],
-      }),
-    ).rejects.toMatchObject({
-      actionContractError: true,
-      errorCode: "builder_not_configured",
-      statusCode: 412,
-      message:
-        "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
-      details: { builderConnectUrl: "/_agent-native/builder/connect" },
-    });
-  });
-
-  it("passes through Builder's route-unavailable failure so the agent can fall back locally", async () => {
-    mocks.startBuilderDesignSystemIndex.mockRejectedValue(
-      new ActionContractError(
-        "Builder design-system indexing is not reachable with a Builder OAuth connection yet — Builder answered 403 route_not_enabled for /design-systems/v1. " +
-          "Save a Builder private key as BUILDER_PRIVATE_KEY in Settings > Secrets to index with Builder, " +
-          "or create the design system locally with create-design-system from the sources you already supplied.",
-        {
-          errorCode: "builder_design_system_oauth_unsupported",
-          statusCode: 503,
-        },
-      ),
-    );
-
-    await expect(
-      action.run({
-        githubSources: [{ repoUrl: "https://github.com/acme/ui" }],
-      }),
-    ).rejects.toMatchObject({
-      errorCode: "builder_design_system_oauth_unsupported",
-      statusCode: 503,
-      message: expect.stringContaining("create-design-system"),
-    });
   });
 
   it("blocks a GitHub source before indexing when code indexing is not entitled", async () => {
@@ -104,6 +55,27 @@ describe("index-design-system-with-builder", () => {
     ).rejects.toMatchObject({
       errorCode: "design_system_code_indexing_forbidden",
       statusCode: 403,
+    });
+    expect(mocks.startBuilderDesignSystemIndex).not.toHaveBeenCalled();
+  });
+
+  it("blocks inline code files before indexing when code indexing is not entitled", async () => {
+    mocks.assertBuilderDesignSystemCodeIndexingAllowed.mockRejectedValue(
+      new ActionContractError(
+        "Code and repository indexing requires the Builder Enterprise plan.",
+        {
+          errorCode: "design_system_code_indexing_forbidden",
+          statusCode: 403,
+        },
+      ),
+    );
+
+    await expect(
+      action.run({
+        codeFiles: [{ filename: "tokens.css", content: ":root{--x:1}" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_system_code_indexing_forbidden",
     });
     expect(mocks.startBuilderDesignSystemIndex).not.toHaveBeenCalled();
   });

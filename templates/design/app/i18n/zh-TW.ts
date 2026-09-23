@@ -1417,6 +1417,8 @@ const messages = {
     visualEdit: "視覺編輯 - Design",
   },
   designSystemSetup: {
+    codeIndexingEnterpriseOnly:
+      "程式碼與版本庫索引需要 Builder Enterprise 方案",
     importedBrand: "進口品牌",
     figmaCreateSuccess: "由Figma建立的設計系統",
     figmaCreateError: "無法建立設計系統",
@@ -1553,6 +1555,12 @@ const messages = {
     selectAria: "選取{{title}}",
     currentlyDefault: "目前預設",
     moreActionsAria: "{{title}} 的更多操作",
+    tierLimitTitle: "已達到設計系統數量上限",
+    tierLimitDescription:
+      "您已達到目前 Builder 方案的設計系統數量上限。升級 Builder 方案以建立更多。",
+    tierLimitDescriptionWithCount:
+      "您在 Builder {{plan}} 方案中已使用 {{current}}/{{max}} 個設計系統。升級方案以建立更多。",
+    tierLimitUpgrade: "升級 Builder 方案",
     showcase: {
       title: "可用於正式產品的起點",
       description:
