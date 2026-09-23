@@ -21,6 +21,21 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
+  it("defers the home prompt until open and prefetches on intent", () => {
+    expect(source).toContain(
+      'const loadPromptPopover = () => import("@/components/editor/PromptDialog")',
+    );
+    expect(source).toContain(
+      "const LazyPromptPopover = lazy(loadPromptPopover)",
+    );
+    expect(source).toContain(
+      "(showNewDeckPrompt || hasOpenedNewDeckPrompt) &&",
+    );
+    expect(source).toContain("onPointerEnter={preloadPromptPopover}");
+    expect(source).toContain("onFocus={preloadPromptPopover}");
+    expect(source).toContain("<LazyChunkErrorBoundary");
+  });
+
   it("opens the generating editor before persistence and dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
     const openEditorIndex = flow.indexOf(
