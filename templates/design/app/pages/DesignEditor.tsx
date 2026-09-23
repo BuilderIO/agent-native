@@ -57,7 +57,10 @@ import {
   useSendReviewThreadToAgent,
   type ReviewThread,
 } from "@agent-native/core/client/review";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  ShareButton,
+  withShareLinkAttribution,
+} from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
@@ -4939,10 +4942,16 @@ function DesignEditor() {
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
+  // Viral attribution: whoever copies this share link is tagged as the
+  // referrer, so a signup that follows it can be attributed.
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
-    return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
-  }, [id]);
+    return withShareLinkAttribution(
+      getDesignEditorShareUrl(id, window.location.origin, appBasePath()),
+      "design_share",
+      session?.userId,
+    );
+  }, [id, session?.userId]);
   const {
     designSystems,
     defaultSystem,
