@@ -198,6 +198,30 @@ describe("create-deck — aspectRatio", () => {
     );
   });
 
+  it("returns a persisted deck when post-insert work fails", async () => {
+    mockNotifyClients.mockRejectedValueOnce(
+      new Error("notification failed with private details"),
+    );
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(insertedRow).toBeDefined();
+    expect(result).toMatchObject({
+      id: expect.any(String),
+      postProcessStatus: "failed",
+    });
+    const unresolved = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_outcome_unresolved",
+    );
+    expect(unresolved?.[1]).toMatchObject({
+      output_id: result.id,
+      outcome: "unresolved",
+      reason: "postprocess_failed",
+      persisted_output: true,
+      error_type: "Error",
+    });
+  });
+
   it("omits aspectRatio from the data JSON when not provided (legacy default)", async () => {
     await action.run({ title: "T", slides: [] });
     expect(insertedRow).toBeDefined();

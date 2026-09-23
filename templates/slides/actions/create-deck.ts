@@ -524,21 +524,50 @@ export default defineAction({
         updatedAt: now,
       });
 
-      await notifyClients(id);
-      await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
-      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
-      await recordGenerationCreativeContext({
-        appId: "slides",
-        artifactType: "deck",
-        artifactId: id,
-        ...creativeContextProvenance,
-        ...(elementProvenance.length ? { elementProvenance } : {}),
-      });
-      const loadedDesignSystem = await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      );
+      let loadedDesignSystem: Awaited<
+        ReturnType<typeof loadAgentDesignSystemContext>
+      > = null;
+      let postProcessStatus: "completed" | "failed" = "completed";
+      try {
+        await notifyClients(id);
+        await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
+        await writeAppState("refresh-signal", {
+          ts: now,
+          source: "create-deck",
+        });
+        await recordGenerationCreativeContext({
+          appId: "slides",
+          artifactType: "deck",
+          artifactId: id,
+          ...creativeContextProvenance,
+          ...(elementProvenance.length ? { elementProvenance } : {}),
+        });
+        loadedDesignSystem = await loadAgentDesignSystemContext(
+          resolvedDesignSystemId,
+          getDesignSystem,
+          { full: true },
+        );
+      } catch (error) {
+        postProcessStatus = "failed";
+        trackGenerationEvent(
+          "generation_outcome_unresolved",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            source: "create_deck_action",
+            generation_mode: incrementalGeneration ? "incremental" : "bulk",
+            output_id: id,
+            output_type: "deck",
+            slide_count: slides.length,
+            outcome: "unresolved",
+            reason: "postprocess_failed",
+            persisted_output: true,
+            error_type: error instanceof Error ? error.name : "unknown_error",
+          },
+          ctx,
+        );
+      }
       trackGenerationEvent(
         incrementalGeneration
           ? "generation_request_accepted"
@@ -556,7 +585,7 @@ export default defineAction({
         },
         ctx,
       );
-      track(
+      trackGenerationEvent(
         "deck_created",
         {
           app_name: "slides",
@@ -579,6 +608,7 @@ export default defineAction({
         appUrl: getDeckUrl(id),
         deepLink: deckDeepLink(id),
         slides,
+        postProcessStatus,
         ...creativeContextProvenance,
       };
     } catch (error) {

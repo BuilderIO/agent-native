@@ -836,6 +836,7 @@ export default function DeckEditor() {
         reason: "page_exit",
         source: "new_deck_prompt",
       });
+      if (id) clearStartedGenerationAttempt(generationAttemptId, id);
     };
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);
