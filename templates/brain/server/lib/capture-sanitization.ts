@@ -543,6 +543,7 @@ export async function sanitizeCaptureForStorage(
         orgId: input.source.orgId,
       });
   decision ??= jev.decision ?? null;
+  fallbackReason = jev.failureReason;
   // A Jev failure counts as a configured-classifier outage even when the
   // credential lookup itself threw, so a broken vault fails closed instead of
   // reading as an unconfigured workspace and releasing content.
