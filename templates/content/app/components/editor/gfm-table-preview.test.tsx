@@ -77,3 +77,92 @@ it("renders an editable aligned table and saves its cell changes", async () => {
   expect(docToNfm(editor.getJSON())).toContain("extra");
   expect(docToNfm(editor.getJSON())).toContain("Changed After.");
 });
+
+it("keeps column alignment when a row is added to an imported table", () => {
+  const editor = new Editor({
+    extensions: createVisualEditorExtensions(),
+    content: nfmToDoc("| Name | Price |\n| :--- | ---: |\n| A | $1 |"),
+  });
+  cleanup.push(() => editor.destroy());
+
+  let pricePosition = -1;
+  editor.state.doc.descendants((node, position) => {
+    if (node.type.name === "tableCell" && node.textContent === "$1") {
+      pricePosition = position + 2;
+      return false;
+    }
+    return true;
+  });
+  expect(pricePosition).toBeGreaterThan(0);
+  expect(
+    editor.chain().setTextSelection(pricePosition).addRowAfter().run(),
+  ).toBe(true);
+  const table = editor.state.doc.firstChild!;
+  expect(table.childCount).toBe(3);
+  expect(
+    Array.from(
+      { length: table.child(2).childCount },
+      (_, index) => table.child(2).child(index).attrs.textAlign,
+    ),
+  ).toEqual(["left", "right"]);
+  expect(docToNfm(editor.getJSON())).toContain(
+    '<td align="left"></td>\n<td align="right"></td>',
+  );
+
+  let newPricePosition = -1;
+  editor.state.doc.descendants((node, position) => {
+    if (node.type.name === "tableCell" && node.textContent === "$1") {
+      newPricePosition = position + 2;
+      return false;
+    }
+    return true;
+  });
+  expect(
+    editor.chain().setTextSelection(newPricePosition).addColumnAfter().run(),
+  ).toBe(true);
+  const expanded = editor.state.doc.firstChild!;
+  expect(
+    Array.from(
+      { length: expanded.childCount },
+      (_, index) => expanded.child(index).childCount,
+    ),
+  ).toEqual([3, 3, 3]);
+  expect(
+    Array.from(
+      { length: expanded.child(2).childCount },
+      (_, index) => expanded.child(2).child(index).attrs.textAlign,
+    ),
+  ).toEqual(["left", "right", null]);
+});
+
+it("does not impose alignment from one cell on a mixed-alignment table", () => {
+  const source = [
+    '<table header-row="true">',
+    "<tr>",
+    '<td align="right">Price</td>',
+    "</tr>",
+    "<tr>",
+    "<td>$1</td>",
+    "</tr>",
+    "</table>",
+  ].join("\n");
+  const editor = new Editor({
+    extensions: createVisualEditorExtensions(),
+    content: nfmToDoc(source),
+  });
+  cleanup.push(() => editor.destroy());
+  let cellPosition = -1;
+  editor.state.doc.descendants((node, position) => {
+    if (node.type.name === "tableCell" && node.textContent === "$1") {
+      cellPosition = position + 2;
+      return false;
+    }
+    return true;
+  });
+  expect(
+    editor.chain().setTextSelection(cellPosition).addRowAfter().run(),
+  ).toBe(true);
+  expect(
+    editor.state.doc.firstChild!.child(2).child(0).attrs.textAlign,
+  ).toBeNull();
+});

@@ -1007,6 +1007,104 @@ const NormalizeTableHeaders = Extension.create({
   },
 });
 
+const normalizeTableAlignmentPluginKey = new PluginKey(
+  "normalizeTableAlignment",
+);
+
+const NormalizeTableAlignment = Extension.create({
+  name: "normalizeTableAlignment",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: normalizeTableAlignmentPluginKey,
+        appendTransaction(transactions, oldState, newState) {
+          if (
+            transactions.some((transaction) =>
+              transaction.getMeta(normalizeTableAlignmentPluginKey),
+            ) ||
+            !transactions.some((transaction) => transaction.docChanged)
+          ) {
+            return null;
+          }
+
+          const previousTables: ProseMirrorNode[] = [];
+          oldState.doc.descendants((node) => {
+            if (node.type.name !== "table") return true;
+            previousTables.push(node);
+            return false;
+          });
+
+          let tableIndex = 0;
+          let transaction = newState.tr;
+          let changed = false;
+          newState.doc.descendants((table, position) => {
+            if (table.type.name !== "table") return true;
+            const previous = previousTables[tableIndex++];
+            if (!previous || table.childCount <= previous.childCount)
+              return false;
+
+            const previousRows = getNodeChildren(previous);
+            const previousRowSet = new Set(previousRows);
+            const alignments = getNodeChildren(previousRows[0]).map(
+              (_cell, columnIndex) => {
+                const alignment =
+                  previousRows[0].maybeChild(columnIndex)?.attrs.textAlign;
+                if (
+                  alignment !== "left" &&
+                  alignment !== "center" &&
+                  alignment !== "right"
+                )
+                  return null;
+                return previousRows.every(
+                  (row) =>
+                    row.maybeChild(columnIndex)?.attrs.textAlign === alignment,
+                )
+                  ? alignment
+                  : null;
+              },
+            );
+            if (alignments.every((alignment) => alignment === null))
+              return false;
+
+            let tableChanged = false;
+            const rows = getNodeChildren(table).map((row) => {
+              if (previousRowSet.has(row)) return row;
+              let rowChanged = false;
+              const cells = getNodeChildren(row).map((cell, columnIndex) => {
+                const alignment = alignments[columnIndex];
+                if (cell.attrs.textAlign || !alignment || cell.textContent)
+                  return cell;
+                rowChanged = true;
+                return cell.type.create(
+                  { ...cell.attrs, textAlign: alignment },
+                  cell.content,
+                  cell.marks,
+                );
+              });
+              if (!rowChanged) return row;
+              tableChanged = true;
+              return row.copy(Fragment.fromArray(cells));
+            });
+            if (!tableChanged) return false;
+            transaction = transaction.replaceWith(
+              position,
+              position + table.nodeSize,
+              table.copy(Fragment.fromArray(rows)),
+            );
+            changed = true;
+            return false;
+          });
+
+          return changed
+            ? transaction.setMeta(normalizeTableAlignmentPluginKey, true)
+            : null;
+        },
+      }),
+    ];
+  },
+});
+
 function pendingNativeSuggestionSelection(
   view: EditorView,
   specs: SuggestionHighlightSpec[],
@@ -2564,6 +2662,7 @@ export function createVisualEditorExtensions({
       NotionTableHeader,
       NotionTableCell,
       NormalizeTableHeaders,
+      NormalizeTableAlignment,
       ...createNotionEditorExtensions({
         resolvePageLink: resolveNotionPageLink,
         onOpenPageLink: onOpenNotionPageLink,
