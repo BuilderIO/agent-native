@@ -477,6 +477,51 @@ describe("sendToAgentChat", () => {
     });
   });
 
+  it("keeps a Builder-frame code approval continuation in the embedded app", () => {
+    vi.useFakeTimers();
+    frameState.inBuilderFrame = true;
+
+    const tabId = sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    // builder.submitChat has no field for the keys and Builder holds none of
+    // this app's grants; the paused run belongs to the embedded AgentSidebar.
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)
+        ?.approvedToolCalls,
+    ).toEqual(["publish-release:{}"]);
+  });
+
+  it("keeps code approval continuations on the code frame outside Builder", () => {
+    sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+  });
+
   it("prepares the local sidebar for silent background sends without opening it", () => {
     sendToAgentChat({
       message: "refresh quietly",

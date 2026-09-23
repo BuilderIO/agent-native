@@ -1150,6 +1150,21 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 }
 
 /**
+ * Whether this send goes to the code-editing frame rather than the app's own
+ * chat. Builder's chat is a separate agent: `builder.submitChat` has no field
+ * for approval keys and Builder holds none of this app's durable grants. An
+ * approval continuation resumes this app's own paused run, so in a Builder
+ * frame it stays with the embedded AgentSidebar, like a content prompt.
+ * Anywhere else a code request keeps its frame, whose relay carries the keys.
+ */
+export function routesToCodeFrame(
+  opts: Pick<AgentChatMessage, "type" | "requiresCode" | "approvedToolCalls">,
+): boolean {
+  if (opts.type !== "code" && opts.requiresCode !== true) return false;
+  return !(opts.approvedToolCalls?.length && isInBuilderFrame());
+}
+
+/**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
  */
@@ -1159,7 +1174,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     opts.actionScope === undefined
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
-  const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+  const isCodeRequest = routesToCodeFrame(opts);
   const localChatTarget = opts.chatTarget === "local";
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
