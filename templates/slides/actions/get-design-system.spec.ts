@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
-const mockAccessFilter = vi.fn();
+const mockAccessFilter = vi.fn(() => "access-filter");
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
