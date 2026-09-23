@@ -148,13 +148,15 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "SENTRY_SERVER_DSN",
 ]);
 // Sentry build-time upload credentials are one org/project shared by every
-// hosted site, unlike SENTRY_DSN which can vary per site. Pulling them from
-// the invoking shell (rather than each template's committed .env) means the
+// hosted site, unlike SENTRY_DSN which can vary per site. LaunchDarkly's SDK
+// key is the same: one project shared fleet-wide. Pulling them from the
+// invoking shell (rather than each template's committed .env) means the
 // token is never written to disk in this repo.
 const FLEET_WIDE_ENV_KEYS = [
   "SENTRY_AUTH_TOKEN",
   "SENTRY_ORG",
   "SENTRY_PROJECT",
+  "LAUNCHDARKLY_SDK_KEY",
 ];
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
@@ -229,9 +231,10 @@ Options:
                            GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
                            hosted Agent-Native analytics configuration unless an
                            env source overrides them.
-                           SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT are
-                           read from this shell's environment (not any template
-                           .env) since they're the same for every hosted site.
+                           SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT, and
+                           LAUNCHDARKLY_SDK_KEY are read from this shell's
+                           environment (not any template .env) since they're
+                           the same for every hosted site.
                            SENTRY_AUTH_TOKEN is always scoped to builds only.
   --help                  Show this help.
 
