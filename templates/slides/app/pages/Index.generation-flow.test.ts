@@ -24,7 +24,7 @@ describe("new deck generation flow", () => {
   it("opens the generating editor before persistence and dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
     const openEditorIndex = flow.indexOf(
-      "navigate(`/deck/${deck.id}?generating=1`",
+      "`/deck/${deck.id}?generating=1&generation_attempt_id=",
     );
     const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
 
@@ -63,7 +63,7 @@ describe("new deck generation flow", () => {
   it("shows the destination-shaped loading surface before navigation", () => {
     const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
     const navigateIndex = flow.indexOf(
-      "navigate(`/deck/${deck.id}?generating=1`",
+      "`/deck/${deck.id}?generating=1&generation_attempt_id=",
     );
 
     expect(loadingIndex).toBeGreaterThan(-1);
@@ -73,7 +73,7 @@ describe("new deck generation flow", () => {
 
   it("marks generation intent before submitting the agent run", () => {
     const generatingRouteIndex = flow.indexOf(
-      "navigate(`/deck/${deck.id}?generating=1`",
+      "`/deck/${deck.id}?generating=1&generation_attempt_id=",
     );
     const submitIndex = flow.indexOf(
       "agentSubmit(createDeckAgentMessage(prompt)",

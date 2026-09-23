@@ -269,6 +269,7 @@ export default defineAction({
       normalizedSlides.slides,
       normalizedSlides.originalIds,
     );
+    const incrementalGeneration = !deckId && slides.length === 0;
     trackGenerationEvent(
       "generation_started",
       {
@@ -276,6 +277,7 @@ export default defineAction({
         template_name: "slides",
         generation_attempt_id: generationAttemptId,
         source: "create_deck_action",
+        generation_mode: incrementalGeneration ? "incremental" : "bulk",
         has_reference_deck: Boolean(contextPackId),
         slide_count: slides.length,
         ...(deckId ? { output_id: deckId } : {}),
@@ -433,6 +435,11 @@ export default defineAction({
           ...creativeContextProvenance,
           ...(elementProvenance.length ? { elementProvenance } : {}),
         });
+        const loadedDesignSystem = await loadAgentDesignSystemContext(
+          designSystemId ?? previousDesignSystemId,
+          getDesignSystem,
+          { full: true },
+        );
         trackGenerationEvent(
           "generation_completed",
           {
@@ -440,6 +447,7 @@ export default defineAction({
             template_name: "slides",
             generation_attempt_id: generationAttemptId,
             source: "create_deck_action",
+            generation_mode: "bulk",
             output_id: deckId,
             output_type: "deck",
             slide_count: slides.length,
@@ -465,11 +473,7 @@ export default defineAction({
           title: existingDeckTitle,
           slideCount: slides.length,
           designSystemId: designSystemId ?? previousDesignSystemId,
-          designSystem: await loadAgentDesignSystemContext(
-            designSystemId ?? previousDesignSystemId,
-            getDesignSystem,
-            { full: true },
-          ),
+          designSystem: loadedDesignSystem,
           url: getDeckUrl(deckId),
           appUrl: getDeckUrl(deckId),
           deepLink: deckDeepLink(deckId),
@@ -497,6 +501,9 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
+        ...(incrementalGeneration
+          ? { generationContext: { generationAttemptId } }
+          : {}),
       };
       if (aspectRatio) data.aspectRatio = aspectRatio;
       if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
@@ -522,13 +529,21 @@ export default defineAction({
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
+      const loadedDesignSystem = await loadAgentDesignSystemContext(
+        resolvedDesignSystemId,
+        getDesignSystem,
+        { full: true },
+      );
       trackGenerationEvent(
-        "generation_completed",
+        incrementalGeneration
+          ? "generation_request_accepted"
+          : "generation_completed",
         {
           app_name: "slides",
           template_name: "slides",
           generation_attempt_id: generationAttemptId,
           source: "create_deck_action",
+          generation_mode: incrementalGeneration ? "incremental" : "bulk",
           output_id: id,
           output_type: "deck",
           slide_count: slides.length,
@@ -542,6 +557,7 @@ export default defineAction({
           app_name: "slides",
           template_name: "slides",
           generation_attempt_id: generationAttemptId,
+          generation_mode: incrementalGeneration ? "incremental" : "bulk",
           output_id: id,
           output_type: "deck",
           slide_count: slides.length,
@@ -553,11 +569,7 @@ export default defineAction({
         title: resolvedTitle,
         slideCount: slides.length,
         designSystemId: resolvedDesignSystemId ?? null,
-        designSystem: await loadAgentDesignSystemContext(
-          resolvedDesignSystemId,
-          getDesignSystem,
-          { full: true },
-        ),
+        designSystem: loadedDesignSystem,
         url: getDeckUrl(id),
         appUrl: getDeckUrl(id),
         deepLink: deckDeepLink(id),

@@ -193,6 +193,45 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("does not report page exit while completion is in flight", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-dismiss"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.anything(),
+    );
+
+    await act(async () => {
+      resolveCompletion?.();
+      await Promise.resolve();
+    });
+  });
+
   it("surfaces a failed dismissal with a retry action", async () => {
     mocks.completeFirstRun.mockRejectedValue(
       new Error("first-run completion failed: 500"),

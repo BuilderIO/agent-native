@@ -180,6 +180,7 @@ export function FirstRunOnboarding({
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+        completionAttemptRef.current = null;
         return false;
       }
     },
@@ -206,7 +207,11 @@ export function FirstRunOnboarding({
   useEffect(() => {
     if (previewMode || !firstRun || loading || !profile) return;
     const handlePageHide = () => {
-      if (onboardingTerminalRef.current || abandonmentTrackedRef.current)
+      if (
+        onboardingTerminalRef.current ||
+        abandonmentTrackedRef.current ||
+        completionAttemptRef.current
+      )
         return;
       abandonmentTrackedRef.current = true;
       trackOnboardingEvent("onboarding_abandoned", {

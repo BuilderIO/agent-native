@@ -392,6 +392,7 @@ export default function DeckEditor() {
   const newDeckGenerationStarted = useRef(false);
   const generationStartedAtRef = useRef<number | null>(null);
   const generationSawActiveRef = useRef(false);
+  const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
   if (searchParams.get("generating") === "1") {
     wasNewDeckCreation.current = true;
@@ -663,7 +664,7 @@ export default function DeckEditor() {
       : null;
 
   useEffect(() => {
-    if (!generationAttemptId || !wasNewDeckCreation.current) return;
+    if (!generationAttemptId || !id || !wasNewDeckCreation.current) return;
     if (generating) {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= Date.now();
@@ -671,62 +672,73 @@ export default function DeckEditor() {
     }
     if (
       !generationSawActiveRef.current ||
+      generationSettlingAttemptRef.current === generationAttemptId ||
       generationTerminalAttemptRef.current === generationAttemptId
     ) {
       return;
     }
-    generationTerminalAttemptRef.current = generationAttemptId;
-    const durationMs = generationStartedAtRef.current
-      ? Math.max(0, Date.now() - generationStartedAtRef.current)
-      : undefined;
-    const failureCode =
-      generationStopReason === "stopped"
-        ? "cancelled"
-        : generationTimedOut
-          ? "timeout"
-          : generationRunError
-            ? "agent_error"
-            : targetSlideCount !== null && slideCount < targetSlideCount
-              ? "incomplete_output"
-              : slideCount === 0
-                ? "no_output"
-                : null;
-    const properties = {
-      app_name: "slides",
-      template_name: "slides",
-      generation_attempt_id: generationAttemptId,
-      output_id: id,
-      output_type: "deck",
-      slide_count: slideCount,
-      ...(targetSlideCount !== null
-        ? { target_slide_count: targetSlideCount }
-        : {}),
-      ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
-      source: "new_deck_prompt",
-    };
-    if (failureCode === "cancelled") {
-      trackEvent("generation_cancelled", {
-        ...properties,
-        outcome: "cancelled",
-        failure_code: failureCode,
-      });
-    } else if (failureCode === "timeout") {
-      trackEvent("generation_stuck", {
-        ...properties,
-        outcome: "stuck",
-        failure_code: failureCode,
-      });
-    } else if (failureCode) {
-      trackEvent("generation_failed", {
-        ...properties,
-        failure_code: failureCode,
-        failure_stage: "agent",
-      });
-    } else {
-      trackEvent("generation_completed", properties);
-    }
-    generationSawActiveRef.current = false;
-    generationStartedAtRef.current = null;
+    generationSettlingAttemptRef.current = generationAttemptId;
+    void (async () => {
+      const refreshedDeck = await refreshOpenDeck(id);
+      if (generationTerminalAttemptRef.current === generationAttemptId) return;
+      generationTerminalAttemptRef.current = generationAttemptId;
+      const settledSlideCount = refreshedDeck?.slides.length ?? slideCount;
+      const durationMs = generationStartedAtRef.current
+        ? Math.max(0, Date.now() - generationStartedAtRef.current)
+        : undefined;
+      const failureCode =
+        generationStopReason === "stopped"
+          ? "cancelled"
+          : generationTimedOut
+            ? "timeout"
+            : generationRunError
+              ? "agent_error"
+              : refreshedDeck === null
+                ? "deck_refresh_failed"
+                : targetSlideCount !== null &&
+                    settledSlideCount < targetSlideCount
+                  ? "incomplete_output"
+                  : settledSlideCount === 0
+                    ? "no_output"
+                    : null;
+      const properties = {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: id,
+        output_type: "deck",
+        slide_count: settledSlideCount,
+        ...(targetSlideCount !== null
+          ? { target_slide_count: targetSlideCount }
+          : {}),
+        ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+        source: "new_deck_prompt",
+      };
+      if (failureCode === "cancelled") {
+        trackEvent("generation_cancelled", {
+          ...properties,
+          outcome: "cancelled",
+          failure_code: failureCode,
+        });
+      } else if (failureCode === "timeout") {
+        trackEvent("generation_stuck", {
+          ...properties,
+          outcome: "stuck",
+          failure_code: failureCode,
+        });
+      } else if (failureCode) {
+        trackEvent("generation_failed", {
+          ...properties,
+          failure_code: failureCode,
+          failure_stage:
+            failureCode === "deck_refresh_failed" ? "post_generation" : "agent",
+        });
+      } else {
+        trackEvent("generation_completed", properties);
+      }
+      generationSawActiveRef.current = false;
+      generationStartedAtRef.current = null;
+    })();
   }, [
     generating,
     generationAttemptId,
@@ -734,6 +746,7 @@ export default function DeckEditor() {
     generationStopReason,
     generationTimedOut,
     id,
+    refreshOpenDeck,
     slideCount,
     targetSlideCount,
   ]);
@@ -743,6 +756,7 @@ export default function DeckEditor() {
     const handlePageHide = () => {
       if (
         !generationSawActiveRef.current ||
+        generationSettlingAttemptRef.current === generationAttemptId ||
         generationTerminalAttemptRef.current === generationAttemptId
       ) {
         return;
@@ -1122,22 +1136,6 @@ export default function DeckEditor() {
       setAccessRequestNotified(false);
     }
   }, [accessRequestSentDeckId, id]);
-
-  // The final generation write can race the last sync event. Pull the
-  // authoritative open deck when the run settles so a stale canvas does not
-  // require a browser refresh to reveal completed slides.
-  useEffect(() => {
-    if (
-      !id ||
-      !shouldClearNewDeckGeneratingState({
-        generating,
-        generationStarted: newDeckGenerationStarted.current,
-      })
-    ) {
-      return;
-    }
-    void refreshOpenDeck(id);
-  }, [generating, id, refreshOpenDeck]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.

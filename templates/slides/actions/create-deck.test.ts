@@ -495,7 +495,10 @@ describe("create-deck — generation lifecycle tracking", () => {
   }
 
   it("joins generation start and completion with one opaque attempt id", async () => {
-    await action.run({ title: "T", slides: [] });
+    await action.run({
+      title: "T",
+      slides: [{ id: "s1", content: "<div>Slide</div>" }],
+    });
 
     const events = trackedEvents();
     const started = events.find((event) => event.name === "generation_started");
@@ -513,9 +516,29 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(started?.properties).not.toHaveProperty("prompt");
     expect(completed?.properties).toMatchObject({
       output_type: "deck",
-      slide_count: 0,
+      slide_count: 1,
       duration_ms: expect.any(Number),
     });
+  });
+
+  it("keeps incremental empty-deck generation open for later add-slide calls", async () => {
+    const result = await action.run({ title: "T", slides: [] });
+
+    const events = trackedEvents();
+    expect(events.map((event) => event.name)).toEqual([
+      "generation_started",
+      "generation_request_accepted",
+      "deck_created",
+    ]);
+    expect(events[1]?.properties).toMatchObject({
+      generation_mode: "incremental",
+      slide_count: 0,
+    });
+    expect(events[1]?.properties).not.toHaveProperty("prompt");
+    expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
+      generationAttemptId: events[0]?.properties.generation_attempt_id,
+    });
+    expect(result.slideCount).toBe(0);
   });
 
   it.each([
