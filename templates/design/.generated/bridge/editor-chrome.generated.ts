@@ -17554,7 +17554,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
-        if (readOnly === nextReadOnly) return;
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && textEditingEnabledFlag;
         if (readOnly) {
@@ -17573,7 +17572,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-interaction-mode") {
         var nextInteractionMode = e.data.interact === true;
-        if (interactionMode === nextInteractionMode) return;
         interactionMode = nextInteractionMode;
         if (interactionMode) {
           clearPendingShieldDrag();

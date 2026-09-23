@@ -24868,7 +24868,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "set-read-only") {
       var nextReadOnly = !!e.data.readOnly;
-      if (readOnly === nextReadOnly) return;
       readOnly = nextReadOnly;
       textEditingEnabled = !readOnly && textEditingEnabledFlag;
       if (readOnly) {
@@ -24891,7 +24890,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // installed so returning to Edit can restore selection without a reload.
     if (e.data.type === "set-interaction-mode") {
       var nextInteractionMode = e.data.interact === true;
-      if (interactionMode === nextInteractionMode) return;
       interactionMode = nextInteractionMode;
       if (interactionMode) {
         clearPendingShieldDrag();
