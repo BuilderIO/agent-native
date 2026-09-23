@@ -1466,6 +1466,15 @@ const enUS = {
     noMatchingPages: "No matching pages",
     failedRenamePage: "Couldn't rename page",
     failedDuplicatePage: "Couldn't duplicate page",
+    chooseSpace: "Choose a workspace",
+    moveToSpaceTitle: "Move to {{space}}?",
+    moveToSpaceWarningShared:
+      "Everyone in {{space}} will be able to see “{{title}}” and its sub-pages. Its current sharing and public link are removed, and you become the owner.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” and its sub-pages will be private to you in {{space}}. Its current sharing and public link are removed, and you become the owner.",
+    back: "Back",
+    movePage: "Move",
+    movedToSpace: "Moved “{{title}}” to {{space}}",
     failedRemoveFromRecent: "Couldn't remove from Recent",
     resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",

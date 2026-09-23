@@ -152,7 +152,11 @@ import {
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
-import { MovePageDialog, type MovePageTarget } from "./MovePageDialog";
+import {
+  MovePageDialog,
+  type MovePageDestination,
+  type MovePageTarget,
+} from "./MovePageDialog";
 import { sidebarRowClassName } from "./SidebarNavigationRow";
 import {
   SidebarPageActionsProvider,
@@ -1955,7 +1959,7 @@ export function DocumentSidebar({
   );
 
   const moveDocument = useMoveDocument();
-  const duplicateDocument = useActionMutation("duplicate-database-item", {
+  const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
     onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
   });
@@ -1988,18 +1992,45 @@ export function DocumentSidebar({
           },
         );
       },
-      movePage: ({ documentId, title }) => setMovingPage({ documentId, title }),
+      movePage: ({ documentId, title, spaceId }) =>
+        setMovingPage({
+          documentId,
+          title,
+          spaceId: spaceId ?? selectedSpace?.id ?? null,
+        }),
     }),
-    [duplicateDocument, t, updateDocument],
+    [duplicateDocument, selectedSpace?.id, t, updateDocument],
+  );
+  // Any space the viewer may add pages to, plus the Page's own space.
+  const moveSpaces = useMemo(
+    () =>
+      contentSpaces.filter(
+        (space) =>
+          space.id === movingPage?.spaceId ||
+          (space.kind !== "source_backed" && space.canCreateDatabase !== false),
+      ),
+    [contentSpaces, movingPage?.spaceId],
   );
   const handleMovePage = useCallback(
-    (page: MovePageTarget, parentId: string | null) => {
+    (page: MovePageTarget, { spaceId, parentId }: MovePageDestination) => {
+      const crossSpace = spaceId !== page.spaceId;
       moveDocument.mutate(
-        { id: page.documentId, parentId },
+        { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
         {
           onSuccess: () => {
             // Reveal the Page where it landed.
             if (parentId) handleDocumentExpandedChange(parentId, true);
+            if (crossSpace) {
+              const space = contentSpaces.find(
+                (candidate) => candidate.id === spaceId,
+              );
+              toast.success(
+                t("sidebar.movedToSpace", {
+                  title: page.title,
+                  space: space?.name ?? "",
+                }),
+              );
+            }
           },
           onError: (error) => {
             toast.error(t("sidebar.failedMovePage"), {
@@ -2012,7 +2043,7 @@ export function DocumentSidebar({
         },
       );
     },
-    [handleDocumentExpandedChange, moveDocument, t],
+    [contentSpaces, handleDocumentExpandedChange, moveDocument, t],
   );
 
   const handleRestoreDatabase = useCallback(
@@ -2787,17 +2818,14 @@ export function DocumentSidebar({
       />
 
       {workspaceCreation.dialog}
-      {selectedSpace ? (
-        <MovePageDialog
-          page={movingPage}
-          spaceId={selectedSpace.id}
-          filesDatabaseId={selectedSpace.filesDatabaseId}
-          onOpenChange={(open) => {
-            if (!open) setMovingPage(null);
-          }}
-          onMove={handleMovePage}
-        />
-      ) : null}
+      <MovePageDialog
+        page={movingPage}
+        spaces={moveSpaces}
+        onOpenChange={(open) => {
+          if (!open) setMovingPage(null);
+        }}
+        onMove={handleMovePage}
+      />
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

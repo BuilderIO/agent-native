@@ -612,6 +612,22 @@ describe("document sidebar layout", () => {
     expect(databaseSidebar).toContain('className="relative min-w-0"');
   });
 
+  it("asks before moving a Page into another space and never offers local folders", () => {
+    const dialog = readSidebarSource("./MovePageDialog.tsx");
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    // Choosing a place in another space opens the access warning instead of
+    // moving; only its confirm button calls onMove.
+    expect(dialog).toContain("if (crossSpace) setPendingParentId(parentId);");
+    expect(dialog).toContain("else move(parentId);");
+    expect(dialog).toContain("sidebar.moveToSpaceWarningShared");
+    expect(dialog).toContain("sidebar.moveToSpaceWarningPrivate");
+    // The picker starts in the Page's own space, not the sidebar's selection.
+    expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
+    expect(sidebar).toContain('space.kind !== "source_backed"');
+    expect(sidebar).toContain('useActionMutation("duplicate-page"');
+  });
+
   it("keeps Trash in a fixed group and Settings in the footer only", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const expandedBranch = sidebar.slice(

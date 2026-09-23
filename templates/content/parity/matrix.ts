@@ -74,12 +74,13 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; the shared sidebar row menu renames, duplicates beside the original, moves within the space, trashes, and reads last-edit activity through the same Actions.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions.",
     status: "action-backed",
     actions: [
       "create-document",
       "clone-creative-context-document",
       "delete-document",
+      "duplicate-page",
       "get-document",
       "get-document-activity",
       "list-trashed-documents",
