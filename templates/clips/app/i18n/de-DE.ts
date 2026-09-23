@@ -1251,6 +1251,7 @@ const messages = {
     transcript: "Transkript",
     comment: "Kommentar",
     titleOrDescription: "Titel oder Beschreibung",
+    matchAt: "Treffer bei {{time}}",
   },
   organizationSwitcher: {
     noOrganization: "Keine Organisation",

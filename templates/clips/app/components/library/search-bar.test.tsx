@@ -11,7 +11,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    key === "searchBar.matchAt"
+      ? `Match at ${values?.time}`
+      : key === "searchBar.transcript"
+        ? "Transcript"
+        : key,
 }));
 
 vi.mock("@tabler/icons-react", () => {
@@ -168,5 +173,48 @@ describe("SearchBar command-menu handoff", () => {
 
     act(() => vi.advanceTimersByTime(1));
     expect(mocks.useRecordingSearch).toHaveBeenLastCalledWith("clip");
+  });
+
+  it("labels a search timestamp as the match position", () => {
+    vi.useFakeTimers();
+    mocks.useRecordingSearch.mockReturnValue({
+      data: {
+        results: [
+          {
+            id: "recording-1",
+            title: "Clip title",
+            description: "",
+            thumbnailUrl: null,
+            durationMs: 30_000,
+            matchType: "transcript",
+            snippet: "A matching transcript excerpt",
+            matchMs: 2_000,
+            matchPanel: "transcript",
+            createdAt: "2026-09-22T00:00:00.000Z",
+            updatedAt: "2026-09-22T00:00:00.000Z",
+          },
+        ],
+      },
+      isFetching: false,
+    });
+    act(() => root.render(<SearchBar />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    expect(input).not.toBeNull();
+    expect(inputValueSetter).toBeDefined();
+
+    act(() => {
+      if (!input || !inputValueSetter) return;
+      inputValueSetter.call(input, "matching");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => vi.advanceTimersByTime(200));
+
+    expect(container.textContent).toContain("Transcript");
+    expect(container.textContent).toContain("Match at 2000");
   });
 });

@@ -1242,6 +1242,7 @@ const messages = {
     transcript: "Transcripción",
     comment: "Comentario",
     titleOrDescription: "Título o descripción",
+    matchAt: "Coincidencia en {{time}}",
   },
   organizationSwitcher: {
     noOrganization: "Sin organización",

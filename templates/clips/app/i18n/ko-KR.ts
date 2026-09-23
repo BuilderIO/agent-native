@@ -1209,6 +1209,7 @@ const messages = {
     transcript: "전사",
     comment: "댓글",
     titleOrDescription: "제목 또는 설명",
+    matchAt: "일치 위치 {{time}}",
   },
   organizationSwitcher: {
     noOrganization: "조직 없음",

@@ -1162,6 +1162,7 @@ const messages = {
     transcript: "转录",
     comment: "评论",
     titleOrDescription: "标题或描述",
+    matchAt: "匹配位置 {{time}}",
   },
   organizationSwitcher: {
     noOrganization: "没有组织",

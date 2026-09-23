@@ -1198,6 +1198,7 @@ const messages = {
     transcript: "प्रतिलेख",
     comment: "टिप्पणी",
     titleOrDescription: "शीर्षक या विवरण",
+    matchAt: "मिलान {{time}} पर",
   },
   organizationSwitcher: {
     noOrganization: "कोई संगठन नहीं",

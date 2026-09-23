@@ -337,7 +337,7 @@ const PATTERNS = [
     key: "feedback-eyes-missed",
     label: "Had to demand correct 👀 ownership and release",
     fixedBy:
-      ".agents/skills/review-latest-feedback (confidence-based eye lifecycle, 2026-09-23)",
+      ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
     re: FEEDBACK_EYES_RE,
   },
   // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly

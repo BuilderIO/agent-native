@@ -1220,6 +1220,7 @@ const messages = {
     transcript: "النص",
     comment: "تعليق",
     titleOrDescription: "العنوان أو الوصف",
+    matchAt: "مطابقة عند {{time}}",
   },
   organizationSwitcher: {
     noOrganization: "لا توجد مؤسسة",

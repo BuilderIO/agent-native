@@ -27,18 +27,17 @@ beats thirty replies.
 
 ## Phase 0: confirm the bug, then claim the fix
 
-Read the parent, replies, and owning code to confirm the defect and owner.
-`👀` means **a concrete in-scope fix is active**: add it when editing starts
-and verify the reaction.
+Read the parent and replies to confirm an objective repo-owned defect. Add
+and verify `👀` before code investigation: it marks active ownership, not
+root-cause certainty. Remove it if no safe repo fix exists or reporter input
+blocks progress.
 
-The proposed remedy may be wrong while the underlying bug is real. Follow the
-observable failure to its owning boundary and fix that defect; do not reject a
-report just because its suggested solution is unsuitable.
+The proposed remedy may be wrong while the bug is real. Trace the failure to
+its owning boundary; do not reject it because the suggestion is unsuitable.
 
-Do not add or keep `👀` while the owner, defect, or repair is unclear; while
-waiting on a reporter; for an unendorsed preference; or for work owned
-elsewhere. Ask for any detail that could make an uncertain report actionable,
-removing our eye while waiting; re-add it only when an in-scope fix can begin.
+Do not claim unclear ownership or defects, reporter-blocked reports,
+unendorsed preferences, or work owned elsewhere. If investigation needs
+reporter input, remove `👀` while waiting and re-add it when work resumes.
 
 ### Checkmark gate
 
@@ -245,9 +244,9 @@ without comment.
 An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
 not ownership, fix-altitude, verification, or question-budget requirements. The
 upvote overrides the bug gate, not ownership; build the smallest endorsed
-version and name Sid or Alice in the recap. Add `👀` when its concrete fix
-begins, then verify it. Use an evidence-limited disposition until Phase 2's
-four bars hold; only then use **Shipped** with `✅`.
+version and name Sid or Alice in the recap. Add `👀` before investigating its
+concrete fix, then verify it. Use an evidence-limited disposition until Phase
+2's four bars hold; only then use **Shipped** with `✅`.
 
 If this workflow eyed work that is out of scope or no longer active, remove our
 eye and use `:done:` when terminal; do not post a compensating message.

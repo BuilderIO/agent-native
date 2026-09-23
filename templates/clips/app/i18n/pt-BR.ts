@@ -1236,6 +1236,7 @@ const messages = {
     transcript: "Transcrição",
     comment: "Comentário",
     titleOrDescription: "Título ou descrição",
+    matchAt: "Correspondência em {{time}}",
   },
   organizationSwitcher: {
     noOrganization: "Sem organização",
