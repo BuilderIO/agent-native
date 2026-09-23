@@ -4,8 +4,10 @@ import { buildCodeLayerProjection, buildCodeLayerTree } from "./code-layer";
 import {
   COMPONENT_ID_ATTR,
   COMPONENT_REF_ATTR,
+  instanceFromNode,
   isComponentInstance,
   isComponentInstanceForInstanceActions,
+  stableComponentNodeId,
 } from "./component-model";
 
 // The decoys from the real "Design system demo" screen. Each is an ordinary
@@ -69,6 +71,20 @@ describe("component identity is the annotation, not a guess at the class name", 
       buildCodeLayerProjection(html).nodes.filter(isComponentInstance),
     ).toHaveLength(1);
   });
+
+  it("persists the authored node id instead of the projection id", () => {
+    const node = buildCodeLayerProjection(
+      '<body><div data-agent-native-node-id="stable-card" data-agent-native-component="Card">x</div></body>',
+    ).nodes.find(
+      (candidate) => candidate.dataAttributes["data-agent-native-component"],
+    );
+
+    expect(node).toBeDefined();
+    expect(instanceFromNode(node!)).toMatchObject({
+      instanceId: "stable-card",
+      nodeId: "stable-card",
+    });
+  });
 });
 
 describe("instance-only component operations", () => {
@@ -91,5 +107,20 @@ describe("instance-only component operations", () => {
     expect(isComponentInstanceForInstanceActions(node("ref"))).toBe(true);
     expect(isComponentInstanceForInstanceActions(node("legacy"))).toBe(true);
     expect(isComponentInstanceForInstanceActions(node("invalid"))).toBe(false);
+  });
+
+  it("keeps component instance identity stable across projection rebuilds", () => {
+    const html =
+      '<body><button data-agent-native-node-id="cta-1" data-agent-native-component="PrimaryButton">Save</button></body>';
+    const first =
+      buildCodeLayerProjection(html).nodes.find(isComponentInstance);
+    const second = first ? { ...first, id: "projection-new-id" } : undefined;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(first?.id).not.toBe(second?.id);
+    expect(stableComponentNodeId(first!)).toBe("cta-1");
+    expect(stableComponentNodeId(second!)).toBe("cta-1");
+    expect(instanceFromNode(first!)?.instanceId).toBe("cta-1");
+    expect(instanceFromNode(second!)?.nodeId).toBe("cta-1");
   });
 });

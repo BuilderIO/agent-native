@@ -34,6 +34,15 @@ import {
   utilityStem,
 } from "./responsive-classes.js";
 import type { DesignSourceType } from "./source-mode";
+import {
+  isVectorEndpointProperty,
+  isVectorEndpointStyle,
+  vectorEndpointPairForPrimitive,
+  vectorEndpointMarkerId,
+  vectorEndpointDefsMarkup,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+} from "./vector-endpoints.js";
 
 /**
  * Shown when a document transform is handed a URL-backed (localhost/fusion)
@@ -165,6 +174,8 @@ export type VisualStyleProperty =
   | "stroke-linejoin"
   | "stroke-miterlimit"
   | "--an-vector-stroke-position"
+  | "--an-vector-start-point"
+  | "--an-vector-end-point"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -217,6 +228,7 @@ export type VisualStyleProperty =
   | "grid-auto-rows"
   | "box-sizing"
   | "aspect-ratio"
+  | "isolation"
   | "z-index";
 
 export interface StyleToken {
@@ -879,6 +891,8 @@ const STYLE_PROPERTIES = [
   "stroke-linejoin",
   "stroke-miterlimit",
   "--an-vector-stroke-position",
+  "--an-vector-start-point",
+  "--an-vector-end-point",
   "outline",
   "outline-width",
   "outline-style",
@@ -932,6 +946,7 @@ const STYLE_PROPERTIES = [
   "grid-auto-rows",
   "box-sizing",
   "aspect-ratio",
+  "isolation",
   "z-index",
 ] as const satisfies readonly VisualStyleProperty[];
 
@@ -1545,6 +1560,7 @@ function escapeHtmlText(value: string): string {
 }
 
 function decodeBasicHtmlEntities(value: string): string {
+  if (!value.includes("&")) return value;
   return value
     .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
       const codePoint = Number.parseInt(hex, 16);
@@ -1580,25 +1596,6 @@ function prettifyIdentifier(value: string): string {
       .toLowerCase()
       .replace(/\b\w/g, (char) => char.toUpperCase()),
   );
-}
-
-// A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`) is not
-// the end of the tag. Ending there spills the attribute into visible text,
-// which then becomes a layer name.
-function stripTags(value: string): string {
-  let out = "";
-  let index = 0;
-  while (index < value.length) {
-    const open = value.indexOf("<", index);
-    if (open === -1) {
-      out += value.slice(index);
-      break;
-    }
-    out += value.slice(index, open);
-    out += " ";
-    index = findHtmlTagEnd(value, open);
-  }
-  return out;
 }
 
 function getAttribute(
@@ -1759,8 +1756,8 @@ function classList(element: ParsedElement): string[] {
 function parseStyle(value: string | null): Record<string, string> {
   const style: Record<string, string> = {};
   if (!value) return style;
-  const parsed = tryParseStyleDeclarations(value);
-  if (!parsed) return style;
+  const parsed = readStyleDeclarations(value);
+  if ("invalid" in parsed) return style;
   const importantByProperty = new Map<string, boolean>();
   for (const declaration of parsed.declarations) {
     const property = cssPropertyKey(declaration.prop);
@@ -1814,31 +1811,69 @@ function parseStyleDeclarations(value: string | null): ParsedStyleDeclarations {
   }
 }
 
-function tryParseStyleDeclarations(
-  value: string | null,
-): ParsedStyleDeclarations | null {
+type StyleDeclarationRead = Pick<Declaration, "prop" | "value" | "important">;
+
+type StyleDeclarationsRead =
+  | { declarations: readonly StyleDeclarationRead[] }
+  | { invalid: string };
+
+/**
+ * Read-only parses, keyed by the decoded style text. One projection reads each
+ * element's style (and its parent's) several times, and a failed parse costs
+ * two exception constructions — dominant on a cold open of a large import.
+ * Holds plain declarations and messages, not postcss nodes or Error instances
+ * (whose captured stack frames keep their callers' closures alive); edits use
+ * `parseStyleDeclarations` for a root they can mutate.
+ */
+const STYLE_READ_CACHE_MAX_CHARS = 4_000_000;
+const styleReadCache = new Map<string, StyleDeclarationsRead>();
+let styleReadCacheChars = 0;
+
+function readStyleDeclarations(value: string): StyleDeclarationsRead {
+  const cached = styleReadCache.get(value);
+  if (cached) return cached;
+  // `value` is usually a V8 sliced string that pins the whole document it was
+  // cut from, and postcss slices its values from it in turn. Key and parse a
+  // flat copy so the cache retains only the style text.
+  value = (" " + value).slice(1);
+  let parsed: StyleDeclarationsRead;
   try {
-    return parseStyleDeclarations(value);
+    parsed = {
+      declarations: parseStyleDeclarations(value).declarations.map(
+        (declaration) => ({
+          prop: declaration.prop,
+          value: declaration.value,
+          important: declaration.important,
+        }),
+      ),
+    };
   } catch (error) {
-    if (error instanceof InvalidInlineStyleError) return null;
-    throw error;
+    if (!(error instanceof InvalidInlineStyleError)) throw error;
+    parsed = { invalid: error.message };
   }
+  if (styleReadCacheChars + value.length > STYLE_READ_CACHE_MAX_CHARS) {
+    styleReadCache.clear();
+    styleReadCacheChars = 0;
+  }
+  styleReadCache.set(value, parsed);
+  styleReadCacheChars += value.length;
+  return parsed;
 }
 
 function cssPropertyKey(property: string): string {
   return property.startsWith("--") ? property : property.toLowerCase();
 }
 
-function styleDeclarationValue(declaration: Declaration): string {
+function styleDeclarationValue(declaration: StyleDeclarationRead): string {
   return declaration.important
     ? `${declaration.value} !important`
     : declaration.value;
 }
 
-function effectiveStyleDeclarations(
-  parsed: ParsedStyleDeclarations,
-): Declaration[] {
-  const winners = new Map<string, Declaration>();
+function effectiveStyleDeclarations<T extends StyleDeclarationRead>(parsed: {
+  declarations: readonly T[];
+}): T[] {
+  const winners = new Map<string, T>();
   for (const declaration of parsed.declarations) {
     const key = cssPropertyKey(declaration.prop);
     const current = winners.get(key);
@@ -1898,6 +1933,11 @@ function setStyleDeclaration(
     );
   }
   const key = cssPropertyKey(property);
+  if (key === "grid-column") {
+    removeStyleDeclarations(parsed, ["grid-column-start", "grid-column-end"]);
+  } else if (key === "grid-row") {
+    removeStyleDeclarations(parsed, ["grid-row-start", "grid-row-end"]);
+  }
   const matches = parsed.declarations.filter(
     (declaration) => cssPropertyKey(declaration.prop) === key,
   );
@@ -1996,6 +2036,9 @@ function isSafeStyleValue(
   if (property === "--an-vector-stroke-position") {
     return ["inside", "center", "outside"].includes(trimmed);
   }
+  if (isVectorEndpointProperty(property)) {
+    return isVectorEndpointStyle(trimmed);
+  }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
   if (/url\s*\(/i.test(trimmed)) {
@@ -2065,9 +2108,16 @@ function parseAttributes(rawTag: string, tagStart: number): ParsedAttribute[] {
   return attrs;
 }
 
-function findHtmlTagEnd(html: string, start: number): number {
+/** Index just past the `>` ending the tag at `start`, or -1 if none precedes
+ *  `end`. A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`)
+ *  does not end the tag. */
+function findHtmlTagEnd(
+  html: string,
+  start: number,
+  end = html.length,
+): number {
   let quote: '"' | "'" | null = null;
-  for (let index = start; index < html.length; index += 1) {
+  for (let index = start; index < end; index += 1) {
     const char = html[index];
     if (quote) {
       if (char === quote) quote = null;
@@ -2079,7 +2129,7 @@ function findHtmlTagEnd(html: string, start: number): number {
     }
     if (char === ">") return index + 1;
   }
-  return html.length;
+  return -1;
 }
 
 // Depth-aware closing-tag scan: used for NON_VISUAL_TAGS (script/style/
@@ -2196,10 +2246,11 @@ function parseHtmlElements(html: string): ParsedElement[] {
   let match: RegExpExecArray | null;
 
   while ((match = tagRe.exec(html))) {
-    const raw =
-      match[0].startsWith("<!--") || match[0].startsWith("<!")
-        ? match[0]
-        : html.slice(match.index, findHtmlTagEnd(html, match.index));
+    let raw = match[0];
+    if (!raw.startsWith("<!")) {
+      const tagEnd = findHtmlTagEnd(html, match.index);
+      raw = html.slice(match.index, tagEnd === -1 ? html.length : tagEnd);
+    }
     tagRe.lastIndex = match.index + raw.length;
     const tag = match[1]?.toLowerCase();
     if (!tag || raw.startsWith("<!--") || raw.startsWith("<!")) continue;
@@ -2361,20 +2412,35 @@ function selectorPart(
   return `${element.tag}${classes}${nth}`;
 }
 
+const pathSelectors = new WeakMap<ParsedElement, string>();
+
+// Extends the nearest ancestor's path: every node's id and path read it, and
+// rebuilding it from the root each time is quadratic in depth.
 function pathSelector(
   element: ParsedElement,
   elements: ParsedElement[],
 ): string {
-  const parts: string[] = [];
+  const uncached: ParsedElement[] = [];
+  let path = "";
   let current: ParsedElement | undefined = element;
   while (current) {
-    parts.unshift(selectorPart(current, elements));
+    const cached = pathSelectors.get(current);
+    if (cached !== undefined) {
+      path = cached;
+      break;
+    }
+    uncached.push(current);
     current =
       current.parentIndex === undefined
         ? undefined
         : elements[current.parentIndex];
   }
-  return parts.join(" > ");
+  for (let index = uncached.length - 1; index >= 0; index -= 1) {
+    const part = selectorPart(uncached[index]!, elements);
+    path = path ? `${path} > ${part}` : part;
+    pathSelectors.set(uncached[index]!, path);
+  }
+  return path;
 }
 
 function primarySelector(
@@ -2435,12 +2501,12 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
   const tokens: StyleToken[] = [];
 
   // --- Inline styles (no breakpoint concept) ---
-  const parsedInlineStyle = tryParseStyleDeclarations(
-    attributeValue(element, "style"),
+  const parsedInlineStyle = readStyleDeclarations(
+    attributeValue(element, "style") ?? "",
   );
-  for (const declaration of parsedInlineStyle
-    ? effectiveStyleDeclarations(parsedInlineStyle)
-    : []) {
+  for (const declaration of "invalid" in parsedInlineStyle
+    ? []
+    : effectiveStyleDeclarations(parsedInlineStyle)) {
     const property = normalizeStyleProperty(declaration.prop);
     if (!property) continue;
     const value = styleDeclarationValue(declaration);
@@ -2672,10 +2738,95 @@ function layoutFor(
   };
 }
 
-function textSnippetFor(html: string, element: ParsedElement): string | null {
+interface ElementTextRead {
+  /** Collapsed text, cut short once past the 160 characters a snippet keeps. */
+  text: string;
+  pendingSpace: boolean;
+  /** False when a tag ran past the content end, so an ancestor reading the
+   *  same bytes would split them differently and cannot reuse this read. */
+  reusable: boolean;
+}
+
+const elementTextReads = new WeakMap<ParsedElement, ElementTextRead>();
+
+// Equals collapseWhitespace(decodeBasicHtmlEntities(<content with every tag
+// replaced by a space>)). Decoding run by run is equivalent because no entity
+// spans the space a tag leaves. A child's read is reused rather than re-read:
+// every ancestor's content contains its descendants', so re-reading is
+// quadratic in nesting depth.
+function readElementText(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): ElementTextRead {
+  const cached = elementTextReads.get(element);
+  if (cached) return cached;
+  let text = "";
+  let pendingSpace = false;
+  let reusable = true;
+  const append = (run: string) => {
+    const collapsed = decodeBasicHtmlEntities(run).replace(/\s+/g, " ");
+    const trimmed = collapsed.trim();
+    if (!trimmed) {
+      if (collapsed) pendingSpace = true;
+      return;
+    }
+    if (text && (pendingSpace || collapsed.startsWith(" "))) text += " ";
+    text += trimmed;
+    pendingSpace = collapsed.endsWith(" ");
+  };
+  const end = element.contentEnd;
+  let index = element.contentStart;
+  let childAt = 0;
+  while (index < end && text.length <= 160) {
+    const open = html.indexOf("<", index);
+    if (open === -1 || open >= end) {
+      append(html.slice(index, end));
+      break;
+    }
+    append(html.slice(index, open));
+    pendingSpace = true;
+    let child: ParsedElement | undefined;
+    while (childAt < element.childIndexes.length) {
+      child = elements[element.childIndexes[childAt]!];
+      if (!child || child.start >= open) break;
+      childAt += 1;
+    }
+    if (child?.start === open && child.openEnd < end) {
+      childAt += 1;
+      const inner = child.selfClosing
+        ? null
+        : readElementText(html, child, elements);
+      if (inner?.reusable && child.contentEnd <= end) {
+        if (inner.text) {
+          text = text ? `${text} ${inner.text}` : inner.text;
+          pendingSpace = inner.pendingSpace;
+        }
+        index = child.contentEnd;
+      } else {
+        index = child.openEnd;
+      }
+      continue;
+    }
+    const tagEnd = findHtmlTagEnd(html, open, end);
+    if (tagEnd === -1) {
+      reusable = false;
+      break;
+    }
+    index = tagEnd;
+  }
+  const read = { text, pendingSpace, reusable };
+  elementTextReads.set(element, read);
+  return read;
+}
+
+function textSnippetFor(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): string | null {
   if (element.selfClosing) return null;
-  const inner = html.slice(element.contentStart, element.contentEnd);
-  const text = collapseWhitespace(decodeBasicHtmlEntities(stripTags(inner)));
+  const { text } = readElementText(html, element, elements);
   if (!text) return null;
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
@@ -2715,7 +2866,7 @@ function wholeTextStyleRootFor(
     return false;
   }
   if (attributeValue(element, "data-an-primitive") === "text") {
-    return Boolean(textSnippetFor(html, element));
+    return Boolean(textSnippetFor(html, element, elements));
   }
   if (
     !paintsOwnTextFor(html, element, elements) &&
@@ -2723,7 +2874,7 @@ function wholeTextStyleRootFor(
   ) {
     return false;
   }
-  if (!textSnippetFor(html, element)) return false;
+  if (!textSnippetFor(html, element, elements)) return false;
 
   const stack = [...element.childIndexes];
   while (stack.length > 0) {
@@ -2770,7 +2921,7 @@ function layerNameFor(
   if (semantic) return semantic;
 
   const textName = () => {
-    const text = textSnippetFor(html, element);
+    const text = textSnippetFor(html, element, elements);
     return text
       ? { name: truncateLayerName(text), source: "text" as const }
       : null;
@@ -3065,14 +3216,16 @@ function buildProjection(
   for (const element of elements) {
     const styleAttribute = getAttribute(element, "style");
     if (!styleAttribute || typeof styleAttribute.value !== "string") continue;
-    try {
-      parseStyleDeclarations(styleAttribute.value);
-    } catch (error) {
-      if (!(error instanceof InvalidInlineStyleError)) throw error;
+    // Decoded like every edit path reads it: the raw `&quot;SF Pro&quot;` a
+    // serializer writes for a quoted font family is not malformed CSS.
+    const parsed = readStyleDeclarations(
+      decodeBasicHtmlEntities(styleAttribute.value),
+    );
+    if ("invalid" in parsed) {
       diagnostics.push({
         severity: "warning",
         code: "invalid-inline-style",
-        message: error.message,
+        message: parsed.invalid,
         span: { start: styleAttribute.start, end: styleAttribute.end },
       });
     }
@@ -3184,7 +3337,7 @@ function buildProjection(
       attributes: attributeRecord(element),
       dataAttributes,
       classes,
-      textSnippet: textSnippetFor(html, element),
+      textSnippet: textSnippetFor(html, element, elements),
       paintsOwnText: paintsOwnTextFor(html, element, elements),
       wholeTextStyleRoot: wholeTextStyleRootFor(html, element, elements),
       repeatXFor: repeatXForFor(element, elements),
@@ -3274,12 +3427,24 @@ function buildProjection(
  * id-keyed edit downstream would target the wrong node. The string is already
  * retained by the file/query cache, so the key costs a reference, not a copy.
  *
+ * Bounded by source size, not entry count: the editor projects every screen of
+ * a design in one pass, so any count below the screen count misses on every
+ * screen of the next pass. A projection retains about 6 bytes per source char,
+ * plus a few KB however small its document, so each entry is also charged a
+ * floor — an empty document would otherwise cost nothing and never evict.
+ *
  * Callers must treat the result as read-only — it is shared now. Every consumer
  * only reads (`find`/`filter`/`map`); `applyCodeLayer*`-style writers build new
  * HTML and re-project rather than editing a projection in place.
  */
-const PROJECTION_CACHE_MAX = 24;
-const projectionCache = new Map<string, CodeLayerProjection>();
+const PROJECTION_CACHE_MAX_CHARS = 16_000_000;
+const PROJECTION_CACHE_ENTRY_FLOOR_CHARS = 2_048;
+const projectionCache = new Map<string, Map<string, CodeLayerProjection>>();
+let projectionCacheChars = 0;
+
+function projectionCacheEntryChars(html: string, sourceKey: string): number {
+  return html.length + sourceKey.length + PROJECTION_CACHE_ENTRY_FLOOR_CHARS;
+}
 
 /** Every own field of the source, sorted, so adding a field to
  *  CodeLayerSource later cannot silently start returning a projection whose
@@ -3306,19 +3471,43 @@ export function buildCodeLayerProjection(
   // non-string must yield an empty projection, never crash the editor.
   const safeHtml = typeof html === "string" ? html : "";
   const source = options.source ?? { kind: "inline-html" };
-  const key = `${projectionSourceKey(source)}\u0000${safeHtml}`;
-  const cached = projectionCache.get(key);
-  if (cached) {
-    // Re-insert so the Map's insertion order stays least-recently-used first.
-    projectionCache.delete(key);
-    projectionCache.set(key, cached);
-    return cached;
+  const sourceKey = projectionSourceKey(source);
+  const bySource = projectionCache.get(safeHtml);
+  if (bySource) {
+    // Re-insert so both Maps' insertion order stays least-recently-used first.
+    projectionCache.delete(safeHtml);
+    projectionCache.set(safeHtml, bySource);
+    const cached = bySource.get(sourceKey);
+    if (cached) {
+      bySource.delete(sourceKey);
+      bySource.set(sourceKey, cached);
+      return cached;
+    }
   }
   const projection = buildProjection(safeHtml, source).projection;
-  projectionCache.set(key, projection);
-  if (projectionCache.size > PROJECTION_CACHE_MAX) {
-    const oldest = projectionCache.keys().next();
-    if (!oldest.done) projectionCache.delete(oldest.value);
+  projectionCache.set(
+    safeHtml,
+    (bySource ?? new Map<string, CodeLayerProjection>()).set(
+      sourceKey,
+      projection,
+    ),
+  );
+  projectionCacheChars += projectionCacheEntryChars(safeHtml, sourceKey);
+  evict: for (const [oldestHtml, oldestBySource] of projectionCache) {
+    for (const oldestSourceKey of oldestBySource.keys()) {
+      if (
+        projectionCacheChars <= PROJECTION_CACHE_MAX_CHARS ||
+        (oldestHtml === safeHtml && oldestSourceKey === sourceKey)
+      ) {
+        break evict;
+      }
+      oldestBySource.delete(oldestSourceKey);
+      projectionCacheChars -= projectionCacheEntryChars(
+        oldestHtml,
+        oldestSourceKey,
+      );
+    }
+    projectionCache.delete(oldestHtml);
   }
   return projection;
 }
@@ -3327,6 +3516,7 @@ export function buildCodeLayerProjection(
  *  identity/eviction; production has no reason to call it. */
 export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
+  projectionCacheChars = 0;
 }
 
 const TEXT_WRAP_SKIP_TAGS = new Set([
@@ -3399,6 +3589,43 @@ export function wrapBareTextLeavesInHtml(
     });
   }
   return { content, changed: true, wrapped: edits.length };
+}
+
+const STABLE_NODE_ID_ATTRIBUTE_RE =
+  /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
+
+/**
+ * True exactly when ensureCodeLayerNodeIdsInHtml would leave `html` unchanged,
+ * decided from the parse alone. Building a projection costs several times the
+ * parse, and a design already carrying its ids needs no projection to prove it.
+ * Must select the same elements as buildProjection and apply the same
+ * clean-id test as the loop below; the parity test holds the two together.
+ */
+export function hasCanonicalCodeLayerNodeIds(html: string): boolean {
+  const elements = parseHtmlElements(typeof html === "string" ? html : "");
+  const usedIds = new Set<string>();
+  for (const element of elements) {
+    if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (TRANSPARENT_TAGS.has(element.tag)) continue;
+    if (hasSvgAncestor(element, elements)) continue;
+    let existing: string | undefined;
+    for (const attr of element.attributes) {
+      if (
+        attr.lowerName === "data-agent-native-node-id" &&
+        typeof attr.value === "string"
+      ) {
+        existing = attr.value;
+      }
+    }
+    existing = existing?.trim();
+    if (!existing || usedIds.has(existing)) return false;
+    const openTag = html.slice(element.start, element.openEnd);
+    STABLE_NODE_ID_ATTRIBUTE_RE.lastIndex = 0;
+    if (!STABLE_NODE_ID_ATTRIBUTE_RE.test(openTag)) return false;
+    if (STABLE_NODE_ID_ATTRIBUTE_RE.test(openTag)) return false;
+    usedIds.add(existing);
+  }
+  return true;
 }
 
 export function ensureCodeLayerNodeIdsInHtml(
@@ -4821,6 +5048,133 @@ function resolveStyleEditTargetRoute(
     : { kind: "ordinary", element };
 }
 
+function removeVectorEndpointMarkup(
+  html: string,
+  wrapper: ParsedElement,
+  nodeId: string,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (!currentWrapper || currentWrapper.start !== wrapper.start) return html;
+  const markerIds = new Set([
+    vectorEndpointMarkerId(nodeId, "start"),
+    vectorEndpointMarkerId(nodeId, "end"),
+    `${nodeId}-arrow`,
+  ]);
+  const spans: Array<{ start: number; end: number }> = [];
+  for (const childIndex of currentWrapper.childIndexes) {
+    const child = elements[childIndex];
+    if (!child || child.tag !== "defs") continue;
+    if (getAttribute(child, "data-an-vector-endpoints")) {
+      spans.push({ start: child.start, end: child.end });
+      continue;
+    }
+    for (const markerIndex of child.childIndexes) {
+      const marker = elements[markerIndex];
+      const markerId = marker ? attributeValue(marker, "id") : null;
+      if (marker?.tag === "marker" && markerId && markerIds.has(markerId)) {
+        spans.push({ start: marker.start, end: marker.end });
+      }
+    }
+  }
+  let result = html;
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
+  }
+  return result;
+}
+
+function applyVectorEndpointEdit(
+  html: string,
+  wrapper: ParsedElement,
+  property: string,
+  value: string,
+): string | PatchResultStatus {
+  if (!isVectorEndpointProperty(property) || !isVectorEndpointStyle(value)) {
+    return "unsupported";
+  }
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (
+    !currentWrapper ||
+    currentWrapper.start !== wrapper.start ||
+    currentWrapper.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const kind = attributeValue(currentWrapper, "data-an-primitive");
+  if (!VECTOR_PAINT_PRIMITIVES.has(kind ?? "")) return "unsupported";
+  const nodeId = attributeValue(currentWrapper, "data-agent-native-node-id");
+  const shape = vectorShapeChild(currentWrapper, elements);
+  if (!nodeId || !shape) return "unsupported";
+
+  const currentStyle = parseStyle(attributeValue(currentWrapper, "style"));
+  const endpoints = vectorEndpointPairForPrimitive(
+    kind ?? undefined,
+    currentStyle[VECTOR_START_ENDPOINT_PROPERTY],
+    currentStyle[VECTOR_END_ENDPOINT_PROPERTY],
+  );
+  const nextEndpoints =
+    property === VECTOR_START_ENDPOINT_PROPERTY
+      ? { ...endpoints, startPoint: value }
+      : { ...endpoints, endPoint: value };
+
+  // Remove generated/legacy marker definitions first. Reparse after this
+  // structural splice so every later attribute write uses fresh source spans.
+  let content = removeVectorEndpointMarkup(html, currentWrapper, nodeId);
+  const afterRemoval = parseHtmlElements(content);
+  const nextWrapper = afterRemoval.find(
+    (candidate) =>
+      candidate.tag === "svg" &&
+      attributeValue(candidate, "data-agent-native-node-id") === nodeId,
+  );
+  if (!nextWrapper) return "unsupported";
+  const nextShape = vectorShapeChild(nextWrapper, afterRemoval);
+  if (!nextShape) return "unsupported";
+  const defsMarkup = vectorEndpointDefsMarkup(nodeId, nextEndpoints);
+  if (defsMarkup) {
+    content = `${content.slice(0, nextShape.start)}${defsMarkup}${content.slice(nextShape.start)}`;
+  }
+
+  const finalElements = parseHtmlElements(content);
+  const finalWrapper = finalElements.find(
+    (candidate) =>
+      candidate.tag === "svg" &&
+      attributeValue(candidate, "data-agent-native-node-id") === nodeId,
+  );
+  if (!finalWrapper) return "unsupported";
+  const finalShape = vectorShapeChild(finalWrapper, finalElements);
+  if (!finalShape) return "unsupported";
+  const finalStyle = setStyleValue(
+    setStyleValue(
+      attributeValue(finalWrapper, "style"),
+      VECTOR_START_ENDPOINT_PROPERTY,
+      nextEndpoints.startPoint,
+    ),
+    VECTOR_END_ENDPOINT_PROPERTY,
+    nextEndpoints.endPoint,
+  );
+  return patchElementAttributes(content, [
+    {
+      element: finalWrapper,
+      attributes: { style: finalStyle },
+    },
+    {
+      element: finalShape,
+      attributes: {
+        "marker-start":
+          nextEndpoints.startPoint === "none"
+            ? null
+            : `url(#${vectorEndpointMarkerId(nodeId, "start")})`,
+        "marker-end":
+          nextEndpoints.endPoint === "none"
+            ? null
+            : `url(#${vectorEndpointMarkerId(nodeId, "end")})`,
+      },
+    },
+  ]);
+}
+
 function applyStyleEdit(
   html: string,
   element: ParsedElement,
@@ -4829,6 +5183,18 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (isVectorEndpointProperty(property)) {
+    const content = applyVectorEndpointEdit(html, element, property, value);
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
   if (property === "--an-vector-stroke-position") {
     const content = applyVectorStrokePositionEdit(html, element, value, intent);
     if (content === "unsupported") return content;
@@ -4917,11 +5283,22 @@ function applyStyleRemoveEdit(
   route: StyleEditTargetRoute,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
-  if (
-    !property ||
-    property === "--an-vector-stroke-position" ||
-    (route.kind !== "ordinary" && route.kind !== "vector-paint")
-  ) {
+  if (!property || property === "--an-vector-stroke-position") {
+    return "unsupported";
+  }
+  if (isVectorEndpointProperty(property)) {
+    const content = applyVectorEndpointEdit(html, element, property, "none");
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+  if (route.kind !== "ordinary" && route.kind !== "vector-paint") {
     return "unsupported";
   }
 
@@ -5818,6 +6195,11 @@ function applyBreakpointStyleEdit(
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
   if (!property) return "unsupported";
+  // Endpoint choices change SVG marker definitions and shape attributes as a
+  // unit. A media-scoped custom property cannot express that structural
+  // rewrite, so reject the write instead of persisting a value that renders
+  // without its marker DOM.
+  if (isVectorEndpointProperty(property)) return "unsupported";
   if (!Number.isFinite(intent.maxWidthPx) || intent.maxWidthPx <= 0) {
     return "unsupported";
   }
@@ -6915,7 +7297,10 @@ function applyWrapNodes(
   const measuredFlowAttr = hasMeasuredGroupRuntime
     ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
     : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${wrapperStyleAttr}>`;
+  const measuredFlowOriginAttr = measuredFlowGeometry
+    ? ` data-agent-native-group-origin-left="${formatMeasuredPixel(measuredFlowGeometry!.left)}" data-agent-native-group-origin-top="${formatMeasuredPixel(measuredFlowGeometry!.top)}"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${measuredFlowOriginAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
@@ -7908,8 +8293,8 @@ function applyUnwrap(
     return "unsupported";
   }
 
-  // If the wrapper itself is absolutely positioned with pixel left/top,
-  // rebase each direct child's own absolute left/top by that offset before
+  // If the wrapper has a measured flow origin or is positioned with pixel
+  // left/top, rebase each direct child's own absolute left/top before
   // splicing, so children keep their absolute screen position once
   // reparented. Re-parse the wrapper's inner HTML in isolation so child
   // element spans are relative to that fragment (matches how
@@ -7918,14 +8303,29 @@ function applyUnwrap(
   const wrapperStyle = parseStyle(attributeValue(element, "style"));
   const wrapperLeft = parsePixelLength(wrapperStyle.left);
   const wrapperTop = parsePixelLength(wrapperStyle.top);
-  const shouldRebase =
-    wrapperStyle.position === "absolute" &&
+  const measuredGroupLeft = parsePixelLength(
+    attributeValue(element, "data-agent-native-group-origin-left") ?? undefined,
+  );
+  const measuredGroupTop = parsePixelLength(
+    attributeValue(element, "data-agent-native-group-origin-top") ?? undefined,
+  );
+  const hasPositionedOffset =
+    (wrapperStyle.position === "absolute" ||
+      wrapperStyle.position === "relative") &&
     (wrapperLeft !== null || wrapperTop !== null);
+  const hasMeasuredFlowOrigin =
+    measuredGroupLeft !== null || measuredGroupTop !== null;
+  const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
   if (shouldRebase) {
-    const deltaLeftPx = wrapperLeft ?? 0;
-    const deltaTopPx = wrapperTop ?? 0;
+    // A relative wrapper contributes both its normal-flow origin and its
+    // authored inset. Dropping either term shifts children when the wrapper
+    // is removed and they become siblings of the original flow parent.
+    const deltaLeftPx =
+      (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
+    const deltaTopPx =
+      (measuredGroupTop ?? 0) + (hasPositionedOffset ? (wrapperTop ?? 0) : 0);
     const fragmentElements = parseHtmlElements(innerContent);
     const directChildren = fragmentElements.filter(
       (fe) => fe.parentIndex === undefined,

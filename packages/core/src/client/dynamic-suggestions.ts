@@ -353,12 +353,20 @@ export function useAgentDynamicSuggestionsResult(
             type: optionScope.type,
             id: optionScope.id,
             ...(optionScope.label ? { label: optionScope.label } : {}),
+            ...(optionScope.contextVersion
+              ? { contextVersion: optionScope.contextVersion }
+              : {}),
           }
         : null,
-    [optionScope?.type, optionScope?.id, optionScope?.label],
+    [
+      optionScope?.contextVersion,
+      optionScope?.id,
+      optionScope?.label,
+      optionScope?.type,
+    ],
   );
   const scopeKey = scope
-    ? `${scope.type}:${scope.id}:${scope.label ?? ""}`
+    ? `${scope.type}:${scope.id}:${scope.label ?? ""}:${scope.contextVersion ?? ""}`
     : "none";
   const appStateVersion = useChangeVersions(["app-state"]);
   const enabled = options.enabled !== false && config.enabled;

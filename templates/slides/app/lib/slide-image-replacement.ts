@@ -45,7 +45,7 @@ interface PlaceholderTarget {
 export function imageFileLooksSupported(file: File): boolean {
   return (
     file.type.startsWith("image/") ||
-    /\.(?:png|jpe?g|gif|webp|avif|ico)$/i.test(file.name)
+    /\.(?:png|jpe?g|gif|webp|avif|ico|svg)$/i.test(file.name)
   );
 }
 
@@ -91,6 +91,160 @@ function findImageWithSource(
       (image) => image.getAttribute("src") === src,
     ) ?? null
   );
+}
+
+function imageStructure(doc: Document): string {
+  const body = doc.body.cloneNode(true) as HTMLElement;
+  body.querySelectorAll("img").forEach((image, index) => {
+    image.replaceWith(`__slide-image-${index}__`);
+  });
+  return body.innerHTML;
+}
+
+const LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES = [
+  "position",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "width",
+  "min-width",
+  "max-width",
+  "height",
+  "min-height",
+  "max-height",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "transform",
+  "transform-origin",
+  "translate",
+  "scale",
+  "rotate",
+  "aspect-ratio",
+] as const;
+
+function updateImageAttributesInPlace(
+  liveImage: HTMLImageElement,
+  nextImage: HTMLImageElement,
+): void {
+  const liveGeometry = LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.map((property) => {
+    const value = liveImage.style.getPropertyValue(property);
+    return value
+      ? {
+          priority: liveImage.style.getPropertyPriority(property),
+          property,
+          value,
+        }
+      : null;
+  }).filter(
+    (
+      declaration,
+    ): declaration is {
+      priority: string;
+      property: (typeof LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES)[number];
+      value: string;
+    } => declaration !== null,
+  );
+
+  for (const attribute of Array.from(liveImage.attributes)) {
+    if (
+      attribute.name !== "src" &&
+      attribute.name !== "style" &&
+      !nextImage.hasAttribute(attribute.name)
+    ) {
+      liveImage.removeAttribute(attribute.name);
+    }
+  }
+  for (const attribute of Array.from(nextImage.attributes)) {
+    if (attribute.name !== "style") {
+      liveImage.setAttribute(attribute.name, attribute.value);
+    }
+  }
+
+  const nextStyle = nextImage.getAttribute("style");
+  if (nextStyle === null && liveGeometry.length === 0) {
+    liveImage.removeAttribute("style");
+  } else {
+    liveImage.setAttribute("style", nextStyle ?? "");
+  }
+  for (const declaration of liveGeometry) {
+    liveImage.style.setProperty(
+      declaration.property,
+      declaration.value,
+      declaration.priority,
+    );
+  }
+}
+
+/** Update image attributes in place while preserving live drag/resize styles. */
+export function swapImageSourcesInPlace(
+  root: HTMLElement,
+  previousContent: string,
+  nextContent: string,
+): boolean {
+  const previousDoc = parseFragment(previousContent);
+  const nextDoc = parseFragment(nextContent);
+  const previousImages = Array.from(
+    previousDoc.body.querySelectorAll<HTMLImageElement>("img"),
+  );
+  const nextImages = Array.from(
+    nextDoc.body.querySelectorAll<HTMLImageElement>("img"),
+  );
+  if (
+    previousImages.length === 0 ||
+    previousImages.length !== nextImages.length
+  ) {
+    return false;
+  }
+
+  const nextSources = nextImages.map((image) => image.getAttribute("src"));
+  if (imageStructure(previousDoc) !== imageStructure(nextDoc)) return false;
+
+  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  if (liveImages.length !== nextSources.length) return false;
+  liveImages.forEach((image, index) => {
+    updateImageAttributesInPlace(image, nextImages[index]);
+  });
+  return true;
+}
+
+/** Resolve after a hosted image is decoded, keeping the old preview visible. */
+export function prefetchImage(src: string): Promise<boolean> {
+  if (typeof Image === "undefined") return Promise.resolve(true);
+
+  return new Promise<boolean>((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const settle = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ready);
+    };
+    image.onload = () => {
+      if (typeof image.decode !== "function") {
+        settle(true);
+        return;
+      }
+      void Promise.resolve()
+        .then(() => image.decode())
+        .then(
+          () => settle(true),
+          () => settle(false),
+        );
+    };
+    image.onerror = () => settle(false);
+    image.src = src;
+  });
 }
 
 export function normalizeImageObjectPosition(

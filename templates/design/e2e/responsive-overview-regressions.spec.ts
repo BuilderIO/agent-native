@@ -298,11 +298,6 @@ test("screen deletion explicitly includes and removes responsive variants", asyn
       .first()
       .click();
     await page.keyboard.press("Delete");
-    const dialog = page.getByRole("alertdialog", {
-      name: "Delete this screen?",
-    });
-    await expect(dialog).toContainText("all of its responsive variants");
-    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
     await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
   } finally {

@@ -75,6 +75,8 @@ describe("MessageQueueDrawer", () => {
     expect(drawer?.className).toContain("bg-muted/55");
     expect(drawer?.className).toContain("shadow-none");
     expect(drawer?.className).toContain("rounded-xl");
+    expect(drawer?.className).toContain("mb-0");
+    expect(drawer?.className).not.toContain("-mb-4");
     expect(drawer?.className).not.toContain("rounded-2xl");
     expect(
       container

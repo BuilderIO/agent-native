@@ -36,6 +36,7 @@ import {
   DEV_ACTION_USER_HEADER,
   devActionHandoffUrl,
   hashDatabaseKey,
+  isLoopbackDevActionOrigin,
   isValidDevActionHandoffUrl,
   readDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
@@ -465,27 +466,6 @@ export async function tryForwardToDevServer(
       : null,
   );
   process.exit(0);
-}
-
-function isLoopbackDevActionOrigin(origin: string): boolean {
-  try {
-    const url = new URL(origin);
-    // Discovery files record the URL Vite prints — `localhost` on the default
-    // wildcard bind; older dev servers recorded the 127.0.0.1 literal. Both
-    // are loopback labels for the same local server.
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      (url.hostname === "127.0.0.1" ||
-        url.hostname === "localhost" ||
-        url.hostname === "[::1]") &&
-      url.pathname === "/" &&
-      !url.search &&
-      !url.hash
-    );
-  } catch {
-    // coercion-ok: an unparseable origin is simply not a dev server to trust.
-    return false;
-  }
 }
 
 function coerceCliValue(

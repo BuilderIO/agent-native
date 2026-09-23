@@ -841,6 +841,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content 공간",
     addChild: "하위 항목 추가",
     addChildTo: "{{title}}에 하위 항목 추가",
     database: "컬렉션",
@@ -878,6 +879,9 @@ const landing = {
   requestedPageUnavailable:
     "해당 페이지는 이 계정에서 사용할 수 없어 시작 페이지를 열었습니다.",
   saveFailed: "현재 위치를 저장하지 못했습니다",
+  workspaceWelcomeUnavailableTitle: "아직 열린 콘텐츠가 없습니다",
+  workspaceWelcomeUnavailableDescription:
+    "이 워크스페이스를 볼 수 있지만 시작 페이지를 만들 권한이 없습니다.",
 };
 
 const comments = {
@@ -945,6 +949,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "최근 방문",
+  customizeSidebar: "사이드바 사용자 지정",
+  noRecentVisits: "최근 방문 기록 없음",
+  noPinnedItems: "고정된 항목 없음",
+  showMore: "더 보기",
+  showLess: "간략히 보기",
+  seeAll: "모두 보기…",
+  seeAllFiles: "모든 파일 보기",
   pinned: "고정됨",
   loadingPinned: "고정된 항목 불러오는 중…",
   dragToReorder: "{{label}} 드래그하여 순서 변경",

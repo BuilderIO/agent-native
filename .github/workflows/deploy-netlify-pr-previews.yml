@@ -34,6 +34,7 @@ jobs:
           # Load the discovery code from the trusted workflow base instead.
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Fetch the PR head for the path diff

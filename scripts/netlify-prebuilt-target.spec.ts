@@ -42,7 +42,6 @@ test("resolves a mutable PR alias from the API site slug", () => {
 
 test("maps the beta chat site to the chat template and beta ref", () => {
   const target = resolveNetlifyPrebuiltTarget("beta", "chat");
-  const productionTarget = resolveNetlifyPrebuiltTarget("production", "chat");
 
   assert.equal(target.siteName, "chat");
   assert.equal(target.sourceTemplate, "chat");
@@ -55,7 +54,7 @@ test("maps the beta chat site to the chat template and beta ref", () => {
   );
   assert.match(target.host, /^beta\./);
   assert.match(target.siteId, /^[0-9a-f-]{36}$/);
-  assert.equal(target.migrationSiteId, productionTarget.siteId);
+  assert.equal(target.migrationSiteId, target.siteId);
 });
 
 test("maps the production chat alias to the starter site", () => {
@@ -82,6 +81,7 @@ test("maps the framework production site to the docs project", () => {
 
   assert.equal(target.siteName, "fw");
   assert.equal(target.sourceTemplate, "@agent-native/docs");
+  assert.equal(target.clientDirectory, "packages/docs/build/client");
   assert.equal(target.publishDirectory, "packages/docs/dist");
   assert.equal(target.clientDirectory, "packages/docs/build/client");
   assert.equal(

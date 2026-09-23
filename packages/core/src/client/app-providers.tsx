@@ -17,7 +17,7 @@
  *     <AppProviders
  *       queryClient={queryClient}
  *       isPublicPath={isPublicBookingPath(location.pathname)}
- *       clientOnlyFallback={<DefaultSpinner />}
+ *       clientOnlyFallback={<AppShellSkeleton />}
  *     >
  *       ...
  *     </AppProviders>
@@ -27,7 +27,7 @@
  *   default), `<ClientOnly>` hydrates the shared SSR shell and
  *   `<RequireSession>` redirects signed-out visitors to the framework sign-in
  *   page before private app chrome mounts. When `clientOnlyFallback` is
- *   omitted, `<DefaultSpinner />` is used.
+ *   omitted, `<AppShellSkeleton />` is used.
  *
  * Customisation props:
  *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
@@ -49,6 +49,8 @@
  *                              intentionally animates theme changes (e.g. content).
  *   disableWebMcp             — skips the automatic page-local WebMCP action
  *                              registration. Defaults to `false`.
+ *   webMcpExcludeActionNames  — omits named server actions when a page provides
+ *                              a safer or more specific replacement.
  */
 
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
@@ -63,9 +65,10 @@ import {
   normalizeDocumentTitle,
 } from "../shared/document-title.js";
 import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
-import { agentNativePath } from "./api-path.js";
+import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
+import { agentNativePath, frameworkRoutePrefix } from "./api-path.js";
+import { AppShellSkeleton } from "./AppShellSkeleton.js";
 import { ClientOnly } from "./ClientOnly.js";
-import { DefaultSpinner } from "./DefaultSpinner.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
   AgentNativeI18nProvider,
@@ -83,7 +86,6 @@ import {
 } from "./theme.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 import { useSession } from "./use-session.js";
-import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -131,6 +133,12 @@ export interface AppProvidersProps {
    */
   disableWebMcp?: boolean;
 
+  /**
+   * Omit named server actions from the automatic registration when a page
+   * provides a safer or more specific replacement.
+   */
+  webMcpExcludeActionNames?: readonly string[];
+
   /** Render the environment badge in the shared app shell. */
   showEnvironmentBadge?: boolean;
 
@@ -150,7 +158,7 @@ export interface AppProvidersProps {
 
   /**
    * Fallback rendered by `<ClientOnly>` while JS hydrates on private paths.
-   * Defaults to `<DefaultSpinner />`.
+   * Defaults to `<AppShellSkeleton />`.
    */
   clientOnlyFallback?: React.ReactNode;
 
@@ -183,6 +191,20 @@ function EarlyBetaRedirectScript() {
       dangerouslySetInnerHTML={{
         __html: getSsrBetaRedirectScriptBody(
           agentNativePath("/_agent-native/auth/session"),
+          frameworkRoutePrefix(),
+        ),
+      }}
+    />
+  );
+}
+
+function EarlySessionBootstrapScript() {
+  return (
+    <script
+      data-agent-native-session-bootstrap="1"
+      dangerouslySetInnerHTML={{
+        __html: getSsrSessionBootstrapScriptBody(
+          agentNativePath("/_agent-native/auth/session"),
         ),
       }}
     />
@@ -201,31 +223,64 @@ function RoutedAppEnhancements() {
   );
 }
 
-function AgentNativeWebMcpRegistration() {
+type WebMcpRegistration = ReturnType<
+  (typeof import("./webmcp.js"))["createAgentNativeServerActionWebMcpRegistration"]
+>;
+type WebMcpModule = typeof import("./webmcp.js");
+
+let webMcpModulePromise: Promise<WebMcpModule> | null = null;
+
+function loadWebMcpModule(): Promise<WebMcpModule> {
+  return (webMcpModulePromise ??= import("./webmcp.js"));
+}
+
+function AgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+
   useEffect(() => {
     // sessionBypass surfaces are token-authenticated MCP embeds; their host
     // may call tools immediately, so registration must not wait out the
     // paint-aligned window — only the cookie-session-gated variant defers.
     // Ownership is local to this effect: two coexisting surfaces each stop
     // only the registration they created.
-    const registration = createAgentNativeServerActionWebMcpRegistration();
-    void registration.start().catch(() => {
-      // WebMCP is progressive enhancement. Session expiry or a transient
-      // manifest failure must not prevent the authenticated app from
-      // loading.
-    });
+    let disposed = false;
+    let registration: WebMcpRegistration | null = null;
+    void loadWebMcpModule()
+      .then(({ createAgentNativeServerActionWebMcpRegistration }) => {
+        if (disposed) return;
+        registration = createAgentNativeServerActionWebMcpRegistration({
+          excludeActionNames,
+        });
+        void registration.start().catch(() => {
+          // WebMCP is progressive enhancement. Session expiry or a transient
+          // manifest failure must not prevent the authenticated app from
+          // loading.
+        });
+      })
+      .catch(() => {
+        // A failed optional WebMCP chunk must not delay the app shell.
+      });
     return () => {
-      registration.stop();
+      disposed = true;
+      registration?.stop();
     };
-  }, []);
+  }, [excludeActionNamesKey]);
   return null;
 }
 
-function SessionGatedAgentNativeWebMcpRegistration() {
+function SessionGatedAgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
   const { status } = useSession();
-  const registrationRef = useRef<ReturnType<
-    typeof createAgentNativeServerActionWebMcpRegistration
-  > | null>(null);
+  const registrationRef = useRef<WebMcpRegistration | null>(null);
+  const registrationExcludeActionNamesKeyRef = useRef<string | null>(null);
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
   useEffect(() => {
     // The manifest route requires a session, so registration starts only on
     // a confirmed session: a signed-out visitor (first visit, expired cookie)
@@ -240,28 +295,51 @@ function SessionGatedAgentNativeWebMcpRegistration() {
       // the existing one alive until the session settles.
       registrationRef.current?.stop();
       registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
       return;
     }
-    if (status !== "authenticated" || registrationRef.current) return;
+    if (
+      status !== "authenticated" ||
+      (registrationRef.current &&
+        registrationExcludeActionNamesKeyRef.current === excludeActionNamesKey)
+    ) {
+      return;
+    }
+    registrationRef.current?.stop();
+    registrationRef.current = null;
+    registrationExcludeActionNamesKeyRef.current = null;
+    let disposed = false;
     const cancel = scheduleAfterPaint(() => {
-      const registration = createAgentNativeServerActionWebMcpRegistration();
-      void registration.start().catch(() => {
-        // WebMCP is progressive enhancement. Session expiry or a transient
-        // manifest failure must not prevent the authenticated app from
-        // loading.
-      });
-      registrationRef.current = registration;
+      void loadWebMcpModule()
+        .then(({ createAgentNativeServerActionWebMcpRegistration }) => {
+          if (disposed) return;
+          const registration = createAgentNativeServerActionWebMcpRegistration({
+            excludeActionNames,
+          });
+          void registration.start().catch(() => {
+            // WebMCP is progressive enhancement. Session expiry or a transient
+            // manifest failure must not prevent the authenticated app from
+            // loading.
+          });
+          registrationRef.current = registration;
+          registrationExcludeActionNamesKeyRef.current = excludeActionNamesKey;
+        })
+        .catch(() => {
+          // A failed optional WebMCP chunk must not delay the app shell.
+        });
     });
     return () => {
+      disposed = true;
       cancel();
     };
     // Unmount stops exactly the registration this surface created, whether
     // it started or is still scheduled.
-  }, [status]);
+  }, [status, excludeActionNamesKey]);
   useEffect(
     () => () => {
       registrationRef.current?.stop();
       registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
     },
     [],
   );
@@ -270,11 +348,21 @@ function SessionGatedAgentNativeWebMcpRegistration() {
 
 export function AgentNativeWebMcpActionRegistration({
   requireSession = false,
+  excludeActionNames,
 }: {
   requireSession?: boolean;
+  excludeActionNames?: readonly string[];
 } = {}) {
-  if (requireSession) return <SessionGatedAgentNativeWebMcpRegistration />;
-  return <AgentNativeWebMcpRegistration />;
+  if (requireSession) {
+    return (
+      <SessionGatedAgentNativeWebMcpRegistration
+        excludeActionNames={excludeActionNames}
+      />
+    );
+  }
+  return (
+    <AgentNativeWebMcpRegistration excludeActionNames={excludeActionNames} />
+  );
 }
 
 function readDocumentTitleFallback(): string {
@@ -372,6 +460,7 @@ function ProvidersInner({
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
   disableWebMcp,
+  webMcpExcludeActionNames,
   sessionBypass,
   i18n,
   documentTitleFallback,
@@ -386,6 +475,7 @@ function ProvidersInner({
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
   disableWebMcp: boolean;
+  webMcpExcludeActionNames?: readonly string[];
   sessionBypass: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
@@ -415,6 +505,7 @@ function ProvidersInner({
           {!disableWebMcp && (
             <AgentNativeWebMcpActionRegistration
               requireSession={!sessionBypass}
+              excludeActionNames={webMcpExcludeActionNames}
             />
           )}
           {localizedChildren}
@@ -449,6 +540,7 @@ export function AppProviders({
   clientOnlyFallback,
   sessionBypass = false,
   disableWebMcp = false,
+  webMcpExcludeActionNames,
   showEnvironmentBadge = false,
   defaultTheme,
   themeAttribute,
@@ -459,7 +551,7 @@ export function AppProviders({
   documentTitleFallback,
   children,
 }: AppProvidersProps) {
-  const fallback = clientOnlyFallback ?? <DefaultSpinner />;
+  const fallback = clientOnlyFallback ?? <AppShellSkeleton />;
 
   if (isPublicPath) {
     return (
@@ -471,6 +563,7 @@ export function AppProviders({
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
         disableWebMcp={disableWebMcp}
+        webMcpExcludeActionNames={webMcpExcludeActionNames}
         sessionBypass={sessionBypass}
         i18n={publicPathI18n(i18n)}
         documentTitleFallback={documentTitleFallback}
@@ -486,7 +579,12 @@ export function AppProviders({
   // the authenticated client bundle starts.
   return (
     <>
-      {!sessionBypass && <EarlyBetaRedirectScript />}
+      {!sessionBypass && (
+        <>
+          <EarlySessionBootstrapScript />
+          <EarlyBetaRedirectScript />
+        </>
+      )}
       <ClientOnly fallback={fallback}>
         <ProvidersInner
           queryClient={queryClient}
@@ -496,6 +594,7 @@ export function AppProviders({
           toaster={toaster}
           disableThemeTransitions={disableThemeTransitions}
           disableWebMcp={disableWebMcp}
+          webMcpExcludeActionNames={webMcpExcludeActionNames}
           sessionBypass={sessionBypass}
           i18n={i18n}
           documentTitleFallback={documentTitleFallback}

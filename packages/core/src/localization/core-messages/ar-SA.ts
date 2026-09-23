@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
   "approval.alwaysAllowAction": "السماح بهذا الإجراء دائمًا",
@@ -35,14 +36,16 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",
   "onboarding.roleQuestion": "ما الوصف الأفضل لدورك؟",
-  "onboarding.roleProduct": "المنتج",
-  "onboarding.roleDesign": "التصميم",
+  "onboarding.roleHelperText": "يساعدنا هذا على تخصيص تجربتك",
+  "onboarding.roleProduct": "مدير المنتج",
+  "onboarding.roleDesign": "المصمم",
   "onboarding.roleDeveloper": "مطور",
   "onboarding.roleMarketing": "التسويق",
   "onboarding.roleSales": "المبيعات",
   "onboarding.roleOps": "العمليات",
   "onboarding.roleIndividual": "فردي",
   "onboarding.roleOther": "أخرى",
+  "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
@@ -58,9 +61,9 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
-  "onboarding.builderConsentPrefix": "بمتابعة العملية، فإنك توافق على",
-  "onboarding.builderTerms": "الشروط",
-  "onboarding.builderPrivacy": "الخصوصية",
+  "onboarding.builderConsentPrefix": "بإنشاء حساب Builder.io، فإنك توافق على",
+  "onboarding.builderTerms": "شروط الخدمة",
+  "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لدي حساب Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
@@ -74,10 +77,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "اعتمادات الذكاء الاصطناعي جاهزة للاستخدام. تتطلب تعديلات التعليمات البرمجية السحابية مشروع Builder في إعدادات الوكيل في الخلفية.",
   "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
-  "onboarding.capability.llm.keySummary":
-    "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
-  "onboarding.capability.fileStorage.keySummary":
-    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
+  "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
@@ -85,13 +86,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
-  "onboarding.capability.voiceInput.keySummary":
-    "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
+  "onboarding.capability.voiceInput.keySummary": "الإدخال الصوتي",
   "onboarding.capability.voiceInput.why":
     "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
   "onboarding.capability.embeddings.label": "التضمينات",
-  "onboarding.capability.embeddings.keySummary":
-    "مفتاح Gemini أو Cohere أو Voyage",
+  "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
@@ -130,6 +129,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
   "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
   "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
+  "agentPanel.chatgptSubscriptionTitle": "اشتراك ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "وصول تجريبي إلى Codex عبر اشتراك ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "قيد الاستخدام",
+  "agentPanel.chatgptSubscriptionConnected": "متصل",
+  "agentPanel.chatgptSubscriptionConnecting": "جارٍ الاتصال…",
+  "agentPanel.chatgptSubscriptionReconnect": "إعادة الاتصال",
+  "agentPanel.chatgptSubscriptionConnect": "توصيل ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "استخدامه في المحادثة",
+  "agentPanel.chatgptSubscriptionDisconnect": "قطع الاتصال",
   "agentHostNudge.sidebarTitle": "استخدم محادثة {{agent}}",
   "agentHostNudge.sidebarDescription":
     "أنت تتحدث مع {{agent}} بالفعل. اطلب منه العمل مع هذا التطبيق مباشرةً.",
@@ -151,6 +162,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "جارٍ التحميل...",
   "common.no": "لا",
   "common.retry": "إعادة المحاولة",
+  "common.chunkLoadFailed": "تعذّر التحميل. يُرجى المحاولة مرة أخرى.",
   "common.save": "حفظ",
   "agents.hostedAgent": "وكيل مستضاف",
   "agents.provider": "المزوّد",
@@ -763,6 +775,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "جارٍ تحضير {{activity}}...",
   "status.writing": "جارٍ كتابة {{activity}}...",
   "status.stillGenerating": "لا يزال {{activity}} قيد الإنشاء",
+  "status.runningTool": "جارٍ تشغيل {{activity}}",
   "tabs.allChats": "جميع المحادثات",
   "tabs.closeTab": "إغلاق علامة التبويب",
   "tabs.main": "الرئيسية",

@@ -1,9 +1,8 @@
 import { parseUploadResponse, type ImportResult } from "@/lib/design-import";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 
-/** Mirrors `server/lib/fig-file-limits.ts`'s decoder cap — the real ceiling for
- * a `.fig` import now that files above the wire cap upload in chunks. Held to
- * the server value by the alignment test in `design-file-upload.test.ts`. */
+/** Server fallback and token-free image-hydration ceiling. Browser-local `.fig`
+ * imports do not use this raw-file cap. */
 export const MAX_FIG_UPLOAD_BYTES = 50 * 1024 * 1024;
 export const MAX_FIG_UPLOAD_MB = MAX_FIG_UPLOAD_BYTES / 1024 / 1024;
 
@@ -15,9 +14,12 @@ export type FigUploadValidationError = "invalid-extension" | "too-large";
 
 export function validateFigUploadFile(
   file: Pick<File, "name" | "size">,
+  options?: { maxBytes?: number | null },
 ): FigUploadValidationError | null {
   if (!file.name.toLowerCase().endsWith(".fig")) return "invalid-extension";
-  if (file.size > MAX_FIG_UPLOAD_BYTES) return "too-large";
+  const maxBytes =
+    options?.maxBytes === undefined ? MAX_FIG_UPLOAD_BYTES : options.maxBytes;
+  if (maxBytes !== null && file.size > maxBytes) return "too-large";
   return null;
 }
 

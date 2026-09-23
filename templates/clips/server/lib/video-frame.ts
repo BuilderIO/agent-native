@@ -141,6 +141,23 @@ export async function probeMediaDurationMs(
 ): Promise<number | null> {
   if (mediaBytes.byteLength === 0) return null;
 
+  const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
+  const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
+  try {
+    await writeFile(inputPath, mediaBytes);
+    return await probeMediaDurationMsFromFile(inputPath, options);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function probeMediaDurationMsFromFile(
+  mediaPath: string,
+  options: { requireComplete?: boolean; maxQueueWaitMs?: number } = {},
+): Promise<number | null> {
+  const info = await stat(mediaPath);
+  if (!info.size) return null;
+
   const requireComplete = options.requireComplete === true;
 
   const runInSlot = requireComplete
@@ -150,37 +167,26 @@ export async function probeMediaDurationMs(
 
   try {
     return await runInSlot(async () => {
-      const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
-      const inputPath = join(
-        dir,
-        `input.${mediaExtensionForMimeType(mimeType)}`,
-      );
-
+      let stderr: string;
       try {
-        await writeFile(inputPath, mediaBytes);
-        let stderr: string;
-        try {
-          stderr = await runFfmpeg(
-            [
-              "-hide_banner",
-              ...(requireComplete ? ["-xerror"] : []),
-              "-nostdin",
-              "-i",
-              inputPath,
-              ...(requireComplete
-                ? ["-map", "0:V:0", "-map", "0:a?", "-f", "null", "-"]
-                : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
-            ],
-            requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
-          );
-        } catch (error) {
-          if (error instanceof FfmpegRunError) return null;
-          throw error;
-        }
-        return parseDurationMs(stderr);
-      } finally {
-        await rm(dir, { recursive: true, force: true }).catch(() => {});
+        stderr = await runFfmpeg(
+          [
+            "-hide_banner",
+            ...(requireComplete ? ["-xerror"] : []),
+            "-nostdin",
+            "-i",
+            mediaPath,
+            ...(requireComplete
+              ? ["-map", "0:V:0", "-map", "0:a?", "-f", "null", "-"]
+              : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
+          ],
+          requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
+        );
+      } catch (error) {
+        if (error instanceof FfmpegRunError) return null;
+        throw error;
       }
+      return parseDurationMs(stderr);
     });
   } catch (error) {
     if (error instanceof MediaValidationQueueTimeoutError) return null;
@@ -264,14 +270,35 @@ export async function extractJpegFrame({
     );
   }
 
-  return withFrameExtractionSlot(async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clips-frame-"));
-    const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
-    const outputPath = join(dir, "frame.jpg");
-    const seconds = Math.max(0, atMs) / 1000;
+  const dir = await mkdtemp(join(tmpdir(), "clips-frame-input-"));
+  const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
+  try {
+    await writeFile(inputPath, mediaBytes);
+    return await extractJpegFrameFromFile({ mediaPath: inputPath, atMs });
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
+export async function extractJpegFrameFromFile({
+  mediaPath,
+  atMs,
+}: {
+  mediaPath: string;
+  atMs: number;
+}): Promise<Uint8Array> {
+  const info = await stat(mediaPath);
+  if (!info.size) {
+    throw new VideoFrameExtractionError(
+      "NO_VIDEO",
+      "Recording media is empty.",
+    );
+  }
+
+  return withFrameExtractionSlot(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-frame-output-"));
+    const outputPath = join(dir, "frame.jpg");
     try {
-      await writeFile(inputPath, mediaBytes);
       await runFfmpeg([
         "-hide_banner",
         "-loglevel",
@@ -279,9 +306,9 @@ export async function extractJpegFrame({
         "-nostdin",
         "-y",
         "-ss",
-        String(seconds),
+        String(Math.max(0, atMs) / 1000),
         "-i",
-        inputPath,
+        mediaPath,
         "-frames:v",
         "1",
         "-vf",

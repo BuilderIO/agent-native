@@ -127,6 +127,16 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` 與可複製的 URL 和
 Claude、ChatGPT、游標、Claude 程式碼、Codex、Grok 和其他的主機特定分頁。
 
+## 私人 Content 連結 {#private-content-links}
+
+私人 Content 分享連結可以識別文件而不公開其內容。請將同一 Content 執行個體的 `/mcp` URL 加入為代理程式的遠端 MCP 伺服器，使用 Agent-Native 帳戶完成驗證，啟用連線或工具，然後重試原始文件要求。`/mcp/connect` 頁面提供設定選項，但只開啟該頁面不會在代理程式中安裝連線。
+
+此流程適用於 Claude、ChatGPT、Claude Code、Codex、Cursor、Antigravity、OpenCode、GitHub Copilot / VS Code 等支援 MCP 的主機。設定介面與驗證提示依主機而異。Antigravity 透過 **Settings → Customizations → Installed MCP Servers** 或 MCP 設定檔管理遠端伺服器；Agent-Native 的 `connect` 指令目前不會設定 Antigravity。
+
+驗證只會識別已連線的帳戶，不會擴大文件權限。公開文件仍可從分享頁面讀取。私人文件只有在該帳戶原本已有權限時才能透過 MCP 讀取。如果連線後 `get-document` 回傳「找不到」，該回應無法區分權限不足與過期、已刪除或無效的文件 ID。變更權限前，請確認連結和已連線帳戶的存取權限。
+
+重新安裝連接器或變更公開分享連結，無法解決已確認的已連線帳戶權限遭拒問題。
+
 <a id="access-tab"></a>
 
 ### 應用程式內的 MCP 設定 {#mcp-settings}

@@ -1,5 +1,6 @@
 export { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 export { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
+export { getFrameworkRoutePrefix } from "./framework-route-prefix.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   getDisabledDefaultPlugins,
@@ -79,3 +80,10 @@ export {
   type H3AppShim,
 } from "./framework-request-handler.js";
 export { runWithRequestContext } from "./request-context.js";
+export { isSameOriginRequest } from "./request-origin.js";
+export {
+  hasUiActionCapability,
+  mountUiActionCapabilityRoute,
+} from "./ui-action-capability.js";
+export { getSession } from "./auth.js";
+export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

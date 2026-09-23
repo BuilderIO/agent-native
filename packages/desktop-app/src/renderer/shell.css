@@ -355,8 +355,8 @@ body {
   position: absolute;
   z-index: 20;
   top: 8px;
-  left: 10px;
-  width: 76px;
+  left: 8px;
+  width: 48px;
   height: 28px;
   -webkit-app-region: no-drag;
 }
@@ -370,15 +370,15 @@ body {
 }
 
 .collapsed-mac-window-controls .win-btn--close {
-  left: 4px;
+  left: 2px;
 }
 
 .collapsed-mac-window-controls .win-btn--minimize {
-  left: 27px;
+  left: 18px;
 }
 
 .collapsed-mac-window-controls .win-btn--maximize {
-  left: 50px;
+  left: 34px;
 }
 
 .collapsed-mac-window-controls .win-btn:focus-visible {

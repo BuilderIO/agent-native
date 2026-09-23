@@ -3446,7 +3446,10 @@ function isWireframeBlock(
   return block?.type === "wireframe" || block?.type === "legacy-wireframe";
 }
 
-function findBlock(blocks: PlanBlock[], blockId: string): PlanBlock | null {
+export function findBlock(
+  blocks: PlanBlock[],
+  blockId: string,
+): PlanBlock | null {
   for (const block of blocks) {
     if (block.id === blockId) return block;
     if (block.type === "tabs") {

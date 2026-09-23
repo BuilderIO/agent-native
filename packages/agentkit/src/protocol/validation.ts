@@ -1633,6 +1633,7 @@ export function parseAgentRunSnapshot(
     );
   }
   nonNegativeSafeInteger(run.lastSequence, `${path}.lastSequence`);
+  optionalString(run.activeMessageId, `${path}.activeMessageId`);
   optionalTimestamp(run.startedAt, `${path}.startedAt`);
   optionalTimestamp(run.completedAt, `${path}.completedAt`);
   if (run.usage !== undefined) validateUsage(run.usage, `${path}.usage`);

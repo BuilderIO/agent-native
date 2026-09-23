@@ -41,9 +41,13 @@ jobs:
       drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
     steps:
+      # A name-only diff reads no historical file contents, so history can skip
+      # them. Worth ~5s of the ~20s checkout — modest, but every job downstream
+      # of this gate waits on it.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+          filter: blob:none
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -69,17 +73,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
+          filter: blob:none
 
       # Lint only needs oxfmt + oxlint from root devDependencies; no package
       # builds are required, so skip the postinstall build chain entirely.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
@@ -128,17 +128,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Typecheck affected workspaces
         env:
@@ -224,17 +216,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -303,17 +287,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -439,17 +415,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Run docs package tests
         run: pnpm --filter @agent-native/docs test
@@ -466,17 +434,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Run deterministic Content parity checks
         run: pnpm test:content-parity
@@ -490,40 +450,25 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
 
+  # Runs on every PR regardless of scope, so it must not wait on change-scope:
+  # the gate only adds a second queue wait before an unconditional job.
   pglite-tests:
     name: PGlite lock and migration tests
-    needs: change-scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Install isolated PGlite test driver
         run: >-
@@ -558,17 +503,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Run Content PostgreSQL lock integration tests
         run: |
@@ -587,17 +524,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -623,17 +552,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Run Plan action E2E tests
         run: pnpm test:plan-e2e
@@ -649,17 +570,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Run brain evals
         run: pnpm test:brain-evals
@@ -673,17 +586,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Block privacy leaks and false positives
         run: pnpm test:brain-privacy-evals
@@ -697,17 +602,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Build all packages
         if: needs.change-scope.outputs.full == 'true'
@@ -737,14 +634,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
 
       - name: Validate config, provenance, receipts, and workflow boundaries
         run: pnpm test:trusted-acceptance
@@ -785,19 +675,11 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
       # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
       # cache hit); no separate `pnpm build` step needed.
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
 
       - name: Headless scaffold — pnpm install + typecheck + action
         # Guards the documented one-file headless onboarding: a fresh
@@ -900,16 +782,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
       # Skip postinstall build chain here — core is built explicitly below so we
       # control the exact build order and avoid redundant parallel builds.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       # Build the extracted recap CLI before core so its compatibility shim is
       # available to source imports, then produce the real serverless bundle.
@@ -963,16 +840,11 @@ jobs:
           # Diff-scoped guards resolve GITHUB_BASE_REF to origin/main.
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
       # Guard scripts only need dependencies and should not depend on package
       # lifecycle builds; skipping scripts avoids native optional builds here.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Test production deploy concurrency guard
         run: pnpm test:netlify-prebuilt-workflow
@@ -1022,18 +894,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
       # These checks read source files only — no DB, browser, network, or
       # secrets — so they're safe to run on every PR. (The heavier harnesses —
       # test:mcp:e2e, qa:public-share, qa:composer-geometry — need a live
       # server / DB / browser and belong in a separate, set-up job.)
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Template route matrix (fails on drift)
         run: pnpm qa:template-routes

@@ -4,6 +4,25 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    designNotFoundDescription: "このデザインは存在しないか、削除されています。",
+    requestAccessTitle: "このデザインへのアクセスをリクエスト",
+    requestAccessDescription:
+      "このデザインは非公開です。所有者にアクセスをリクエストしてください。",
+    requestAccess: "アクセスをリクエスト",
+    accessRequested: "アクセスをリクエストしました",
+    accessRequestSentDescription:
+      "リクエストを記録しました。アクセスが承認されると、このデザインを開けます。",
+    signInToRequestAccessTitle: "ログインしてアクセスをリクエスト",
+    signInToRequestAccessDescription:
+      "ログインするかアカウントを作成して、所有者にアクセスをリクエストしてください。",
+    signInOrSignUp: "ログインまたは登録",
+    accessCheckFailed: "このデザインへのアクセスを確認できませんでした。",
+    retryAccessCheck: "再試行",
+    import: {
+      ...messagesByLocale["ja-JP"].designEditor.import,
+      figUploadDescriptionShort:
+        "ローカルインポート — Figma API の割り当てを使用しません。対応する埋め込み画像が含まれます。",
+    },
     componentInstances: {
       ...messagesByLocale["ja-JP"].designEditor.componentInstances,
       restore: "コンポーネントを復元",
@@ -140,6 +159,20 @@ const messages = {
       change: "レビューステータスを変更",
       saveFailed: "レビューステータスを更新できませんでした",
     },
+  },
+  designSystems: {
+    ...messagesByLocale["ja-JP"].designSystems,
+    tierLimitTitle: "デザインシステムの上限に達しました",
+    tierLimitDescription:
+      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
+    tierLimitDescriptionWithCount:
+      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
+    tierLimitUpgrade: "プランをアップグレード",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["ja-JP"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
 };
 

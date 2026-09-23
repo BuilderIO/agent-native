@@ -10,15 +10,25 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  readDeployCredentialEnv,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
-  AI_FILTER_ACTIONS,
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
+  type AiFilterPreviewCorrection,
   type AiFilterDecision,
+  type AiFilterPreviewEmail,
+  type AiFilterPreviewRule,
   type AiFilterState,
 } from "@shared/ai-filter.js";
+import {
+  AI_PRIORITY_DEFAULT_INSTRUCTION,
+  type AiPriorityEmail,
+} from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import type { AutomationAction } from "@shared/types.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -32,6 +42,8 @@ import {
 } from "./automation-actions.js";
 import {
   resolveAutomationModelSettings,
+  resolveTextAutomationModelSettings,
+  TYPESAFE_AUTOMATION_ENGINE,
   type AutomationModelSettings,
 } from "./automation-model.js";
 import {
@@ -194,7 +206,7 @@ async function loadActiveRules(
 
 // ─── Fetch new messages ──────────────────────────────────────────────────────
 
-interface EmailSummary {
+export interface EmailSummary {
   id: string;
   threadId: string;
   from: string;
@@ -321,6 +333,10 @@ async function fetchNewInboxMessages(
   for (const r of batchResults) {
     if (!r.data) continue;
     const msg = r.data;
+    // The list/history query is Inbox-scoped, but labels can change while the
+    // metadata batch is in flight. Do not spend on a message that is no
+    // longer in Inbox by the time evaluation starts.
+    if (!msg.labelIds?.includes("INBOX")) continue;
     const headers = msg.payload?.headers || [];
     const getHeader = (name: string) =>
       headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())
@@ -343,7 +359,7 @@ async function fetchNewInboxMessages(
 
 // ─── AI rule evaluation ──────────────────────────────────────────────────────
 
-interface RuleMatch {
+export interface RuleMatch {
   ruleId: string;
   match: boolean;
   confidence: number;
@@ -366,6 +382,10 @@ async function canUseAutomationModel(
   ownerEmail: string,
   settings: AutomationModelSettings,
 ): Promise<boolean> {
+  if (settings.engine === TYPESAFE_AUTOMATION_ENGINE) {
+    return Boolean(readDeployCredentialEnv("TYPESAFE_API_KEY"));
+  }
+
   const cacheKey = `${ownerEmail}:${settings.engine ?? ""}:${settings.model ?? ""}`;
   const cached = modelAvailabilityCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.ok;
@@ -410,6 +430,7 @@ async function callModel(
   prompt: string,
   ownerEmail: string,
   settings: AutomationModelSettings,
+  signal?: AbortSignal,
 ): Promise<string> {
   registerBuiltinEngines();
 
@@ -423,7 +444,7 @@ async function callModel(
       apiKey: anthropicKey,
     });
     const model = settings.model || engine.defaultModel;
-    const controller = new AbortController();
+    const abortSignal = signal ?? new AbortController().signal;
     let text = "";
     let assistantText = "";
     let usage:
@@ -445,7 +466,7 @@ async function callModel(
         },
       ],
       tools: [],
-      abortSignal: controller.signal,
+      abortSignal,
       maxOutputTokens: 2048,
     })) {
       if (event.type === "text-delta") {
@@ -472,7 +493,7 @@ async function callModel(
     // main chat in the Usage settings panel.
     if (usage) {
       try {
-        const { recordUsage } = await import("@agent-native/core");
+        const { recordUsage } = await import("@agent-native/core/usage");
         await recordUsage({
           ownerEmail,
           inputTokens: usage.inputTokens,
@@ -492,7 +513,7 @@ async function callModel(
   });
 }
 
-async function getAutomationModelSettings(
+export async function getAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
@@ -502,6 +523,128 @@ async function getAutomationModelSettings(
       ? (autoSettings as AutomationModelSettings)
       : null,
   );
+}
+
+async function evaluateRulesWithJev(
+  emails: EmailSummary[],
+  rules: RuleRecord[],
+  ownerEmail: string,
+): Promise<Map<string, RuleMatch[]>> {
+  const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
+  if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
+
+  const questionEntries = emails.flatMap((email, emailIndex) =>
+    rules.map((rule, ruleIndex) => {
+      const id = `q_${emailIndex}_${ruleIndex}`;
+      return [
+        id,
+        {
+          type: "noul",
+          instructions: `Does email ${email.id} clearly match this rule: "${rule.condition}"?`,
+          criteria: {
+            true: "The email clearly matches the user's rule.",
+            false: "The email does not match the user's rule.",
+          },
+        },
+      ] as const;
+    }),
+  );
+  const questionIds = new Map(
+    questionEntries.map(([id], index) => {
+      const email = emails[Math.floor(index / rules.length)];
+      const rule = rules[index % rules.length];
+      return [id, { emailId: email.id, ruleId: rule.id }] as const;
+    }),
+  );
+
+  const body = {
+    model: "jev-latest",
+    state: {
+      emails: emails.map((email) => ({
+        id: email.id,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labels: email.labelIds,
+        date: email.date,
+      })),
+    },
+    questions: Object.fromEntries(questionEntries),
+  };
+
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    response = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (response.ok) break;
+    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(
+      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+    );
+  }
+
+  if (!response?.ok) throw new Error("TypeSafe Jev request failed.");
+  const payload = (await response.json()) as {
+    answers?: Record<string, { type?: string; noul?: number }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  if (!payload.answers || typeof payload.answers !== "object") {
+    throw new Error("TypeSafe Jev returned no answers.");
+  }
+
+  if (payload.usage) {
+    try {
+      const { recordUsage } = await import("@agent-native/core/usage");
+      await recordUsage({
+        ownerEmail,
+        inputTokens: payload.usage.input_tokens ?? 0,
+        outputTokens: payload.usage.output_tokens ?? 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "jev-latest",
+        label: "automation",
+        app: "mail",
+      });
+    } catch (error) {
+      // Usage recording is best-effort and must not hide a valid classification.
+      console.warn("[automation-engine] Jev usage recording failed:", error);
+    }
+  }
+
+  const results = new Map<string, RuleMatch[]>();
+  for (const [questionId, answer] of Object.entries(payload.answers)) {
+    const question = questionIds.get(questionId);
+    const probability = answer?.noul;
+    if (
+      !question ||
+      typeof probability !== "number" ||
+      !Number.isFinite(probability) ||
+      probability < 0.5
+    ) {
+      continue;
+    }
+    const matches = results.get(question.emailId) ?? [];
+    matches.push({
+      ruleId: question.ruleId,
+      match: true,
+      confidence: Math.min(1, Math.max(0, probability)),
+      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+    });
+    results.set(question.emailId, matches);
+  }
+  return results;
 }
 
 async function evaluateRules(
@@ -514,6 +657,10 @@ async function evaluateRules(
   // Returns: messageId → array of matched rules with model confidence/reason.
   const results = new Map<string, RuleMatch[]>();
   if (emails.length === 0 || rules.length === 0) return results;
+
+  if (modelSettings.engine === TYPESAFE_AUTOMATION_ENGINE) {
+    return evaluateRulesWithJev(emails, rules, ownerEmail);
+  }
 
   // Process in batches of 10 emails per call
   const batchSize = 10;
@@ -627,6 +774,331 @@ Be precise: only mark a rule as matching if the email clearly fits the condition
   return results;
 }
 
+type PriorityScore = {
+  score: number;
+  reason?: string;
+};
+
+async function evaluatePriorityWithJev(
+  emails: EmailSummary[],
+  instruction: string,
+  ownerEmail: string,
+  signal?: AbortSignal,
+): Promise<Map<string, PriorityScore>> {
+  const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
+  if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
+
+  const questions = Object.fromEntries(
+    emails.map((email, index) => [
+      `q_${index}`,
+      {
+        type: "noul",
+        instructions: `Should email ${email.id} be prioritized for the user? Follow this guidance: "${instruction}"`,
+        criteria: {
+          true: "The email deserves a higher place in the user's inbox.",
+          false: "The email can safely be lower in the inbox.",
+        },
+      },
+    ]),
+  );
+  const body = {
+    model: "jev-latest",
+    state: {
+      emails: emails.map((email) => ({
+        id: email.id,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labels: email.labelIds,
+        date: email.date,
+      })),
+    },
+    questions,
+  };
+
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal?.throwIfAborted();
+    response = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+        : AbortSignal.timeout(12_000),
+    });
+    if (response.ok) break;
+    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(
+      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+    );
+  }
+
+  if (!response?.ok) throw new Error("TypeSafe Jev request failed.");
+  const payload = (await response.json()) as {
+    answers?: Record<string, { noul?: number }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  if (!payload.answers || typeof payload.answers !== "object") {
+    throw new Error("TypeSafe Jev returned no answers.");
+  }
+
+  if (payload.usage) {
+    try {
+      const { recordUsage } = await import("@agent-native/core/usage");
+      await recordUsage({
+        ownerEmail,
+        inputTokens: payload.usage.input_tokens ?? 0,
+        outputTokens: payload.usage.output_tokens ?? 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "jev-latest",
+        label: "automation",
+        app: "mail",
+      });
+    } catch (error) {
+      console.warn("[automation-engine] Jev usage recording failed:", error);
+    }
+  }
+
+  const results = new Map<string, PriorityScore>();
+  emails.forEach((email, index) => {
+    const probability = payload.answers?.[`q_${index}`]?.noul;
+    if (
+      typeof probability !== "number" ||
+      !Number.isFinite(probability) ||
+      probability < 0 ||
+      probability > 1
+    ) {
+      return;
+    }
+    results.set(email.id, {
+      score: probability,
+      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+    });
+  });
+  return results;
+}
+
+async function evaluatePriorityWithTextModel(
+  emails: EmailSummary[],
+  instruction: string,
+  ownerEmail: string,
+  modelSettings: AutomationModelSettings,
+  signal?: AbortSignal,
+): Promise<Map<string, PriorityScore>> {
+  const results = new Map<string, PriorityScore>();
+  const batchSize = 25;
+  for (let i = 0; i < emails.length; i += batchSize) {
+    signal?.throwIfAborted();
+    const batch = emails.slice(i, i + batchSize);
+    const emailsText = batch
+      .map(
+        (email) =>
+          `--- Email (id: ${email.id}) ---\nFrom: ${email.from}\nTo: ${email.to}\nSubject: ${email.subject}\nSnippet: ${email.snippet}\nLabels: [${email.labelIds.join(", ")}]\nDate: ${email.date}`,
+      )
+      .join("\n\n");
+    const prompt = `Rank these emails for inbox priority using this user guidance: "${instruction}".
+
+Emails:
+${emailsText}
+
+Respond with ONLY a JSON array in this format:
+[{"emailId":"<id>","score":0.0,"reason":"short explanation"}]
+
+Use a score from 0 to 1. Give higher scores to emails that deserve attention sooner. Do not use the age of the email alone as the reason.`;
+    const text = await callModel(prompt, ownerEmail, modelSettings, signal);
+    const jsonStr = text
+      .replace(/```json?\n?/g, "")
+      .replace(/```/g, "")
+      .trim();
+    const parsed = JSON.parse(jsonStr) as Array<{
+      emailId: string;
+      score: number;
+      reason?: string;
+    }>;
+    if (!Array.isArray(parsed)) {
+      throw new Error("Priority model returned a non-array result.");
+    }
+    for (const result of parsed) {
+      if (
+        typeof result?.emailId !== "string" ||
+        typeof result.score !== "number" ||
+        !Number.isFinite(result.score)
+      ) {
+        continue;
+      }
+      results.set(result.emailId, {
+        score: Math.min(1, Math.max(0, result.score)),
+        ...(typeof result.reason === "string"
+          ? { reason: result.reason.slice(0, 500) }
+          : {}),
+      });
+    }
+  }
+  return results;
+}
+
+export async function previewAutomationPriority(
+  emails: AiPriorityEmail[],
+  ownerEmail: string,
+  instruction = AI_PRIORITY_DEFAULT_INSTRUCTION,
+  signal?: AbortSignal,
+): Promise<{
+  scores: Map<string, PriorityScore>;
+  model: AutomationModelSettings;
+}> {
+  const model = await getAutomationModelSettings(ownerEmail);
+  if (!(await canUseAutomationModel(ownerEmail, model))) {
+    throw new Error("No LLM provider is connected for Mail priority sort.");
+  }
+
+  const messages: EmailSummary[] = emails
+    .filter(
+      (email) =>
+        !email.isArchived &&
+        !email.isTrashed &&
+        mailLabelsInclude(email.labelIds, "inbox"),
+    )
+    .map((email) => ({
+      id: email.id,
+      threadId: email.threadId,
+      from: email.from,
+      to: email.to,
+      subject: email.subject,
+      snippet: email.snippet,
+      labelIds: email.labelIds,
+      date: email.date,
+    }));
+
+  const scores = new Map<string, PriorityScore>();
+  for (let i = 0; i < messages.length; i += 50) {
+    signal?.throwIfAborted();
+    const batch = messages.slice(i, i + 50);
+    const batchScores =
+      model.engine === TYPESAFE_AUTOMATION_ENGINE
+        ? await evaluatePriorityWithJev(batch, instruction, ownerEmail, signal)
+        : await evaluatePriorityWithTextModel(
+            batch,
+            instruction,
+            ownerEmail,
+            model,
+            signal,
+          );
+    for (const [emailId, score] of batchScores) scores.set(emailId, score);
+  }
+  return { scores, model };
+}
+
+export async function previewAutomationRules(
+  emails: AiFilterPreviewEmail[],
+  rules: AiFilterPreviewRule[],
+  ownerEmail: string,
+  aiFilterState: AiFilterState,
+): Promise<{
+  matches: Map<string, RuleMatch[]>;
+  model: AutomationModelSettings;
+}> {
+  const model = await getAutomationModelSettings(ownerEmail);
+  if (!(await canUseAutomationModel(ownerEmail, model))) {
+    throw new Error("No LLM provider is connected for Mail AI rules.");
+  }
+  const messages: EmailSummary[] = emails
+    .filter((email) => !email.isArchived && !email.isTrashed)
+    .map((email) => ({
+      id: email.id,
+      threadId: email.threadId,
+      from: email.from,
+      to: email.to,
+      subject: email.subject,
+      snippet: email.snippet,
+      labelIds: email.labelIds,
+      date: email.date,
+    }));
+  const records: RuleRecord[] = rules.map((rule) => ({
+    id: rule.id,
+    ownerEmail,
+    domain: "mail",
+    kind: "ai-filter",
+    name: rule.name,
+    condition: rule.condition,
+    actions: JSON.stringify(rule.actions),
+    enabled: 1,
+    createdAt: 0,
+    updatedAt: 0,
+  }));
+  const matches = await evaluateRules(
+    messages,
+    records,
+    ownerEmail,
+    model,
+    aiFilterState,
+  );
+  return { matches, model };
+}
+
+export async function rewriteAutomationRuleCondition(
+  ownerEmail: string,
+  rule: AiFilterPreviewRule,
+  corrections: AiFilterPreviewCorrection[],
+  comment?: string,
+): Promise<string> {
+  const model = await resolveTextAutomationModelSettings(ownerEmail);
+  const actionDescription = rule.actions.some(
+    (action) => action.type === "archive",
+  )
+    ? "spam filter"
+    : "tag rule";
+  const examples = corrections
+    .map(
+      (correction) =>
+        `- SHOULD ${correction.expectedMatch ? "MATCH" : "NOT MATCH"}: From ${correction.sender}; Subject "${correction.subject}"; Snippet "${correction.snippet}"`,
+    )
+    .join("\n");
+  const prompt = `Rewrite one email ${actionDescription} instruction using the user's corrections.
+
+Current instruction: ${rule.condition}
+Corrections:
+${examples || "None"}
+User note: ${comment?.trim() || "None"}
+
+Return only the replacement instruction as one clear sentence. Keep the user's intent, incorporate the examples, and avoid mentioning AI, corrections, or this prompt.`;
+  let text: string;
+  if (!model.engine && !model.model) {
+    text = [
+      rule.condition.trim(),
+      comment?.trim() ? `Additional guidance: ${comment.trim()}` : "",
+      ...corrections.map(
+        (correction) =>
+          `Example to ${correction.expectedMatch ? "include" : "exclude"}: ${correction.subject} from ${correction.sender}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join(". ");
+  } else {
+    text = await callModel(prompt, ownerEmail, model);
+  }
+  const rewritten = text
+    .replace(/^```(?:text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
+  if (!rewritten || rewritten.length > 2_000) {
+    throw new Error(
+      "The text model returned an invalid Mail rule instruction.",
+    );
+  }
+  return rewritten;
+}
+
 // ─── Main processor ──────────────────────────────────────────────────────────
 
 export interface ProcessResult {
@@ -734,62 +1206,10 @@ export async function processAutomationsForAccount(
       const message = messages.find((candidate) => candidate.id === messageId);
       if (!message) continue;
 
-      const aiMatch = matchedRules
-        .filter((match) => rulesById.get(match.ruleId)?.kind === "ai-filter")
-        .sort((a, b) => b.confidence - a.confidence)[0];
-
-      if (aiMatch) {
-        const shouldAutoFilter =
-          aiFilterState.autoFilter &&
-          aiMatch.confidence >= aiFilterState.autoFilterThreshold;
-        const shouldSuggest =
-          aiMatch.confidence >= aiFilterState.suggestionThreshold;
-        const decisionBase = {
-          id: nanoid(12),
-          messageId,
-          threadId: message.threadId,
-          accountEmail,
-          sender: message.from.slice(0, 320),
-          subject: message.subject.slice(0, 500),
-          confidence: aiMatch.confidence,
-          ...(aiMatch.reason ? { reason: aiMatch.reason } : {}),
-          source: "automatic" as const,
-          createdAt: Date.now(),
-        };
-
-        if (shouldAutoFilter) {
-          const ctx: ActionContext = {
-            accessToken,
-            messageId,
-            ownerEmail,
-            accountEmail,
-            labelCache,
-          };
-          const { successes, failures } = await executeActions(
-            AI_FILTER_ACTIONS,
-            ctx,
-          );
-          result.actionsExecuted += successes;
-          result.errors += failures;
-          if (successes > 0) {
-            aiDecisions.push({
-              ...decisionBase,
-              disposition: "filtered",
-            });
-          }
-        } else if (shouldSuggest) {
-          aiDecisions.push({
-            ...decisionBase,
-            disposition: "suggested",
-          });
-          result.suggestionsCreated += 1;
-        }
-      }
-
       for (const matchedRule of matchedRules) {
         const ruleId = matchedRule.ruleId;
         const rule = rulesById.get(ruleId);
-        if (!rule || rule.kind === "ai-filter") continue;
+        if (!rule) continue;
 
         const actions = JSON.parse(rule.actions) as AutomationAction[];
         const ctx: ActionContext = {
@@ -799,6 +1219,61 @@ export async function processAutomationsForAccount(
           accountEmail,
           labelCache,
         };
+
+        if (rule.kind === "ai-filter") {
+          const isSpamRule = actions.some(
+            (action) => action.type === "archive",
+          );
+          const shouldAct = isSpamRule
+            ? aiFilterState.autoFilter &&
+              matchedRule.confidence >= aiFilterState.autoFilterThreshold
+            : matchedRule.confidence >= aiFilterState.suggestionThreshold;
+
+          if (shouldAct) {
+            const { successes, failures } = await executeActions(actions, ctx);
+            result.actionsExecuted += successes;
+            result.errors += failures;
+            if (isSpamRule) {
+              const decisionBase = {
+                id: nanoid(12),
+                messageId,
+                threadId: message.threadId,
+                accountEmail,
+                sender: message.from.slice(0, 320),
+                subject: message.subject.slice(0, 500),
+                confidence: matchedRule.confidence,
+                ...(matchedRule.reason ? { reason: matchedRule.reason } : {}),
+                source: "automatic" as const,
+                createdAt: Date.now(),
+              };
+              if (successes > 0) {
+                aiDecisions.push({
+                  ...decisionBase,
+                  disposition: "filtered",
+                });
+              }
+            }
+          } else if (
+            isSpamRule &&
+            matchedRule.confidence >= aiFilterState.suggestionThreshold
+          ) {
+            aiDecisions.push({
+              id: nanoid(12),
+              messageId,
+              threadId: message.threadId,
+              accountEmail,
+              sender: message.from.slice(0, 320),
+              subject: message.subject.slice(0, 500),
+              confidence: matchedRule.confidence,
+              ...(matchedRule.reason ? { reason: matchedRule.reason } : {}),
+              disposition: "suggested",
+              source: "automatic",
+              createdAt: Date.now(),
+            });
+            result.suggestionsCreated += 1;
+          }
+          continue;
+        }
 
         const { successes, failures } = await executeActions(actions, ctx);
         result.actionsExecuted += successes;

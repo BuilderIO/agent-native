@@ -60,6 +60,10 @@ vi.mock("@/hooks/use-sidebar-collapsed", () => ({
   useSidebarCollapsed: () => ({ collapsed: false, setCollapsed: vi.fn() }),
 }));
 vi.mock("@/lib/slide-agent-context", () => ({
+  buildSlidesAgentContext: () => ({
+    context: "",
+    contextVersion: "test",
+  }),
   hasCurrentSlideSelection: () => false,
   readPublishedSlidesSelection: () => null,
   SLIDES_SELECTION_CHANGED_EVENT: "slides-selection-changed",

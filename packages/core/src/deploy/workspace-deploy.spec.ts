@@ -206,6 +206,58 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("builds direct-child apps with isolated workspace auth", async () => {
+    const appDir = path.join(tmpDir, "account-tiering");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify({
+        name: "account-tiering",
+        displayName: "Account Tiering",
+        scripts: { build: "agent-native build" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { appsDirectory: ".", authMode: "isolated" } } };\n',
+    );
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(buildCallForApp("account-tiering")?.env).toMatchObject({
+      AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated",
+      VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated",
+      APP_BASE_PATH: "/account-tiering",
+    });
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "account-tiering-server",
+          "account-tiering-server.mjs",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "account-tiering-server",
+          "account-tiering-server.mjs",
+        ),
+        "utf8",
+      ),
+    ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
+  });
+
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
@@ -508,6 +560,12 @@ describe("workspace deploy", () => {
       new Request("https://example.test/starter"),
     );
     expect(await starterResponse.text()).toBe("https://example.test/starter//");
+    const starterDataResponse = await starterModule.default(
+      new Request("https://example.test/starter.data?_routes=root"),
+    );
+    expect(await starterDataResponse.text()).toBe(
+      "https://example.test/starter/.data?_routes=root",
+    );
 
     const redirects = fs.readFileSync(
       path.join(tmpDir, "dist", "_redirects"),
@@ -804,6 +862,12 @@ describe("workspace deploy", () => {
     await expect(starterModule.default.fetch(req, {})).resolves.toBe(
       "/starter//",
     );
+    await expect(
+      starterModule.default.fetch(
+        new Request("https://example.test/starter.data?_routes=root"),
+        {},
+      ),
+    ).resolves.toBe("/starter/.data");
 
     const config = JSON.parse(
       fs.readFileSync(
@@ -891,6 +955,10 @@ describe("workspace deploy", () => {
     });
     expect(config.routes).toContainEqual({
       src: "/starter",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/starter\\.data",
       dest: "/starter-server",
     });
     expect(config.routes).toContainEqual({
@@ -1221,6 +1289,20 @@ describe("workspace deploy", () => {
         execFile: execFile as typeof execFileSync,
       }),
     ).rejects.toThrow(/reserved workspace routes/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects dotted app ids that collide with root data routes", async () => {
+    makeWorkspaceApp(tmpDir, "starter");
+    makeWorkspaceApp(tmpDir, "starter.data");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/must use lowercase letters, numbers, and hyphens/);
     expect(execFile).not.toHaveBeenCalled();
   });
 
@@ -1716,7 +1798,9 @@ function makeWorkspaceApp(
 }
 
 function writeAppBuildOutput(workspaceRoot: string, app: string): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = fs.existsSync(path.join(workspaceRoot, app, "package.json"))
+    ? path.join(workspaceRoot, app)
+    : path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(path.join(appDir, "dist", app, "assets"), { recursive: true });
   fs.mkdirSync(path.join(appDir, ".netlify", "functions-internal", "server"), {
     recursive: true,
@@ -1773,7 +1857,9 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
 }
 
 function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = fs.existsSync(path.join(workspaceRoot, app, "package.json"))
+    ? path.join(workspaceRoot, app)
+    : path.join(workspaceRoot, "apps", app);
   const staticDir = path.join(appDir, ".vercel", "output", "static", app);
   const functionDir = path.join(
     appDir,

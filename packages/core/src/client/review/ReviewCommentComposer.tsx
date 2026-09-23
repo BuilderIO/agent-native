@@ -172,7 +172,7 @@ export function ReviewCommentComposer({
         textarea.setSelectionRange(nextCaret, nextCaret);
       });
     }
-    updateValue(nextValue);
+    onChange(nextValue);
     const nextMentions = mentions.filter((current) =>
       nextValue.includes(`@${current.label}`),
     );
@@ -187,6 +187,77 @@ export function ReviewCommentComposer({
     onMentionsChange?.(nextMentions);
     resetMention();
   };
+  const mentionMenu =
+    mentionOptions.length > 0 ? (
+      <DropdownMenu
+        modal={false}
+        open={mentionMenuOpen}
+        onOpenChange={(open) => {
+          setMentionMenuOpen(open);
+          if (!open) {
+            setMentionSearch("");
+            setMentionTriggerIndex(null);
+            mentionTokenEndRef.current = null;
+          }
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={cn(
+              "size-8 text-muted-foreground",
+              !showCommentTools && "sr-only",
+            )}
+            disabled={disabled}
+            aria-hidden={!showCommentTools}
+            aria-label={mentionLabel}
+            tabIndex={showCommentTools ? undefined : -1}
+            onClick={() => {
+              resetMention();
+            }}
+          >
+            <IconAt className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          aria-label={mentionLabel}
+          className="w-60 p-1"
+          onFocusOutside={(event) => event.preventDefault()}
+        >
+          <Input
+            autoFocus
+            value={mentionSearch}
+            onChange={(event) => setMentionSearch(event.currentTarget.value)}
+            placeholder={mentionLabel}
+            aria-label={mentionLabel}
+            className="mb-1 h-8 text-xs"
+            onKeyDown={(event) => event.stopPropagation()}
+          />
+          {filteredMentionOptions.length > 0 ? (
+            filteredMentionOptions.map((mention) => (
+              <DropdownMenuItem
+                key={`${mention.email ?? mention.id ?? mention.label}`}
+                onSelect={() => insertMention(mention)}
+              >
+                <span className="truncate">{mention.label}</span>
+                {mention.email ? (
+                  <span className="ms-auto truncate text-xs text-muted-foreground">
+                    {mention.email}
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            ))
+          ) : (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              {noMentionsLabel}
+            </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
   const submit = (resolutionTarget: ReviewResolutionTarget) => {
     if (!canSubmit) return;
     onSubmit(resolutionTarget);
@@ -283,20 +354,42 @@ export function ReviewCommentComposer({
             onEscape();
             return;
           }
+          const triggerIndex =
+            event.currentTarget.selectionStart ?? value.length;
+          const previousCharacter = [...value.slice(0, triggerIndex)].pop();
+          const isEmailLocalPartBoundary =
+            /(?:^|\s)[^\s@]*[\p{L}\p{N}][^\s@]*[+-]$/u.test(
+              value.slice(0, triggerIndex),
+            );
+          const isComposing = event.nativeEvent.isComposing;
+          const isImeKey = event.nativeEvent.keyCode === 229;
           if (
-            showCommentTools &&
             mentionOptions.length > 0 &&
             event.key === "@" &&
+            !isComposing &&
+            !isImeKey &&
             !event.metaKey &&
             !event.ctrlKey &&
-            !event.altKey
+            !event.altKey &&
+            !isEmailLocalPartBoundary &&
+            !/[\p{L}\p{M}\p{N}_]/u.test(previousCharacter ?? "")
           ) {
-            const triggerIndex =
-              event.currentTarget.selectionStart ?? value.length;
+            const selectionEnd =
+              event.currentTarget.selectionEnd ?? triggerIndex;
+            event.preventDefault();
+            updateValue(
+              `${value.slice(0, triggerIndex)}@${value.slice(selectionEnd)}`,
+            );
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
             setMentionMenuOpen(true);
+            requestAnimationFrame(() => {
+              const textarea = textareaRef.current;
+              if (!textarea) return;
+              textarea.focus();
+              textarea.setSelectionRange(triggerIndex + 1, triggerIndex + 1);
+            });
           }
           if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -306,55 +399,25 @@ export function ReviewCommentComposer({
       />
       {showCommentTools ||
       commentToolsEnd ||
+      mentionMenuOpen ||
       showCommentAction ||
       showAgentAction ? (
         <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
-          {showCommentTools || commentToolsEnd ? (
+          {showCommentTools ||
+          commentToolsEnd ||
+          mentionMenuOpen ||
+          mentionOptions.length > 0 ? (
             <div
-              data-review-comment-tools
-              className="flex min-w-0 items-center gap-0.5 @2xs/review:me-auto"
+              data-review-comment-tools={
+                showCommentTools || commentToolsEnd ? "" : undefined
+              }
+              className={cn(
+                "flex min-w-0 items-center gap-0.5 @2xs/review:me-auto",
+                !showCommentTools && !commentToolsEnd && "contents",
+              )}
             >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="size-8 text-muted-foreground"
-                    disabled={disabled}
-                    aria-label={emojiLabel}
-                  >
-                    <IconMoodSmile className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="flex w-auto gap-0.5 p-1"
-                >
-                  {emojiChoices.map((emoji) => (
-                    <DropdownMenuItem
-                      key={emoji}
-                      className="size-8 justify-center p-0 text-base"
-                      onSelect={() => appendText(emoji)}
-                    >
-                      <span aria-hidden="true">{emoji}</span>
-                      <span className="sr-only">{emoji}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              {mentionOptions.length > 0 ? (
-                <DropdownMenu
-                  open={mentionMenuOpen}
-                  onOpenChange={(open) => {
-                    setMentionMenuOpen(open);
-                    if (!open) {
-                      setMentionSearch("");
-                      setMentionTriggerIndex(null);
-                      mentionTokenEndRef.current = null;
-                    }
-                  }}
-                >
+              {showCommentTools ? (
+                <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
@@ -362,48 +425,29 @@ export function ReviewCommentComposer({
                       variant="ghost"
                       className="size-8 text-muted-foreground"
                       disabled={disabled}
-                      aria-label={mentionLabel}
-                      onClick={() => {
-                        resetMention();
-                      }}
+                      aria-label={emojiLabel}
                     >
-                      <IconAt className="size-4" />
+                      <IconMoodSmile className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-60 p-1">
-                    <Input
-                      autoFocus
-                      value={mentionSearch}
-                      onChange={(event) =>
-                        setMentionSearch(event.currentTarget.value)
-                      }
-                      placeholder={mentionLabel}
-                      aria-label={mentionLabel}
-                      className="mb-1 h-8 text-xs"
-                      onKeyDown={(event) => event.stopPropagation()}
-                    />
-                    {filteredMentionOptions.length > 0 ? (
-                      filteredMentionOptions.map((mention) => (
-                        <DropdownMenuItem
-                          key={`${mention.email ?? mention.id ?? mention.label}`}
-                          onSelect={() => insertMention(mention)}
-                        >
-                          <span className="truncate">{mention.label}</span>
-                          {mention.email ? (
-                            <span className="ms-auto truncate text-xs text-muted-foreground">
-                              {mention.email}
-                            </span>
-                          ) : null}
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                        {noMentionsLabel}
-                      </div>
-                    )}
+                  <DropdownMenuContent
+                    align="start"
+                    className="flex w-auto gap-0.5 p-1"
+                  >
+                    {emojiChoices.map((emoji) => (
+                      <DropdownMenuItem
+                        key={emoji}
+                        className="size-8 justify-center p-0 text-base"
+                        onSelect={() => appendText(emoji)}
+                      >
+                        <span aria-hidden="true">{emoji}</span>
+                        <span className="sr-only">{emoji}</span>
+                      </DropdownMenuItem>
+                    ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
+              {mentionMenu}
               {commentToolsEnd ? (
                 <div data-review-comment-tools-end className="shrink-0">
                   {commentToolsEnd}

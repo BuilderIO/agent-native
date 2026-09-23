@@ -79,6 +79,10 @@ describe("Content action-owned agent catalogs", () => {
     }
   });
 
+  it("returns migration receipts as structured MCP content", () => {
+    expect(migrateContentDatabaseRows.mcpApp?.structuredContent).toBe(true);
+  });
+
   it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
     const migrationParameters = migrateContentDatabaseRows.tool.parameters;
     const batchParameters = updateDatabaseItems.tool.parameters;

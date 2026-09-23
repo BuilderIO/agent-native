@@ -30,10 +30,14 @@ const replayMock = vi.hoisted(() => ({
   startSessionReplay: vi.fn(async () => ({ started: false })),
   stopSessionReplay: vi.fn(async () => undefined),
 }));
+const tracingMock = vi.hoisted(() => ({
+  recordTrackingEvent: vi.fn(async () => undefined),
+}));
 
 vi.mock("@sentry/browser", () => sentryMock);
 vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
 vi.mock("./session-replay.js", () => replayMock);
+vi.mock("../observability/tracing.js", () => tracingMock);
 
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
 const appEntryStateKey = Symbol.for("agent-native.client.appEntryTracking");
@@ -191,6 +195,7 @@ describe("browser analytics pageviews", () => {
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
+    tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -477,6 +482,46 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.init).not.toHaveBeenCalled();
   });
 
+  it("mirrors timing browser events to the OTel bridge", async () => {
+    installBrowser();
+    const { trackEvent } = await freshAnalytics();
+
+    trackEvent("action.response", {
+      action: "get-deck",
+      duration_ms: 42,
+      outcome: "success",
+    });
+
+    expect(tracingMock.recordTrackingEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "get-deck",
+        duration_ms: 42,
+        outcome: "success",
+      }),
+      "client",
+    );
+  });
+
+  it("prefers the isolated GA channel over a host-provided gtag", async () => {
+    const { gtag } = installBrowser();
+    const isolatedGtag = vi.fn();
+    (
+      window as Window & { __AGENT_NATIVE_GA_GTAG__?: typeof isolatedGtag }
+    ).__AGENT_NATIVE_GA_GTAG__ = isolatedGtag;
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("custom_ga_event", { value: "isolated" });
+
+    expect(isolatedGtag).toHaveBeenCalledWith(
+      "event",
+      "custom_ga_event",
+      expect.objectContaining({ value: "isolated" }),
+    );
+    expect(gtag).not.toHaveBeenCalled();
+  });
+
   it("uses the configured native client platform for every pageview", async () => {
     installBrowser("https://mail.agent-native.com/inbox");
     const { analyticsCalls } = installFetch();
@@ -652,6 +697,43 @@ describe("browser analytics pageviews", () => {
       publicKey: "anpk_ssr_config",
       event: "ssr config event",
     });
+  });
+
+  it("emits canonical browser aliases while retaining legacy events", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    const legacyName = "session status";
+    trackEvent(legacyName, { signed_in: true });
+
+    expect(analyticsCalls).toHaveLength(2);
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(events[0]).toMatchObject({
+      event: legacyName,
+      properties: { signed_in: true },
+    });
+    expect(events[1]).toMatchObject({
+      event: "session_status",
+      properties: {
+        signed_in: true,
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
+      },
+    });
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "session_status",
+      expect.objectContaining({
+        canonical_event_name: "session_status",
+        legacy_event_name: legacyName,
+      }),
+    );
+    expect(gtag).toHaveBeenCalledTimes(1);
   });
 
   it("attaches the signed-in session identity to first-party analytics", async () => {

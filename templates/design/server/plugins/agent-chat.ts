@@ -14,6 +14,16 @@ const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  // Local visual-edit tools are intentionally explicit: the connector
+  // catalog otherwise hides them from Claude Code/Codex hosts without a
+  // browser WebMCP surface.
+  "open-visual-edit",
+  "connect-localhost",
+  "add-localhost-screens",
+  "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
   "view-screen",
   // Pairs with view-screen: an external agent that can read the screen but
   // cannot move it has to drive the browser to change screens, which is the

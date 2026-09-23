@@ -201,6 +201,53 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
               .indexOf("b"),
           ),
         );
+
+      // Functional: Send to back on "b" (currently painted IN FRONT of "a")
+      // must move it before "a" in DOM order, and one undo restores.
+      await rightClickNode(page, "b");
+      await page
+        .getByRole("menu")
+        .last()
+        .getByText("Send to back", { exact: true })
+        .click();
+      await expect
+        .poll(async () =>
+          frame.locator("body").evaluate((body) =>
+            Array.from(body.children)
+              .map((el) => el.getAttribute("data-agent-native-node-id"))
+              .filter(Boolean)
+              .indexOf("b"),
+          ),
+        )
+        .toBeLessThan(
+          await frame.locator("body").evaluate((body) =>
+            Array.from(body.children)
+              .map((el) => el.getAttribute("data-agent-native-node-id"))
+              .filter(Boolean)
+              .indexOf("a"),
+          ),
+        );
+
+      await page.keyboard.press(
+        process.platform === "darwin" ? "Meta+z" : "Control+z",
+      );
+      await expect
+        .poll(async () =>
+          frame.locator("body").evaluate((body) =>
+            Array.from(body.children)
+              .map((el) => el.getAttribute("data-agent-native-node-id"))
+              .filter(Boolean)
+              .indexOf("b"),
+          ),
+        )
+        .toBeGreaterThan(
+          await frame.locator("body").evaluate((body) =>
+            Array.from(body.children)
+              .map((el) => el.getAttribute("data-agent-native-node-id"))
+              .filter(Boolean)
+              .indexOf("a"),
+          ),
+        );
     } finally {
       await postAction(request, "delete-design", { id: designId }).catch(
         () => {},

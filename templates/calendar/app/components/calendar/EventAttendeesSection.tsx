@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { CalendarEvent } from "@shared/api";
+import {
+  getCalendarAttendeeCount,
+  getCalendarAttendeeStatusCounts,
+  type CalendarEvent,
+} from "@shared/api";
 import {
   IconCalendarTime,
   IconDots,
@@ -483,6 +487,12 @@ function AttendeeRow({
           startIso: event.start,
         })
       : null;
+  const additionalGuestCount =
+    typeof attendee.additionalGuests === "number" &&
+    Number.isFinite(attendee.additionalGuests) &&
+    attendee.additionalGuests > 0
+      ? Math.floor(attendee.additionalGuests)
+      : 0;
 
   // One muted line under the name, the way Notion stacks it. The RSVP state is
   // already on the avatar badge, so it does not get a line of its own; the
@@ -496,6 +506,14 @@ function AttendeeRow({
         : inlineRsvp
           ? t("eventForm.yourResponse", { status: statusLabel })
           : null,
+    additionalGuestCount > 0
+      ? t(
+          additionalGuestCount === 1
+            ? "deleteEvent.guest_one"
+            : "deleteEvent.guest_other",
+          { count: additionalGuestCount },
+        )
+      : null,
     localTimeLabel,
   ]
     .filter(Boolean)
@@ -751,24 +769,20 @@ export function EventAttendeesSection({
     setAttendeeTimezone.mutate({ email, timeZone });
   };
 
+  const attendeeCount = getCalendarAttendeeCount(attendees);
   const shouldTruncate = attendees.length > ATTENDEE_TRUNCATE_THRESHOLD;
-  const showSummary = attendees.length > 1;
+  const showSummary = attendeeCount > 1;
   const visibleOthers =
     shouldTruncate && !expanded
       ? others.slice(0, ATTENDEE_INITIAL_SHOW)
       : others;
   const hiddenCount = others.length - visibleOthers.length;
 
-  const accepted = attendees.filter(
-    (attendee) => attendee.responseStatus === "accepted",
-  ).length;
-  const tentative = attendees.filter(
-    (attendee) => attendee.responseStatus === "tentative",
-  ).length;
-  const declined = attendees.filter(
-    (attendee) => attendee.responseStatus === "declined",
-  ).length;
-  const pending = attendees.length - accepted - tentative - declined;
+  const attendeeStatusCounts = getCalendarAttendeeStatusCounts(attendees);
+  const accepted = attendeeStatusCounts.accepted ?? 0;
+  const tentative = attendeeStatusCounts.tentative ?? 0;
+  const declined = attendeeStatusCounts.declined ?? 0;
+  const pending = attendeeCount - accepted - tentative - declined;
 
   return (
     <div className="px-4 py-1">
@@ -778,7 +792,7 @@ export function EventAttendeesSection({
           <div className="flex-1">
             <div>
               <div className="text-[13px] leading-[18px] font-medium text-foreground">
-                {t("eventForm.participants", { count: attendees.length })}
+                {t("eventForm.participants", { count: attendeeCount })}
               </div>
               <div className="text-xs text-muted-foreground/60">
                 {[
@@ -826,7 +840,7 @@ export function EventAttendeesSection({
             </span>
             <span>
               {t("eventForm.seeAllParticipants", {
-                count: attendees.length,
+                count: attendeeCount,
               })}
             </span>
           </button>

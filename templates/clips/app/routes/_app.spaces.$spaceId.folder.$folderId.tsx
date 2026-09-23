@@ -4,7 +4,12 @@ import { useParams } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
-import { useFolders, useOrganizations, useSpaces } from "@/hooks/use-library";
+import {
+  getFolderAncestorPath,
+  useFolders,
+  useOrganizations,
+  useSpaces,
+} from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -30,13 +35,11 @@ export default function SpaceFolderRoute() {
     organizationId: currentOrganizationId,
     spaceId,
   });
-  const folder = useMemo(
-    () =>
-      (folders?.folders ?? []).find((f: any) => f.id === folderId) as
-        | { name: string }
-        | undefined,
+  const folderPath = useMemo(
+    () => getFolderAncestorPath(folders?.folders ?? [], folderId),
     [folders, folderId],
   );
+  const folder = folderPath[folderPath.length - 1];
 
   return (
     <LibraryGrid
@@ -51,6 +54,10 @@ export default function SpaceFolderRoute() {
           label: space?.name ?? t("navigation.space"),
           to: `/spaces/${spaceId}`,
         },
+        ...folderPath.slice(0, -1).map((ancestor) => ({
+          label: ancestor.name,
+          to: `/spaces/${spaceId}/folder/${ancestor.id}`,
+        })),
         { label: folder?.name ?? t("navigation.folder") },
       ]}
       extraActions={

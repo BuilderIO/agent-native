@@ -885,6 +885,7 @@ export default defineAction({
   description:
     "Validate, apply, or verify an atomic Content collection row migration. Rollback and legacy-property finalization use manage-content-database-migration and require approval.",
   mcpTool: true,
+  mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
   run: (args) => runMigration(args as MigrationInput),

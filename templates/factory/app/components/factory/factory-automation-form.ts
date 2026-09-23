@@ -174,6 +174,79 @@ export function omitNullDestination(
   return value ?? undefined;
 }
 
+export type FactoryAutomationSnapshotConfig = {
+  source: AutomationSource;
+  template: AutomationTemplateId;
+  slackWorkspace: "primary" | "secondary";
+  slackChannelId: string | null;
+  slackChannelName: string | null;
+  repository: string | null;
+  sentryOrgSlug: string | null;
+  sentryProjectSlug: string | null;
+  sentryEnvironment: string | null;
+  authorMode: AutomationAuthorMode;
+  authorIds: string[];
+  scheduleMode: AutomationScheduleMode;
+  intervalMinutes: (typeof INTERVAL_MINUTES)[number];
+  dailyHour: number;
+  dailyMinute: number;
+  timezone: string | null;
+  inboxLimit: number;
+  workLimit: number;
+};
+
+export type FactoryAutomationVersionSnapshot = {
+  userPrompt: string;
+  displayName: string | null;
+  config: FactoryAutomationSnapshotConfig;
+  promptVersion: number;
+  configSavedAt: string | null;
+};
+
+export function applyAutomationSnapshotToDraft<
+  T extends AutomationEditorSnapshot,
+>(current: T, snapshot: FactoryAutomationVersionSnapshot): T {
+  const { config } = snapshot;
+  return {
+    ...current,
+    // `?? ""`, not `?? current.displayName ?? ""`: a null displayName on the
+    // snapshot means it had no name, and the draft must clear the field
+    // rather than silently keeping whatever is currently in it.
+    displayName: snapshot.displayName ?? "",
+    prompt: snapshot.userPrompt,
+    source: config.source,
+    template: config.template,
+    slackWorkspace: config.slackWorkspace,
+    slackChannelId: config.slackChannelId ?? "",
+    slackChannelName: config.slackChannelName ?? "",
+    repository: config.repository ?? "",
+    sentryOrgSlug: config.sentryOrgSlug ?? "",
+    sentryProjectSlug: config.sentryProjectSlug ?? "",
+    sentryEnvironment: config.sentryEnvironment ?? "",
+    authorMode: config.authorMode,
+    authorIds: [...config.authorIds],
+    authorFilter: formAuthorFilter(config.authorMode, config.authorIds),
+    scheduleMode: config.scheduleMode,
+    intervalMinutes: config.intervalMinutes,
+    dailyHour: config.dailyHour,
+    dailyMinute: config.dailyMinute,
+    timezone: config.timezone ?? browserTimezone(),
+    inboxLimit: config.inboxLimit,
+    workLimit: config.workLimit,
+    promptVersion: snapshot.promptVersion,
+    configSavedAt: snapshot.configSavedAt,
+  };
+}
+
+export function automationPromptPreview(prompt: string): string {
+  const line = prompt
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  if (!line) return "";
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
 export type AutomationEditorSnapshot = {
   id: string;
   name: string;
@@ -181,6 +254,7 @@ export type AutomationEditorSnapshot = {
   prompt?: string | null;
   body?: string | null;
   model?: string | null;
+  reasoningEffort?: string | null;
   schedule?: string | null;
   enabled?: boolean;
   source?: AutomationSource | null;
@@ -202,6 +276,8 @@ export type AutomationEditorSnapshot = {
   timezone?: string | null;
   inboxLimit?: number | null;
   workLimit?: number | null;
+  promptVersion?: number | null;
+  configSavedAt?: string | null;
   updatedAt?: string | number | null;
   runs?: unknown;
   pastRuns?: unknown;
@@ -222,6 +298,7 @@ export function automationEditorConfigKey(
     displayName: automation.displayName ?? "",
     prompt: automation.prompt ?? automation.body ?? "",
     model: automation.model ?? "",
+    reasoningEffort: automation.reasoningEffort ?? "",
     schedule: automation.schedule ?? "",
     enabled: Boolean(automation.enabled),
     source: automation.source ?? "",

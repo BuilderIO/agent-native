@@ -13,6 +13,7 @@ const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
+const mockGetUserProfiles = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -83,6 +84,10 @@ vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: vi.fn(),
 }));
 
+vi.mock("../user-profile/store.js", () => ({
+  getUserProfiles: (...args: any[]) => mockGetUserProfiles(...args),
+}));
+
 import { putUserSetting } from "../settings/user-settings.js";
 import { createOrganization } from "./context.js";
 import {
@@ -127,6 +132,7 @@ describe("org handlers", () => {
     mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(false);
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
     mockBootstrapAdminOrganization.mockResolvedValue(false);
+    mockGetUserProfiles.mockResolvedValue(new Map());
     mockOffboardMember.mockResolvedValue({
       removedMemberships: 1,
       removedAppRoles: 1,
@@ -572,23 +578,70 @@ describe("org handlers", () => {
     expect(mockOffboardMember).not.toHaveBeenCalled();
   });
 
-  it("uses a non-backslash LIKE escape for paginated member search", async () => {
-    mockExecute.mockResolvedValueOnce({ rows: [{ totalCount: 0 }] });
-    await listMembersHandler(
-      makeEvent("/_agent-native/org/members?q=Alice%25_Bob!&limit=8&offset=16"),
+  it("searches organization members by profile name as well as email", async () => {
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          email: "bob@example.test",
+          role: "member",
+          joinedAt: 2,
+          totalCount: 1,
+        },
+      ],
+    });
+    mockGetUserProfiles.mockResolvedValue(
+      new Map([
+        [
+          "alice@example.test",
+          { email: "alice@example.test", name: "Alice Jones" },
+        ],
+        ["bob@example.test", { email: "bob@example.test", name: "Bob Smith" }],
+      ]),
     );
 
-    expect(mockExecute).toHaveBeenCalledTimes(2);
-    const countCall = mockExecute.mock.calls[0][0];
-    expect(countCall.sql).toContain(
-      `SELECT COUNT(*) AS "totalCount" FROM org_members`,
+    await expect(
+      listMembersHandler(
+        makeEvent("/_agent-native/org/members?search=smith&limit=1&offset=0"),
+      ),
+    ).resolves.toMatchObject({
+      totalCount: 1,
+      hasMore: false,
+      nextOffset: null,
+      members: [
+        {
+          email: "bob@example.test",
+          name: "Bob Smith",
+        },
+      ],
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockExecute.mock.calls[0][0].sql).toContain(
+      "LOWER(COALESCE(u.name, '')) LIKE",
     );
-    expect(countCall.args).toEqual(["org-1", "%alice!%!_bob!!%"]);
-    const call = mockExecute.mock.calls[1][0];
-    expect(call.sql).toContain("LOWER(email) LIKE ? ESCAPE '!'");
-    expect(call.sql).toContain("LIMIT ? OFFSET ?");
-    expect(call.sql).not.toContain("ESCAPE '\\'");
-    expect(call.args).toEqual(["org-1", "%alice!%!_bob!!%", 9, 16]);
+    expect(mockGetUserProfiles).toHaveBeenCalledWith(["bob@example.test"]);
+  });
+
+  it("keeps SQL name matches when profile hydration is partial", async () => {
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          email: "bob@example.test",
+          role: "member",
+          joinedAt: 2,
+          totalCount: 1,
+        },
+      ],
+    });
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    await expect(
+      listMembersHandler(
+        makeEvent("/_agent-native/org/members?search=smith&limit=1"),
+      ),
+    ).resolves.toMatchObject({
+      totalCount: 1,
+      members: [{ email: "bob@example.test", image: null }],
+    });
   });
 
   it("rejects malformed workspace app visibility defaults", async () => {

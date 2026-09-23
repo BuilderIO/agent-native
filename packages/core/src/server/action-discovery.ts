@@ -229,6 +229,7 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }
+  if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
   if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
@@ -741,6 +742,14 @@ export async function mergeCoreSharingActions(
     ["get-labs", () => import("../labs/actions/get-labs.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
+      "get-chatgpt-subscription-status",
+      () => import("../agent/actions/get-chatgpt-subscription-status.js"),
+    ],
+    [
+      "disconnect-chatgpt-subscription",
+      () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
+    ],
+    [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
     ],
@@ -840,6 +849,10 @@ export async function mergeCoreSharingActions(
     [
       "change-password",
       () => import("../user-profile/actions/change-password.js"),
+    ],
+    [
+      "request-privacy-right",
+      () => import("../user-profile/actions/request-privacy-right.js"),
     ],
     [
       "change-appearance",

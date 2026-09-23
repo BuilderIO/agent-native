@@ -31,6 +31,7 @@ vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: ({ to }: { to?: string }) => to ?? "/design/design_1",
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));

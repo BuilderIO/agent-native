@@ -25,10 +25,6 @@ export interface WaveformProps {
   durationMs: number;
   /** Excluded ranges (original time) — drawn as striped overlays. */
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
-  /** Split markers (original time) — drawn over the active selection. */
-  splitPoints?: number[];
-  /** Optional selection range (original time) highlighted in brand color. */
-  selectionRange?: { startMs: number; endMs: number } | null;
   /** Transcript-backed activity ranges used when browser audio decoding fails. */
   activityRanges?: Array<{ startMs: number; endMs: number }>;
   /** Click handler — returns the original ms at the click position. */
@@ -56,8 +52,15 @@ const getBrandColorAlpha = (alpha: number) => {
   return v ? `hsl(${v} / ${alpha})` : `rgba(15, 23, 42, ${alpha})`;
 };
 
-const getWaveColor = () => getBrandColorAlpha(0.85);
+const getWaveColor = (overImagery = false) =>
+  getBrandColorAlpha(overImagery ? 0.98 : 0.85);
+const getQuietColor = (overImagery = false) =>
+  // guard:allow-raw-color — as above: read against the frames, not the theme.
+  overImagery ? "rgba(226, 232, 240, 0.45)" : getBrandColorAlpha(0.2);
 const getWaveBg = () => getBrandColorAlpha(0.08);
+/** Darkens the band behind the bars when they sit over filmstrip frames. */
+// guard:allow-raw-color — a scrim over video frames, which are whatever the recording holds; it has to darken them in either theme.
+const WAVE_SCRIM = "rgba(2, 6, 23, 0.46)";
 const EXCLUDED_FILL = "rgba(15, 23, 42, 0.65)";
 const EXCLUDED_STROKE = "rgba(148, 163, 184, 0.4)";
 const EMPTY_FRAMES: FilmstripFrame[] = [];
@@ -118,8 +121,6 @@ export function Waveform({
   playheadMs,
   durationMs,
   excludedRanges,
-  splitPoints = [],
-  selectionRange,
   activityRanges = [],
   onSeek,
   scrollLeft = 0,
@@ -195,69 +196,75 @@ export function Waveform({
 
     // Canvas background & audio visualization
     ctx.clearRect(0, 0, totalWidth, height);
-    if (!hasImagery) {
+    // Frames say nothing about the audio, so the waveform draws either way.
+    // Over a filmstrip it sits on a scrim, which is what keeps pale bars
+    // legible against a bright frame.
+    if (hasImagery) {
+      const bandHeight = Math.min(height, Math.max(28, height * 0.62));
+      ctx.fillStyle = WAVE_SCRIM;
+      ctx.fillRect(0, (height - bandHeight) / 2, totalWidth, bandHeight);
+    } else {
       ctx.fillStyle = getWaveBg();
       ctx.fillRect(0, 0, totalWidth, height);
+    }
 
-      const barWidth = 3;
-      const barGap = 1.5;
-      const step = barWidth + barGap;
-      const barCount = Math.floor(totalWidth / step);
-      const maxWaveHeight = Math.min(height * 0.5, 52);
-      const minBarHeight = 3;
-      const midY = height / 2;
+    // Audio bars, centred on the track.
+    const barWidth = 3;
+    const barGap = 1.5;
+    const step = barWidth + barGap;
+    const barCount = Math.floor(totalWidth / step);
+    const maxWaveHeight = Math.min(height * 0.5, 52);
+    const minBarHeight = 3;
+    const midY = height / 2;
 
-      if (peaks && hasPeaks) {
-        const visualGain = computeVisualGain(peaks.peaks);
-        const bucketsPerBar = peaks.bucketCount / barCount;
+    if (peaks && hasPeaks) {
+      const visualGain = computeVisualGain(peaks.peaks);
+      const bucketsPerBar = peaks.bucketCount / barCount;
 
-        for (let i = 0; i < barCount; i++) {
-          const x = i * step;
-          const startBucket = Math.floor(i * bucketsPerBar);
-          const endBucket = Math.max(
-            startBucket + 1,
-            Math.floor((i + 1) * bucketsPerBar),
-          );
+      for (let i = 0; i < barCount; i++) {
+        const x = i * step;
+        const startBucket = Math.floor(i * bucketsPerBar);
+        const endBucket = Math.max(
+          startBucket + 1,
+          Math.floor((i + 1) * bucketsPerBar),
+        );
 
-          let maxAmp = 0;
-          for (
-            let b = startBucket;
-            b < endBucket && b < peaks.bucketCount;
-            b++
-          ) {
-            const lo = Math.abs(peaks.peaks[b * 2] ?? 0);
-            const hi = Math.abs(peaks.peaks[b * 2 + 1] ?? 0);
-            if (lo > maxAmp) maxAmp = lo;
-            if (hi > maxAmp) maxAmp = hi;
-          }
-
-          const scaledAmp = clampSample(maxAmp * visualGain);
-          const barHeight = Math.max(minBarHeight, scaledAmp * maxWaveHeight);
-          const topY = midY - barHeight / 2;
-
-          ctx.fillStyle =
-            maxAmp > VISUAL_SILENCE_FLOOR
-              ? getWaveColor()
-              : getBrandColorAlpha(0.2);
-
-          drawPillBar(ctx, x, topY, barWidth, barHeight);
+        let maxAmp = 0;
+        for (let b = startBucket; b < endBucket && b < peaks.bucketCount; b++) {
+          const lo = Math.abs(peaks.peaks[b * 2] ?? 0);
+          const hi = Math.abs(peaks.peaks[b * 2 + 1] ?? 0);
+          if (lo > maxAmp) maxAmp = lo;
+          if (hi > maxAmp) maxAmp = hi;
         }
-      } else {
-        // Idle state without imagery
-        for (let i = 0; i < barCount; i++) {
-          const x = i * step;
-          const barMs = (i / Math.max(1, barCount)) * durationMs;
-          const inActivity = activityRanges.some(
-            (r) => barMs >= r.startMs && barMs <= r.endMs,
-          );
 
-          const barHeight = inActivity ? 12 : minBarHeight;
-          const topY = midY - barHeight / 2;
+        const scaledAmp = clampSample(maxAmp * visualGain);
+        const barHeight = Math.max(minBarHeight, scaledAmp * maxWaveHeight);
+        const topY = midY - barHeight / 2;
 
-          ctx.fillStyle = inActivity ? getWaveColor() : getBrandColorAlpha(0.2);
+        ctx.fillStyle =
+          maxAmp > VISUAL_SILENCE_FLOOR
+            ? getWaveColor(hasImagery)
+            : getQuietColor(hasImagery);
 
-          drawPillBar(ctx, x, topY, barWidth, barHeight);
-        }
+        drawPillBar(ctx, x, topY, barWidth, barHeight);
+      }
+    } else {
+      // No decoded audio — fall back to transcript-backed activity.
+      for (let i = 0; i < barCount; i++) {
+        const x = i * step;
+        const barMs = (i / Math.max(1, barCount)) * durationMs;
+        const inActivity = activityRanges.some(
+          (r) => barMs >= r.startMs && barMs <= r.endMs,
+        );
+
+        const barHeight = inActivity ? 12 : minBarHeight;
+        const topY = midY - barHeight / 2;
+
+        ctx.fillStyle = inActivity
+          ? getWaveColor(hasImagery)
+          : getQuietColor(hasImagery);
+
+        drawPillBar(ctx, x, topY, barWidth, barHeight);
       }
     }
 
@@ -283,40 +290,12 @@ export function Waveform({
         ctx.restore();
       }
     }
-
-    // Selection overlay
-    if (selectionRange) {
-      const startMs = Math.min(selectionRange.startMs, selectionRange.endMs);
-      const endMs = Math.max(selectionRange.startMs, selectionRange.endMs);
-      const xStart = (startMs / Math.max(durationMs, 1)) * totalWidth;
-      const xEnd = (endMs / Math.max(durationMs, 1)) * totalWidth;
-      ctx.fillStyle = getBrandColorAlpha(0.28);
-      ctx.fillRect(xStart, 0, xEnd - xStart, height);
-      ctx.strokeStyle = getBrandColor();
-      ctx.lineWidth = 1;
-      ctx.strokeRect(xStart + 0.5, 0.5, xEnd - xStart - 1, height - 1);
-
-      // Keep split markers visible on the selected track as well as on the
-      // ruler so a split is visibly actionable within the selection.
-      for (const splitMs of splitPoints) {
-        if (splitMs <= startMs || splitMs >= endMs) continue;
-        const splitX = (splitMs / Math.max(durationMs, 1)) * totalWidth;
-        ctx.strokeStyle = "rgba(244, 63, 94, 0.95)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(splitX, 0);
-        ctx.lineTo(splitX, height);
-        ctx.stroke();
-      }
-    }
   }, [
     peaks,
     hasImagery,
     totalWidth,
     height,
     excludedRanges,
-    selectionRange,
-    splitPoints,
     durationMs,
     activityRanges,
   ]);

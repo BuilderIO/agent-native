@@ -928,3 +928,57 @@ test("a marquee drag selecting Box A + Box B is exactly one undo step, not one p
     "true",
   );
 });
+
+test("a canceled marquee cannot capture an intervening selection in the next undo", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  await selectViaTree(page, "Box A");
+  const boxA = await box(page, "box-a");
+  const boxB = await box(page, "box-b");
+  await page.mouse.move(boxA.x - 20, boxA.y - 20);
+  await page.mouse.down();
+  await page.mouse.move(boxB.x + boxB.width + 20, boxB.y + boxB.height + 20, {
+    steps: 12,
+  });
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Escape");
+  await expect(layerRow(page, "Box A")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  // This real selection between gestures must become the next marquee's
+  // undo target, even though Escape was consumed by the canvas drag owner.
+  await selectViaTree(page, "Box B");
+  const nextBoxA = await box(page, "box-a");
+  await page.mouse.move(nextBoxA.x - 20, nextBoxA.y - 20);
+  await page.mouse.down();
+  await page.mouse.move(
+    nextBoxA.x + nextBoxA.width + 20,
+    nextBoxA.y + nextBoxA.height + 20,
+    { steps: 12 },
+  );
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await expect(layerRow(page, "Box A")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(layerRow(page, "Box B")).not.toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.keyboard.press(UNDO);
+  await expect(layerRow(page, "Box B")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(layerRow(page, "Box A")).not.toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});

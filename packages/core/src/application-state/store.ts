@@ -316,6 +316,30 @@ export async function appStateList(
   }));
 }
 
+/**
+ * List a bounded batch of keys across sessions for framework-owned cleanup.
+ * Callers must use the returned session id when conditionally deleting a row.
+ */
+export async function appStateListByKeyPrefix(
+  keyPrefix: string,
+  limit = 100,
+): Promise<
+  Array<{ sessionId: string; key: string; value: Record<string, unknown> }>
+> {
+  await ensureTable();
+  const client = getDbExec();
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 2_048));
+  const { rows } = await client.execute({
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ? ESCAPE '!' ORDER BY updated_at ASC LIMIT ?`,
+    args: [escapeLike(keyPrefix) + "%", boundedLimit],
+  });
+  return rows.map((row) => ({
+    sessionId: row.session_id as string,
+    key: row.key as string,
+    value: JSON.parse(row.value as string),
+  }));
+}
+
 export async function appStateDeleteByPrefix(
   sessionId: string,
   keyPrefix: string,

@@ -296,6 +296,80 @@ describe("layer moves use the current content behind the rendered layer tree", (
     expect(sendRuntimeLayerMoveSemanticHandoff).not.toHaveBeenCalled();
   });
 
+  it("routes source-backed nodes on a live screen through the bridge", () => {
+    const screenId = "live-screen";
+    const liveProjection = buildCodeLayerProjection(
+      '<html><body><div data-agent-native-node-id="subject">Subject</div><div data-agent-native-node-id="anchor">Anchor</div></body></html>',
+    );
+    const liveTree = buildCodeLayerTree(liveProjection);
+    const subject = liveProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "subject",
+    )!;
+    const anchor = liveProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "anchor",
+    )!;
+    const owners = new Map(
+      [subject, anchor].map((node) => [
+        node.id,
+        {
+          fileId: screenId,
+          node,
+          sourceProjection: liveProjection,
+          tree: liveTree,
+          runtimeOnly: false,
+        },
+      ]),
+    );
+    const applyFileContentUpdate = vi.fn();
+    let runtimeRequest: unknown = null;
+
+    runLayerMove(
+      {
+        activeFile: file(screenId, "http://localhost:3102/library"),
+        applyFileContentUpdate,
+        canEditDesign: true,
+        canMoveLayer: () => true,
+        codeLayerOwnerByNodeId: owners,
+        effectiveCodeLayerState: {
+          lockedIds: new Set(),
+          hiddenIds: new Set(),
+        },
+        files: [file(screenId, "http://localhost:3102/library")],
+        getFreshActiveContent: () => "http://localhost:3102/library",
+        getScreenContent: () => "http://localhost:3102/library",
+        handleLayerMoveToScreen: vi.fn(),
+        handleScreenLayerMove: vi.fn(),
+        liveScreenIds: new Set([screenId]),
+        recordContentHistoryEntry: vi.fn(),
+        recordLocalContentHistoryEntry: vi.fn(),
+        runtimeStructureMoveRevisionRef: { current: 0 },
+        sendRuntimeLayerMoveSemanticHandoff: vi.fn(() => false),
+        setExpandedLayerIds: vi.fn(),
+        setRuntimeStructureMoveRequest: (request: unknown) => {
+          runtimeRequest = request;
+        },
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState: vi.fn(),
+        t: (key: string) => key,
+        viewModeRef: { current: "overview" },
+        visualScreenFileIds: new Set(),
+      } as unknown as Parameters<typeof runLayerMove>[0],
+      {
+        draggedIds: [subject.id],
+        targetId: anchor.id,
+        placement: "after",
+      },
+    );
+
+    expect(runtimeRequest).toMatchObject({
+      screenId,
+      subject: { sourceId: "subject" },
+      anchor: { sourceId: "anchor" },
+      placement: "after",
+    });
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+
   it("moves a layer when its rendered source is newer than the file snapshot", () => {
     const sourceOwner = ownerFor("source", SOURCE_HTML, "moving");
     const targetOwner = ownerFor("destination", DESTINATION_HTML, "anchor");

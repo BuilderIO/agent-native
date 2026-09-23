@@ -13,21 +13,63 @@ describe("EditorLayout media loading", () => {
       /<video\s+ref=\{videoRef\}[\s\S]*?\/>/,
     )?.[0];
 
-    expect(previewVideo).toContain("src={videoUrl}");
+    // The preview plays the versioned URL, not the bare one: the file can be
+    // replaced while its URL stays the same (a redaction burn uploads under a
+    // stable name), and the browser would otherwise keep the copy it has.
+    expect(previewVideo).toContain("src={editorVideoUrl ?? undefined}");
+    expect(source).toContain("withMediaVersion(");
     expect(previewVideo).not.toContain("crossOrigin");
   });
 
-  it("opens on transcript editing and progressively discloses the timeline", () => {
+  it("opens on the timeline, with the transcript the other way in", () => {
     const source = readSource();
 
-    expect(source).toContain('>("transcript")');
+    expect(source).toContain('>("timeline")');
     expect(source).toContain('value="transcript"');
     expect(source).toContain('value="timeline"');
-    expect(source).toContain('editingSurface === "transcript"');
-    expect(source).toContain(
-      'editingSurface !== "timeline" || filmstripSprite',
+    // Timeline first in the tab strip, since that is what opens.
+    expect(source.indexOf('value="timeline"')).toBeLessThan(
+      source.indexOf('value="transcript"'),
     );
-    expect(source).toContain('timelineActive={editingSurface === "timeline"}');
+  });
+
+  it("shows the timeline while redacting, whichever tab was open", () => {
+    const source = readSource();
+
+    // Redacting is a timeline job, so the tabs are not offered while the tool
+    // is armed — and the panel must then show the timeline rather than
+    // whichever surface was last chosen, or arming Redact from the transcript
+    // would leave no way back to the picture.
+    expect(source).toContain(
+      'const activeSurface = redactMode ? "timeline" : editingSurface;',
+    );
+    expect(source).toContain('activeSurface === "transcript"');
+    expect(source).toContain('activeSurface !== "timeline" || filmstripSprite');
+    expect(source).toContain('timelineActive={activeSurface === "timeline"}');
+    // Derived, not forced into state: leaving Redact puts the transcript back.
+    expect(source).not.toContain('setEditingSurface("timeline")');
+    // The tabs are inside the not-redacting branch of that row.
+    expect(source.indexOf("{redactMode ? (")).toBeLessThan(
+      source.indexOf("<TabsList"),
+    );
+  });
+
+  it("keeps the panel's instructions behind an icon, not under the timeline", () => {
+    const source = readSource();
+
+    // Several permanent lines of small grey help text under the timeline cost
+    // height that belongs to the picture on a laptop screen.
+    expect(source).toContain("<HelpPopover");
+    expect(source).toContain('t("redaction.helpDraw")');
+    expect(source).toContain('t("timelineTrack.helpSplit")');
+    expect(source).not.toMatch(
+      /<p[^>]*>\s*\{t\("(redaction|timelineTrack)\.hint"\)\}/,
+    );
+    // The sentence that matters leads the redaction help rather than sitting
+    // among the instructions for drawing boxes.
+    expect(source).toContain('lead={t("redaction.helpLead")}');
+    // The warning that nothing is hidden yet is not help, and stays on show.
+    expect(source).toContain('t("redaction.notYetBurned"');
   });
 
   it("renders the editor toolbar below the preview and above the surface tabs", () => {
@@ -38,6 +80,44 @@ describe("EditorLayout media loading", () => {
     );
     expect(source.indexOf("<EditorToolbar")).toBeLessThan(
       source.indexOf("<Tabs\n"),
+    );
+  });
+
+  it("resets a completed toolbar cut to the playhead-following selection", () => {
+    const source = readSource();
+    const toolbar = readFileSync(
+      new URL("./editor-toolbar.tsx", import.meta.url),
+      "utf8",
+    );
+    const cut = toolbar
+      .split("const handleTrimSelection = async () => {")[1]
+      ?.split("const handleTrimStart")[0];
+
+    // Same intent as upstream's `onSelectionCut`, wired the other way round:
+    // the cut is owned by the layout so it lands in the undo history, the
+    // toolbar delegates through `onCutRange`, and `callTrim` clears the
+    // selection itself rather than the toolbar calling back to say it should.
+    expect(source).toContain("onCutRange={callTrim}");
+    expect(source).toMatch(
+      /const callTrim = useCallback\([\s\S]*?setSelection\(null\)/,
+    );
+    expect(cut).toMatch(
+      /await runEdit\(\(\) => onCutRange\(selectionRange\)\)/,
+    );
+  });
+});
+
+describe("EditorLayout timeline geometry", () => {
+  it("measures the track against the content box, not the padded one", () => {
+    const source = readSource();
+
+    // `clientWidth` includes the container's padding, which drew the track
+    // wider than the space it had: the end of the clip, and the handle of
+    // anything ending there, fell outside the visible box.
+    expect(source).toContain("entry?.contentRect.width");
+    expect(source).toContain("contentWidthOf(el)");
+    expect(source).not.toContain(
+      "setViewportWidth(Math.max(1, el.clientWidth))",
     );
   });
 });

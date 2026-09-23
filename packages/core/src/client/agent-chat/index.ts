@@ -254,15 +254,17 @@ export { AgentChatHome, type AgentChatHomeProps } from "../AgentChatHome.js";
 export {
   AgentChatSurface,
   AgentPanel,
+  type AgentChatSurfaceMode,
+  type AgentChatSurfaceProps,
+  type AgentPanelProps,
+} from "../AgentPanel.js";
+export {
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
   preloadAgentChatSurface,
-  type AgentChatSurfaceMode,
-  type AgentChatSurfaceProps,
-  type AgentPanelProps,
   type AgentSidebarProps,
-} from "../AgentPanel.js";
+} from "../AgentSidebar.js";
 export {
   AgentTabsPage,
   ConnectionsTab,

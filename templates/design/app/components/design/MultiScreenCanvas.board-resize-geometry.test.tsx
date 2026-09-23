@@ -16,8 +16,11 @@ type BoardSelectionWorldBounds = Exclude<
 type RenderCanvasOptions = {
   boardFileId?: string;
   boardFileContent?: string;
+  screens?: ComponentProps<typeof MultiScreenCanvas>["screens"];
+  geometryById?: ComponentProps<typeof MultiScreenCanvas>["geometryById"];
   onBoardSelectionWorldBoundsChange?: BoardSelectionWorldBoundsChange;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
+  boardSelectedSelector?: string;
   boardSelectedSourceId?: string;
 };
 
@@ -48,9 +51,9 @@ function renderCanvas(
 ) {
   return (
     <MultiScreenCanvas
-      screens={[]}
+      screens={options.screens ?? []}
       zoom={100}
-      geometryById={{}}
+      geometryById={options.geometryById ?? {}}
       boardFileId={options.boardFileId ?? "board"}
       boardFileContent={options.boardFileContent ?? BOARD_CONTENT}
       boardFrameGeometry={boardFrameGeometry}
@@ -61,6 +64,7 @@ function renderCanvas(
       selectedLayerSelectorGroupsByScreen={
         options.selectedLayerSelectorGroupsByScreen
       }
+      boardSelectedSelector={options.boardSelectedSelector ?? BOARD_SELECTOR}
       boardSelectedSourceId={options.boardSelectedSourceId ?? "rect-1"}
       onPick={() => {}}
     />
@@ -370,6 +374,97 @@ describe("board selection world-bounds handoff", () => {
       });
     });
     expect(currentSelection).toBeNull();
+  });
+});
+
+describe("board element drag target resolution", () => {
+  it("keeps a screen drop owned by the host when selection chrome masks the card", async () => {
+    const frameGeometry = { x: 0, y: 0, width: 800, height: 600 };
+    const boardIframe = await mountBoardCanvas(frameGeometry, {
+      screens: [
+        {
+          id: "screen-1",
+          filename: "screen-1.html",
+          content: "<!doctype html><html><body></body></html>",
+        },
+      ],
+      geometryById: { "screen-1": frameGeometry },
+    });
+
+    await act(async () => {
+      postBoardSelectionRect(boardIframe.contentWindow, {
+        rect: { left: 0, top: 0, width: 800, height: 600 },
+      });
+    });
+
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-board-object-selection-box] [data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+
+    const selectionOverlay =
+      boardIframe.contentWindow!.document.createElement("div");
+    selectionOverlay.setAttribute(
+      "data-agent-native-edit-overlay",
+      "selection",
+    );
+    boardIframe.contentWindow!.document.body.append(selectionOverlay);
+    const iframeDoc = boardIframe.contentWindow!.document;
+    const forwardedEvents: string[] = [];
+    iframeDoc.addEventListener("mouseup", () =>
+      forwardedEvents.push("mouseup"),
+    );
+    const postMessage = vi.spyOn(boardIframe.contentWindow!, "postMessage");
+    const elementFromPoint = vi
+      .spyOn(document, "elementFromPoint")
+      .mockReturnValue(
+        container.querySelector("[data-board-object-selection-box]")!,
+      );
+
+    try {
+      await act(async () => {
+        dragSurface!.dispatchEvent(
+          new MouseEvent("mousedown", {
+            clientX: 400,
+            clientY: 150,
+            button: 0,
+            buttons: 1,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        window.dispatchEvent(
+          new MouseEvent("mousemove", {
+            clientX: 420,
+            clientY: 170,
+            buttons: 1,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await nextAnimationFrame();
+        window.dispatchEvent(
+          new MouseEvent("mouseup", {
+            clientX: 420,
+            clientY: 170,
+            button: 0,
+            buttons: 0,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    } finally {
+      elementFromPoint.mockRestore();
+    }
+
+    const cancelMessage = postMessage.mock.calls.find(
+      ([message]) =>
+        (message as { type?: string }).type ===
+        "agent-native:cancel-active-drag",
+    );
+    expect(cancelMessage).toBeDefined();
+    expect(forwardedEvents).not.toContain("mouseup");
   });
 });
 

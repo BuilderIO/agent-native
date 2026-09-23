@@ -3,6 +3,12 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-15
+
+### Fixed
+
+- Factory automation prompts version on save, show skill alignment separately, and stop duplicating injected blocks.
+
 ## 2026-09-14
 
 ### Improved

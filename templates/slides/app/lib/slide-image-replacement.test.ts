@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
   hasOptimisticImagePreview,
+  imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
   normalizeImageObjectPosition,
+  prefetchImage,
+  swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
   stripOptimisticImagePreviews,
@@ -23,6 +26,121 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("swaps hosted sources without replacing a live transformed image", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent
+      .replace(
+        "blob:preview",
+        "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+      )
+      .replace("left:40px", "left:220px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img");
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe(
+      "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+    );
+    expect(image.style.left).toBe("184px");
+  });
+
+  it("updates image metadata and fit without overwriting live geometry", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="blob:preview" alt="Preview" width="320" height="180" style="position:absolute;left:40px;width:320px;object-fit:contain;"></div>';
+    const nextContent =
+      '<div class="fmd-slide"><img src="https://cdn.builder.io/api/v1/image/assets%2Fphoto" alt="Photo" width="640" height="360" style="position:absolute;left:220px;width:640px;object-fit:cover;object-position:right bottom;"></div>';
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img");
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+    image.style.width = "512px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("alt")).toBe("Photo");
+    expect(image.getAttribute("width")).toBe("640");
+    expect(image.getAttribute("height")).toBe("360");
+    expect(image.style.left).toBe("184px");
+    expect(image.style.width).toBe("512px");
+    expect(image.style.objectFit).toBe("cover");
+    expect(image.style.objectPosition).toBe("right bottom");
+  });
+
+  it("waits for the hosted image to decode before resolving", async () => {
+    let requestedSrc = "";
+    let decoded = false;
+    const decode = vi.fn(async () => {
+      decoded = true;
+    });
+    vi.stubGlobal(
+      "Image",
+      class MockImage {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        decode = decode;
+
+        set src(value: string) {
+          requestedSrc = value;
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    try {
+      await expect(
+        prefetchImage("https://cdn.builder.io/api/v1/image/assets%2Fphoto"),
+      ).resolves.toBe(true);
+      expect(requestedSrc).toBe(
+        "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+      );
+      expect(decoded).toBe(true);
+      expect(decode).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not report a hosted image as ready when it cannot decode", async () => {
+    vi.stubGlobal(
+      "Image",
+      class MockImage {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        decode = vi.fn(async () => {
+          throw new Error("decode failed");
+        });
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    try {
+      await expect(
+        prefetchImage("https://cdn.builder.io/broken"),
+      ).resolves.toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("accepts SVG drops when the browser omits the MIME type", () => {
+    expect(
+      imageFileLooksSupported(new File(["<svg />"], "logo.svg", { type: "" })),
+    ).toBe(true);
+  });
+
   it("replaces only the optimistic preview image", () => {
     const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/placeholder.png" alt="Placeholder"><div class="fmd-img-placeholder">Image</div></div>`;
 

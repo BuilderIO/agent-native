@@ -51,6 +51,15 @@ export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "./document-title.js";
+export {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  getReasoningEffortOptionsForModel,
+  isReasoningEffort,
+  reasoningEffortLabel,
+  resolveReasoningEffortSelection,
+  type ReasoningEffort,
+} from "./reasoning-effort.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export {
   formatAgentDesignSystemContext,
@@ -125,6 +134,8 @@ export {
 export {
   AGENT_NATIVE_ACTION_EVENTS,
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  LEGACY_TRACKING_EVENT_NAME_ALIASES,
+  canonicalTrackingEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
   type AgentNativeActionEventName,

@@ -26,10 +26,9 @@ import {
  * once it becomes a child of "Project card"? Every step below asserts the
  * FULL tree, not just the newest node.
  *
- * No-Figma-equivalent features recorded as findings, not tests: "Create
- * multiple components" (step 9) and "Move to page -> Components" (step 10)
- * — Design has no component or page/canvas system (see parity-tutorial-1/2/5
- * for the established single-object Cmd+Opt+K annotation precedent).
+ * Native Create component is available for the single-selection step 9. The
+ * Figma-only "Move to page -> Components" step 10 remains absent because
+ * Design has no page/canvas system.
  */
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -97,10 +96,13 @@ async function indexHtml(
   const result = await request
     .get(`${BASE_URL}/_agent-native/actions/get-design?id=${designId}`)
     .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const file = (result.files ?? []).find(
+    (f: any) => f.filename === "index.html",
   );
+  if (typeof file?.content !== "string") {
+    throw new Error("index.html has no content");
+  }
+  return file.content;
 }
 
 function styleOf(html: string, id: string): string {
@@ -175,6 +177,47 @@ async function openEditorAndExpandLayers(
 ): Promise<void> {
   await gotoEditor(page, designId);
   await expandAllLayers(page);
+}
+
+async function emptyBoardPoint(
+  page: Page,
+  size = { width: 0, height: 0 },
+): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate(({ width, height }) => {
+    const world = document.querySelector("[data-multi-screen-canvas-world]");
+    const surface = (world?.parentElement ?? world) as HTMLElement | null;
+    if (!surface) return null;
+    const boardLayer = document.querySelector<HTMLElement>(
+      "[data-board-surface-layer]",
+    );
+    const bounds = (boardLayer ?? surface).getBoundingClientRect();
+    const cards = Array.from(
+      document.querySelectorAll("[data-screen-card]"),
+    ).map((element) => element.getBoundingClientRect());
+    for (let y = bounds.top + 60; y < bounds.bottom - 60 - height; y += 40) {
+      for (let x = bounds.left + 60; x < bounds.right - 60 - width; x += 40) {
+        const overlapsCard = cards.some(
+          (card) =>
+            x < card.right + 24 &&
+            x + width > card.left - 24 &&
+            y < card.bottom + 24 &&
+            y + height > card.top - 24,
+        );
+        if (overlapsCard) continue;
+        const hit = document.elementFromPoint(x, y);
+        if (
+          hit &&
+          surface.contains(hit) &&
+          !hit.closest("[data-screen-card], [data-board-object-selection-box]")
+        ) {
+          return { x, y };
+        }
+      }
+    }
+    return null;
+  }, size);
+  if (!point) throw new Error("no empty board point found at this viewport");
+  return point;
 }
 
 /** All rendered preview iframes (screens + the board), each as a FrameLocator. */
@@ -289,6 +332,19 @@ test.describe("tutorial 7 — card and container system", () => {
       titleBox.y + titleBox.height / 2,
     );
     await page.waitForTimeout(500);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Project title");
+    const originalSelectionId = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .getAttribute("data-layer-node-id");
+    expect(originalSelectionId).toBeTruthy();
+    const originalHtml = await indexHtml(request, designId);
     await page.keyboard.press(`${MOD}+d`);
 
     let html = "";
@@ -320,6 +376,19 @@ test.describe("tutorial 7 — card and container system", () => {
       copy!.index,
       "duplicate must be inserted directly above (after, in DOM order) the original",
     ).toBeGreaterThan(original.index);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Project title");
+    await expect(
+      page
+        .locator(
+          '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+        )
+        .first(),
+    ).not.toHaveAttribute("data-layer-node-id", originalSelectionId!);
 
     await page.keyboard.press(`${MOD}+z`);
     await expect
@@ -330,6 +399,15 @@ test.describe("tutorial 7 — card and container system", () => {
         { timeout: 10_000, message: "one undo did not remove the duplicate" },
       )
       .toBe(1);
+    await expect(indexHtml(request, designId)).resolves.toBe(originalHtml);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      ),
+    ).toHaveAttribute("data-layer-node-id", originalSelectionId!);
   });
 
   test("step 2 [in-screen]: alt-drag duplicates the button below the description, copy keeps the name, one undo restores", async ({
@@ -343,12 +421,25 @@ test.describe("tutorial 7 — card and container system", () => {
     if (!before) throw new Error("button not rendered");
     await layerRowButton(page, "View project").click({ force: true });
     await page.waitForTimeout(600);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("View project");
+    const originalSelectionId = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .getAttribute("data-layer-node-id");
+    expect(originalSelectionId).toBeTruthy();
+    const originalHtml = await indexHtml(request, designId);
 
     const cx = before.x + before.width / 2;
     const cy = before.y + before.height / 2;
     await page.mouse.move(cx, cy);
-    await page.mouse.down();
     await page.keyboard.down("Alt");
+    await page.mouse.down();
     await page.mouse.move(cx, cy + 80, { steps: 12 });
     await page.mouse.move(cx, cy + 120, { steps: 6 });
     await page.mouse.up();
@@ -373,8 +464,22 @@ test.describe("tutorial 7 — card and container system", () => {
     const original = occurrences.find((o) => o.id === "btn")!;
     const copy = occurrences.find((o) => o.id !== "btn")!;
     expect(copy, "could not isolate the copy's occurrence").toBeTruthy();
+    expect(styleNum(styleOf(html, copy.id), "top")).toBeGreaterThan(220);
     // Ground truth: alt-drag copy is inserted directly above the source.
     expect(copy.index).toBeGreaterThan(original.index);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("View project");
+    await expect(
+      page
+        .locator(
+          '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+        )
+        .first(),
+    ).not.toHaveAttribute("data-layer-node-id", originalSelectionId!);
 
     await page.keyboard.press(`${MOD}+z`);
     await expect
@@ -388,6 +493,15 @@ test.describe("tutorial 7 — card and container system", () => {
         },
       )
       .toBe(1);
+    await expect(indexHtml(request, designId)).resolves.toBe(originalHtml);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      ),
+    ).toHaveAttribute("data-layer-node-id", originalSelectionId!);
   });
 
   test("step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen", async ({
@@ -396,16 +510,24 @@ test.describe("tutorial 7 — card and container system", () => {
   }) => {
     designId = await newDesign(request);
     await openEditorAndExpandLayers(page, designId);
+    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=15`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expandAllLayers(page);
+    await page.waitForTimeout(750);
 
-    // Locate an empty point on the board surface, to the right of the screen
-    // card, per the tutorial's "draw a rectangle beside the text".
-    const screenBox = await page
-      .locator("[data-screen-card]")
-      .first()
-      .boundingBox();
-    if (!screenBox) throw new Error("no screen card");
-    const boardX = screenBox.x + screenBox.width + 120;
-    const boardY = screenBox.y + 100;
+    // Locate a genuinely empty board area with room for the full rectangle;
+    // a fixed offset from the screen can land under the inspector or outside
+    // the viewport after the overview camera fits its content.
+    const boardPoint = await emptyBoardPoint(page, {
+      width: 220,
+      height: 350,
+    });
+    const boardX = boardPoint.x;
+    const boardY = boardPoint.y;
 
     const filesBefore = (
       await request
@@ -682,7 +804,7 @@ test.describe("tutorial 7 — card and container system", () => {
     ).toEqual(["Content"]);
   });
 
-  test("no-equivalent: 'Create multiple components' in one action and 'Move to page' are absent from the layer context menu", async ({
+  test("native Create component is available while page moves remain absent", async ({
     page,
     request,
   }) => {
@@ -697,9 +819,9 @@ test.describe("tutorial 7 — card and container system", () => {
     if (await menu.count()) {
       const items = await menu.getByRole("menuitem").allTextContents();
       expect(
-        items.some((i) => /create.*component/i.test(i)),
+        items.some((i) => /create\s+component/i.test(i)),
         `context menu items: ${JSON.stringify(items)}`,
-      ).toBe(false);
+      ).toBe(true);
       expect(
         items.some((i) => /move to page/i.test(i)),
         `context menu items: ${JSON.stringify(items)}`,

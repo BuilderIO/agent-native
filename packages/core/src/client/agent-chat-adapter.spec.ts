@@ -9,8 +9,10 @@ import {
 import {
   getActiveRun,
   getPendingTurn,
+  clearPendingTurnIfMatches,
   clearActiveRun,
   setActiveRun,
+  setPendingTurn,
 } from "./active-run-state.js";
 import {
   activeRunLooksAlive,
@@ -19,6 +21,11 @@ import {
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
 } from "./agent-chat-adapter.js";
+import {
+  claimRunStream,
+  createRunStreamToken,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
 const analyticsMock = vi.hoisted(() => ({
@@ -324,10 +331,44 @@ describe("createAgentChatAdapter", () => {
 
     expect(pendingAtDispatch).toMatchObject({ threadId: "thread-pending" });
     expect(pendingAtDispatch?.turnId).toMatch(/^turn-/);
+    expect(pendingAtDispatch?.tabId).toBe("chat-pending");
     expect(fetchSpy.mock.calls[0]?.[1]?.headers).toMatchObject({
       "x-agent-native-browser-tab": "browser-pending",
     });
     expect(getPendingTurn("thread-pending")).toBeNull();
+  });
+
+  it("clears the pending turn when the request fails before a run id arrives", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/runs/active?")) {
+          return new Response(null, { status: 404 });
+        }
+        return new Response("upstream failure", { status: 400 });
+      }),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-pending-failure",
+      threadId: "thread-pending-failure",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a failing chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(getPendingTurn("thread-pending-failure")).toBeNull();
   });
 
   it("falls back to the same-origin route when direct streaming cannot start", async () => {
@@ -7525,6 +7566,627 @@ describe("createAgentChatAdapter", () => {
     expect(
       (results.at(-1) as any).metadata?.custom?.runWarning,
     ).toBeUndefined();
+    expect(getActiveRun()).toBeNull();
+  });
+
+  it("stops its tab when another thread owns the active-run pointer", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setActiveRun({
+                  threadId: "other-thread",
+                  runId: "other-run",
+                  lastSeq: 0,
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const activeRunEvents = dispatchEvent.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.type === "agent-chat:active-run-state-change");
+    expect(activeRunEvents).toContainEqual(
+      expect.objectContaining({
+        detail: {
+          state: {
+            threadId: "other-thread",
+            runId: "other-run",
+            lastSeq: 0,
+          },
+        },
+      }),
+    );
+    expect(activeRunEvents).not.toContainEqual(
+      expect.objectContaining({ detail: { state: null } }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+  });
+
+  it("stops its surface in finally when an abort follows another surface claim", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        setActiveRun({
+          threadId: "other-thread",
+          runId: "other-run",
+          tabId: "other-surface",
+          lastSeq: 0,
+        });
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "stop this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    expect(getActiveRun()).toMatchObject({
+      threadId: "other-thread",
+      runId: "other-run",
+      tabId: "other-surface",
+    });
+  });
+
+  it("does not stop its tab when another thread in the same tab claims the run", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setActiveRun({
+                  threadId: "new-thread-in-same-tab",
+                  runId: "new-run-in-same-tab",
+                  tabId: "chat-current",
+                  lastSeq: 0,
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    expect(getActiveRun()).toMatchObject({
+      threadId: "new-thread-in-same-tab",
+      runId: "new-run-in-same-tab",
+      tabId: "chat-current",
+    });
+  });
+
+  it("does not suppress terminal cleanup for a pending request on another surface", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                clearActiveRun();
+                setPendingTurn({
+                  threadId: "successor-thread",
+                  turnId: "successor-turn",
+                  tabId: "other-surface",
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId: "current-turn" } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    clearPendingTurnIfMatches("successor-thread", "successor-turn");
+  });
+
+  it("does not clear a same-run owner on another surface", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setActiveRun({
+                  threadId: "current-thread",
+                  runId: "run-current",
+                  tabId: "other-surface",
+                  lastSeq: 0,
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId: "current-turn" } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    expect(getActiveRun()).toMatchObject({
+      threadId: "current-thread",
+      runId: "run-current",
+      tabId: "other-surface",
+    });
+  });
+
+  it("does not stop its tab while a successor request is still registering", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    const turnId = "current-turn";
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                clearActiveRun();
+                setPendingTurn({
+                  threadId: "successor-thread",
+                  turnId: "successor-turn",
+                  tabId: "chat-current",
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    const nextReader = createRunStreamToken("next-reader");
+    expect(
+      claimRunStream("current-thread", "run-current", nextReader, turnId),
+    ).toBe(true);
+    releaseRunStream("current-thread", "run-current", nextReader, turnId);
+    clearPendingTurnIfMatches("successor-thread", "successor-turn");
+  });
+
+  it("recognizes a legacy pending successor for the same thread", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setPendingTurn({
+                  threadId: "current-thread",
+                  turnId: "legacy-successor-turn",
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId: "current-turn" } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    clearPendingTurnIfMatches("current-thread", "legacy-successor-turn");
+  });
+
+  it("stops its surface when a different run owns another surface", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setActiveRun({
+                  threadId: "current-thread",
+                  runId: "run-new",
+                  tabId: "other-surface",
+                  lastSeq: 0,
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId: "current-turn" } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    expect(getActiveRun()).toMatchObject({
+      threadId: "current-thread",
+      runId: "run-new",
+      tabId: "other-surface",
+    });
   });
 
   it("continues when a terminal followed run contains only completed tool work", async () => {

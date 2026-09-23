@@ -82,10 +82,13 @@ async function indexHtml(
   id: string,
 ): Promise<string> {
   const record = await getDesign(request, id);
-  return (
-    (record.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const file = (record.files ?? []).find(
+    (f: any) => f.filename === "index.html",
   );
+  if (typeof file?.content !== "string") {
+    throw new Error("index.html has no content");
+  }
+  return file.content;
 }
 
 async function boardObjects(
@@ -393,7 +396,9 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
       "harness-blocked/finding: no 'Add grid' control found in the inspector for a nested frame " +
         `- Layout grid section presence could not be verified. dump: ${JSON.stringify(await dump(page))}`,
     ).toBeTruthy();
-    if (!hasLayoutGrid) return;
+    if (!hasLayoutGrid) {
+      throw new Error("required 'Add grid' control is missing");
+    }
 
     await addGrid.click();
     await page.waitForTimeout(400);
@@ -536,6 +541,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
       `Cmd+D must duplicate the selected line. Had ${linesBefore.length}, now ${linesAfterDup.length}`,
     ).toBe(linesBefore.length + 1);
     const copyId = linesAfterDup.find((id) => !linesBefore.includes(id))!;
+    expect(copyId, "duplicate must add a distinct line id").toBeTruthy();
     const copyStyleBefore = styleOf(html1, copyId);
 
     await selectLayerRowById(page, copyId);

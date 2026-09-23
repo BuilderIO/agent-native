@@ -27,16 +27,6 @@ export const breakpointBarOverrides = {
             "Responsive edits affect this breakpoint and smaller sizes by default. Change the scope beside the breakpoint control.",
         },
       },
-      screenDeletion: {
-        titleOne: "Delete this screen?",
-        titleMany: "Delete {{count}} screens?",
-        descriptionOne:
-          '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
-        descriptionMany:
-          "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
-        cancel: "Cancel",
-        confirm: "Delete",
-      },
       tweaksHelp:
         "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     },
@@ -63,16 +53,6 @@ export const breakpointBarOverrides = {
           firstEditGuidance:
             "响应式编辑默认影响此断点及更小尺寸。可在断点控件旁更改范围。",
         },
-      },
-      screenDeletion: {
-        titleOne: "删除此屏幕？",
-        titleMany: "删除 {{count}} 个屏幕？",
-        descriptionOne:
-          "将删除“{{filename}}”及其所有响应式变体。编辑器保持打开时可以撤销。",
-        descriptionMany:
-          "将删除这些屏幕及其所有响应式变体。编辑器保持打开时可以撤销。",
-        cancel: "取消",
-        confirm: "删除",
       },
       tweaksHelp:
         "调整项是叠加在基础设计上的断点和状态专属视觉覆盖。重置控件可恢复继承值。",
@@ -101,16 +81,6 @@ export const breakpointBarOverrides = {
             "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
         },
       },
-      screenDeletion: {
-        titleOne: "刪除此畫面？",
-        titleMany: "刪除 {{count}} 個畫面？",
-        descriptionOne:
-          "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
-        descriptionMany:
-          "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
-        cancel: "取消",
-        confirm: "刪除",
-      },
       tweaksHelp:
         "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     },
@@ -137,16 +107,6 @@ export const breakpointBarOverrides = {
           firstEditGuidance:
             "Las ediciones adaptables afectan este punto y tamaños menores de forma predeterminada. Cambia el ámbito junto al control.",
         },
-      },
-      screenDeletion: {
-        titleOne: "¿Eliminar esta pantalla?",
-        titleMany: "¿Eliminar {{count}} pantallas?",
-        descriptionOne:
-          "Se eliminarán “{{filename}}” y todas sus variantes adaptables. Puedes deshacerlo mientras el editor siga abierto.",
-        descriptionMany:
-          "Se eliminarán estas pantallas y todas sus variantes adaptables. Puedes deshacerlo mientras el editor siga abierto.",
-        cancel: "Cancelar",
-        confirm: "Eliminar",
       },
       tweaksHelp:
         "Los ajustes son modificaciones visuales por punto de quiebre y estado superpuestas al diseño base. Restablece un control para volver al valor heredado.",
@@ -175,16 +135,6 @@ export const breakpointBarOverrides = {
             "Les modifications responsive affectent ce point et les tailles inférieures par défaut. Modifiez la portée à côté du contrôle.",
         },
       },
-      screenDeletion: {
-        titleOne: "Supprimer cet écran ?",
-        titleMany: "Supprimer {{count}} écrans ?",
-        descriptionOne:
-          "« {{filename}} » et toutes ses variantes responsive seront supprimés. Vous pouvez annuler tant que l’éditeur reste ouvert.",
-        descriptionMany:
-          "Ces écrans et toutes leurs variantes responsive seront supprimés. Vous pouvez annuler tant que l’éditeur reste ouvert.",
-        cancel: "Annuler",
-        confirm: "Supprimer",
-      },
       tweaksHelp:
         "Les ajustements sont des surcharges visuelles propres aux points d’arrêt et aux états, superposées au design de base. Réinitialisez un contrôle pour revenir à la valeur héritée.",
     },
@@ -211,16 +161,6 @@ export const breakpointBarOverrides = {
           firstEditGuidance:
             "Responsive Änderungen gelten standardmäßig für diesen Haltepunkt und kleinere Größen. Der Bereich kann daneben geändert werden.",
         },
-      },
-      screenDeletion: {
-        titleOne: "Diesen Bildschirm löschen?",
-        titleMany: "{{count}} Bildschirme löschen?",
-        descriptionOne:
-          "„{{filename}}“ und alle responsiven Varianten werden gelöscht. Solange der Editor geöffnet bleibt, können Sie dies rückgängig machen.",
-        descriptionMany:
-          "Diese Bildschirme und alle responsiven Varianten werden gelöscht. Solange der Editor geöffnet bleibt, können Sie dies rückgängig machen.",
-        cancel: "Abbrechen",
-        confirm: "Löschen",
       },
       tweaksHelp:
         "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
@@ -249,16 +189,6 @@ export const breakpointBarOverrides = {
             "レスポンシブ編集は既定でこのブレークポイント以下に適用されます。横のコントロールで範囲を変更できます。",
         },
       },
-      screenDeletion: {
-        titleOne: "この画面を削除しますか？",
-        titleMany: "{{count}} 個の画面を削除しますか？",
-        descriptionOne:
-          "「{{filename}}」とすべてのレスポンシブバリエーションが削除されます。エディターを開いている間は元に戻せます。",
-        descriptionMany:
-          "これらの画面とすべてのレスポンシブバリエーションが削除されます。エディターを開いている間は元に戻せます。",
-        cancel: "キャンセル",
-        confirm: "削除",
-      },
       tweaksHelp:
         "調整はベースデザインに重ねる、ブレークポイントおよび状態固有の視覚的オーバーライドです。コントロールをリセットすると継承値に戻ります。",
     },
@@ -285,16 +215,6 @@ export const breakpointBarOverrides = {
           firstEditGuidance:
             "반응형 편집은 기본적으로 이 중단점과 더 작은 크기에 적용됩니다. 옆의 컨트롤에서 범위를 변경하세요.",
         },
-      },
-      screenDeletion: {
-        titleOne: "이 화면을 삭제할까요?",
-        titleMany: "화면 {{count}}개를 삭제할까요?",
-        descriptionOne:
-          "“{{filename}}” 및 모든 반응형 변형이 삭제됩니다. 편집기가 열려 있는 동안 실행 취소할 수 있습니다.",
-        descriptionMany:
-          "이 화면들과 모든 반응형 변형이 삭제됩니다. 편집기가 열려 있는 동안 실행 취소할 수 있습니다.",
-        cancel: "취소",
-        confirm: "삭제",
       },
       tweaksHelp:
         "조정은 기본 디자인 위에 적용되는 중단점 및 상태별 시각적 재정의입니다. 컨트롤을 재설정하면 상속된 값으로 돌아갑니다.",
@@ -323,16 +243,6 @@ export const breakpointBarOverrides = {
             "As edições responsivas afetam este ponto e tamanhos menores por padrão. Altere o escopo ao lado do controle.",
         },
       },
-      screenDeletion: {
-        titleOne: "Excluir esta tela?",
-        titleMany: "Excluir {{count}} telas?",
-        descriptionOne:
-          "“{{filename}}” e todas as suas variações responsivas serão excluídas. Você pode desfazer enquanto o editor permanecer aberto.",
-        descriptionMany:
-          "Estas telas e todas as suas variações responsivas serão excluídas. Você pode desfazer enquanto o editor permanecer aberto.",
-        cancel: "Cancelar",
-        confirm: "Excluir",
-      },
       tweaksHelp:
         "Os ajustes são substituições visuais específicas de breakpoint e estado sobre o design base. Redefina um controle para voltar ao valor herdado.",
     },
@@ -360,16 +270,6 @@ export const breakpointBarOverrides = {
             "रेस्पॉन्सिव संपादन डिफ़ॉल्ट रूप से इस ब्रेकपॉइंट और छोटे आकारों पर लागू होते हैं। पास के कंट्रोल से दायरा बदलें।",
         },
       },
-      screenDeletion: {
-        titleOne: "यह स्क्रीन हटाएँ?",
-        titleMany: "{{count}} स्क्रीन हटाएँ?",
-        descriptionOne:
-          "“{{filename}}” और उसके सभी रेस्पॉन्सिव रूप हटाए जाएँगे। एडिटर खुला रहने तक आप इसे पूर्ववत कर सकते हैं।",
-        descriptionMany:
-          "ये स्क्रीन और इनके सभी रेस्पॉन्सिव रूप हटाए जाएँगे। एडिटर खुला रहने तक आप इसे पूर्ववत कर सकते हैं।",
-        cancel: "रद्द करें",
-        confirm: "हटाएँ",
-      },
       tweaksHelp:
         "ट्वीक्स आधार डिज़ाइन पर लागू ब्रेकपॉइंट और स्थिति-विशिष्ट विज़ुअल ओवरराइड हैं। विरासत में मिले मान पर लौटने के लिए कंट्रोल रीसेट करें।",
     },
@@ -396,16 +296,6 @@ export const breakpointBarOverrides = {
           firstEditGuidance:
             "تؤثر التعديلات المتجاوبة افتراضيًا في نقطة التوقف هذه والأحجام الأصغر. غيّر النطاق بجوار عنصر التحكم.",
         },
-      },
-      screenDeletion: {
-        titleOne: "حذف هذه الشاشة؟",
-        titleMany: "حذف {{count}} شاشة؟",
-        descriptionOne:
-          'سيتم حذف "{{filename}}" وجميع تنويعاته المتجاوبة. يمكنك التراجع ما دام المحرر مفتوحًا.',
-        descriptionMany:
-          "سيتم حذف هذه الشاشات وجميع تنويعاتها المتجاوبة. يمكنك التراجع ما دام المحرر مفتوحًا.",
-        cancel: "إلغاء",
-        confirm: "حذف",
       },
       tweaksHelp:
         "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",

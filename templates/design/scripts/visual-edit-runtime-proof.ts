@@ -37,13 +37,9 @@ const screenPaths = [
   "/settings/general?tab=language",
   "/settings/general?tab=notifications",
   "/home?onboarding=preview",
-  "/home?onboarding=preview&step=intro",
   "/home?onboarding=preview&step=choice",
-  "/home?onboarding=preview&step=manual",
-  "/home?onboarding=preview&step=tools",
   "/home?onboarding=preview&step=role",
   "/home?onboarding=preview&step=connecting",
-  "/home?onboarding=preview&step=ready",
   "/home?onboarding=preview&step=extension",
   "/home?onboarding=preview&step=references",
 ];
@@ -151,7 +147,7 @@ async function main() {
         typeof opened?.designId === "string" ? opened.designId : undefined;
       const urlPath = typeof opened?.urlPath === "string" ? opened.urlPath : "";
       if (!urlPath) throw new Error("open-visual-edit returned no editor URL");
-      targetUrl = `${designUrl}${urlPath}&view=overview&zoom=18`;
+      targetUrl = `${designUrl}${urlPath}&editorView=overview&zoom=18`;
     }
 
     await page.goto(targetUrl, { waitUntil: "domcontentloaded" });

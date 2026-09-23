@@ -35,4 +35,13 @@ describe("Design editor header", () => {
     expect(surface).toContain("onCollapse={() => setActiveLeftPanel(null)}");
     expect(surface).toContain("min-w-0");
   });
+
+  it("puts the signed-out play control beside the presence slot", () => {
+    expect(editorSource).toContain(
+      "{sessionResolved && !isSignedIn ? publishWaitlistControl : null}",
+    );
+    expect(editorSource).toContain(
+      "{!sessionResolved || isSignedIn ? publishWaitlistControl : null}",
+    );
+  });
 });

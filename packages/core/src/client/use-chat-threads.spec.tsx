@@ -636,6 +636,58 @@ describe("useChatThreads", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("retries a thread save after a compare-and-swap conflict", async () => {
+    const existingThread: ChatThreadSummary = {
+      id: "retry-thread",
+      title: "Retry me",
+      preview: "old",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+    };
+    let putCount = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      if (url === "/chat/threads/retry-thread" && init?.method === "PUT") {
+        putCount += 1;
+        return putCount === 1
+          ? new Response(null, { status: 409 })
+          : jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "save-retry", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("retry-thread", {
+        threadData: "{}",
+        title: "Saved after retry",
+        preview: "new",
+        messageCount: 2,
+      });
+    });
+
+    expect(putCount).toBe(2);
+  });
+
   it("loads older chat history pages into All Chats", async () => {
     const firstPage: ChatThreadSummary[] = Array.from(
       { length: 50 },

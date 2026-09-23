@@ -3,6 +3,7 @@ import {
   AGENT_NATIVE_ACTION_EVENTS,
   normalizeTrackingDimension,
 } from "../shared/analytics-events.js";
+import { classifyTrackingFailure } from "./failure-category.js";
 
 const IGNORED_ACTION_NAMES = new Set(["refresh-list"]);
 const IGNORED_ACTION_PATTERN =
@@ -58,11 +59,6 @@ function outputId(result: unknown): string | undefined {
   return undefined;
 }
 
-function errorType(error: unknown): string {
-  if (error instanceof Error && error.name.trim()) return error.name.trim();
-  return typeof error;
-}
-
 export function wrapRunWithActionTracking(
   run: (args: any, ctx?: ActionRunContext) => any,
   readOnly: boolean | undefined,
@@ -77,13 +73,23 @@ export function wrapRunWithActionTracking(
     // environment (node:url), which crashes a client bundle at load.
     const { track } = await import("./registry.js");
     const startedAt = Date.now();
-    track(AGENT_NATIVE_ACTION_EVENTS.started, actionProperties(ctx), ctx);
+    const operationId =
+      globalThis.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    track(
+      AGENT_NATIVE_ACTION_EVENTS.started,
+      actionProperties(ctx, { operation_id: operationId, status: "started" }),
+      ctx,
+    );
     try {
       const result = await run(args, ctx);
       const id = outputId(result);
       track(
         AGENT_NATIVE_ACTION_EVENTS.completed,
         actionProperties(ctx, {
+          operation_id: operationId,
+          status: "completed",
+          outcome: "success",
           success: true,
           duration_ms: Date.now() - startedAt,
           ...(id ? { output_id: id } : {}),
@@ -95,9 +101,12 @@ export function wrapRunWithActionTracking(
       track(
         AGENT_NATIVE_ACTION_EVENTS.failed,
         actionProperties(ctx, {
+          operation_id: operationId,
+          status: "failed",
+          outcome: classifyTrackingFailure(error),
           success: false,
           duration_ms: Date.now() - startedAt,
-          failure_type: errorType(error),
+          failure_type: classifyTrackingFailure(error),
         }),
         ctx,
       );

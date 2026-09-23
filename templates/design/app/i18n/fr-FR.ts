@@ -4,6 +4,26 @@ const messages = {
   ...messagesByLocale["fr-FR"],
   designEditor: {
     ...messagesByLocale["fr-FR"].designEditor,
+    designNotFoundDescription:
+      "Cette création n’existe pas ou a été supprimée.",
+    requestAccessTitle: "Demander l’accès à cette création",
+    requestAccessDescription:
+      "Cette création est privée. Demandez l’accès à son propriétaire.",
+    requestAccess: "Demander l’accès",
+    accessRequested: "Accès demandé",
+    accessRequestSentDescription:
+      "Votre demande a été enregistrée. Vous pourrez ouvrir cette création une fois l’accès approuvé.",
+    signInToRequestAccessTitle: "Connectez-vous pour demander l’accès",
+    signInToRequestAccessDescription:
+      "Connectez-vous ou créez un compte pour demander l’accès au propriétaire.",
+    signInOrSignUp: "Se connecter ou s’inscrire",
+    accessCheckFailed: "Impossible de vérifier l’accès à cette création.",
+    retryAccessCheck: "Réessayer",
+    import: {
+      ...messagesByLocale["fr-FR"].designEditor.import,
+      figUploadDescriptionShort:
+        "Importation locale — sans quota de l’API Figma. Les images intégrées compatibles sont incluses.",
+    },
     componentInstances: {
       ...messagesByLocale["fr-FR"].designEditor.componentInstances,
       restore: "Restaurer le composant",
@@ -143,6 +163,20 @@ const messages = {
       change: "Modifier le statut de révision",
       saveFailed: "Impossible de mettre à jour le statut de révision",
     },
+  },
+  designSystems: {
+    ...messagesByLocale["fr-FR"].designSystems,
+    tierLimitTitle: "Limite de systèmes de design atteinte",
+    tierLimitDescription:
+      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
+    tierLimitDescriptionWithCount:
+      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
+    tierLimitUpgrade: "Changer de forfait Builder",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["fr-FR"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
   },
 };
 

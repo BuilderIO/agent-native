@@ -437,6 +437,7 @@ describe("createAgentKitProtocolAdapter", () => {
       "tool.delta",
       "tool.updated",
       "activity.completed",
+      "message.completed",
       "run.status",
       "run.completed",
     ]);
@@ -468,13 +469,13 @@ describe("createAgentKitProtocolAdapter", () => {
         afterSequence: 8,
       }),
     );
-    expect(replay.map((event) => event.sequence)).toEqual([9, 10, 11]);
+    expect(replay.map((event) => event.sequence)).toEqual([9, 10, 11, 12]);
 
     await expect(
       transport.getRun?.({ threadId: "thread-1", runId }),
     ).resolves.toMatchObject({
       status: "completed",
-      lastSequence: 11,
+      lastSequence: 12,
     });
   });
 
@@ -491,6 +492,98 @@ describe("createAgentKitProtocolAdapter", () => {
 
     expect(withoutFeedback.capabilities?.feedback).toBe(false);
     expect(withFeedback.capabilities?.feedback).toBe(true);
+  });
+
+  it("closes omitted tool lifecycles before publishing a terminal run", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const toolUpdated = result.find((event) => event.type === "tool.updated");
+    expect(toolUpdated).toMatchObject({
+      toolCall: {
+        id: "tool-1",
+        name: "search",
+        input: { query: "agentkit" },
+        status: "completed",
+      },
+    });
+    expect(result.map((event) => event.type)).toEqual([
+      "run.started",
+      "run.status",
+      "tool.started",
+      "activity.started",
+      "tool.updated",
+      "activity.completed",
+      "run.status",
+      "run.completed",
+    ]);
+    expect(result.at(-1)?.type).toBe("run.completed");
+  });
+
+  it("does not append runtime events after a terminal marker", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+      yield { type: "status", message: "Late runtime update" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Finish")],
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.map((event) => event.type)).toEqual([
+      "run.started",
+      "run.status",
+      "run.status",
+      "run.completed",
+    ]);
+    expect(result.some((event) => event.type === "activity.updated")).toBe(
+      false,
+    );
+  });
+
+  it("retains usage reported before a completion marker without usage", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "usage",
+        usage: { inputTokens: 12, outputTokens: 7, totalTokens: 19 },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Summarize it")],
+    });
+
+    await drain(transport.subscribeToRun({ threadId: "thread-1", runId }));
+
+    await expect(
+      transport.getRun({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({
+      usage: { inputTokens: 12, outputTokens: 7, totalTokens: 19 },
+    });
   });
 
   it("preserves event capabilities but rejects operation claims without implementations", async () => {
@@ -608,6 +701,103 @@ describe("createAgentKitProtocolAdapter", () => {
           parts: [{ type: "text", text: "**formatted**", format: "markdown" }],
         }),
       }),
+    );
+  });
+
+  it("completes an active message when the runtime omits message-done", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-terminal",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-terminal",
+        delta: { type: "text", text: "Partial response" },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Finish the response")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const messageCompletionIndex = result.findIndex(
+      (event) =>
+        event.type === "message.completed" &&
+        event.message.id === "assistant-terminal",
+    );
+    const terminalIndex = result.findIndex(
+      (event) => event.type === "run.status" && event.status === "completed",
+    );
+
+    expect(messageCompletionIndex).toBeGreaterThan(-1);
+    expect(messageCompletionIndex).toBeLessThan(terminalIndex);
+    expect(result[messageCompletionIndex]).toMatchObject({
+      type: "message.completed",
+      message: {
+        id: "assistant-terminal",
+        status: "complete",
+        parts: [],
+      },
+    });
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({ activeMessageId: "assistant-terminal" });
+  });
+
+  it("marks an active message as failed at an error terminal boundary", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-failed",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-failed",
+        delta: { type: "text", text: "Partial response" },
+      };
+      yield { type: "done", reason: "error" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Finish the response")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const completion = result.find(
+      (event) =>
+        event.type === "message.completed" &&
+        event.message.id === "assistant-failed",
+    );
+
+    expect(completion).toMatchObject({
+      type: "message.completed",
+      message: {
+        id: "assistant-failed",
+        status: "error",
+        parts: [],
+      },
+    });
+    expect(result.findIndex((event) => event === completion)).toBeLessThan(
+      result.findIndex(
+        (event) => event.type === "run.status" && event.status === "failed",
+      ),
     );
   });
 

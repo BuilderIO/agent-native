@@ -8,6 +8,7 @@ export interface DesignVersionChatContext {
   runId?: string;
   turnId?: string;
   actionName?: string;
+  surface?: "editor";
 }
 
 export interface DesignVersionListEntry {
@@ -15,7 +16,7 @@ export interface DesignVersionListEntry {
   designId: string;
   label: string | null;
   createdAt: string | null;
-  source: "chat" | "legacy";
+  source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
   editable?: boolean;
@@ -40,7 +41,7 @@ export interface DesignVersionDetail {
   designId: string;
   label: string | null;
   createdAt: string | null;
-  source: "chat" | "legacy";
+  source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
   /** Present on list entries; optional on detail until the action always returns it. */

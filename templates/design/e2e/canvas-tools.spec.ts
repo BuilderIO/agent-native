@@ -952,13 +952,8 @@ function countOccurrences(content: string, text: string): number {
   return content.split(text).length - 1;
 }
 
-async function confirmScreenDeletion(page: Page): Promise<void> {
-  const dialog = page.getByRole("alertdialog", {
-    name: "Delete this screen?",
-  });
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+async function waitForScreenDeletion(page: Page): Promise<void> {
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
 }
 
 async function pressPrimaryShortcut(
@@ -3488,7 +3483,7 @@ test.fixme("overview undo skips deleted screen content history", async ({
   if (!aboutBox) throw new Error("no about shell box");
   await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
   await page.keyboard.press("Delete");
-  await confirmScreenDeletion(page);
+  await waitForScreenDeletion(page);
   await expect
     .poll(
       async () =>
@@ -3577,7 +3572,7 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
   if (!aboutBox) throw new Error("no about shell box");
   await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
   await page.keyboard.press("Delete");
-  await confirmScreenDeletion(page);
+  await waitForScreenDeletion(page);
 
   await expect
     .poll(

@@ -18,6 +18,7 @@ import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targ
 import type {
   ElementInfo,
   PortableStyleSnapshot,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
@@ -51,6 +52,7 @@ import {
 } from "../clone-and-pen-edit";
 import { prepareAcceptedSourceContent } from "../source-publication";
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
 import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
@@ -96,6 +98,10 @@ export function absolutePlacePointForDrop(args: {
 }
 
 export interface CrossScreenElementDropArgs {
+  getCurrentFileSnapshot?: (fileId: string) => {
+    content: string;
+    updatedAt?: string | null;
+  };
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -103,15 +109,20 @@ export interface CrossScreenElementDropArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
+      sourceBaseContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
   ) => ApplyFileContentUpdateResult;
   boardFileId: string | undefined;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
+  canEditLiveBoard?: boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -125,7 +136,10 @@ export interface CrossScreenElementDropArgs {
     >
   >;
   designSourceType: "inline" | "localhost" | "fusion";
+  fileSaveOperationRevisionRef?: RefObject<Record<string, number>>;
+  fileHistoryMutationPendingRef?: RefObject<boolean>;
   getScreenContent: (screenId: string) => string;
+  getCurrentSelectionFingerprint?: () => string;
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
@@ -133,7 +147,10 @@ export interface CrossScreenElementDropArgs {
   contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
+  clearPendingHistory?: () => void;
+  syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
@@ -149,6 +166,11 @@ export interface CrossScreenElementDropArgs {
       (RuntimeStructureInsertRequest & { screenId: string }) | null
     >
   >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
+    >
+  >;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -160,10 +182,16 @@ export function runCrossScreenElementDrop(
     applyFileContentUpdate,
     boardFileId,
     canEditDesign,
+    canEditLiveScreen,
+    canEditLiveBoard = false,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
+    fileHistoryMutationPendingRef,
+    getCurrentFileSnapshot,
+    fileSaveOperationRevisionRef,
     getScreenContent,
+    getCurrentSelectionFingerprint,
     id,
     overviewScreens,
     pendingOverviewLayerSelectionRef,
@@ -171,12 +199,16 @@ export function runCrossScreenElementDrop(
     contentUndoStackRef,
     contentHistorySelectionAfterRef,
     recordContentHistoryEntry,
+    clearPendingHistory,
+    syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
+    runtimeStructurePendingTransactionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
     setCreatedOverviewLayerSelection,
     setOverviewSelectedScreenIds,
     setRuntimeStructureInsertRequest,
+    setRuntimeStructureDeleteRequest,
     setSelectedElement,
     setSelectedLayerIdsState,
     t,
@@ -272,7 +304,6 @@ export function runCrossScreenElementDrop(
         ? "same screen — nothing to move"
         : null,
   });
-  if (!canEditDesign) return;
   if (sourceScreenId === targetScreenId) return;
 
   const findLayerOwner = (
@@ -319,6 +350,9 @@ export function runCrossScreenElementDrop(
   const targetScreen = overviewScreens.find(
     (screen) => screen.id === targetScreenId,
   );
+  const sourceScreen = overviewScreens.find(
+    (screen) => screen.id === sourceScreenId,
+  );
   const componentLinks =
     id && targetScreen
       ? {
@@ -354,16 +388,157 @@ export function runCrossScreenElementDrop(
     isRunningAppSourceType(
       resolveOverviewScreenSourceType(targetScreen, designSourceType),
     );
+  const targetScreenIsBoard =
+    Boolean(boardFileId) && targetScreenId === boardFileId;
+  const sourceScreenIsBoard =
+    Boolean(boardFileId) && sourceScreenId === boardFileId;
+  const sourceScreenIsLive =
+    Boolean(sourceScreen) &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(sourceScreen, designSourceType),
+    );
+  const canEditLiveCrossScreen =
+    sourceScreenIsLive &&
+    targetScreenIsLive &&
+    Boolean(canEditLiveScreen?.(sourceScreenId)) &&
+    Boolean(canEditLiveScreen?.(targetScreenId));
+  const canEditLiveBoardDrop =
+    canEditLiveBoard &&
+    ((sourceScreenIsLive &&
+      targetScreenIsBoard &&
+      Boolean(canEditLiveScreen?.(sourceScreenId))) ||
+      (sourceScreenIsBoard &&
+        targetScreenIsLive &&
+        Boolean(canEditLiveScreen?.(targetScreenId))));
+  const canEditLiveBoardMove =
+    canEditLiveBoard &&
+    sourceScreenIsLive &&
+    targetScreenIsBoard &&
+    Boolean(canEditLiveScreen?.(sourceScreenId));
+  if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
+    return;
+
+  const beginRuntimeStructureTransaction = () => {
+    if (runtimeStructurePendingTransactionRef?.current) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return null;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (runtimeStructurePendingTransactionRef) {
+      runtimeStructurePendingTransactionRef.current = transactionId;
+    }
+    return transactionId;
+  };
 
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
+  if ((canEditLiveCrossScreen || canEditLiveBoardMove) && !duplicate) {
+    const subjectNodeId =
+      sourceNodeId ??
+      (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
+    const sourceOwner = sourceOwnerEntry?.[1];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+    const validatedSourceHtmlSnapshot =
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
+        : undefined;
+    if (!sourceOwner || !subjectNodeId || !validatedSourceHtmlSnapshot) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const hasAnchor = Boolean(
+      targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+    );
+    const placeAbsolute =
+      Boolean(targetLocalPoint) &&
+      (!hasAnchor || targetDropMode === "absolute-container");
+    const absolutePosition =
+      placeAbsolute && targetLocalPoint
+        ? absolutePlacePointForDrop({
+            placeAbsoluteOnEmptyScreen: false,
+            targetAnchorRect,
+            targetLocalPoint,
+          })
+        : undefined;
+    const prepared = prepareClonedHtmlLayersForLiveInsert(
+      targetScreenIsBoard
+        ? "http://agent-native-board.local/"
+        : getScreenContent(targetScreenId),
+      [validatedSourceHtmlSnapshot],
+      {
+        preserveIncomingNodeIds: true,
+        positions: absolutePosition
+          ? [
+              {
+                x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                space: "visual",
+              },
+            ]
+          : undefined,
+        stripRootPosition:
+          hasAnchor &&
+          !placeAbsolute &&
+          targetDropMode !== "absolute-container",
+        styleSnapshots: [styleSnapshot],
+      },
+    );
+    const insertedHtml = prepared?.htmlFragments[0];
+    if (!insertedHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    if (!setRuntimeStructureDeleteRequest) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
+    runtimeStructureInsertRevisionRef.current += 1;
+    setRuntimeStructureInsertRequest({
+      requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
+      screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
+      html: insertedHtml,
+      anchor: {
+        selector: targetAnchorSelector ?? "",
+        sourceId: targetAnchorNodeId,
+        pendingNodeId: targetAnchorPendingNodeId,
+      },
+      placement: targetAnchorPlacement ?? "inside",
+    });
+    setRuntimeStructureDeleteRequest({
+      requestId: `${transactionId}:source`,
+      transactionId,
+      screenId: sourceScreenId,
+      selector: sourceSelector,
+      waitForInsertTransaction: true,
+      rollbackScreenId: targetScreenId,
+      selectorCandidates: Array.from(
+        new Set([
+          sourceSelector,
+          ...codeLayerSelectorAliases(sourceOwner.node),
+        ]),
+      ).filter(Boolean),
+    });
+    return;
+  }
+
   if (duplicate) {
     if (!sourceCloneHtml) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
       return;
     }
-    if (targetScreenIsLive) {
+    if (targetScreenIsLive || (targetScreenIsBoard && canEditLiveBoardDrop)) {
       const liveDestinationContent = getScreenContent(targetScreenId);
       const hasAnchor = Boolean(
         targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
@@ -380,7 +555,9 @@ export function runCrossScreenElementDrop(
             })
           : undefined;
       const prepared = prepareClonedHtmlLayersForLiveInsert(
-        liveDestinationContent,
+        targetScreenIsBoard
+          ? "http://agent-native-board.local/"
+          : liveDestinationContent,
         [sourceCloneHtml],
         {
           positions: absolutePosition
@@ -406,10 +583,15 @@ export function runCrossScreenElementDrop(
         });
         return;
       }
+      const transactionId = beginRuntimeStructureTransaction();
+      if (!transactionId) return;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
         screenId: targetScreenId,
+        sourceScreenId,
+        remintCollidingNodeIds: true,
         html: insertedHtml,
         anchor: {
           selector: targetAnchorSelector ?? "",
@@ -608,12 +790,13 @@ export function runCrossScreenElementDrop(
     // Only a board primitive may be reinterpreted as an insert; a real
     // screen's element dropped into a live app is a move, and inserting it
     // would leave a duplicate behind in its own screen.
-    sourceScreenIsBoard: Boolean(boardFileId) && sourceScreenId === boardFileId,
+    sourceScreenIsBoard,
     targetScreenIsLive,
   });
   if (crossScreenExecutionMode === "screen-bridge-insert") {
     const boardContent = getScreenContent(sourceScreenId);
-    if (!boardContent) return;
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+    if (!boardContent && !sourceHtml) return;
     const boardProjection = buildCodeLayerProjection(boardContent, {
       source: { kind: "design-file", fileId: sourceScreenId },
     });
@@ -622,16 +805,18 @@ export function runCrossScreenElementDrop(
       sourceSelector,
       sourceNodeId,
     );
+    // A live layer dragged onto the canvas is present in the board iframe's
+    // transient DOM, but it is intentionally not persisted into the board
+    // document. Prefer the id and outerHTML captured from that iframe. The
+    // stored board projection remains the fallback for ordinary board
+    // primitives that were already in the document.
     const subjectNodeId =
-      subjectNode?.dataAttributes["data-agent-native-node-id"];
+      sourceNodeId ?? subjectNode?.dataAttributes["data-agent-native-node-id"];
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
-    if (sourceHtmlSnapshot && !validatedSourceHtmlSnapshot) {
+    if (sourceHtml && !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });
@@ -682,10 +867,15 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
       screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",
@@ -1038,17 +1228,16 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
-  const sourcePublication = applyFileContentUpdate(
-    sourceScreenId,
-    result.sourceHtml,
-    {
-      recordHistory: false,
-      refreshPreview: false,
-      forcePreviewFullDocument: true,
-      historyBeforeContent: sourceContent,
-    },
-  );
-  if (sourcePublication.status !== "accepted") return;
+  if (fileHistoryMutationPendingRef?.current) return;
+  const releasePendingHistory = () => {
+    if (!fileHistoryMutationPendingRef) return;
+    fileHistoryMutationPendingRef.current = false;
+    syncUndoRedoState?.();
+  };
+  if (fileHistoryMutationPendingRef) {
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState?.();
+  }
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1056,74 +1245,342 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: rawDestContent,
+      awaitSave: true,
     },
   );
   if (targetPublication.status !== "accepted") {
-    const rollback = applyFileContentUpdate(sourceScreenId, sourceContent, {
-      recordHistory: false,
-      refreshPreview: false,
-      forcePreviewFullDocument: true,
-      historyBeforeContent: sourcePublication.content,
-    });
-    if (rollback.status !== "accepted") {
-      toast.error(t("designEditor.toasts.saveConflict"));
-    }
+    releasePendingHistory();
     return;
   }
 
-  // History must replay the bytes the publisher accepted. Canonical identity
-  // publication may stamp IDs into submitted HTML, and the post-action
-  // selection snapshot must resolve against those same final documents.
-  crossScreenHistoryChanges[0].after = sourcePublication.content;
-  crossScreenHistoryChanges[1].after = targetPublication.content;
-  recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
-
-  // Switch active screen to the target and select the moved node; viewMode
-  // stays "overview" (no setViewMode call).
-  pendingOverviewScreenSelectionRef.current =
-    targetScreenId === boardFileId ? null : targetScreenId;
-  pendingOverviewLayerSelectionRef.current = destNodeAttrId;
-  clearPendingOverviewLayerSelectionTimer();
-  setActiveFileId(targetScreenId);
-  const submittedProjection = buildCodeLayerProjection(nextDestContent, {
-    source: { kind: "design-file", fileId: targetScreenId },
-  });
-  const movedNodeCandidate = submittedProjection.nodes.find(
-    (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+  const sourcePublication = applyFileContentUpdate(
+    sourceScreenId,
+    result.sourceHtml,
+    {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      immediateSave: true,
+      historyBeforeContent: sourceContent,
+      awaitSave: true,
+    },
   );
-  const movedNodeFinal = mapAcceptedSelectionNode(
-    targetPublication,
-    projectAcceptedSource(targetPublication, {
-      kind: "design-file",
-      fileId: targetScreenId,
-    }),
-    movedNodeCandidate,
-  );
-  if (movedNodeFinal) {
-    setCreatedOverviewLayerSelection({
-      screenId: targetScreenId,
-      layerId: movedNodeFinal.id,
+  if (sourcePublication.status !== "accepted") {
+    const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: targetPublication.content,
+      awaitSave: true,
     });
-    setSelectedLayerIdsState([movedNodeFinal.id]);
-    setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
-    if (viewModeRef.current === "overview") {
-      setOverviewSelectedScreenIds(
-        targetScreenId === boardFileId ? [] : [targetScreenId],
-      );
+    if (rollback.status !== "accepted") {
+      toast.error(t("designEditor.toasts.saveConflict"));
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
     }
-    if (contentUndoStackRef && contentHistorySelectionAfterRef) {
-      stampContentHistorySelectionAfter(
-        contentUndoStackRef.current,
-        contentHistorySelectionAfterRef.current,
-        contentUndoStackTopBeforeMove,
-        {
-          activeFileId: targetScreenId,
-          overviewSelectedScreenIds:
-            targetScreenId === boardFileId ? [] : [targetScreenId],
-          selectedLayerIds: [movedNodeFinal.id],
-        },
-      );
+    if (!rollback.saveCompletion) {
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
     }
+    void rollback.saveCompletion.then(
+      (status) => {
+        if (status !== "persisted") {
+          toast.error(t("designEditor.toasts.saveConflict"));
+        }
+        clearPendingHistory?.();
+        releasePendingHistory();
+      },
+      () => {
+        toast.error(t("designEditor.toasts.saveConflict"));
+        clearPendingHistory?.();
+        releasePendingHistory();
+      },
+    );
+    return;
   }
+
+  // Capture after both publications so synchronous bridge/state updates caused
+  // by this move are part of the operation rather than mistaken for a newer
+  // selection.
+  const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
+  const saveOperationRevisionsAtPublication = {
+    [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
+    [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],
+  };
+  const serverSnapshotsAtPublication = getCurrentFileSnapshot
+    ? {
+        [targetScreenId]: getCurrentFileSnapshot(targetScreenId),
+        [sourceScreenId]: getCurrentFileSnapshot(sourceScreenId),
+      }
+    : undefined;
+  const isCurrentPublication = (
+    fileId: string,
+    publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
+  ) => {
+    const expectedRevision = saveOperationRevisionsAtPublication[fileId];
+    if (expectedRevision !== undefined && fileSaveOperationRevisionRef) {
+      if (fileSaveOperationRevisionRef.current[fileId] !== expectedRevision) {
+        return false;
+      }
+    }
+    const serverSnapshot = getCurrentFileSnapshot?.(fileId);
+    const initialServerSnapshot = serverSnapshotsAtPublication?.[fileId];
+    const currentContent = getScreenContent(fileId);
+    // A refetch can repaint stale bytes after the optimistic overlay retires;
+    // an unchanged server revision is still the same publication. A changed
+    // server revision with different bytes is an authoritative peer update.
+    if (
+      serverSnapshot &&
+      initialServerSnapshot &&
+      serverSnapshot.updatedAt !== initialServerSnapshot.updatedAt &&
+      serverSnapshot.content !== publication.content
+    ) {
+      return false;
+    }
+    return (
+      currentContent === publication.content ||
+      serverSnapshot?.content === publication.content ||
+      Boolean(
+        serverSnapshot &&
+        initialServerSnapshot &&
+        serverSnapshot.updatedAt === initialServerSnapshot.updatedAt,
+      )
+    );
+  };
+  const canFinalizePublication = () => {
+    const targetCurrent = isCurrentPublication(
+      targetScreenId,
+      targetPublication,
+    );
+    const sourceCurrent = isCurrentPublication(
+      sourceScreenId,
+      sourcePublication,
+    );
+    return targetCurrent && sourceCurrent;
+  };
+
+  const finalizePublication = () => {
+    // Save completion is asynchronous. Do not append stale whole-document
+    // history; selection restoration is guarded separately below.
+    if (!canFinalizePublication()) return;
+    // History must replay the bytes the publisher accepted. Canonical identity
+    // publication may stamp IDs into submitted HTML, and the post-action
+    // selection snapshot must resolve against those same final documents.
+    crossScreenHistoryChanges[0].after = sourcePublication.content;
+    crossScreenHistoryChanges[1].after = targetPublication.content;
+    recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+
+    const selectionStillCurrent =
+      selectionFingerprintAtPublication === undefined ||
+      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.();
+    if (!selectionStillCurrent) return;
+
+    // Switch active screen to the target and select the moved node; viewMode
+    // stays "overview" (no setViewMode call).
+    pendingOverviewScreenSelectionRef.current =
+      targetScreenId === boardFileId ? null : targetScreenId;
+    pendingOverviewLayerSelectionRef.current = destNodeAttrId;
+    clearPendingOverviewLayerSelectionTimer();
+    setActiveFileId(targetScreenId);
+    const submittedProjection = buildCodeLayerProjection(nextDestContent, {
+      source: { kind: "design-file", fileId: targetScreenId },
+    });
+    const movedNodeCandidate = submittedProjection.nodes.find(
+      (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+    );
+    const movedNodeFinal = mapAcceptedSelectionNode(
+      targetPublication,
+      projectAcceptedSource(targetPublication, {
+        kind: "design-file",
+        fileId: targetScreenId,
+      }),
+      movedNodeCandidate,
+    );
+    if (movedNodeFinal) {
+      setCreatedOverviewLayerSelection({
+        screenId: targetScreenId,
+        layerId: movedNodeFinal.id,
+      });
+      setSelectedLayerIdsState([movedNodeFinal.id]);
+      setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          targetScreenId === boardFileId ? [] : [targetScreenId],
+        );
+      }
+      if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+        stampContentHistorySelectionAfter(
+          contentUndoStackRef.current,
+          contentHistorySelectionAfterRef.current,
+          contentUndoStackTopBeforeMove,
+          {
+            activeFileId: targetScreenId,
+            overviewSelectedScreenIds:
+              targetScreenId === boardFileId ? [] : [targetScreenId],
+            selectedLayerIds: [movedNodeFinal.id],
+          },
+        );
+      }
+    }
+  };
+
+  const rollbackAfterSaveConflict = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ): Promise<FileContentSaveCompletion> => {
+    if (!isCurrentPublication(fileId, publication)) {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
+    }
+    const rollback = applyFileContentUpdate(fileId, content, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: publication.content,
+      sourceBaseContent: publication.content,
+      immediateSave: true,
+      awaitSave: true,
+    });
+    if (rollback.status !== "accepted") {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
+    }
+    return (
+      rollback.saveCompletion ??
+      Promise.resolve<FileContentSaveCompletion>("persisted")
+    );
+  };
+
+  const restoreRetryablePublication = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ): boolean => {
+    // Offline saves remain in the outbox, but a two-file move has no safe way
+    // to finalize one history entry when only a later replay succeeds. Restore
+    // both optimistic files and cancel only the publication still visible in
+    // the editor; a newer edit must remain untouched.
+    if (!isCurrentPublication(fileId, publication)) return true;
+    return (
+      applyFileContentUpdate(fileId, content, {
+        recordHistory: false,
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+        persist: false,
+        historyBeforeContent: publication.content,
+      }).status === "accepted"
+    );
+  };
+
+  const targetSave = targetPublication.saveCompletion;
+  const sourceSave = sourcePublication.saveCompletion;
+  if (!targetSave && !sourceSave) {
+    finalizePublication();
+    releasePendingHistory();
+    return;
+  }
+
+  void Promise.allSettled([
+    targetSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+    sourceSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+  ]).then(async ([targetResult, sourceResult]) => {
+    const targetSaved =
+      targetResult.status === "fulfilled" && targetResult.value === "persisted";
+    const sourceSaved =
+      sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
+    const targetRetryable =
+      targetResult.status === "fulfilled" && targetResult.value === "retryable";
+    const sourceRetryable =
+      sourceResult.status === "fulfilled" && sourceResult.value === "retryable";
+    const retryableSave = targetRetryable || sourceRetryable;
+    const saveConflict =
+      (targetResult.status === "fulfilled" &&
+        targetResult.value === "conflict") ||
+      (sourceResult.status === "fulfilled" &&
+        sourceResult.value === "conflict");
+    const saveFailed =
+      targetResult.status === "rejected" || sourceResult.status === "rejected";
+    if (targetSaved && sourceSaved) {
+      finalizePublication();
+      releasePendingHistory();
+      return;
+    }
+    if (retryableSave) {
+      const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
+      const localRestores: boolean[] = [];
+      if (targetSaved) {
+        rollbackResults.push(
+          rollbackAfterSaveConflict(
+            targetPublication,
+            targetScreenId,
+            rawDestContent,
+          ),
+        );
+      } else if (targetRetryable) {
+        localRestores.push(
+          restoreRetryablePublication(
+            targetPublication,
+            targetScreenId,
+            rawDestContent,
+          ),
+        );
+      }
+      if (sourceSaved) {
+        rollbackResults.push(
+          rollbackAfterSaveConflict(
+            sourcePublication,
+            sourceScreenId,
+            sourceContent,
+          ),
+        );
+      } else if (sourceRetryable) {
+        localRestores.push(
+          restoreRetryablePublication(
+            sourcePublication,
+            sourceScreenId,
+            sourceContent,
+          ),
+        );
+      }
+      const rollbackFailed = (await Promise.all(rollbackResults)).some(
+        (status) => status !== "persisted",
+      );
+      if (rollbackFailed || localRestores.some((restored) => !restored)) {
+        toast.error(t("designEditor.toasts.saveConflict"));
+      }
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
+    }
+    const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
+    if (targetSaved && !sourceSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          targetPublication,
+          targetScreenId,
+          rawDestContent,
+        ),
+      );
+    }
+    if (sourceSaved && !targetSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          sourcePublication,
+          sourceScreenId,
+          sourceContent,
+        ),
+      );
+    }
+    const rollbackFailed = (await Promise.all(rollbackResults)).some(
+      (status) => status !== "persisted",
+    );
+    if (saveFailed || saveConflict || rollbackFailed) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+    }
+    clearPendingHistory?.();
+    releasePendingHistory();
+  });
 }

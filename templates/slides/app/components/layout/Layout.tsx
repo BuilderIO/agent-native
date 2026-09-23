@@ -24,6 +24,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   hasCurrentSlideSelection,
+  buildSlidesAgentContext,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -136,11 +137,13 @@ export function Layout({ children }: LayoutProps) {
     const deckId = match?.[1];
     if (!deckId) return null;
     const hasSelection = hasCurrentSlideSelection(slidesSelection, deckId);
+    const agentContext = buildSlidesAgentContext(slidesSelection, deckId);
     return {
       type: "deck" as const,
       id: deckId,
       label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
       contextKey: "slides-current-context",
+      ...agentContext,
     };
   }, [location.pathname, slidesSelection, t]);
   const deckChatHistory = useMemo<

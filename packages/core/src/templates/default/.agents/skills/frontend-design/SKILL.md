@@ -20,7 +20,10 @@ metadata:
 
 # Frontend Design
 
-This skill guides creation of distinctive, production-grade frontend interfaces. Implement real working code with strong product judgment, excellent accessibility, and a clear visual point of view.
+This skill guides creation of product-specific, production-grade interfaces.
+Distinctive means the product has a clear point of view, not that the screen is
+busy. Implement real working code with strong product judgment and excellent
+accessibility.
 
 The user may ask for a component, page, full app, dashboard, marketing surface, or restyle. Before coding, understand the audience and pick a direction that fits the product instead of defaulting to generic SaaS polish.
 
@@ -28,31 +31,71 @@ The user may ask for a component, page, full app, dashboard, marketing surface, 
 
 Before coding, decide:
 
-- **Purpose**: What workflow does this surface make easier? What does the user
-  need to understand, decide, or do next?
-- **Audience**: Who will use it repeatedly, and what should feel fast, calm, playful, premium, editorial, technical, or utilitarian?
-- **Tone**: Choose a concrete aesthetic direction: refined minimal, dense operations console, editorial, playful, industrial, warm handmade, high-contrast data tool, etc.
-- **Information hierarchy**: What must be visible to orient and act, and what
-  can wait until context or intent makes it relevant?
-- **Differentiation**: What makes this feel designed for this exact domain?
+- **Job**: What is the one thing a repeat user came here to do?
+- **Audience and mode**: Who uses it, how often, and is this `operate`, `read`,
+  `persuade`, or `experience`?
+- **Next decision**: What must the user understand or choose next?
+- **World**: What existing product system, domain convention, or deliberate
+  visual direction makes this feel authored for this product?
 
-Then implement working code that is cohesive, accessible, responsive, and polished in small details: typography, spacing, motion, empty states, loading states, focus states, and error states. Polish means removing copy, not writing more of it.
+Write that contract in one line before coding:
+`<mode> / <user> / <job> / <next action>`.
+
+If the surface has two primary jobs, split the route, step, or state. Do not
+solve an information-architecture problem with more cards, tabs, helper copy,
+or buttons. Then implement the smallest cohesive, accessible, responsive
+surface that proves the contract.
+
+## The first-viewport budget
+
+The default state is a calm starting point, not a catalog of everything the
+feature can do. It should show only:
+
+- where the user is and the current state;
+- the content or input needed for the current job;
+- for an actionable job, one obvious next action; for a read-only, overview,
+  monitoring, or experience surface, the next decision or focal result.
+
+On actionable surfaces, use one primary action and at most two visible
+secondary actions. Put rare, advanced, destructive, diagnostic, history, and
+provider controls in a menu, disclosure, focused dialog, or later step. If a
+task has more than four visible choices, group or stage them before styling it.
+If setup, results, feedback, history, and advanced configuration all appear
+together, the information architecture is wrong - separate the states.
+
+Prefer one visible input group for one job. If several fields are genuinely
+required, keep them in one focused form or stage them; do not expose separate
+setup, feedback, and configuration forms on the same default surface.
+
+Every visible element must earn one of four jobs: orient, show work/state,
+provide required input, or enable the next decision. Remove or disclose
+anything else. More visible UI is not more capability; routes, actions, menus,
+keyboard commands, and the agent surface can preserve capability without
+competing in the first viewport.
+
+Do not add a new input, button, icon, badge, card, or sentence merely because a
+capability exists. First ask whether an existing row action, menu, composer,
+agent handoff, or progressive disclosure already owns it. Default to no icon
+when text is clear; use an icon only when it adds recognition or saves space.
+
+When a screenshot feels busy, delete or defer elements before changing color,
+radius, shadow, or typography. Whitespace is a valid outcome. A focused tool
+is better than a miniature control panel.
 
 ## Visual Direction Contract
 
-Before styling a new app or workspace surface, define its product mode,
-audience, visual world, palette family, type treatment, composition, shape
-language, and anti-references in `DESIGN.md`. Read
-`references/visual-direction.md` for the direction families and review
-vocabulary. This is the Impeccable-inspired design contract for Agent-Native
-apps: understand the product, name the mode, deal a few coherent directions,
-commit to one, and audit the result instead of averaging back to a starter.
+For a new app or an explicit visual redesign, define its product mode, audience,
+visual world, palette family, type treatment, composition, shape language, and
+anti-references in `DESIGN.md`. Read `references/visual-direction.md` for the
+vocabulary. For a routine screen or cleanup, do not invent a mood-board
+exercise: inspect the incumbent tokens and components, choose one fitting
+direction, and get back to the user's job.
 
 Preserve an existing brand system and component library. When no brand exists,
 choose a deliberate direction based on the domain and compare sibling apps
 before selecting its accent family. Shared behavior and semantic token names
-should stay consistent; palette, density, composition, type contrast, and
-shape language should not be identical by default.
+stay consistent; visual variation is a reasoned product choice, not a demand
+to make every screen novel.
 
 ## Interaction Responsiveness
 
@@ -78,11 +121,11 @@ name more than once, usually right after a previous surface was corrected for th
 same thing. So treat the list as the default shape you apply, not a tradeoff you
 weigh per surface. If the user wants one of these, they will ask.
 
-Density comes from data, not from prose. Linear, Vercel, and ChatGPT/Codex are
-dense — with rows, values, and state, and almost no explanatory sentences. That
-is the target: a surface full of information and nearly empty of narration. So
-"make it minimal" is never satisfied by removing data or by burying it behind
-extra clicks, and never blocked by deleting a sentence.
+Density comes from useful data, not from chrome. A table, inbox, canvas, or
+editor may be information-dense while its controls stay quiet. Never translate
+"operational" or "dense" into more cards, buttons, icons, inputs, or visible
+configuration. If the user came to complete one task, a focused surface with
+empty space is the correct default.
 
 Keep on-screen text and badging minimal: show the shortest label needed for the
 next action, remove decorative or duplicate status chips, and put context in a
@@ -111,28 +154,17 @@ configured. Do not spell every input out on the default surface.
 nothing when it is empty. Never add a `|| "No description yet."` fallback; an
 empty field is empty, not an opening to explain the feature.
 
-### The Shape That Got Approved
+### Focused flows
 
-A multi-step connect flow the user accepted on 2026-08-12, after rejecting a
-dense dialog of the same content as "HORRIBLE ... overwhelming":
+For genuinely sequential setup, prefer one decision per step, a clear progress
+cue, smart defaults, and advanced detail behind a labeled disclosure. Use a
+full-screen takeover only when the task deserves uninterrupted focus; use a
+dialog or inline row for a small task. Do not copy one approved flow onto every
+surface. Choose the smallest composition that matches the user's actual job.
 
-- Full-screen takeover rather than a crowded modal. Generous empty space is fine.
-- One question per step as the heading ("Who should use this?"), at most one
-  short line under it, and nothing under the options.
-- Choices are single-line rows — icon plus label — with the common one
-  preselected, so the happy path is one click.
-- "Step 2 of 2" and a thin progress bar instead of every field at once.
-- Advanced and rare detail behind a labeled collapsed row ("Advanced details",
-  "App grants"): label only, no preview of the contents.
-- Current state shown rather than explained: "Dispatch can reuse this account".
-- Quiet Cancel on the left, primary action on the right.
-
-Use that same treatment for sibling flows. When the user points at another
-surface — "like forms", "like the integrations grid" — copy that surface's
-structure instead of inventing a second language for the same job.
-`templates/forms/` is the reference implementation: no page title, no
-breadcrumbs, no eyebrows, no card descriptions, and row subtext only where it
-renders a user-authored field.
+`templates/forms/` is a reference for quiet settings: no repeated page title,
+breadcrumbs, eyebrows, card descriptions, or form fields before the user asks
+to create or manage something. User-authored field content is the exception.
 
 Before shipping, verify collapsed, expanded, loading, empty, error, and
 narrow-width states. The default state fails review when its first viewport
@@ -149,11 +181,17 @@ yours to apply.
   not the whole application shell.
 - **Color and theme**: Use semantic tokens and CSS variables. Avoid one-note palettes, default warm beige/terracotta, and default purple/blue gradients unless the brand demands them. New apps should choose a product-fitting accent family rather than inherit the previous app's color.
 - **Motion**: Prefer purposeful transitions and small state changes. Use CSS transitions/keyframes unless the app already uses a motion library. Never `transition-all` — list the properties that actually change (e.g. `transition-[opacity,transform]`). Use the shared easing tokens defined in `packages/core/src/styles/agent-native.css` instead of hand-typing curves: `var(--ease-drawer)` (260ms, drawers/app chrome), `var(--ease-collapse)` (200ms, expand/collapse), `var(--ease-out-strong)` (snappy entrances) — in Tailwind, `ease-[var(--ease-collapse)]`. Enter/exit with ease-out, never `ease-in`. Overlays that zoom in must set the Radix origin var (e.g. `origin-[--radix-popover-content-transform-origin]`). Animate `transform`/`opacity`, not width/height/padding/box-shadow. Gate looping or large-movement animations with `motion-reduce:`. Command palettes and keyboard-triggered actions get no animation.
-- **Composition**: Match the workflow. Operational apps should be dense and scannable; marketing or portfolio pages can be more immersive.
+- **Composition**: Match the workflow. Operational apps should be scannable,
+  not necessarily packed; choose a focused flow, list/detail, table, editor, or
+  canvas instead of combining them into equal-weight panels.
 - **Visual assets**: Websites, games, and object-focused pages need real or generated media when images help users understand the subject.
 - **Responsive fit**: Text must not overflow buttons, cards, tabs, sidebars, or fixed-format tools. Use stable dimensions for boards, grids, toolbars, and counters.
 
-**Beat convergence, not just defaults.** You sample toward the "on-distribution" center, so naming what to avoid is not enough: every "don't" needs a "do", or you converge on the next safe option. Commit to one named direction, pair any reference with the reason it fits, and match implementation effort to the vision. If the brief is open, consider two or three coherent visual worlds, then commit to one instead of averaging them. When building on an existing app, inspect its tokens/type/components first and treat any drift back to a default as a missing token to pin, not something to re-prompt.
+**Avoid convergence by choosing with purpose.** A named direction is useful for a
+new or explicitly redesigned surface, not as ceremony for every row or dialog.
+Pair a reference with the reason it fits, then commit to one direction. Only
+deal multiple visual worlds when the brief is genuinely open and the choice is
+worth the cost. Never average several directions into extra decoration.
 
 ## Agent-Native UI Rules
 
@@ -185,7 +223,7 @@ yours to apply.
   an icon you haven't used elsewhere in this app, confirm it exists by grepping
   `node_modules/@tabler/icons-react/dist/tabler-icons-react.d.ts` (or the package's icon list)
   for the exact name, and pick the closest real match if your first guess isn't there.
-- Keep inline help/info glyphs next to labels at `size-3` (12px) or smaller than the adjacent text. Preserve a larger hit area on the trigger, not the glyph. Use `guard:allow-large-help-icon` only for deliberate heading documentation or menu action exceptions.
+- Keep inline help/info glyphs next to labels at `size-3` (12px) or smaller than the adjacent text. Preserve a larger hit area on the trigger, not the glyph. Use `guard:allow-large-help-icon` only for deliberate heading documentation or menu action exceptions. Do not add help glyphs to every row; use one contextual explanation where it is needed.
 - Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` for action-backed UI. Standard CRUD should go through actions, not custom `/api/` routes.
 - Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
 - Custom styles belong in Tailwind classes, component CSS, or the existing global CSS theme file; avoid inline styles.
@@ -199,51 +237,51 @@ yours to apply.
   `/workflow`. Preserve the starter's full-page chat route (`/` or `/chat/*`)
   when it exists; do not replace it with a domain form while leaving the shell
   configured as if it were chat.
-- Use the persistent right `AgentSidebar` for contextual AI. A button that
-  sends work to `sendToAgentChat` must open or focus that sidebar and leave the
-  user on the current domain surface. Use full-page chat for chat-first work,
-  not as a hidden transport for a domain button.
+- Use the existing right `AgentSidebar` for contextual AI when the app has one
+  and the task benefits from judgment. A button that sends work to
+  `sendToAgentChat` must open or focus that sidebar and leave the user on the
+  current domain surface. Do not add a second prompt box or a sidebar merely to
+  make AI visible. Use full-page chat for chat-first work, not as a hidden
+  transport for a domain button.
 - Keep the left navigation domain-specific. A page called Automations,
   Block time, or Create deck should not be nested under a generic Chat item;
   Chat is its own destination and the right rail is the contextual assistant.
 - Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
-  familiar message, assistant, or neutral action icon, and let the button copy
-  explain the intent. An icon-only control needs a tooltip and accessible name.
-- Give the persistent agent drawer a quiet but intentional boundary: a subtle
-  surface shift, divider, or both. The sidebar and domain page should not read
-  as one undifferentiated slab, and the treatment should remain calm when the
-  drawer opens or closes.
-- Treat an AI-labeled button as a contract. Buttons named Ask agent, Review
-  with agent, Refine, Generate with AI, or similar must call
-  `sendToAgentChat` with bounded context, `openSidebar: true`, and the intended
-  `submit` mode. A deterministic local action is useful, but label it local,
-  preview, or analyze rather than implying it invoked an agent.
+  familiar message, assistant, or neutral action icon only when it improves
+  recognition; plain text is preferred when it is clearer. An icon-only control
+  needs a tooltip and accessible name.
+- When an AgentSidebar exists, give the drawer a quiet but intentional boundary:
+  a subtle surface shift, divider, or both. The sidebar and domain page should
+  not read as one undifferentiated slab, and the treatment should remain calm
+  when the drawer opens or closes.
+- Treat an AI-labeled action as a contract. Buttons named Ask agent, Review with
+  agent, Refine, Generate with AI, or similar must call `sendToAgentChat` with
+  bounded context, `openSidebar: true`, and the intended `submit` mode. Prefer
+  one contextual handoff over a row of AI buttons. A deterministic local action
+  is useful, but label it local, preview, or analyze rather than implying it
+  invoked an agent.
 
 ### Product Surface Review
 
 Before shipping a new app or a substantial redesign, review the surface as an
 operator would use it repeatedly:
 
-- Count the sentences in the first viewport. If any of them explains the UI
-  rather than reporting state, delete it. "Could a user identify where they are?"
-  is a question every surface passes; a sentence count is not.
-- Remove competing or redundant elements, then place optional inputs, provider
-  choices, diagnostics, long explanations, and secondary actions where they
-  remain discoverable without crowding the current task.
-- Match the composition to the workflow. Use a focused page or step flow when
-  the work is sequential; use an overview when comparing or monitoring several
-  things is genuinely the job. Preserve the user's progress in either case.
+- Name the one primary job and point to the one next action. If either is
+  unclear, fix the structure before styling.
+- Mark every visible element as orientation, content/state, input, or next
+  action. Delete or disclose anything without a job.
+- Check that there is one primary action, no more than two visible secondary
+  actions, and no decision point with more than four ungrouped choices.
 - Remove generic hero copy, feature tours, repeated helper text, nested cards,
-  status-chip soup, and decorative AI treatment before adding more styling.
-- For review flows, choose stacking, side-by-side comparison, or another
-  composition based on content length, scanability, and the user's comparison
-  task.
-- Compare the result with sibling apps. Shared toolkit behavior should feel
-  consistent, but a repeated palette, hero composition, type pairing, and
-  radius language without a product reason is visual drift, not consistency.
-- Check the result with realistic content at the target desktop width and a
-  narrow width. If it feels like documentation instead of a tool, subtract until
-  it does not — restyling it is not the fix.
+  status-chip soup, decorative icons, and controls for another task.
+- Put optional inputs, provider choices, diagnostics, long explanations,
+  history, and secondary actions behind the smallest discoverable disclosure.
+- Match the composition to the workflow: focused steps for sequential work,
+  list/detail for inspection, tables for comparison, and canvas/editor space
+  for direct manipulation. Do not combine them as equal-weight blocks.
+- Check realistic desktop and narrow-width content in the default, expanded,
+  loading, empty, error, and success states. If it feels like documentation or
+  a control panel instead of a tool, subtract before restyling.
 
 ## shadcn/ui Design Rules
 

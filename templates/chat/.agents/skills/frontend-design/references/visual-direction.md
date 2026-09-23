@@ -10,16 +10,16 @@ that became the design by accident.
 
 Before writing UI, capture these decisions in the app's `DESIGN.md`:
 
-| Decision             | What to record                                                      |
-| -------------------- | ------------------------------------------------------------------- |
-| Product mode         | `operate`, `read`, `persuade`, or `experience`                      |
-| Audience and cadence | Who uses it, how often, and under what conditions                   |
-| Visual world         | A short name and the feeling it creates                             |
-| Palette family       | The semantic accent family and neutral undertone                    |
-| Type treatment       | Sans-first, editorial contrast, or display-led emphasis             |
-| Composition          | Dense console, focused workbench, document, canvas, or guided steps |
-| Shape language       | Quiet corners, crisp geometry, or soft utility surfaces             |
-| Anti-references      | Defaults this app must not drift toward                             |
+| Decision             | What to record                                                    |
+| -------------------- | ----------------------------------------------------------------- |
+| Product mode         | `operate`, `read`, `persuade`, or `experience`                    |
+| Audience and cadence | Who uses it, how often, and under what conditions                 |
+| Visual world         | A short name and the feeling it creates                           |
+| Palette family       | The semantic accent family and neutral undertone                  |
+| Type treatment       | Sans-first, editorial contrast, or display-led emphasis           |
+| Composition          | Focused workbench, list/detail, document, canvas, or guided steps |
+| Shape language       | Quiet corners, crisp geometry, or soft utility surfaces           |
+| Anti-references      | Defaults this app must not drift toward                           |
 
 `DESIGN.md` is a portable design contract, not a license to bypass the app's
 tokens or component system. If the app already has a brand system, document it
@@ -82,8 +82,9 @@ change:
 - `audit` - check slop, accessibility, responsive behavior, and visual drift.
 
 Do not average several directions into a generic compromise. Deal two or three
-coherent options when the brief is open, select one, and encode the decision in
-tokens and `DESIGN.md`.
+coherent options only when a new or explicitly redesigned surface has a real
+visual decision to make; for routine operate work, select one fitting direction
+and encode only the useful decision in tokens and `DESIGN.md`.
 
 ## Anti-slop audit
 
@@ -91,6 +92,8 @@ Before handoff, inspect the first viewport and ask:
 
 - Did the app inherit the neighboring app's palette or hero layout without a
   product reason?
+- Does the first viewport show one job and one next action, rather than a
+  capability catalog?
 - Are there equal-weight cards, status chips, helper paragraphs, or controls
   that should be removed or disclosed?
 - Does the typography fit the product mode instead of decorating the shell?

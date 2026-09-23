@@ -64,6 +64,12 @@ export interface UseCollabReconcileOptions {
   /** Opaque authoritative body revision. Enables base-aware reconciliation. */
   contentRevision?: string | null;
   /**
+   * Orders two revision identities when their timestamps tie. Return a positive
+   * number when the first revision is newer, zero when equivalent, a negative
+   * number when older, or null when this revision format cannot be ordered.
+   */
+  compareContentRevisions?: (first: string, second: string) => number | null;
+  /**
    * A server-confirmed snapshot written by this editor. This is deliberately
    * separate from `registerEmitted`: an emitted value may still fail to save,
    * while an acknowledged revision is safe to adopt as the next merge base.
@@ -88,6 +94,8 @@ export interface UseCollabReconcileOptions {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  /** Controls how overlapping live and server hunks are reconciled. */
+  overlapPolicy?: "conflict" | "prefer-live";
   /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
   editable: boolean;
   /**
@@ -263,10 +271,12 @@ export function useCollabReconcile({
   value,
   contentUpdatedAt,
   contentRevision,
+  compareContentRevisions,
   acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  overlapPolicy = "conflict",
   editable,
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
@@ -339,6 +349,14 @@ export function useCollabReconcile({
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
   );
+  const latestObservedRevisionRef = useRef<string | null>(
+    contentRevision ?? null,
+  );
+  const acknowledgementBaseRollbackRef = useRef<{
+    acknowledgementRevision: string;
+    updatedAt: string;
+    base: { value: string; revision: string } | null;
+  } | null>(null);
   const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
     null,
   );
@@ -633,28 +651,115 @@ export function useCollabReconcile({
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       const callbacks = reconcileCallbacksRef.current;
-      if (
-        contentUpdatedAt &&
-        (!latestObservedUpdatedAtRef.current ||
-          contentUpdatedAt > latestObservedUpdatedAtRef.current)
-      ) {
-        latestObservedUpdatedAtRef.current = contentUpdatedAt;
+      if (contentUpdatedAt) {
+        const rollback = acknowledgementBaseRollbackRef.current;
+        const conflictsWithAcceptedAcknowledgement =
+          contentRevision &&
+          rollback?.updatedAt === contentUpdatedAt &&
+          rollback.acknowledgementRevision !== contentRevision;
+        if (conflictsWithAcceptedAcknowledgement) {
+          const order = compareContentRevisions?.(
+            contentRevision,
+            rollback.acknowledgementRevision,
+          );
+          if (order !== undefined && order !== null && order <= 0) {
+            return;
+          }
+          // The acknowledgement advanced our base before its SQL snapshot was
+          // observed, but another revision won at the same timestamp. Restore
+          // the common base and treat this first canonical winner as the
+          // authoritative revision for that otherwise unordered timestamp.
+          if (
+            authoritativeBaseRef.current?.revision ===
+            rollback.acknowledgementRevision
+          ) {
+            authoritativeBaseRef.current = rollback.base;
+          }
+          acknowledgementBaseRollbackRef.current = null;
+          latestObservedUpdatedAtRef.current = contentUpdatedAt;
+          latestObservedRevisionRef.current = contentRevision;
+        } else if (
+          !latestObservedUpdatedAtRef.current ||
+          contentUpdatedAt > latestObservedUpdatedAtRef.current
+        ) {
+          latestObservedUpdatedAtRef.current = contentUpdatedAt;
+          latestObservedRevisionRef.current = contentRevision ?? null;
+          acknowledgementBaseRollbackRef.current = null;
+        } else if (
+          contentUpdatedAt === latestObservedUpdatedAtRef.current &&
+          contentRevision &&
+          latestObservedRevisionRef.current !== contentRevision
+        ) {
+          const order = latestObservedRevisionRef.current
+            ? compareContentRevisions?.(
+                contentRevision,
+                latestObservedRevisionRef.current,
+              )
+            : null;
+          if (order !== undefined && order !== null && order <= 0) {
+            return;
+          }
+          // Legacy opaque revisions cannot be ordered. Preserve their existing
+          // reconcile behavior; ordered body revisions retain the newest
+          // identity so a delayed snapshot cannot roll it back.
+          latestObservedRevisionRef.current =
+            order !== undefined && order !== null ? contentRevision : null;
+        }
       }
+      let rejectedMatchingAcknowledgement = false;
       if (acknowledgedLocalSnapshot) {
         const acceptedAcknowledgement = acknowledgedLocalSnapshotRef.current;
         const acknowledgementIsNewestAccepted =
           !acceptedAcknowledgement ||
           acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
+        const acknowledgementRevisionOrder =
+          acknowledgedLocalSnapshot.updatedAt ===
+            latestObservedUpdatedAtRef.current &&
+          latestObservedRevisionRef.current
+            ? compareContentRevisions?.(
+                acknowledgedLocalSnapshot.revision,
+                latestObservedRevisionRef.current,
+              )
+            : null;
         const acknowledgementIsNotSuperseded =
           !latestObservedUpdatedAtRef.current ||
-          acknowledgedLocalSnapshot.updatedAt >=
-            latestObservedUpdatedAtRef.current;
+          acknowledgedLocalSnapshot.updatedAt >
+            latestObservedUpdatedAtRef.current ||
+          (acknowledgedLocalSnapshot.updatedAt ===
+            latestObservedUpdatedAtRef.current &&
+            (latestObservedRevisionRef.current ===
+              acknowledgedLocalSnapshot.revision ||
+              acknowledgementRevisionOrder === undefined ||
+              acknowledgementRevisionOrder === null ||
+              acknowledgementRevisionOrder >= 0));
         if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
+          const existingRollback = acknowledgementBaseRollbackRef.current;
+          if (
+            existingRollback?.acknowledgementRevision !==
+              acknowledgedLocalSnapshot.revision ||
+            existingRollback.updatedAt !== acknowledgedLocalSnapshot.updatedAt
+          ) {
+            acknowledgementBaseRollbackRef.current = {
+              acknowledgementRevision: acknowledgedLocalSnapshot.revision,
+              updatedAt: acknowledgedLocalSnapshot.updatedAt,
+              base: authoritativeBaseRef.current,
+            };
+          }
           authoritativeBaseRef.current = {
             value: acknowledgedLocalSnapshot.value,
             revision: acknowledgedLocalSnapshot.revision,
           };
+          if (
+            acknowledgedLocalSnapshot.updatedAt ===
+              latestObservedUpdatedAtRef.current &&
+            acknowledgementRevisionOrder !== undefined &&
+            acknowledgementRevisionOrder !== null &&
+            acknowledgementRevisionOrder > 0
+          ) {
+            latestObservedRevisionRef.current =
+              acknowledgedLocalSnapshot.revision;
+          }
           if (
             !lastAppliedUpdatedAtRef.current ||
             acknowledgedLocalSnapshot.updatedAt >
@@ -663,8 +768,14 @@ export function useCollabReconcile({
             lastAppliedUpdatedAtRef.current =
               acknowledgedLocalSnapshot.updatedAt;
           }
+        } else if (
+          contentRevision === acknowledgedLocalSnapshot.revision &&
+          value === acknowledgedLocalSnapshot.value
+        ) {
+          rejectedMatchingAcknowledgement = true;
         }
       }
+      if (rejectedMatchingAcknowledgement) return;
       const acknowledged = acknowledgedLocalSnapshotRef.current;
       if (
         acknowledged &&
@@ -673,7 +784,9 @@ export function useCollabReconcile({
       ) {
         const acknowledgementWasSuperseded =
           latestObservedUpdatedAtRef.current !== null &&
-          acknowledged.updatedAt < latestObservedUpdatedAtRef.current;
+          (acknowledged.updatedAt < latestObservedUpdatedAtRef.current ||
+            (acknowledged.updatedAt === latestObservedUpdatedAtRef.current &&
+              latestObservedRevisionRef.current !== acknowledged.revision));
         if (!acknowledgementWasSuperseded) {
           authoritativeBaseRef.current = {
             value: acknowledged.value,
@@ -925,6 +1038,7 @@ export function useCollabReconcile({
             editor,
             baseDoc,
             serverDoc,
+            { overlapPolicy },
           );
           if (
             reconciled.status === "conflict" ||
@@ -1013,6 +1127,7 @@ export function useCollabReconcile({
   }, [
     contentUpdatedAt,
     contentRevision,
+    compareContentRevisions,
     acknowledgedLocalSnapshot,
     editor,
     ydoc,
@@ -1021,6 +1136,7 @@ export function useCollabReconcile({
     collab,
     collabSynced,
     isLeadClient,
+    overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
   ]);

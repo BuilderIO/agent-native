@@ -14,7 +14,12 @@ const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
-const mockUpdateRows = vi.hoisted(() => ({ rows: [{ id: "rec-1" }] }));
+const mockUpdateRows = vi.hoisted(() => ({
+  rows: [{ id: "rec-1" }] as Array<{
+    id: string;
+    uploadGenerationId?: string;
+  }>,
+}));
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -367,6 +372,66 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  it("rejects a legacy abort for an older generation", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        uploadAttemptId: null,
+        uploadGenerationId: "generation-2",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Cancelled",
+      uploadGenerationId: "generation-1",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("cancels a reset generation that keeps the same upload attempt", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Cancelled",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockUpdateRows.rows = [{ id: "rec-1", uploadGenerationId: "generation-2" }];
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockGetResumableSession).toHaveBeenLastCalledWith(
+      "rec-1",
+      "generation-2",
+    );
+    expect(mockDeleteRecordingChunks).toHaveBeenCalledWith(
+      "owner@example.com",
+      "rec-1",
+      "generation-2",
+    );
+  });
+
   it("preserves replacement auxiliary state that changes after the abort CAS", async () => {
     mockSelectRows.rows = [
       {
@@ -388,8 +453,13 @@ describe("/api/uploads/:recordingId/abort route", () => {
         status: "uploading",
         uploadGenerationId: "generation-1",
       })
-      .mockResolvedValueOnce(null);
-    mockCompareAndSetManyAppState.mockResolvedValue(false);
+      .mockResolvedValueOnce({
+        recordingId: "rec-1",
+        pendingMediaVerification: true,
+      });
+    mockCompareAndSetManyAppState
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
     const consoleInfo = vi
       .spyOn(console, "info")
       .mockImplementation(() => undefined);
@@ -404,7 +474,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       consoleInfo.mockRestore();
     }
 
-    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+    expect(mockCompareAndSetManyAppState).toHaveBeenNthCalledWith(1, [
       {
         key: "recording-upload-rec-1",
         expectedValue: {
@@ -415,13 +485,23 @@ describe("/api/uploads/:recordingId/abort route", () => {
         nextValue: expect.objectContaining({ status: "failed" }),
       },
     ]);
+    expect(mockCompareAndSetManyAppState).toHaveBeenNthCalledWith(2, [
+      {
+        key: "recording-media-verification-rec-1",
+        expectedValue: {
+          recordingId: "rec-1",
+          pendingMediaVerification: true,
+        },
+        nextValue: null,
+      },
+    ]);
     expect(mockWriteAppState).toHaveBeenCalledTimes(1);
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });
   });
 
-  it("surfaces auxiliary-state failures after claiming the abort", async () => {
+  it("surfaces upload-state claim failures before claiming the row", async () => {
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -441,6 +521,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       "application state unavailable",
     );
 
+    expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });

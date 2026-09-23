@@ -111,6 +111,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('key: "/",\n      shift: "either",');
   });
 
+  it("lets the thread own Escape when search is inactive", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'key: "Escape",\n      shouldHandle: () => Boolean(activeSearchQuery || searchFocused),',
+    );
+  });
+
   it("keeps global triage mutations scoped to the focused mailbox account", () => {
     const source = appLayoutSource();
 
@@ -223,9 +231,8 @@ describe("AppLayout inbox tab bar", () => {
   it("closes the captured popout drafts through the save-aware close-all path", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
-    );
+    expect(source).toContain("const savePromises = compose.closeAll(");
+    expect(source).toContain("popoutDrafts.map((draft) => draft.id)");
     expect(source).toContain("compose.setActiveId(snapshot.id)");
     expect(source).toContain("compose.discard(snapshot.id)");
   });

@@ -28,6 +28,7 @@ vi.mock("@agent-native/core/sharing", async () => {
 });
 
 import {
+  applyTextToYDoc,
   applyText,
   deleteCollabState,
   getCollabEmitter,
@@ -37,11 +38,15 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { closeDbExec, getDbExec } from "@agent-native/core/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
-import { getDb } from "./db/index.js";
+import { getDb, schema } from "./db/index.js";
 import {
+  getDesignSourceMutationExec,
+  withDesignSourceMutationTransaction,
+  withPreparedSourceFileMutation,
+  writeInlineSourceFile,
   writeInlineSourceFilesBatch,
   type SourceWorkspaceFile,
 } from "./source-workspace.js";
@@ -189,6 +194,242 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
+  it("rolls back prepared collaboration state with the source transaction", async () => {
+    await expect(
+      withPreparedSourceFileMutation(SOURCE_ID, "agent", (lease) =>
+        withDesignSourceMutationTransaction(DESIGN_ID, async (tx) => {
+          applyTextToYDoc(lease.doc, "content", SOURCE_NEXT, "agent");
+          await lease.persist(getDesignSourceMutationExec(tx), SOURCE_NEXT);
+          throw new Error("rollback source mutation");
+        }),
+      ),
+    ).rejects.toThrow("rollback source mutation");
+
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+    expect(await persistedCollabRows()).toEqual([
+      { doc_id: SOURCE_ID, text_snapshot: SOURCE_BASE, version: 0 },
+      { doc_id: DESTINATION_ID, text_snapshot: DESTINATION_BASE, version: 0 },
+    ]);
+  });
+
+  it("seeds an existing empty collaboration row before a no-op source write", async () => {
+    await execute(
+      "UPDATE _collab_docs SET yjs_state = '', text_snapshot = '' WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    releaseDoc(SOURCE_ID);
+
+    await writeInlineSourceFile({
+      designId: DESIGN_ID,
+      file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+      content: SOURCE_BASE,
+      expectedVersionHash: sourceContentHash(SOURCE_BASE),
+    });
+
+    const rows = await execute(
+      "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      text_snapshot: SOURCE_BASE,
+      version: 1,
+    });
+    expect((rows.rows[0] as { yjs_state: string }).yjs_state).not.toBe("");
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+  });
+
+  it("seeds an existing empty collaboration row before a batch write", async () => {
+    await execute(
+      "UPDATE _collab_docs SET yjs_state = '', text_snapshot = '' WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    releaseDoc(SOURCE_ID);
+
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+          content: SOURCE_BASE,
+          expectedVersionHash: sourceContentHash(SOURCE_BASE),
+        },
+      ],
+    });
+
+    const rows = await execute(
+      "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      text_snapshot: SOURCE_BASE,
+      version: 1,
+    });
+    expect((rows.rows[0] as { yjs_state: string }).yjs_state).not.toBe("");
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+  });
+
+  it("serializes design-file insert and delete membership mutations", async () => {
+    let releaseInsert!: () => void;
+    let inserted!: () => void;
+    const insertEntered = new Promise<void>((resolve) => {
+      inserted = resolve;
+    });
+    const insertRelease = new Promise<void>((resolve) => {
+      releaseInsert = resolve;
+    });
+
+    const insertRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        await tx.insert(schema.designFiles).values({
+          id: "membership-insert",
+          designId: DESIGN_ID,
+          filename: "inserted.html",
+          content: "<main>inserted</main>",
+          fileType: "html",
+          createdAt: BASE_TIME,
+          updatedAt: BASE_TIME,
+        });
+        inserted();
+        await insertRelease;
+      },
+    );
+    await insertEntered;
+
+    let deleteEntered = false;
+    const deleteRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        deleteEntered = true;
+        await tx
+          .delete(schema.designFiles)
+          .where(eq(schema.designFiles.id, DESTINATION_ID));
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(deleteEntered).toBe(false);
+
+    releaseInsert();
+    await Promise.all([insertRun, deleteRun]);
+    expect(await persistedFiles()).toEqual([
+      { id: SOURCE_ID, content: SOURCE_BASE, updated_at: BASE_TIME },
+      {
+        id: "membership-insert",
+        content: "<main>inserted</main>",
+        updated_at: BASE_TIME,
+      },
+    ]);
+  });
+
+  it("keeps a content snapshot inside the design mutation lock", async () => {
+    let releaseFirst!: () => void;
+    let snapshotTaken!: () => void;
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstSnapshot = new Promise<void>((resolve) => {
+      snapshotTaken = resolve;
+    });
+
+    const firstRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        const [captured] = await tx
+          .select({ content: schema.designFiles.content })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.id, SOURCE_ID))
+          .limit(1);
+        expect(captured?.content).toBe(SOURCE_BASE);
+        snapshotTaken();
+        await firstRelease;
+        await tx
+          .update(schema.designFiles)
+          .set({ content: SOURCE_NEXT })
+          .where(eq(schema.designFiles.id, SOURCE_ID));
+      },
+    );
+    await firstSnapshot;
+
+    let secondEntered = false;
+    const secondRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        secondEntered = true;
+        await tx
+          .update(schema.designFiles)
+          .set({ content: DESTINATION_NEXT })
+          .where(eq(schema.designFiles.id, SOURCE_ID));
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(secondEntered).toBe(false);
+
+    releaseFirst();
+    await Promise.all([firstRun, secondRun]);
+    const [winner] = await execute(
+      "SELECT content FROM design_files WHERE id = ?",
+      [SOURCE_ID],
+    ).then((result) => result.rows);
+    expect(winner).toEqual({ content: DESTINATION_NEXT });
+  });
+
+  it("serializes index and single-file source mutations before either takes the design lock", async () => {
+    const run = async (fileId: string, first: string, second: string) => {
+      const order: string[] = [];
+      let enterFirst!: () => void;
+      let releaseFirst!: () => void;
+      const firstEntered = new Promise<void>((resolve) => {
+        enterFirst = resolve;
+      });
+      const firstRelease = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+
+      const sourceMutation = (label: string, wait = false) =>
+        withPreparedSourceFileMutation(fileId, undefined, async () => {
+          order.push(`${label}-ydoc`);
+          if (wait) {
+            enterFirst();
+            await firstRelease;
+          }
+          await withDesignSourceMutationTransaction(DESIGN_ID, async () => {
+            order.push(`${label}-sql`);
+          });
+        });
+
+      const firstRun = sourceMutation(first, true);
+      await firstEntered;
+
+      const secondRun = sourceMutation(second);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(order).toEqual([`${first}-ydoc`]);
+
+      releaseFirst();
+      await Promise.race([
+        Promise.all([firstRun, secondRun]),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("source mutation deadlocked")),
+            1000,
+          ),
+        ),
+      ]);
+      expect(order).toEqual([
+        `${first}-ydoc`,
+        `${first}-sql`,
+        `${second}-ydoc`,
+        `${second}-sql`,
+      ]);
+    };
+
+    await run("lock-order-index-first", "index", "rename");
+    await run("lock-order-rename-first", "rename", "index");
+  });
+
   it.each(["sql-ahead", "live-ahead"] as const)(
     "rejects a destination whose %s is newer than the captured base before writing",
     async (newerSide) => {

@@ -65,6 +65,8 @@ export type ListInboxThreadsResult = {
    */
   items: InboxThreadItem[];
   total: number;
+  /** True when this page, or the loaded offset range, covers the full tab. */
+  complete?: boolean;
   /** True while any selected account is still in its initial full sync. */
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];

@@ -117,6 +117,28 @@ export type ElementProvenanceFramework =
   | "angular"
   | "lwc";
 
+/**
+ * Runtime component boundary discovered by a framework bridge. This is
+ * deliberately separate from the durable component annotations used by the
+ * inline component model: the bridge can identify an unannotated React
+ * boundary before promotion, while promotion still writes the canonical
+ * `data-agent-native-component` marker.
+ */
+export interface RuntimeComponentIdentity {
+  componentId: string;
+  instanceId: string;
+  name: string;
+  framework: ElementProvenanceFramework;
+  sourceFile?: string;
+  line?: number;
+  column?: number;
+  method?: ElementProvenanceMethod;
+  ownerKey?: string;
+  props: Array<{ name: string; value: string }>;
+  writeCapability: "authored-jsx-literal" | "unsupported";
+  reason?: string;
+}
+
 export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
   "data-attribute",
   "debug-source",
@@ -499,20 +521,26 @@ export function designSourceTypeFromData(
 }
 
 export function designConnectionIdFromData(value: unknown): string | undefined {
+  return designConnectionIdsFromData(value)[0];
+}
+
+export function designConnectionIdsFromData(value: unknown): string[] {
   let parsed = value;
   if (typeof parsed === "string") {
     try {
       parsed = JSON.parse(parsed) as unknown;
     } catch {
-      return undefined;
+      // coercion-ok: malformed persisted design data has no connection ids.
+      return [];
     }
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return undefined;
+    return [];
   }
   const data = parsed as Record<string, unknown>;
+  const ids = new Set<string>();
   if (typeof data.connectionId === "string" && data.connectionId) {
-    return data.connectionId;
+    ids.add(data.connectionId);
   }
   for (const metadataKey of ["screenMetadata", "localhostScreens"] as const) {
     const metadata = data[metadataKey];
@@ -523,11 +551,11 @@ export function designConnectionIdFromData(value: unknown): string | undefined {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
       const connectionId = (entry as Record<string, unknown>).connectionId;
       if (typeof connectionId === "string" && connectionId) {
-        return connectionId;
+        ids.add(connectionId);
       }
     }
   }
-  return undefined;
+  return [...ids];
 }
 
 export function makeLocalhostRouteId(path: string): string {

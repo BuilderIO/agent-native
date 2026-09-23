@@ -549,6 +549,35 @@ const migrations = [
     name: "factory-poll-cursors-babysit-queue",
     sql: "ALTER TABLE factory_poll_cursors ADD COLUMN babysit_queue_cursor TEXT",
   },
+  {
+    version: 29,
+    name: "factory-automation-versions-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_automation_versions (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        raw_content TEXT NOT NULL,
+        display_name TEXT,
+        source TEXT NOT NULL DEFAULT 'save',
+        summary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_automation_versions_unique_idx
+        ON factory_automation_versions (org_id, automation_id, version);
+      CREATE INDEX IF NOT EXISTS factory_automation_versions_created_idx
+        ON factory_automation_versions (org_id, automation_id, created_at);
+    `,
+  },
+  {
+    version: 30,
+    name: "factory-items-confidence-column",
+    sql: "ALTER TABLE factory_items ADD COLUMN confidence TEXT NOT NULL DEFAULT 'unknown'",
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

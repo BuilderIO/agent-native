@@ -1,0 +1,186 @@
+---
+title: "Intégrer Clips"
+description: "Intégrez Clips hébergé dans votre produit avec un jeton de service d'organisation, un stockage vidéo préconfiguré, des URL d'admission de courte durée, et des messages de fin."
+search: "Clips intégration iframe jeton de service organisation enregistrement anonyme admission Builder S3 stockage auto-hébergement"
+---
+
+# Intégrer Clips
+
+Utilisez Clips hébergé comme moteur d'enregistrement pour votre produit. Une personne peut enregistrer depuis une iframe sans se connecter à Clips. Votre backend utilise un jeton de service d'organisation pour créer une URL d'admission de courte durée, et Clips stocke l'enregistrement résultant dans le stockage configuré de cette organisation.
+
+Ce guide couvre le flux d'intégration hébergé. Il n'exige pas que la personne qui enregistre ait un compte Clips.
+
+## Comment fonctionne l'intégration
+
+L'intégration comporte quatre parties :
+
+1. Un administrateur de l'organisation configure le stockage vidéo dans Clips.
+2. Votre backend stocke le jeton de service de l'organisation et demande une URL d'admission.
+3. Votre produit transmet uniquement l'URL d'admission de courte durée à une iframe.
+4. Clips téléverse l'enregistrement vers le stockage de l'organisation et publie un message de fin à votre produit.
+
+Le jeton de service de l'organisation n'a jamais sa place dans l'iframe. Il est lié à l'organisation qui l'a créé, si bien que le jeton lui-même fournit le contexte de l'organisation. Un ID d'organisation est utile pour votre propre correspondance de locataires, mais il ne constitue pas un identifiant en lui-même.
+
+## Configurer l'organisation Clips
+
+Créez ou sélectionnez l'organisation Clips qui doit posséder les enregistrements. Un administrateur de l'organisation configure ensuite le stockage vidéo via l'accueil de Clips ou les Paramètres de Clips :
+
+- **Builder.io Connect** fournit un stockage vidéo géré et des crédits IA.
+- **Le stockage compatible S3** utilise le point de terminaison, le bucket, la clé d'accès, la clé secrète, et la région ou l'URL de base publique facultatives configurés de l'organisation. Cloudflare R2 et DigitalOcean Spaces utilisent les mêmes réglages de stockage avec leurs noms spécifiques au fournisseur.
+
+La configuration du stockage est limitée à l'organisation. Chaque enregistrement créé via le jeton de service de cette organisation utilise le stockage déjà connecté à cette organisation. Le produit intégrant n'a pas besoin des identifiants Builder.io ou S3.
+
+La vidéo est stockée dans le stockage d'objets configuré. Clips stocke les métadonnées de l'enregistrement, la propriété, l'état de traitement, et la référence de stockage dans sa base de données.
+
+## Créer un jeton de service d'organisation
+
+Exécutez la commande `connect` existante en tant que propriétaire ou administrateur de l'organisation. La commande ouvre une connexion dans le navigateur, crée un jeton de service nommé pour l'organisation active, et affiche le jeton une seule fois :
+
+```bash
+npx @agent-native/core@latest connect https://clips.agent-native.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Copiez le jeton affiché directement dans le gestionnaire de secrets côté serveur de votre produit. Le jeton appartient à l'organisation, si bien qu'il continue de fonctionner si la personne qui l'a créé quitte l'organisation ou révoque ses jetons personnels. Il n'est jamais écrit dans une configuration client locale. Utilisez un nom de service différent pour chaque intégration afin qu'un appelant puisse être révoqué sans casser un autre.
+
+`--ttl-days` accepte de 1 à 365 jours et vaut 365 par défaut. Le jeton agit comme un membre de l'organisation. Il ne peut pas créer ni révoquer d'autres jetons de service, ni modifier les paramètres de l'organisation.
+
+## Demander une URL d'admission
+
+Votre backend de confiance appelle l'action d'admission de Clips. Utilisez l'origine Clips hébergée pour les comptes hébergés, ou votre propre origine Clips en cas d'auto-hébergement.
+
+```ts
+const clipsBaseUrl = "https://clips.agent-native.com";
+const clipsServiceToken = process.env.CLIPS_SERVICE_TOKEN;
+
+const response = await fetch(
+  `${clipsBaseUrl}/_agent-native/actions/create-recording-intake-link`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${clipsServiceToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ttlSeconds: 3600,
+    }),
+  },
+);
+
+if (!response.ok) {
+  throw new Error("Could not create a Clips intake URL");
+}
+
+const intake = await response.json();
+// intake.url is safe to pass to the recording iframe.
+```
+
+Le contexte d'organisation signé du jeton de service détermine quelle organisation possède l'admission. La réponse de l'action est l'objet d'admission au niveau supérieur. La durée de vie par défaut de l'admission est d'une heure. Le maximum est de quatre heures. Chaque URL d'admission peut créer un enregistrement.
+
+Ne faites pas cette demande depuis un navigateur anonyme. Ne renvoyez pas le jeton de service, les identifiants de stockage, ou une session Clips de longue durée au navigateur.
+
+## Intégrer l'enregistreur
+
+Transmettez l'URL renvoyée directement à une iframe. L'URL contient la capacité étroite et signée qui permet au visiteur de créer et téléverser un enregistrement privé.
+
+```tsx
+<iframe
+  data-clips-recorder
+  src={intake.url}
+  allow="display-capture; camera; microphone"
+  title="Report a problem"
+  style={{ width: 420, height: 560, border: 0 }}
+/>
+```
+
+Vous pouvez ajouter de petites valeurs de contexte non sensibles à l'URL d'admission avant de la rendre, comme un ID de projet, un titre de page, une version d'application, ou un environnement. Ne mettez pas de mots de passe, de clés API, de dossiers clients, ou d'autres valeurs sensibles dans l'URL. Les URL peuvent apparaître dans l'historique du navigateur, les journaux, les analyses, et les référents.
+
+L'enregistreur ouvre une popup de premier niveau quand le visiteur démarre la capture. Les autorisations média du navigateur et la capture d'écran nécessitent un geste de l'utilisateur dans un contexte de navigation de premier niveau. Autorisez les popups pour le produit hôte pendant les tests.
+
+## Recevoir le message de fin
+
+Quand l'enregistrement est sauvegardé, la page de fin publie `agent-native.clips.bug-report.submitted` vers le parent intégrant. Validez l'origine de Clips et la source du message avant d'utiliser la charge utile.
+
+```ts
+const clipsOrigin = new URL(clipsBaseUrl).origin;
+const recorderFrame = document.querySelector<HTMLIFrameElement>(
+  "iframe[data-clips-recorder]",
+);
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== clipsOrigin) return;
+  if (recorderFrame && event.source !== recorderFrame.contentWindow) return;
+  if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
+
+  const { recordingId, recordingUrl, embedUrl, agentAccessStatus } = event.data;
+  if (!recordingId) return;
+
+  // Send recordingId to your trusted backend and attach it to the support case.
+  console.log({ recordingId, recordingUrl, embedUrl, agentAccessStatus });
+});
+```
+
+La charge utile de fin peut inclure `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, et `agentAccessStatus`. Traitez `recordingId` comme l'identifiant durable du dossier de support. Une admission en écriture seule peut renvoyer `agentAccessStatus: "unavailable"` jusqu'à ce que votre backend authentifié crée un lien d'agent limité séparé. Ce statut ne signifie pas que l'enregistrement est vide.
+
+Le message du navigateur est une notification, pas une autorisation. Votre backend doit utiliser sa propre connexion authentifiée à Clips quand il a besoin de lire ou de partager l'enregistrement terminé.
+
+## Où les enregistrements sont stockés
+
+Les enregistrements créés via le jeton de service appartiennent à l'organisation associée à ce jeton. Clips fait passer le média par son pipeline normal de téléversement et de finalisation. Le pipeline utilise le stockage Builder.io ou compatible S3 configuré pour cette organisation.
+
+L'iframe ne téléverse pas directement vers votre bucket, et elle n'a pas besoin des identifiants du bucket. Votre produit reçoit des identifiants d'enregistrement et des URL limitées de Clips. Ne stockez dans votre propre système de support que les identifiants ou URL dont vous avez besoin.
+
+## Auto-héberger Clips
+
+L'auto-hébergement utilise le même contrat d'organisation :
+
+1. Déployez Clips avec une base de données persistante et un `BETTER_AUTH_URL` public.
+2. Créez l'organisation qui possédera les enregistrements intégrés.
+3. Configurez Builder.io Connect ou un stockage compatible S3 une fois dans cette organisation.
+4. Exécutez `connect` contre l'origine Clips auto-hébergée pour créer le jeton de service de l'organisation.
+5. Fournissez ce jeton une fois à votre backend intégrant comme valeur de déploiement ou de gestionnaire de secrets.
+6. Utilisez l'origine Clips auto-hébergée quand votre backend demande des URL d'admission.
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Par exemple, le backend intégrant peut conserver ces valeurs dans sa configuration côté serveur :
+
+```text
+CLIPS_BASE_URL=https://clips.example.com
+CLIPS_SERVICE_TOKEN=<secret>
+```
+
+Le jeton est fourni une fois au backend. Chaque visiteur reçoit toujours une nouvelle URL d'admission de courte durée. Aucun jeton ni identifiant de stockage n'est ajouté à l'iframe, et aucune modification du code de l'iframe n'est nécessaire quand le jeton est renouvelé.
+
+Consultez [Déploiement](/docs/deployment) pour les exigences générales d'auto-hébergement.
+
+## Liste de contrôle de sécurité
+
+- Conservez le jeton de service de l'organisation dans un gestionnaire de secrets côté serveur.
+- Utilisez HTTPS à la fois pour le produit hôte et pour Clips.
+- Traitez chaque URL d'admission comme un identifiant porteur. Gardez-la hors des journaux et des données de référent.
+- Utilisez la durée de vie d'admission la plus courte possible.
+- Validez à la fois `event.origin` et `event.source` dans l'écouteur de fin.
+- N'exposez jamais les points de terminaison de téléversement limités au propriétaire de Clips directement à des utilisateurs anonymes.
+- Renouvelez le jeton de service en créant un remplaçant avec `connect`, en le déployant, en vérifiant le flux, puis en révoquant l'ancien jeton avec `revoke-org-service-token`.
+- Gardez l'ID de l'organisation et l'ID d'admission avec le backend de confiance plutôt que de faire confiance aux valeurs fournies par le visiteur.
+
+## Résolution de problèmes
+
+**La demande d'admission n'est pas autorisée.** Vérifiez que le backend utilise un jeton de service non expiré et non révoqué, créé pour l'origine Clips prévue. La liaison du jeton à son organisation détermine où l'admission est créée.
+
+**L'iframe ouvre une page de connexion.** Assurez-vous que l'iframe utilise l'URL de courte durée renvoyée par `create-recording-intake-link`. N'intégrez pas `/record` ou une URL normale de bibliothèque Clips pour un visiteur anonyme.
+
+**L'enregistrement ne se termine pas.** Vérifiez que l'organisation a un stockage Builder.io ou compatible S3 configuré. Un visiteur anonyme ne peut pas configurer le stockage depuis l'iframe.
+
+**La fin n'a pas de lien d'agent.** C'est attendu pour une admission en écriture seule. Faites en sorte que votre backend authentifié crée un lien d'agent limité séparé si le flux de support a besoin de données de transcription et d'image lisibles par un agent.
+
+## Et ensuite
+
+- [**Clips**](/docs/template-clips) — la vue d'ensemble et ce qu'elle remplace
+- [**Guide développeur**](/docs/template-clips-developers) — démarrage rapide, actions, modèle de données, et routes pour l'application complète
+- [**Clips dans un espace de travail multi-apps**](/docs/template-clips-integrations) — les clips lisibles par un agent, l'export vers Brain, et la preuve d'appel CRM
+- [**Déploiement**](/docs/deployment) — les exigences générales d'auto-hébergement

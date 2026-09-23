@@ -29,6 +29,13 @@ describe("inline image size boundary", () => {
         `data:image/png;base64,${"a".repeat(MAX_INLINE_IMAGE_BASE64_CHARS)}`,
       ),
     ).toBe(false);
+    expect(
+      canInlineImageFile(
+        new File(["<svg />"], "logo.svg", { type: "image/svg+xml" }),
+      ),
+    ).toBe(false);
+    expect(canInlineImageDataUrl("data:image/svg+xml;base64,abc")).toBe(false);
+    expect(canInlineImageDataUrl("data:image/svg+xml ;base64,abc")).toBe(false);
   });
 });
 

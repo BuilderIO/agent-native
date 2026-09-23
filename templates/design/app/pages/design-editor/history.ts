@@ -170,6 +170,14 @@ export interface FileCreationHistoryEntry {
   content: string;
   fileType: string;
   geometry?: CanvasFrameGeometry;
+  preserveCamera?: boolean;
+  screenMetadata?: Record<string, unknown>;
+  localhostScreen?: Record<string, unknown>;
+  historyBatchId?: string;
+  /** Existing row to reuse when create-file succeeded but cleanup did not. */
+  recoveryFileId?: string | null;
+  /** IDs present before a create attempt that returned no id. */
+  recoveryKnownFileIds?: string[];
 }
 
 export interface FileDeletionHistorySnapshot {

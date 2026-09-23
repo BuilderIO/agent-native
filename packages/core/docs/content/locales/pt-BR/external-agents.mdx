@@ -127,6 +127,16 @@ Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
 guias específicas do host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok e Outros.
 
+## Links privados do Content {#private-content-links}
+
+Um link privado do Content pode identificar o documento sem expor seu conteúdo. Adicione a URL `/mcp` da mesma instância do Content como servidor MCP remoto no agente, autentique-se com sua conta Agent-Native, habilite a conexão ou suas ferramentas e tente novamente a solicitação original. A página `/mcp/connect` oferece opções de configuração, mas apenas abri-la não instala a conexão.
+
+Esse fluxo funciona com qualquer host compatível com MCP, incluindo Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode e GitHub Copilot / VS Code. As telas de configuração e autenticação variam por host. O Antigravity gerencia servidores remotos em **Settings → Customizations → Installed MCP Servers** ou na configuração MCP; o comando `connect` do Agent-Native ainda não configura o Antigravity.
+
+A autenticação identifica a conta conectada e não amplia suas permissões. Um documento público continua legível pelo link. Um documento privado só pode ser lido via MCP quando essa conta já tem acesso. Se `get-document` retornar “não encontrado” após a conexão, a resposta não distingue falta de permissão de um ID de documento obsoleto, excluído ou inválido. Verifique o link e o acesso da conta conectada antes de alterar permissões.
+
+Reinstalar o conector ou alterar o link de compartilhamento público não resolve uma negação de permissão confirmada da conta conectada.
+
 <a id="access-tab"></a>
 
 ### A configuração MCP no aplicativo {#mcp-settings}

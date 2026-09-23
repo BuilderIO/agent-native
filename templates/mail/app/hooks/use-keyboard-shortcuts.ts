@@ -61,6 +61,13 @@ export function shouldCycleMailTab(target: EventTarget | null): boolean {
   );
 }
 
+export function isMailSearchActive(): boolean {
+  const search = document.getElementById(
+    "mail-search",
+  ) as HTMLInputElement | null;
+  return Boolean(search?.value || document.activeElement === search);
+}
+
 interface Shortcut {
   key: string;
   meta?: boolean;

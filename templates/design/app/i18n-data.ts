@@ -419,7 +419,26 @@ const enUS = {
     },
   },
   designEditor: {
+    vectorEndpoints: {
+      startPoint: "Start point",
+      endPoint: "End point",
+      swap: "Swap start and end points",
+      options: {
+        none: "None",
+        round: "Round",
+        square: "Square",
+        line: "Line arrow",
+        triangle: "Triangle arrow",
+        reversedTriangle: "Reversed triangle",
+        circle: "Circle arrow",
+        diamond: "Diamond arrow",
+      },
+    },
     askAgent: "Ask agent",
+    deepSelectGuidance: {
+      message: "Hold {{modifier}} and click to select an inner layer.",
+      dismiss: "Dismiss layer selection tip",
+    },
     autoLayoutSuggestion: {
       menuLabel: "Suggest auto layout…",
       title: "Suggest auto layout",
@@ -528,16 +547,6 @@ const enUS = {
       zoomOut: "Zoom out",
       zoomToPreset: "Zoom to {{percent}}%",
       exit: "Exit responsive preview",
-    },
-    screenDeletion: {
-      titleOne: "Delete this screen?",
-      titleMany: "Delete {{count}} screens?",
-      descriptionOne:
-        '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
-      descriptionMany:
-        "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
-      cancel: "Cancel",
-      confirm: "Delete",
     },
     motion: {
       dockLabel: "Motion dock",
@@ -682,8 +691,21 @@ const enUS = {
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
+      figImportWarningTitle: "Large .fig import",
+      figImportWarningDescription:
+        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the frames you need.",
+      figImportFrameCount: "{{selected}} of {{total}} frames selected",
+      figImportSelectAll: "Select all",
+      figImportClearAll: "Clear all",
+      figImportCancel: "Cancel",
+      figImportSelected: "Import {{count}} selected",
+      figImportAll: "Import all",
+      figImportAnalyzing: "Analyzing…",
+      figImportSaving: "Saving {{saved}} of {{total}} frames",
       figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Embedded images included.",
+        "Local import — no Figma API quota used. Supported embedded images are included.",
+      figUploadImagesSkippedWarning:
+        "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       figmaPasteBodyUnlimited:
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
@@ -743,6 +765,21 @@ const enUS = {
       "Generation stopped before creating files. Check the agent message or try again.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
+    designNotFoundDescription:
+      "This design does not exist or has been deleted.",
+    requestAccessTitle: "Request access to this design",
+    requestAccessDescription:
+      "This design is private. Request access from the owner.",
+    requestAccess: "Request access",
+    accessRequested: "Access requested",
+    accessRequestSentDescription:
+      "Your request has been recorded. You can open this design once access is approved.",
+    signInToRequestAccessTitle: "Sign in to request access",
+    signInToRequestAccessDescription:
+      "Sign in or create an account to request access from the owner.",
+    signInOrSignUp: "Sign in or sign up",
+    accessCheckFailed: "Could not check access to this design.",
+    retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
     saveTemplateDescription:
       "Capture the current screens, dimensions, defaults, and locked layers as a reusable starting point.",
@@ -757,7 +794,7 @@ const enUS = {
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
     share: "Share",
-    signUpToSave: "Sign up free to save",
+    signUpToSave: "Sign up",
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
     signUpToShare: "Sign up to share",
@@ -1018,6 +1055,8 @@ const enUS = {
       keep: "Keep",
       selectorMissing:
         "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.",
+      noRenderedBox:
+        "The selected layer has no rendered box, so the style change was not applied.",
       clientRenderedShell:
         "This screen is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
       snapshotNotLoaded:
@@ -1183,6 +1222,8 @@ const enUS = {
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       saveConflict:
         "This screen changed elsewhere. Your last edit was not saved.",
+      versionHistoryUnavailable:
+        "Version history is unavailable for this design. Your edit was still saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       booleanSubtractUnsupported:
         "Select adjacent rectangles or ellipses with solid fills to subtract them.",
@@ -1334,6 +1375,7 @@ const enUS = {
     startBlankCanvasHint: "Draw it yourself with frames, shapes and text.",
     designSystem: "Design system",
     noDesignSystem: "No design system",
+    designSystemIndexing: "Indexing…",
     newDesignSystem: "New",
     createDesignSystem: "Create design system",
     template: "Template",
@@ -1481,9 +1523,9 @@ const enUS = {
   },
   visualEdit: {
     eyebrow: "Visual edit",
-    title: "Inspect local app screens before you sign in",
+    title: "Start with /visual-edit",
     description:
-      "Open visual-edit without an account. Sign up only when you want to save designs, keep screen layouts, share with others, or generate new directions.",
+      "Install the skill in your coding agent, then use /visual-edit to inspect and edit a running local app.",
     saveCta: "Save",
     openDesign: "Open Design",
     templatesCta: "Browse templates",
@@ -1977,6 +2019,25 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "按住 {{modifier}} 并点击以选择内部图层。",
+        dismiss: "关闭图层选择提示",
+      },
+      vectorEndpoints: {
+        startPoint: "起点",
+        endPoint: "终点",
+        swap: "交换起点和终点",
+        options: {
+          none: "无",
+          round: "圆头",
+          square: "方形",
+          line: "线箭头",
+          triangle: "三角箭头",
+          reversedTriangle: "反向三角形",
+          circle: "圆形箭头",
+          diamond: "菱形箭头",
+        },
+      },
       generationMayHaveStopped:
         "创建文件之前生成可能已停止。检查代理消息或重试。",
       generationMayHaveStoppedToast: "创建文件之前生成可能已停止。",
@@ -2062,6 +2123,7 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
         saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
+        versionHistoryUnavailable: "此设计暂无法使用版本历史。您的编辑已保存。",
       },
     },
     designSystemSetup: {
@@ -2419,6 +2481,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Mantén presionada la tecla {{modifier}} y haz clic para seleccionar una capa interna.",
+        dismiss: "Descartar el consejo de selección de capas",
+      },
+      vectorEndpoints: {
+        startPoint: "Punto inicial",
+        endPoint: "Punto final",
+        swap: "Intercambiar puntos inicial y final",
+        options: {
+          none: "Ninguno",
+          round: "Redondo",
+          square: "Cuadrado",
+          line: "Flecha lineal",
+          triangle: "Flecha triangular",
+          reversedTriangle: "Triángulo invertido",
+          circle: "Flecha circular",
+          diamond: "Flecha de diamante",
+        },
+      },
       generationMayHaveStopped:
         "Es posible que la generación se haya detenido antes de crear archivos. Verifique el mensaje del agente o inténtelo nuevamente.",
       generationMayHaveStoppedToast:
@@ -2508,6 +2590,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
         saveConflict:
           "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
+        versionHistoryUnavailable:
+          "El historial de versiones no está disponible para este diseño. Tu edición se guardó de todos modos.",
       },
     },
     designSystemSetup: {
@@ -2889,6 +2973,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Maintenez {{modifier}} enfoncé et cliquez pour sélectionner un calque interne.",
+        dismiss: "Fermer l’astuce de sélection des calques",
+      },
+      vectorEndpoints: {
+        startPoint: "Point de départ",
+        endPoint: "Point d'arrivée",
+        swap: "Inverser les points de départ et d'arrivée",
+        options: {
+          none: "Aucun",
+          round: "Arrondi",
+          square: "Carré",
+          line: "Flèche linéaire",
+          triangle: "Flèche triangulaire",
+          reversedTriangle: "Triangle inversé",
+          circle: "Flèche circulaire",
+          diamond: "Flèche en losange",
+        },
+      },
       generationMayHaveStopped:
         "La génération s'est peut-être arrêtée avant la création des fichiers. Vérifiez le message de l'agent ou réessayez.",
       generationMayHaveStoppedToast:
@@ -2982,6 +3086,8 @@ const designLocaleOverrides = {
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
         saveConflict:
           "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
+        versionHistoryUnavailable:
+          "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -3363,6 +3469,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Halte {{modifier}} gedrückt und klicke, um eine innere Ebene auszuwählen.",
+        dismiss: "Tipp zur Ebenenauswahl schließen",
+      },
+      vectorEndpoints: {
+        startPoint: "Startpunkt",
+        endPoint: "Endpunkt",
+        swap: "Start- und Endpunkt tauschen",
+        options: {
+          none: "Keine",
+          round: "Rund",
+          square: "Quadrat",
+          line: "Linienpfeil",
+          triangle: "Dreieckspfeil",
+          reversedTriangle: "Umgekehrtes Dreieck",
+          circle: "Kreispfeil",
+          diamond: "Rautenpfeil",
+        },
+      },
       generationMayHaveStopped:
         "Die Generierung wurde möglicherweise vor dem Erstellen der Dateien gestoppt. Überprüfen Sie die Agentennachricht oder versuchen Sie es erneut.",
       generationMayHaveStoppedToast:
@@ -3456,6 +3582,8 @@ const designLocaleOverrides = {
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
         saveConflict:
           "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
+        versionHistoryUnavailable:
+          "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
       },
     },
     designSystemSetup: {
@@ -3836,6 +3964,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}を押しながらクリックすると、内側のレイヤーを選択できます。",
+        dismiss: "レイヤー選択のヒントを閉じる",
+      },
+      vectorEndpoints: {
+        startPoint: "始点",
+        endPoint: "終点",
+        swap: "始点と終点を入れ替え",
+        options: {
+          none: "なし",
+          round: "丸",
+          square: "四角",
+          line: "線矢印",
+          triangle: "三角矢印",
+          reversedTriangle: "反転三角形",
+          circle: "円矢印",
+          diamond: "ひし形矢印",
+        },
+      },
       generationMayHaveStopped:
         "ファイルを作成する前に生成が停止している可能性があります。エージェントのメッセージを確認するか、再試行してください。",
       generationMayHaveStoppedToast:
@@ -3928,6 +4076,8 @@ const designLocaleOverrides = {
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
         saveConflict:
           "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
+        versionHistoryUnavailable:
+          "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
       },
     },
     designSystemSetup: {
@@ -4304,6 +4454,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}를 누른 채 클릭하면 내부 레이어를 선택할 수 있습니다.",
+        dismiss: "레이어 선택 팁 닫기",
+      },
+      vectorEndpoints: {
+        startPoint: "시작점",
+        endPoint: "끝점",
+        swap: "시작점과 끝점 바꾸기",
+        options: {
+          none: "없음",
+          round: "둥근형",
+          square: "사각형",
+          line: "선 화살표",
+          triangle: "삼각형 화살표",
+          reversedTriangle: "반전 삼각형",
+          circle: "원형 화살표",
+          diamond: "다이아몬드 화살표",
+        },
+      },
       generationMayHaveStopped:
         "파일을 생성하기 전에 생성이 중지되었을 수 있습니다. 상담원 메시지를 확인하거나 다시 시도하세요.",
       generationMayHaveStoppedToast:
@@ -4395,6 +4565,8 @@ const designLocaleOverrides = {
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         saveConflict:
           "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
+        versionHistoryUnavailable:
+          "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       },
     },
     designSystemSetup: {
@@ -4764,6 +4936,26 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Segure {{modifier}} e clique para selecionar uma camada interna.",
+        dismiss: "Fechar dica de seleção de camadas",
+      },
+      vectorEndpoints: {
+        startPoint: "Ponto inicial",
+        endPoint: "Ponto final",
+        swap: "Trocar pontos inicial e final",
+        options: {
+          none: "Nenhum",
+          round: "Redondo",
+          square: "Quadrado",
+          line: "Seta linear",
+          triangle: "Seta triangular",
+          reversedTriangle: "Triângulo invertido",
+          circle: "Seta circular",
+          diamond: "Seta de losango",
+        },
+      },
       generationMayHaveStopped:
         "A geração pode ter parado antes da criação dos arquivos. Verifique a mensagem do agente ou tente novamente.",
       generationMayHaveStoppedToast:
@@ -4855,6 +5047,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
         saveConflict:
           "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
+        versionHistoryUnavailable:
+          "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
       },
     },
     designSystemSetup: {
@@ -5232,6 +5426,25 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "{{modifier}} दबाकर क्लिक करें और अंदर की लेयर चुनें।",
+        dismiss: "लेयर चयन की टिप बंद करें",
+      },
+      vectorEndpoints: {
+        startPoint: "प्रारंभ बिंदु",
+        endPoint: "अंतिम बिंदु",
+        swap: "प्रारंभ और अंत बिंदु बदलें",
+        options: {
+          none: "कोई नहीं",
+          round: "गोल",
+          square: "वर्ग",
+          line: "रेखा तीर",
+          triangle: "त्रिभुज तीर",
+          reversedTriangle: "उलटा त्रिभुज",
+          circle: "वृत्त तीर",
+          diamond: "हीरा तीर",
+        },
+      },
       generationMayHaveStopped:
         "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा. एजेंट संदेश की जाँच करें या पुनः प्रयास करें।",
       generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा.",
@@ -5321,6 +5534,8 @@ const designLocaleOverrides = {
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
+        versionHistoryUnavailable:
+          "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       },
     },
     designSystemSetup: {
@@ -5688,6 +5903,25 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "اضغط باستمرار على {{modifier}} وانقر لتحديد طبقة داخلية.",
+        dismiss: "إغلاق تلميح تحديد الطبقات",
+      },
+      vectorEndpoints: {
+        startPoint: "نقطة البداية",
+        endPoint: "نقطة النهاية",
+        swap: "تبديل نقطتي البداية والنهاية",
+        options: {
+          none: "بلا",
+          round: "مستدير",
+          square: "مربع",
+          line: "سهم خطي",
+          triangle: "سهم مثلثي",
+          reversedTriangle: "مثلث معكوس",
+          circle: "سهم دائري",
+          diamond: "سهم ماسي",
+        },
+      },
       generationMayHaveStopped:
         "ربما توقف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
       generationMayHaveStoppedToast: "ربما توقف الإنشاء قبل إنشاء الملفات.",
@@ -5775,6 +6009,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
         saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
+        versionHistoryUnavailable:
+          "سجل الإصدارات غير متاح لهذا التصميم. تم حفظ تعديلك رغم ذلك.",
       },
     },
     designSystemSetup: {
@@ -6076,6 +6312,7 @@ const designRawLiteralOverrides = {
         "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
       designSystem: "Design系统",
       noDesignSystem: "没有设计系统",
+      designSystemIndexing: "正在索引…",
       newDesignSystem: "新",
       addAttachment: "添加",
       removeAttachment: "删除{{name}}",
@@ -6239,6 +6476,7 @@ const designRawLiteralOverrides = {
         "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
       designSystem: "sistema Design",
       noDesignSystem: "Sin sistema de diseño",
+      designSystemIndexing: "Indexando…",
       newDesignSystem: "Nuevo",
       addAttachment: "Añadir",
       removeAttachment: "Eliminar {{name}}",
@@ -6406,6 +6644,7 @@ const designRawLiteralOverrides = {
         "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
       designSystem: "Système Design",
       noDesignSystem: "Aucun système de conception",
+      designSystemIndexing: "Indexation…",
       newDesignSystem: "Nouveau",
       addAttachment: "Ajouter",
       removeAttachment: "Supprimer {{name}}",
@@ -6573,6 +6812,7 @@ const designRawLiteralOverrides = {
         "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
       designSystem: "Design-System",
       noDesignSystem: "Kein Designsystem",
+      designSystemIndexing: "Wird indiziert…",
       newDesignSystem: "Neu",
       addAttachment: "Hinzufügen",
       removeAttachment: "Entfernen Sie {{name}}",
@@ -6740,6 +6980,7 @@ const designRawLiteralOverrides = {
         "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
       designSystem: "Designシステム",
       noDesignSystem: "デザインシステムがない",
+      designSystemIndexing: "インデックス作成中…",
       newDesignSystem: "新しい",
       addAttachment: "追加",
       removeAttachment: "{{name}} を削除",
@@ -6902,6 +7143,7 @@ const designRawLiteralOverrides = {
         "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
       designSystem: "Design 시스템",
       noDesignSystem: "디자인 시스템 없음",
+      designSystemIndexing: "색인 생성 중…",
       newDesignSystem: "새로운",
       addAttachment: "추가",
       removeAttachment: "{{name}} 제거",
@@ -7066,6 +7308,7 @@ const designRawLiteralOverrides = {
         "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
       designSystem: "Sistema Design",
       noDesignSystem: "Nenhum sistema de design",
+      designSystemIndexing: "Indexando…",
       newDesignSystem: "Novo",
       addAttachment: "Adicionar",
       removeAttachment: "Remover {{name}}",
@@ -7231,6 +7474,7 @@ const designRawLiteralOverrides = {
         "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
       designSystem: "Design प्रणाली",
       noDesignSystem: "कोई डिज़ाइन प्रणाली नहीं",
+      designSystemIndexing: "इंडेक्स हो रहा है…",
       newDesignSystem: "नया",
       addAttachment: "जोड़ें",
       removeAttachment: "{{name}} हटाएँ",
@@ -7393,6 +7637,7 @@ const designRawLiteralOverrides = {
         "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
       designSystem: "نظام Design",
       noDesignSystem: "لا يوجد نظام التصميم",
+      designSystemIndexing: "جارٍ الفهرسة…",
       newDesignSystem: "جديد",
       addAttachment: "أضف",
       removeAttachment: "إزالة {{name}}",
@@ -8449,6 +8694,7 @@ const designModeFeatureOverrides = {
         rollback: "回復",
         keep: "保留",
         selectorMissing: "選取的元素已不在此畫面中。",
+        noRenderedBox: "選取的圖層沒有可見框，因此未套用樣式變更。",
         clientRenderedShell:
           "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
         snapshotNotLoaded:
@@ -8623,6 +8869,7 @@ const designModeFeatureOverrides = {
         rollback: "回滚",
         keep: "保留",
         selectorMissing: "选中的元素已不在此屏幕中。",
+        noRenderedBox: "选中的图层没有可渲染的框，因此未应用样式更改。",
         clientRenderedShell:
           "此屏幕由客户端渲染，因此其提供的 HTML 不包含可修补的应用标记。请让代理将此更改应用到组件源码。",
         snapshotNotLoaded:
@@ -8797,6 +9044,8 @@ const designModeFeatureOverrides = {
         keep: "Conservar",
         selectorMissing:
           "El elemento seleccionado ya no existe en esta pantalla.",
+        noRenderedBox:
+          "La capa seleccionada no tiene un cuadro renderizado, por lo que no se aplicó el cambio de estilo.",
         clientRenderedShell:
           "Esta pantalla se renderiza en el cliente, por lo que el HTML que entrega no contiene marcado de la aplicación que se pueda modificar. Pide al agente que aplique este cambio al código fuente del componente.",
         snapshotNotLoaded:
@@ -8993,6 +9242,8 @@ const designModeFeatureOverrides = {
         rollback: "Revenir",
         keep: "Garder",
         selectorMissing: "L’élément sélectionné n’existe plus dans cet écran.",
+        noRenderedBox:
+          "Le calque sélectionné n’a aucune boîte rendue ; la modification de style n’a pas été appliquée.",
         clientRenderedShell:
           "Cet écran est rendu côté client ; le HTML qu’il fournit ne contient donc aucun balisage d’application à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
         snapshotNotLoaded:
@@ -9186,6 +9437,8 @@ const designModeFeatureOverrides = {
         keep: "Behalten",
         selectorMissing:
           "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        noRenderedBox:
+          "Die ausgewählte Ebene hat keine gerenderte Box, daher wurde die Stiländerung nicht angewendet.",
         clientRenderedShell:
           "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
         snapshotNotLoaded:
@@ -9384,6 +9637,8 @@ const designModeFeatureOverrides = {
         rollback: "戻す",
         keep: "保持",
         selectorMissing: "選択した要素はこの画面に存在しません。",
+        noRenderedBox:
+          "選択したレイヤーには描画されたボックスがないため、スタイル変更は適用されませんでした。",
         clientRenderedShell:
           "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
         snapshotNotLoaded:
@@ -9577,6 +9832,8 @@ const designModeFeatureOverrides = {
         rollback: "롤백",
         keep: "유지",
         selectorMissing: "선택한 요소가 이 화면에 더 이상 없습니다.",
+        noRenderedBox:
+          "선택한 레이어에는 렌더링된 상자가 없어 스타일 변경이 적용되지 않았습니다.",
         clientRenderedShell:
           "이 화면은 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 이 변경 사항을 컴포넌트 소스에 적용하도록 요청하세요.",
         snapshotNotLoaded:
@@ -9767,6 +10024,8 @@ const designModeFeatureOverrides = {
         rollback: "Reverter",
         keep: "Manter",
         selectorMissing: "O elemento selecionado não existe mais nesta tela.",
+        noRenderedBox:
+          "A camada selecionada não tem uma caixa renderizada, então a alteração de estilo não foi aplicada.",
         clientRenderedShell:
           "Esta tela é renderizada no cliente, então o HTML fornecido não contém marcação do app que possa ser modificada. Peça ao agente para aplicar esta alteração ao código-fonte do componente.",
         snapshotNotLoaded:
@@ -9957,6 +10216,8 @@ const designModeFeatureOverrides = {
         rollback: "वापस लें",
         keep: "रखें",
         selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+        noRenderedBox:
+          "चयनित लेयर में रेंडर किया गया बॉक्स नहीं है, इसलिए शैली परिवर्तन लागू नहीं किया गया।",
         clientRenderedShell:
           "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
         snapshotNotLoaded:
@@ -10147,6 +10408,8 @@ const designModeFeatureOverrides = {
         rollback: "تراجع",
         keep: "احتفاظ",
         selectorMissing: "العنصر المحدد لم يعد موجوداً في هذه الشاشة.",
+        noRenderedBox:
+          "لا تحتوي الطبقة المحددة على مربع مُرندر، لذلك لم يتم تطبيق تغيير النمط.",
         clientRenderedShell:
           "يتم عرض هذه الشاشة من جهة العميل، لذلك لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكوّن.",
         snapshotNotLoaded:
@@ -11480,7 +11743,7 @@ const designPublicShareOverrides = {
   "zh-TW": {
     designEditor: {
       share: "分享",
-      signUpToSave: "註冊以儲存",
+      signUpToSave: "註冊",
       signUpToSaveDescription:
         "註冊免費帳號即可儲存設計、畫面版面，並產生新的方向。",
       signUpToShare: "註冊以分享",
@@ -11509,7 +11772,7 @@ const designPublicShareOverrides = {
   "zh-CN": {
     designEditor: {
       share: "分享",
-      signUpToSave: "注册以保存",
+      signUpToSave: "注册",
       signUpToSaveDescription:
         "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
       signUpToShare: "注册以共享",
@@ -11539,7 +11802,7 @@ const designPublicShareOverrides = {
   "es-ES": {
     designEditor: {
       share: "Compartir",
-      signUpToSave: "Registrarse para guardar",
+      signUpToSave: "Registrarse",
       signUpToSaveDescription:
         "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
       signUpToShare: "Registrarse para compartir",
@@ -11569,7 +11832,7 @@ const designPublicShareOverrides = {
   "fr-FR": {
     designEditor: {
       share: "Partager",
-      signUpToSave: "S'inscrire pour enregistrer",
+      signUpToSave: "S'inscrire",
       signUpToSaveDescription:
         "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
       signUpToShare: "S'inscrire pour partager",
@@ -11599,7 +11862,7 @@ const designPublicShareOverrides = {
   "de-DE": {
     designEditor: {
       share: "Teilen",
-      signUpToSave: "Zum Speichern registrieren",
+      signUpToSave: "Registrieren",
       signUpToSaveDescription:
         "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
       signUpToShare: "Zum Teilen registrieren",
@@ -11630,7 +11893,7 @@ const designPublicShareOverrides = {
   "ja-JP": {
     designEditor: {
       share: "共有",
-      signUpToSave: "登録して保存",
+      signUpToSave: "登録",
       signUpToSaveDescription:
         "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
       signUpToShare: "登録して共有",
@@ -11660,7 +11923,7 @@ const designPublicShareOverrides = {
   "ko-KR": {
     designEditor: {
       share: "공유",
-      signUpToSave: "가입하고 저장",
+      signUpToSave: "가입",
       signUpToSaveDescription:
         "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
       signUpToShare: "가입하고 공유",
@@ -11690,7 +11953,7 @@ const designPublicShareOverrides = {
   "pt-BR": {
     designEditor: {
       share: "Compartilhar",
-      signUpToSave: "Criar conta para salvar",
+      signUpToSave: "Criar conta",
       signUpToSaveDescription:
         "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
       signUpToShare: "Criar conta para compartilhar",
@@ -11720,7 +11983,7 @@ const designPublicShareOverrides = {
   "hi-IN": {
     designEditor: {
       share: "साझा करें",
-      signUpToSave: "सहेजने के लिए साइन अप करें",
+      signUpToSave: "साइन अप करें",
       signUpToSaveDescription:
         "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
       signUpToShare: "साझा करने के लिए sign up करें",
@@ -11750,7 +12013,7 @@ const designPublicShareOverrides = {
   "ar-SA": {
     designEditor: {
       share: "مشاركة",
-      signUpToSave: "سجل للحفظ",
+      signUpToSave: "سجل",
       signUpToSaveDescription:
         "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
       signUpToShare: "سجل للمشاركة",
@@ -11783,9 +12046,9 @@ const designVisualEditOverrides = {
   "zh-TW": {
     visualEdit: {
       eyebrow: "視覺編輯",
-      title: "登入前先檢查本機應用畫面",
+      title: "從 /visual-edit 開始",
       description:
-        "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+        "在你的 coding agent 中安裝此 skill，然後使用 /visual-edit 檢視並編輯正在執行的本機應用程式。",
       saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
@@ -11799,9 +12062,9 @@ const designVisualEditOverrides = {
   "zh-CN": {
     visualEdit: {
       eyebrow: "视觉编辑",
-      title: "登录前检查本地应用屏幕",
+      title: "从 /visual-edit 开始",
       description:
-        "无需账号即可打开 visual-edit。只有在想保存设计、保留屏幕布局、与他人共享或生成新方向时才需要注册。",
+        "在你的 coding agent 中安装此 skill，然后使用 /visual-edit 检查并编辑正在运行的本地应用。",
       saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
@@ -11815,9 +12078,9 @@ const designVisualEditOverrides = {
   "es-ES": {
     visualEdit: {
       eyebrow: "Edicion visual",
-      title: "Inspecciona pantallas locales de la app antes de iniciar sesion",
+      title: "Empieza con /visual-edit",
       description:
-        "Abre visual-edit sin cuenta. Registrate solo cuando quieras guardar disenos, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
+        "Instala el skill en tu agente de codigo y usa /visual-edit para inspeccionar y editar una aplicacion local en ejecucion.",
       saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Ver plantillas",
@@ -11831,9 +12094,9 @@ const designVisualEditOverrides = {
   "fr-FR": {
     visualEdit: {
       eyebrow: "Edition visuelle",
-      title: "Inspectez les ecrans locaux de l'app avant connexion",
+      title: "Commencez avec /visual-edit",
       description:
-        "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
+        "Installez le skill dans votre agent de code, puis utilisez /visual-edit pour inspecter et modifier une application locale en cours d'execution.",
       saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
@@ -11847,9 +12110,9 @@ const designVisualEditOverrides = {
   "de-DE": {
     visualEdit: {
       eyebrow: "Visuelle Bearbeitung",
-      title: "Lokale App-Bildschirme vor der Anmeldung pruefen",
+      title: "Mit /visual-edit beginnen",
       description:
-        "Oeffne visual-edit ohne Konto. Melde dich nur an, wenn du Designs speichern, Layouts behalten, teilen oder neue Richtungen generieren willst.",
+        "Installiere den Skill in deinem Coding-Agent und verwende dann /visual-edit, um eine laufende lokale App zu pruefen und zu bearbeiten.",
       saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
@@ -11863,9 +12126,9 @@ const designVisualEditOverrides = {
   "ja-JP": {
     visualEdit: {
       eyebrow: "ビジュアル編集",
-      title: "サインイン前にローカルアプリ画面を確認",
+      title: "/visual-edit から始める",
       description:
-        "アカウントなしで visual-edit を開けます。デザイン保存、画面レイアウト保持、共有、新しい方向の生成が必要なときだけ登録します。",
+        "コーディングエージェントにスキルをインストールし、/visual-edit で実行中のローカルアプリを確認・編集します。",
       saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
@@ -11879,9 +12142,9 @@ const designVisualEditOverrides = {
   "ko-KR": {
     visualEdit: {
       eyebrow: "시각 편집",
-      title: "로그인 전에 로컬 앱 화면 검사",
+      title: "/visual-edit로 시작하기",
       description:
-        "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 유지, 공유, 새 방향 생성을 원할 때만 가입하세요.",
+        "코딩 에이전트에 스킬을 설치한 다음 /visual-edit로 실행 중인 로컬 앱을 검사하고 편집하세요.",
       saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 둘러보기",
@@ -11895,9 +12158,9 @@ const designVisualEditOverrides = {
   "pt-BR": {
     visualEdit: {
       eyebrow: "Edicao visual",
-      title: "Inspecione telas locais do app antes de entrar",
+      title: "Comece com /visual-edit",
       description:
-        "Abra visual-edit sem conta. Cadastre-se apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
+        "Instale o skill no seu agente de codigo e use /visual-edit para inspecionar e editar um app local em execucao.",
       saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
@@ -11911,9 +12174,9 @@ const designVisualEditOverrides = {
   "hi-IN": {
     visualEdit: {
       eyebrow: "विजुअल एडिट",
-      title: "Sign in से पहले local app screens जांचें",
+      title: "/visual-edit से शुरू करें",
       description:
-        "बिना account visual-edit खोलें। Designs save करने, screen layouts रखने, share करने या नई directions generate करने पर ही sign up करें।",
+        "अपने coding agent में skill install करें, फिर /visual-edit से चल रहे local app को देखें और edit करें।",
       saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "Templates देखें",
@@ -11927,9 +12190,9 @@ const designVisualEditOverrides = {
   "ar-SA": {
     visualEdit: {
       eyebrow: "تحرير مرئي",
-      title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
+      title: "ابدأ بـ /visual-edit",
       description:
-        "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم أو الاحتفاظ بتخطيطات الشاشة أو المشاركة أو توليد اتجاهات جديدة.",
+        "ثبّت المهارة في وكيل البرمجة، ثم استخدم /visual-edit لفحص تطبيق محلي قيد التشغيل وتحريره.",
       saveCta: "حفظ",
       openDesign: "فتح Design",
       templatesCta: "تصفح القوالب",
@@ -12866,6 +13129,17 @@ const designImportOverrides = {
         chooseFigFile: "選擇 .fig 檔案",
         figUploadUploading: "上傳中 {{progress}}%",
         figUploadProcessing: "轉換中…",
+        figImportWarningTitle: "大型 .fig 匯入",
+        figImportWarningDescription:
+          "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+        figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+        figImportSelectAll: "全選",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "匯入已選取的 {{count}} 個",
+        figImportAll: "全部匯入",
+        figImportAnalyzing: "分析中…",
+        figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -12936,6 +13210,17 @@ const designImportOverrides = {
         chooseFigFile: "选择 .fig 文件",
         figUploadUploading: "正在上传 {{progress}}%",
         figUploadProcessing: "正在转换…",
+        figImportWarningTitle: "大型 .fig 导入",
+        figImportWarningDescription:
+          "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的画框。",
+        figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
+        figImportSelectAll: "全选",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "导入已选择的 {{count}} 个",
+        figImportAll: "全部导入",
+        figImportAnalyzing: "正在分析…",
+        figImportSaving: "正在保存 {{saved}} / {{total}} 个画框",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -13009,6 +13294,17 @@ const designImportOverrides = {
         chooseFigFile: "Elegir archivo .fig",
         figUploadUploading: "Subiendo {{progress}}%",
         figUploadProcessing: "Convirtiendo…",
+        figImportWarningTitle: "Importación .fig grande",
+        figImportWarningDescription:
+          "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
+        figImportSelectAll: "Seleccionar todo",
+        figImportClearAll: "Borrar todo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} seleccionados",
+        figImportAll: "Importar todo",
+        figImportAnalyzing: "Analizando…",
+        figImportSaving: "Guardando {{saved}} de {{total}} marcos",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -13084,6 +13380,17 @@ const designImportOverrides = {
         chooseFigFile: "Choisir un fichier .fig",
         figUploadUploading: "Téléversement {{progress}} %",
         figUploadProcessing: "Conversion…",
+        figImportWarningTitle: "Importation .fig volumineuse",
+        figImportWarningDescription:
+          "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les cadres nécessaires.",
+        figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
+        figImportSelectAll: "Tout sélectionner",
+        figImportClearAll: "Tout effacer",
+        figImportCancel: "Annuler",
+        figImportSelected: "Importer {{count}} sélectionnés",
+        figImportAll: "Tout importer",
+        figImportAnalyzing: "Analyse…",
+        figImportSaving: "Enregistrement de {{saved}} cadres sur {{total}}",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -13159,6 +13466,17 @@ const designImportOverrides = {
         chooseFigFile: ".fig-Datei wählen",
         figUploadUploading: "Wird hochgeladen: {{progress}} %",
         figUploadProcessing: "Wird konvertiert…",
+        figImportWarningTitle: "Großer .fig-Import",
+        figImportWarningDescription:
+          "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Frames aus.",
+        figImportFrameCount: "{{selected}} von {{total}} Frames ausgewählt",
+        figImportSelectAll: "Alle auswählen",
+        figImportClearAll: "Alle löschen",
+        figImportCancel: "Abbrechen",
+        figImportSelected: "{{count}} ausgewählte importieren",
+        figImportAll: "Alle importieren",
+        figImportAnalyzing: "Wird analysiert…",
+        figImportSaving: "{{saved}} von {{total}} Frames werden gespeichert",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -13233,6 +13551,17 @@ const designImportOverrides = {
         chooseFigFile: ".fig ファイルを選択",
         figUploadUploading: "アップロード中 {{progress}}%",
         figUploadProcessing: "変換中…",
+        figImportWarningTitle: "大規模な .fig のインポート",
+        figImportWarningDescription:
+          "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なフレームを選択してください。",
+        figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
+        figImportSelectAll: "すべて選択",
+        figImportClearAll: "すべて解除",
+        figImportCancel: "キャンセル",
+        figImportSelected: "選択した {{count}} 個をインポート",
+        figImportAll: "すべてインポート",
+        figImportAnalyzing: "分析中…",
+        figImportSaving: "{{total}} 個中 {{saved}} 個のフレームを保存中",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -13307,6 +13636,17 @@ const designImportOverrides = {
         chooseFigFile: ".fig 파일 선택",
         figUploadUploading: "업로드 중 {{progress}}%",
         figUploadProcessing: "변환 중…",
+        figImportWarningTitle: "대용량 .fig 가져오기",
+        figImportWarningDescription:
+          "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 프레임을 선택하세요.",
+        figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
+        figImportSelectAll: "모두 선택",
+        figImportClearAll: "모두 지우기",
+        figImportCancel: "취소",
+        figImportSelected: "선택한 {{count}}개 가져오기",
+        figImportAll: "모두 가져오기",
+        figImportAnalyzing: "분석 중…",
+        figImportSaving: "{{total}}개 중 {{saved}}개 프레임 저장 중",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -13383,6 +13723,17 @@ const designImportOverrides = {
         chooseFigFile: "Escolher arquivo .fig",
         figUploadUploading: "Enviando {{progress}}%",
         figUploadProcessing: "Convertendo…",
+        figImportWarningTitle: "Importação de .fig grande",
+        figImportWarningDescription:
+          "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
+        figImportSelectAll: "Selecionar tudo",
+        figImportClearAll: "Limpar tudo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} selecionados",
+        figImportAll: "Importar tudo",
+        figImportAnalyzing: "Analisando…",
+        figImportSaving: "Salvando {{saved}} de {{total}} quadros",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -13458,6 +13809,17 @@ const designImportOverrides = {
         chooseFigFile: ".fig file चुनें",
         figUploadUploading: "अपलोड हो रहा है {{progress}}%",
         figUploadProcessing: "बदला जा रहा है…",
+        figImportWarningTitle: "बड़ा .fig आयात",
+        figImportWarningDescription:
+          "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
+        figImportSelectAll: "सभी चुनें",
+        figImportClearAll: "सभी हटाएँ",
+        figImportCancel: "रद्द करें",
+        figImportSelected: "{{count}} चुने हुए आयात करें",
+        figImportAll: "सभी आयात करें",
+        figImportAnalyzing: "विश्लेषण हो रहा है…",
+        figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -13532,6 +13894,17 @@ const designImportOverrides = {
         chooseFigFile: "اختر ملف .fig",
         figUploadUploading: "جار الرفع {{progress}}%",
         figUploadProcessing: "جار التحويل…",
+        figImportWarningTitle: "استيراد .fig كبير",
+        figImportWarningDescription:
+          "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الإطارات التي تحتاجها.",
+        figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
+        figImportSelectAll: "تحديد الكل",
+        figImportClearAll: "مسح الكل",
+        figImportCancel: "إلغاء",
+        figImportSelected: "استيراد {{count}} المحددة",
+        figImportAll: "استيراد الكل",
+        figImportAnalyzing: "جار التحليل…",
+        figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",

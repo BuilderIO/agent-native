@@ -314,6 +314,7 @@ function buildResourceContextItem(
       `The user is currently viewing this ${type}.`,
       label ? `Resource name: ${label}` : "",
       `Resource id: ${scope.id}`,
+      scope.context?.trim() || "",
       typeof window !== "undefined"
         ? `Current URL: ${window.location.pathname}${window.location.search}`
         : "",
@@ -898,6 +899,7 @@ export function MultiTabAssistantChat({
   const contextNamespace = scope
     ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
     : undefined;
+  const lastResourceContextVersionRef = useRef(scope?.contextVersion);
   const {
     enabled: threadUrlSyncEnabled,
     paramName: threadUrlParamName,
@@ -1564,11 +1566,22 @@ export function MultiTabAssistantChat({
     if (!nextScope) return;
     const item = buildResourceContextItem(nextScope, contextNamespace);
     const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
+    const targetChanged =
+      nextScope.contextVersion !== undefined &&
+      lastResourceContextVersionRef.current !== nextScope.contextVersion;
+    if (nextScope.contextVersion !== undefined) {
+      lastResourceContextVersionRef.current = nextScope.contextVersion;
+    }
     const existing = getAgentChatContextState().items.find(
       (current) => current.key === item.key,
     );
-    if (!existing || !existing.context.startsWith(marker)) return;
+    if (!existing) {
+      if (!targetChanged) return;
+    } else if (!existing.context.startsWith(marker)) {
+      return;
+    }
     if (
+      existing &&
       existing.title === item.title &&
       existing.context === item.context &&
       existing.contextNamespace === item.contextNamespace
@@ -1579,6 +1592,7 @@ export function MultiTabAssistantChat({
   }, [
     contextNamespace,
     scope?.contextKey,
+    scope?.contextVersion,
     scope?.id,
     scope?.label,
     scope?.type,

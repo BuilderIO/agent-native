@@ -4,7 +4,6 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
-  getRequestIP,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -37,7 +36,13 @@ import {
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
+import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
+import {
+  canonicalFrameworkPathname,
+  getFrameworkRoutePrefix,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -55,7 +60,12 @@ function toWebRequest(event: H3Event): Request {
   if (ctx?._mountedPathname && ctx._mountPrefix) {
     try {
       const url = new URL(req.url);
-      const mountedPathname = stripAppBasePath(ctx._mountedPathname);
+      // Better Auth is configured with the PUBLIC base path (it builds its
+      // own callback and verification URLs from it), so hand it the public
+      // form of the internal pathname the boundary dispatched on.
+      const mountedPathname =
+        getPublicFrameworkPathname(event) ??
+        publicFrameworkPath(ctx._mountedPathname);
       if (url.pathname !== mountedPathname) {
         url.pathname = mountedPathname;
         const method = req.method.toUpperCase();
@@ -134,7 +144,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  stripAppBasePath as stripConfiguredAppBasePath,
+} from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -217,6 +230,7 @@ import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
 } from "./legacy-auth-migration.js";
+import * as loopback from "./loopback.js";
 import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -242,6 +256,10 @@ import {
   setCachedSessionEmail,
 } from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
+
+function stripAppBasePath(pathname: string): string {
+  return stripConfiguredAppBasePath(pathname, getAppBasePath());
+}
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -502,6 +520,11 @@ const AUTH_DISABLED_OPT_OUT_COOKIE = `${COOKIE_NAME}_auth_disabled_opt_out`;
  */
 export function cookieDomainAttrs(): { domain?: string } {
   const domain = getCookieDomain();
+  return domain ? { domain } : {};
+}
+
+export function sharedFirstPartyCookieDomainAttrs(): { domain?: string } {
+  const domain = AUTH_COOKIE_NAMESPACE.configuredCookieDomain;
   return domain ? { domain } : {};
 }
 
@@ -889,16 +912,8 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
  * for the dev account, a throwaway per-DB password.
  */
 export function isLoopbackAddress(ip: string | undefined): boolean {
-  // Strip an optional IPv6 zone id (e.g. "fe80::1%en0") before comparing.
-  const normalised = (ip ?? "").split("%")[0];
-  return (
-    normalised === "127.0.0.1" ||
-    normalised === "::1" ||
-    normalised === "::ffff:127.0.0.1" ||
-    normalised.startsWith("127.")
-  );
+  return loopback.isLoopbackAddress(ip);
 }
-
 /**
  * True when the request's actual socket peer is loopback. Uses
  * `getRequestIP(event)` WITHOUT `{ xForwardedFor: true }`, so it reflects the
@@ -907,15 +922,8 @@ export function isLoopbackAddress(ip: string | undefined): boolean {
  * any "is this local dev?" security gate (MCP/connect dev-open).
  */
 export function isLoopbackRequest(event: H3Event): boolean {
-  let ip: string | undefined;
-  try {
-    ip = getRequestIP(event) ?? undefined;
-  } catch {
-    ip = undefined;
-  }
-  return isLoopbackAddress(ip);
+  return loopback.isLoopbackRequest(event);
 }
-
 /**
  * Read the desktop-SSO broker file, but only if the request is plausibly
  * from the Electron desktop app *and* coming from the local machine.
@@ -1004,13 +1012,119 @@ function extractSessionTokenFromAuthResponse(
   return cookie ? decodeSessionCookieValue(cookie) : undefined;
 }
 
-function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
+/**
+ * Better Auth fixes cookie attributes at construction from an env-derived URL,
+ * which is `http://localhost:3000` in a cloud dev container behind an https
+ * proxy. That Lax cookie is dropped inside a cross-site iframe (the Builder
+ * editor), bouncing a fresh signup back to sign-in. Upgrade the attributes per
+ * request, and never rename the cookie: Better Auth reads it by name.
+ */
+function upgradeBetterAuthCookieForRequest(
+  event: H3Event,
+  cookie: string,
+): string[] {
+  if (crossSiteCookieAttrs(event).sameSite !== "none") return [cookie];
+  if (/(?:^|;)\s*SameSite=None/i.test(cookie)) return [cookie];
+  const [nameValue, ...attrs] = cookie.split(";").map((part) => part.trim());
+  const kept = attrs.filter(
+    (attr) => !/^(SameSite|Secure|Partitioned)(?:=|$)/i.test(attr),
+  );
+  const upgraded = [
+    nameValue,
+    ...kept,
+    "Secure",
+    "SameSite=None",
+    "Partitioned",
+  ].join("; ");
+  // A delete must empty both jars: a session minted before this upgrade sits
+  // unpartitioned and survives a Partitioned-only delete (see
+  // `deleteCookieFromBothPartitions`).
+  return isCookieDeletion(attrs) ? [cookie, upgraded] : [upgraded];
+}
+
+function isCookieDeletion(attrs: string[]): boolean {
+  return attrs.some((attr) => {
+    const [key, value = ""] = attr.split("=").map((part) => part.trim());
+    if (/^max-age$/i.test(key)) return Number(value) <= 0;
+    if (/^expires$/i.test(key)) return Date.parse(value) <= Date.now();
+    return false;
+  });
+}
+
+function upgradeBetterAuthSetCookies(event: H3Event, headers: Headers): void {
+  const cookies = getSetCookieHeaders(headers);
+  const upgraded = cookies.flatMap((cookie) =>
+    upgradeBetterAuthCookieForRequest(event, cookie),
+  );
+  if (
+    upgraded.length === cookies.length &&
+    upgraded.every((cookie, i) => cookie === cookies[i])
+  ) {
+    return;
+  }
+  headers.delete("set-cookie");
+  for (const cookie of upgraded) headers.append("set-cookie", cookie);
+}
+
+function forwardBetterAuthSetCookies(
+  event: H3Event,
+  result: unknown,
+  options: { excludeSessionCookies?: boolean } = {},
+): void {
   if (!result || typeof result !== "object") return;
   const headers = (result as { headers?: Headers }).headers;
   if (!headers || typeof headers.get !== "function") return;
   for (const cookie of getSetCookieHeaders(headers)) {
-    event.res?.headers?.append("set-cookie", cookie);
+    if (
+      options.excludeSessionCookies &&
+      /(?:^|;\s*)(?:__Secure-)?[^=;\s]+(?:[.-])(?:session_token|session_data)=/i.test(
+        cookie,
+      )
+    ) {
+      continue;
+    }
+    for (const upgraded of upgradeBetterAuthCookieForRequest(event, cookie)) {
+      event.res?.headers?.append("set-cookie", upgraded);
+    }
   }
+}
+
+function betterAuthApiBody(result: unknown): Record<string, any> {
+  if (!result || typeof result !== "object") return {};
+  const response = (result as { response?: unknown }).response;
+  if (response && typeof response === "object") {
+    return response as Record<string, any>;
+  }
+  return result as Record<string, any>;
+}
+
+function betterAuthHeadersForSession(event: H3Event, token?: string): Headers {
+  const headers = betterAuthRequestHeaders(event);
+  if (token) headers.set("authorization", `Bearer ${token}`);
+  return headers;
+}
+
+async function signInWithEmailPassword(
+  event: H3Event,
+  auth: BetterAuthInstance,
+  email: string,
+  password: string,
+): Promise<Record<string, any>> {
+  const result = await auth.api.signInEmail({
+    body: { email, password },
+    headers: betterAuthRequestHeaders(event),
+    returnHeaders: true,
+  });
+  const body = betterAuthApiBody(result);
+  if (body.twoFactorRedirect === true) {
+    // Keep the short-lived Better Auth challenge cookie, but never expose the
+    // Better Auth session/cache cookies to the browser. The framework mirrors
+    // the verified token into its own session cookie after the second factor.
+    forwardBetterAuthSetCookies(event, result, {
+      excludeSessionCookies: true,
+    });
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------
@@ -2359,9 +2473,9 @@ function parseDesktopExchangeStoredEntry(
 
 function isDesktopMagicLinkCallbackPath(value: string): boolean {
   try {
-    return new URL(value, "http://agent-native.invalid").pathname.endsWith(
-      "/_agent-native/auth/magic-link/desktop-callback",
-    );
+    return canonicalFrameworkPathname(
+      new URL(value, "http://agent-native.invalid").pathname,
+    ).endsWith("/_agent-native/auth/magic-link/desktop-callback");
   } catch {
     // coercion-ok: malformed callback URLs are treated as non-desktop callbacks.
     return false;
@@ -3027,7 +3141,7 @@ function extractMcpOAuthCookieAppId(
     return undefined;
   }
 
-  const match = redirectUri.pathname.match(
+  const match = canonicalFrameworkPathname(redirectUri.pathname).match(
     /^\/([a-z0-9][a-z0-9-]*)\/_agent-native\/mcp\/servers\/oauth\/callback$/,
   );
   const appId = match?.[1];
@@ -3343,7 +3457,9 @@ function desktopMagicLinkVerificationUrl(
     const callback = new URL(callbackURL, getOrigin(event));
     if (
       callback.origin !== new URL(getOrigin(event)).origin ||
-      !callback.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_PATH) ||
+      !canonicalFrameworkPathname(callback.pathname).endsWith(
+        DESKTOP_MAGIC_LINK_CALLBACK_PATH,
+      ) ||
       !normalizeDesktopFlowId(callback.searchParams.get("flow_id")) ||
       !normalizeDesktopFlowVerifier(callback.searchParams.get("verifier"))
     ) {
@@ -3508,6 +3624,7 @@ function loginHtmlResponse(
       getSsrAuthRedirectScript(
         SESSION_HINT_COOKIE,
         resolveAppHomePath(getAppConfig().app),
+        getFrameworkRoutePrefix(),
       ),
     );
   }
@@ -3959,6 +4076,16 @@ function createAuthGuardFn(
     // 401ing a loopback dev request before that check can run.
     if (
       p === "/_agent-native/dev/action" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
+    // `pnpm action db-query` forwarding target (dev-action-bridge.ts) — same
+    // reasoning as the dev/action bypass above, for the dedicated db-query
+    // route.
+    if (
+      p === "/_agent-native/dev/db-query" &&
       resolveDeployEnvironment() !== "production" &&
       isLoopbackRequest(event)
     ) {
@@ -4768,7 +4895,7 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-function isHttpsRequest(event: H3Event): boolean {
+export function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
@@ -4831,16 +4958,6 @@ function isPublicWorkspacePageRequest(
   if (matchesPathList(path, config.workspaceAppProtectedPaths)) return false;
   if (matchesPathList(path, config.workspaceAppPublicPaths)) return true;
   return config.workspaceAppAudience === "public";
-}
-
-function stripAppBasePath(pathname: string): string {
-  const basePath = getAppBasePath();
-  if (!basePath) return pathname;
-  if (pathname === basePath) return "/";
-  if (pathname.startsWith(`${basePath}/`)) {
-    return pathname.slice(basePath.length) || "/";
-  }
-  return pathname;
 }
 
 // ---------------------------------------------------------------------------
@@ -5586,6 +5703,7 @@ async function mountBetterAuthRoutes(
           });
           const response = await auth.handler(verificationRequest);
           if (response instanceof Response) {
+            upgradeBetterAuthSetCookies(event, response.headers);
             logMagicLinkVerificationResponse(
               event,
               "desktop-landing",
@@ -5774,6 +5892,170 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/local-dev",
     createLocalDevAuthHandler(betterAuthConfig),
+  );
+
+  const requireTwoFactorSession = async (
+    event: H3Event,
+  ): Promise<AuthSession | null> => {
+    const session = await getSession(event);
+    if (session?.email && session.token) return session;
+    setResponseStatus(event, 401);
+    return null;
+  };
+
+  const twoFactorError = (event: H3Event, error: unknown) => {
+    if (!isExpectedAuthFailure(error)) {
+      captureAuthError(error, { route: "better-auth" });
+    }
+    const publicError = publicAuthError(
+      error,
+      "Two-factor authentication could not be completed.",
+    );
+    setResponseStatus(event, publicError.statusCode ?? 400);
+    return {
+      error: publicError.message,
+      ...(publicError.code ? { code: publicError.code } : {}),
+    };
+  };
+
+  app.use(
+    "/_agent-native/auth/two-factor/status",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await requireTwoFactorSession(event);
+      if (!session) return { error: "Not authenticated" };
+      try {
+        const authSession = await auth.api.getSession({
+          headers: betterAuthHeadersForSession(event, session.token),
+        });
+        return {
+          enabled: Boolean(
+            (authSession?.user as { twoFactorEnabled?: unknown } | undefined)
+              ?.twoFactorEnabled,
+          ),
+        };
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/two-factor/enable",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await requireTwoFactorSession(event);
+      if (!session) return { error: "Not authenticated" };
+      const body = await readBody<Record<string, unknown>>(event);
+      const password = typeof body?.password === "string" ? body.password : "";
+      try {
+        const result = await auth.api.enableTwoFactor({
+          body: { method: "totp", ...(password ? { password } : {}) },
+          headers: betterAuthHeadersForSession(event, session.token),
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result, {
+          excludeSessionCookies: true,
+        });
+        return betterAuthApiBody(result);
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/two-factor/disable",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await requireTwoFactorSession(event);
+      if (!session) return { error: "Not authenticated" };
+      const body = await readBody<Record<string, unknown>>(event);
+      const password = typeof body?.password === "string" ? body.password : "";
+      try {
+        const result = await auth.api.disableTwoFactor({
+          body: password ? { password } : {},
+          headers: betterAuthHeadersForSession(event, session.token),
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result, {
+          excludeSessionCookies: true,
+        });
+        return betterAuthApiBody(result);
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/two-factor/verify",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const body = await readBody<Record<string, unknown>>(event);
+      const code = typeof body?.code === "string" ? body.code.trim() : "";
+      if (!/^\d{6,8}$/.test(code)) {
+        setResponseStatus(event, 400);
+        return { error: "Enter the six-digit code from your authenticator." };
+      }
+      const existingSession = await getSession(event);
+      try {
+        const result = await auth.api.verifyTOTP({
+          body: {
+            code,
+            ...(body?.trustDevice === true ? { trustDevice: true } : {}),
+          },
+          headers: betterAuthHeadersForSession(event, existingSession?.token),
+          returnHeaders: true,
+        });
+        const responseBody = betterAuthApiBody(result);
+        const token =
+          typeof responseBody.token === "string" ? responseBody.token : "";
+        const email =
+          typeof responseBody.user?.email === "string"
+            ? responseBody.user.email
+            : existingSession?.email;
+        if (!existingSession) {
+          if (!token || !email) {
+            setResponseStatus(event, 500);
+            return {
+              error: "Two-factor authentication did not create a session.",
+            };
+          }
+          setFrameworkSessionCookie(event, token);
+          clearIdentityGoogleAuthCookie(event);
+          setFirstRunOnboardingCookie(event);
+          await addSession(token, email);
+          if (isElectronRequest(event)) {
+            await writeDesktopSso({
+              email,
+              token,
+              expiresAt: Date.now() + sessionMaxAge * 1000,
+            });
+          }
+        }
+        forwardBetterAuthSetCookies(event, result, {
+          excludeSessionCookies: true,
+        });
+        return existingSession
+          ? { ok: true }
+          : authLoginResponse(event, token, email);
+      } catch (error) {
+        return twoFactorError(event, error);
+      }
+    }),
   );
 
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
@@ -5999,6 +6281,10 @@ async function mountBetterAuthRoutes(
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+      // Before the forwarding below copies these cookies anywhere else.
+      if (isResponse) {
+        upgradeBetterAuthSetCookies(event, (response as Response).headers);
+      }
 
       if (
         isSignOut &&
@@ -6098,6 +6384,7 @@ async function mountBetterAuthRoutes(
             headers: requestForAuth.headers,
           }),
         );
+        upgradeBetterAuthSetCookies(event, response.headers);
       }
 
       if (isResponse && (response as Response).status >= 400) {
@@ -6273,10 +6560,14 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        const result = await auth.api.signInEmail({
-          body: { email, password },
-        });
-        if (result?.token) {
+        const result = await signInWithEmailPassword(
+          event,
+          auth,
+          email,
+          password,
+        );
+        if (result.twoFactorRedirect === true) return result;
+        if (result.token) {
           setFrameworkSessionCookie(event, result.token);
           clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);
@@ -6310,7 +6601,8 @@ async function mountBetterAuthRoutes(
   );
 
   // Better Auth redirects new magic-link users through this small public
-  // callback so first-run onboarding is marked only for newly created users.
+  // callback, so its route is the new-user signal. The session cookie is
+  // handed off by the preceding redirect and may not resolve again here.
   // Keep this before the generic magic-link handler for runtimes whose
   // app.use() middleware paths match descendants as prefixes.
   app.use(
@@ -6324,9 +6616,7 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
-      if (await getSession(event)) {
-        setFirstRunOnboardingCookie(event);
-      }
+      setFirstRunOnboardingCookie(event);
       return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );
@@ -6347,7 +6637,7 @@ async function mountBetterAuthRoutes(
         const query = getQuery(event);
         if (typeof query.token === "string") {
           const verificationUrl = new URL(
-            `${getAppBasePath()}/_agent-native/auth/ba/magic-link/verify`,
+            `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/ba/magic-link/verify")}`,
             getOrigin(event),
           );
           for (const key of [
@@ -6412,7 +6702,7 @@ async function mountBetterAuthRoutes(
             )
           : undefined;
         const newUserCallbackUrl = new URL(
-          `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`,
+          `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
           getOrigin(event),
         );
         if (attributionToken) {
@@ -6711,10 +7001,14 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       try {
         const auth = await getBetterAuth();
-        const result = await auth.api.signInEmail({
-          body: { email, password },
-        });
-        if (result?.token) {
+        const result = await signInWithEmailPassword(
+          event,
+          auth,
+          email,
+          password,
+        );
+        if (result.twoFactorRedirect === true) return result;
+        if (result.token) {
           setFrameworkSessionCookie(event, result.token);
           clearIdentityGoogleAuthCookie(event);
           setFirstRunOnboardingCookie(event);

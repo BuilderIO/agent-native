@@ -108,6 +108,7 @@ export function deriveOverviewScreens({
     const heightMode = resolveScreenHeightMode(
       metadata.heightMode,
       metadata.heightPinned === true,
+      metadata.sourceType,
     );
     const breakpointHeights =
       rawBreakpointHeights &&
@@ -164,4 +165,50 @@ export function deriveOverviewScreens({
         : undefined,
     };
   });
+}
+
+function sameFieldValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const aRecord = a as Record<string, unknown>;
+  const bRecord = b as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  return (
+    aKeys.length === Object.keys(bRecord).length &&
+    aKeys.every((key) => aRecord[key] === bRecord[key])
+  );
+}
+
+/**
+ * Hands back the previous screen object wherever the rebuilt one is
+ * field-for-field equal (one level deep for breakpoint arrays and records),
+ * and the previous array when nothing changed. The canvas memoizes frames and
+ * live editors on screen identity, so a fresh object per screen on every data
+ * change re-renders the whole board.
+ */
+export function reuseUnchangedOverviewScreens<T extends { id: string }>(
+  previous: readonly T[],
+  next: T[],
+): T[] {
+  const previousById = new Map(previous.map((screen) => [screen.id, screen]));
+  let changed = previous.length !== next.length;
+  const reused = next.map((screen, index) => {
+    const prior = previousById.get(screen.id);
+    const priorRecord = prior as Record<string, unknown> | undefined;
+    const nextRecord = screen as Record<string, unknown>;
+    const nextKeys = Object.keys(nextRecord);
+    if (
+      prior &&
+      nextKeys.length === Object.keys(priorRecord!).length &&
+      nextKeys.every((key) =>
+        sameFieldValue(priorRecord![key], nextRecord[key]),
+      )
+    ) {
+      if (previous[index] !== prior) changed = true;
+      return prior;
+    }
+    changed = true;
+    return screen;
+  });
+  return changed ? reused : (previous as T[]);
 }

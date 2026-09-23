@@ -92,26 +92,46 @@ export default defineAction({
       .limit(1);
     if (!org) return emptyOrganizationState(ownerEmail);
 
-    const [settings] = await db
-      .select({
-        brandColor: schema.organizationSettings.brandColor,
-        brandLogoUrl: schema.organizationSettings.brandLogoUrl,
-        defaultVisibility: schema.organizationSettings.defaultVisibility,
-      })
-      .from(schema.organizationSettings)
-      .where(eq(schema.organizationSettings.organizationId, organizationId))
-      .limit(1);
-
-    const memberRows = await db
-      .select({
-        id: orgMembers.id,
-        email: orgMembers.email,
-        role: orgMembers.role,
-        joinedAt: orgMembers.joinedAt,
-      })
-      .from(orgMembers)
-      .where(eq(orgMembers.orgId, organizationId))
-      .orderBy(asc(orgMembers.joinedAt));
+    // These organization-scoped reads are independent. Keep them in one
+    // round-trip window before resolving member profiles below.
+    const [settingsRows, memberRows, inviteRows] = await Promise.all([
+      db
+        .select({
+          brandColor: schema.organizationSettings.brandColor,
+          brandLogoUrl: schema.organizationSettings.brandLogoUrl,
+          defaultVisibility: schema.organizationSettings.defaultVisibility,
+        })
+        .from(schema.organizationSettings)
+        .where(eq(schema.organizationSettings.organizationId, organizationId))
+        .limit(1),
+      db
+        .select({
+          id: orgMembers.id,
+          email: orgMembers.email,
+          role: orgMembers.role,
+          joinedAt: orgMembers.joinedAt,
+        })
+        .from(orgMembers)
+        .where(eq(orgMembers.orgId, organizationId))
+        .orderBy(asc(orgMembers.joinedAt)),
+      db
+        .select({
+          id: orgInvitations.id,
+          email: orgInvitations.email,
+          role: orgInvitations.role,
+          status: orgInvitations.status,
+          createdAt: orgInvitations.createdAt,
+        })
+        .from(orgInvitations)
+        .where(
+          and(
+            eq(orgInvitations.orgId, organizationId),
+            eq(orgInvitations.status, "pending"),
+          ),
+        )
+        .orderBy(desc(orgInvitations.createdAt)),
+    ]);
+    const settings = settingsRows[0];
     const members = memberRows.map((m) => ({
       id: m.id,
       email: m.email,
@@ -129,22 +149,6 @@ export default defineAction({
       };
     });
 
-    const inviteRows = await db
-      .select({
-        id: orgInvitations.id,
-        email: orgInvitations.email,
-        role: orgInvitations.role,
-        status: orgInvitations.status,
-        createdAt: orgInvitations.createdAt,
-      })
-      .from(orgInvitations)
-      .where(
-        and(
-          eq(orgInvitations.orgId, organizationId),
-          eq(orgInvitations.status, "pending"),
-        ),
-      )
-      .orderBy(desc(orgInvitations.createdAt));
     const invitations = inviteRows.map((i) => ({
       id: i.id,
       email: i.email,

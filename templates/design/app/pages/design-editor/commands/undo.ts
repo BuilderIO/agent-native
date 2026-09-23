@@ -75,6 +75,8 @@ import type {
 } from "@/pages/design-editor/pending-edits";
 import {
   mergePendingLiveNonStyleEdits,
+  pendingLiveNonStyleEditsFromUndoStack,
+  pendingLiveStructureEditsFromUndoEntry,
   mergePendingVisualStyleEdits,
   pendingVisualStyleEditsFromUndoStack,
   pendingVisualStyleUndoTargets,
@@ -392,6 +394,7 @@ export interface UndoArgs {
     direction: "undo" | "redo",
   ) => boolean;
   canEditDesign: boolean;
+  allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
   /** Flat ownership map (DesignEditor.tsx's `codeLayerOwnerByNodeIdRef`) used
@@ -410,6 +413,13 @@ export interface UndoArgs {
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  optimisticallyInsertCreatedFile?: (args: {
+    fileId: string;
+    filename: string;
+    fileType: DesignFile["fileType"];
+    content: string;
+    result?: Record<string, unknown> | null;
+  }) => void;
   deleteFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "delete-file">
   >;
@@ -419,7 +429,9 @@ export interface UndoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
@@ -459,6 +471,7 @@ export interface UndoArgs {
       onMutationSettled?: (
         deletedFiles: DesignFile[],
         failedFiles: DesignFile[],
+        deletedFileSnapshots: FileDeletionHistorySnapshot[],
       ) => void;
     },
   ) => void;
@@ -538,6 +551,7 @@ export function runUndo({
   applyLocalContentUpdate,
   applyDesignDataHistoryChanges,
   canEditDesign,
+  allowPendingLiveEdits,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -547,6 +561,7 @@ export function runUndo({
   contentUndoSelectionStackRef,
   contentUndoStackRef,
   createFileMutation,
+  optimisticallyInsertCreatedFile,
   deleteFileMutation,
   designDataJsonRef,
   fileCreationRedoStackRef,
@@ -554,7 +569,9 @@ export function runUndo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  clearPendingHistory,
   files,
+  filesRef,
   geometryRedoStackRef,
   geometryUndoStackRef,
   getFreshActiveContent,
@@ -609,8 +626,9 @@ export function runUndo({
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
   ) => {
+    const currentFiles = filesRef?.current ?? files;
     const actualSources = Object.fromEntries(
-      files.map((file) => [
+      currentFiles.map((file) => [
         file.id,
         replaySources[file.id] ?? getScreenContent(file.id),
       ]),
@@ -624,7 +642,7 @@ export function runUndo({
     if (selection) setSelectedElement(resolved.element);
   };
   trace("history", "undo", {});
-  if (!canEditDesign) return;
+  if (!canEditDesign && !allowPendingLiveEdits) return;
   // U10: an in-progress drag hasn't been committed yet (onGeometryCommit /
   // the content update fires on drag END), so undoing mid-drag would pop a
   // PRIOR entry while the live-but-uncommitted drag is still moving the
@@ -639,35 +657,73 @@ export function runUndo({
   const pendingNonStyleUndoStack = pendingLiveNonStyleUndoStackRef.current;
   const pendingNonStyleUndo =
     pendingNonStyleUndoStack[pendingNonStyleUndoStack.length - 1];
+  const pendingHistoryKind =
+    historyOrderRef.current[historyOrderRef.current.length - 1];
+  const pendingUndoKind =
+    pendingHistoryKind === "pending-style" ||
+    pendingHistoryKind === "pending-live"
+      ? pendingHistoryKind
+      : undefined;
+  if (!canEditDesign && !pendingStyleUndo && !pendingNonStyleUndo) return;
+  if (
+    (pendingUndoKind === "pending-style" && !pendingStyleUndo) ||
+    (pendingUndoKind === "pending-live" && !pendingNonStyleUndo)
+  ) {
+    return;
+  }
+  const consumePendingUndoOrder = (kind: "pending-style" | "pending-live") => {
+    if (historyOrderRef.current[historyOrderRef.current.length - 1] !== kind) {
+      return;
+    }
+    historyOrderRef.current = historyOrderRef.current.slice(0, -1);
+    redoOrderRef.current = [
+      ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      kind,
+    ];
+  };
   if (
     pendingNonStyleUndo &&
-    (!pendingStyleUndo ||
-      pendingNonStyleUndo.edit.updatedAt > pendingStyleUndo.edit.updatedAt)
+    (pendingUndoKind === "pending-live" ||
+      (pendingHistoryKind === undefined &&
+        (!pendingStyleUndo ||
+          pendingNonStyleUndo.edit.updatedAt >
+            pendingStyleUndo.edit.updatedAt)))
   ) {
     const nextUndoStack = pendingNonStyleUndoStack.slice(0, -1);
     pendingLiveNonStyleUndoStackRef.current = nextUndoStack;
     const nextPending = mergePendingLiveNonStyleEdits(
-      nextUndoStack.map((entry) => entry.edit),
+      pendingLiveNonStyleEditsFromUndoStack(nextUndoStack),
     );
     pendingLiveNonStyleEditsRef.current = nextPending;
     pendingLiveNonStyleRedoStackRef.current = [
       ...pendingLiveNonStyleRedoStackRef.current,
       pendingNonStyleUndo,
     ];
-    requestPendingLiveNonStyleRevert([
+    requestPendingLiveNonStyleRevert(
       pendingNonStyleUndo.kind === "text"
-        ? {
-            ...pendingNonStyleUndo.edit,
-            originalValue: pendingNonStyleUndo.revertValue,
-            originalHtml: pendingNonStyleUndo.revertHtml,
-          }
-        : pendingNonStyleUndo.kind === "layer-state"
-          ? {
+        ? [
+            {
               ...pendingNonStyleUndo.edit,
-              originalEnabled: pendingNonStyleUndo.revertEnabled,
-            }
-          : pendingNonStyleUndo.edit,
-    ]);
+              originalValue: pendingNonStyleUndo.revertValue,
+              originalHtml: pendingNonStyleUndo.revertHtml,
+            },
+          ]
+        : pendingNonStyleUndo.kind === "layer-state"
+          ? [
+              {
+                ...pendingNonStyleUndo.edit,
+                originalEnabled: pendingNonStyleUndo.revertEnabled,
+              },
+            ]
+          : pendingNonStyleUndo.kind === "layer-name"
+            ? [
+                {
+                  ...pendingNonStyleUndo.edit,
+                  originalName: pendingNonStyleUndo.revertName,
+                },
+              ]
+            : pendingLiveStructureEditsFromUndoEntry(pendingNonStyleUndo),
+    );
     setPendingLiveNonStyleEdits(nextPending);
     // Bug fix — undo reverted the DOM via requestPendingLiveNonStyleRevert
     // above but never resynced the inspector panel's selectedElement, so
@@ -703,10 +759,14 @@ export function runUndo({
         };
       });
     }
+    consumePendingUndoOrder("pending-live");
     syncUndoRedoState();
     return;
   }
-  if (pendingStyleUndo) {
+  if (
+    pendingStyleUndo &&
+    (pendingUndoKind === "pending-style" || pendingHistoryKind === undefined)
+  ) {
     const nextUndoStack = pendingStyleUndoStack.slice(0, -1);
     pendingVisualStyleUndoStackRef.current = nextUndoStack;
     const nextPending = mergePendingVisualStyleEdits(
@@ -761,6 +821,7 @@ export function runUndo({
         },
       };
     });
+    consumePendingUndoOrder("pending-style");
     syncUndoRedoState();
     return;
   }
@@ -1307,13 +1368,28 @@ export function runUndo({
   // entry itself doesn't carry the id assigned by the create mutation.
   const undoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
-    const entry = fileCreationUndoStackRef.current.pop();
+    const stack = fileCreationUndoStackRef.current;
+    const entry = stack[stack.length - 1];
     if (!entry) return false;
-    const createdFile = files.find((file) => file.filename === entry.filename);
-    if (!createdFile) return false;
+    let batchStart = stack.length - 1;
+    while (
+      batchStart > 0 &&
+      entry.historyBatchId &&
+      stack[batchStart - 1]?.historyBatchId === entry.historyBatchId
+    ) {
+      batchStart -= 1;
+    }
+    const entries = stack.slice(batchStart);
+    const createdFiles = entries.map((item) =>
+      files.find((file) => file.filename === item.filename),
+    );
+    if (createdFiles.some((file) => !file)) return false;
+    stack.splice(batchStart, entries.length);
     fileCreationRedoStackRef.current = [
-      ...fileCreationRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      ...fileCreationRedoStackRef.current.slice(
+        -(MAX_DESIGN_UNDO_STACK - entries.length),
+      ),
+      ...entries,
     ];
     redoOrderRef.current = [
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1323,7 +1399,10 @@ export function runUndo({
     // stack above for this exact filename — without this flag
     // performDeleteFiles' filename-keyed redo prune would immediately pop
     // it back off, leaving redo permanently empty after this undo.
-    performDeleteFiles([createdFile], { skipFileCreationRedoPrune: true });
+    performDeleteFiles(
+      createdFiles.filter((file): file is DesignFile => Boolean(file)),
+      { skipFileCreationRedoPrune: true },
+    );
     return true;
   };
   const undoFileDeletion = () => {
@@ -1478,6 +1557,17 @@ export function runUndo({
           ...file,
           content: preparedFiles[index]?.content ?? file.content,
         }));
+        entry.files.forEach((file, index) => {
+          const recreatedFile = recreatedEntry.files[index];
+          const prepared = preparedFiles[index];
+          if (!recreatedFile || !prepared) return;
+          optimisticallyInsertCreatedFile?.({
+            fileId: recreatedFile.id,
+            filename: file.filename,
+            fileType: file.fileType,
+            content: prepared.content,
+          });
+        });
         const metadataRestore = restoreMetadataAndGeometry(
           restoreEntry,
           recreatedEntry,
@@ -1548,6 +1638,7 @@ export function runUndo({
           setSelectedLayerIdsState(recreatedEntry.files.map((file) => file.id));
         }
       } catch (error) {
+        clearPendingHistory?.();
         const cleanupResults = await Promise.allSettled(
           recreatedIds.map((fileId) =>
             deleteFileMutation.mutateAsync({

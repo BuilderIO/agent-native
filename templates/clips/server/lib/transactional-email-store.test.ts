@@ -136,6 +136,34 @@ describe("transactional email store", () => {
     });
   });
 
+  it("releases an abandoned AI claim only for its claimant", async () => {
+    let currentTime = new Date("2026-08-01T12:00:00.000Z");
+    const store = createTransactionalEmailStore({ now: () => currentTime });
+    const logicalKey = "two-clips:recipient@example.com";
+    await store.enqueue(
+      logicalKey,
+      {
+        type: "two-clips",
+        recipient: "recipient@example.com",
+        recordingIds: ["recording-1", "recording-2"],
+      },
+      "awaiting_ai",
+    );
+    await store.claimAwaitingAi(logicalKey, "first@example.com");
+
+    await expect(
+      store.releaseClaimedAi(logicalKey, "other@example.com"),
+    ).resolves.toBeNull();
+    currentTime = new Date("2026-08-01T12:00:01.000Z");
+    await expect(
+      store.releaseClaimedAi(logicalKey, "first@example.com"),
+    ).resolves.toMatchObject({
+      state: "awaiting_ai",
+      aiClaimedBy: undefined,
+      aiDispatchedAt: undefined,
+    });
+  });
+
   it("fences stale sending leases", async () => {
     let currentTime = new Date("2026-08-01T12:00:00.000Z");
     const store = createTransactionalEmailStore({ now: () => currentTime });

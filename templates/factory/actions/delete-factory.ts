@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import {
   factoryAuditEvents,
+  factoryAutomationVersions,
   factoryComments,
   factoryDefinitions,
   factoryGraphVersions,
@@ -106,6 +107,7 @@ export default defineAction({
         const scopedTables = [
           factoryComments,
           factoryGraphVersions,
+          factoryAutomationVersions,
           factoryAuditEvents,
           factoryPollCursors,
           triageFeedback,

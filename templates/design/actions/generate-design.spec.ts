@@ -104,7 +104,9 @@ const mocks = vi.hoisted(() => {
 
   const tx = {
     select,
+    insert,
     update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<void>) => {
@@ -204,9 +206,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
+  const hasCollabState = vi.fn(async (docId: string) => seeded.has(docId));
+  const getText = vi.fn(async (docId: string) => seeded.get(docId) ?? "");
   return {
-    hasCollabState: vi.fn(async (docId: string) => seeded.has(docId)),
-    getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
+    hasCollabState,
+    getText,
     applyText: vi.fn(async (docId: string, text: string) => {
       seeded.set(docId, text);
       return text;
@@ -214,6 +219,36 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const hasLiveDoc = await hasCollabState(docId);
+        const doc = {
+          content: hasLiveDoc ? await getText(docId) : "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        const result = await run({
+          doc,
+          baseVersion: hasLiveDoc ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+          },
+        });
+        return result;
+      },
+    ),
     agentEnterDocument: vi.fn(),
     agentLeaveDocument: vi.fn(),
     agentUpdateSelection: vi.fn(),
@@ -863,7 +898,7 @@ describe("generate-design: new-file creation path", () => {
 
     const savedFileId = result.savedFiles[0]!.id;
     expect(result.urlPath).toBe(
-      `/design/design-1?view=overview&screen=${savedFileId}`,
+      `/design/design-1?editorView=overview&screen=${savedFileId}`,
     );
     const link = action.link?.({ args: {}, result });
     expect(link?.url).toContain(`screen=${savedFileId}`);

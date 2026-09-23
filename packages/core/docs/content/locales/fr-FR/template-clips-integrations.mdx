@@ -1,0 +1,176 @@
+---
+title: "Clips dans un espace de travail multi-apps"
+description: "Comment Clips se connecte à Dispatch et à d'autres applications, les clips lisibles par un agent, l'export vers Brain, la preuve d'appel CRM, et la délégation en langage naturel."
+---
+
+# Clips dans un espace de travail multi-apps
+
+Clips est une application parmi d'autres dans un espace de travail [Dispatch](/docs/template-dispatch). Cette page couvre ce que cela signifie concrètement en pratique : comment la connexion fonctionne, et des moyens concrets par lesquels d'autres applications et agents peuvent agir sur vos clips ou réagir à ce qui leur arrive. Consultez [Clips](/docs/template-clips) pour la vue d'ensemble.
+
+## Comment Clips se connecte à Dispatch
+
+Le fait que ce soit automatique dépend de la façon dont Clips et Dispatch ont été configurés ensemble, pas du fait que l'un ou l'autre soit hébergé ou exécuté localement.
+
+### Même espace de travail : automatique
+
+Si Clips et Dispatch ont été générés ou ajoutés ensemble dans un seul espace de travail Agent-Native (via `create` ou `add-app`) et déployés comme une seule unité, ils partagent déjà un seul `.env`, un seul `A2A_SECRET`, et un seul registre d'espace de travail. La découverte et l'appel A2A authentifié fonctionnent tous les deux sans rien à configurer, que cet espace de travail s'exécute sur votre machine ou en production. C'est la configuration attendue pour un véritable produit multi-apps construit sur Clips.
+
+### Déploiements séparés : une étape manuelle
+
+Si Clips et Dispatch sont deux projets Agent-Native créés indépendamment, ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json` avec un secret partagé, depuis Paramètres → Agents connectés, l'onglet Connexions de la page Agent, ou Dispatch → Agents → Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le guide complet.
+
+Pour vérifier dans quelle situation vous êtes, demandez à l'agent de l'une des deux applications « quelles applications peux-tu voir ? » Si Clips est absent de la réponse de Dispatch, vous êtes dans le second cas.
+
+## Stratégies d'intégration
+
+### Clips lisibles par un agent
+
+Collez un lien de partage public de Clips dans un agent, ou utilisez **Partager → Copier** dans la ligne **Partager avec des agents** pour un clip privé. Dans les deux cas, l'agent peut lire la transcription et voir les images clés sans télécharger la vidéo, en utilisant un lien qui expire après deux heures.
+
+La plupart des agents capables de voir des images gèrent cela eux-mêmes, y compris ChatGPT, Claude Code, Cursor et Codex. Quelques chats en texte seul peuvent lire la transcription mais pas les images, alors ouvrez le clip dans un agent capable de voir des images pour ceux-là.
+
+| Point de terminaison                              | Ce que les agents obtiennent                                                                                                              |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, images recommandées, et liens vers les API de transcription/image        |
+| `/api/agent-transcript.json?id=<recordingId>`     | Segments de transcription horodatés avec `startMs`, `endMs`, des horodatages lisibles, le texte, et des étiquettes de source facultatives |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo à un horodatage de la vidéo d'origine                                                                 |
+
+Les points de terminaison suivent les mêmes règles de public/mot de passe/expiration que la page de partage, ou acceptent le jeton `agent_access` limité provenant d'un lien d'agent temporaire. Les clips protégés par mot de passe demandent le mot de passe une fois ; les réponses réussies renvoient des liens tokenisés de courte durée pour que les agents en aval n'aient pas besoin du mot de passe en clair.
+
+<Endpoint id="doc-block-clips-agent-context" title="Point d'entrée du contexte agent" method="GET" path="/api/agent-context.json" summary="Description compacte et lisible par un agent d'un clip partagé" auth="Mêmes règles de public / mot de passe / expiration que la page de partage, ou un jeton agent_access limité" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "ID de l'enregistrement"
+  },
+  {
+    "name": "agent_access",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "Jeton temporaire provenant de la fonction Copier pour les liens d'agent"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Métadonnées du clip, statut/raison d'échec/délai de nouvelle tentative de la transcription, instructions pour l'agent, et liens vers les API de transcription/image"
+  }
+]}>
+
+Renvoie les métadonnées du clip, le statut de la transcription, les chapitres, les CTA, les images recommandées, et des liens vers les API de transcription et d'image. Annoncé par les pages de partage publiques et les liens d'agent privés temporaires afin qu'un agent texte seul ou image seule puisse comprendre un enregistrement sans ingérer la vidéo brute.
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-transcript" title="Transcription horodatée" method="GET" path="/api/agent-transcript.json" summary="Segments de transcription horodatés pour un clip partagé" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "ID de l'enregistrement"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Statut de la transcription, failureReason, retryAfterSeconds, le texte complet, et des segments avec startMs, endMs, des horodatages lisibles, le texte, et des étiquettes de source facultatives"
+  }
+]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frame" title="Image à un horodatage" method="GET" path="/api/agent-frame.jpg" summary="Une image JPEG extraite de la vidéo à un horodatage de la vidéo d'origine" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "ID de l'enregistrement"
+  },
+  {
+    "name": "atMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Horodatage de la vidéo d'origine en millisecondes"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Image au format image/jpeg"
+  }
+]}>
+
+</Endpoint>
+
+Si une transcription n'est pas encore prête, un agent bien conçu attend un peu et réessaie au lieu d'abandonner tout de suite. Les enregistrements longs peuvent prendre quelques minutes. Si la transcription échoue parce que les crédits Builder sont épuisés, l'agent doit le signaler et renvoyer vers [Transcription et métadonnées IA](/docs/template-clips-features#transcription-and-ai-metadata).
+
+### Export vers Brain
+
+Une fois que votre espace de travail connecte Brain, Clips envoie automatiquement les transcriptions prêtes après chaque enregistrement terminé. Vous pouvez aussi demander à l'agent de rattraper les enregistrements plus anciens, comme tout ce qui date des 28 derniers jours, au lieu d'attendre que les nouveaux arrivent au fil du temps. Il rapporte ensuite combien de transcriptions ont été exportées, ignorées, ou signalées.
+
+### Preuve d'appel CRM
+
+Les outils CRM ont parfois besoin d'une preuve qu'un appel a eu lieu, sans l'enregistrement complet. Clips ne transmet qu'un ID de clip opaque et un lien durable, jamais la vidéo ni une transcription. Cela ne fonctionne que pour un enregistrement que vous pouvez déjà voir, et seulement quand vous le demandez ou qu'une automatisation approuvée le déclenche.
+
+<Diagram id="doc-block-clips-crm" title="Preuve d'appel CRM" summary={"Une automatisation clip.created transmet à un flux de travail CRM un lien durable, jamais le média lui-même."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">Enregistrement prêt</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    clip.created<br /><small class="diagram-muted"
+      >automatisation approuvée</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Lien de preuve</span
+    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Enregistrement CRM</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Délégation en langage naturel via Dispatch
+
+Une application sœur n'a pas besoin d'une intégration spéciale pour travailler avec Clips. Elle peut transmettre à l'agent de Clips une demande en langage courant, comme « trouve le clip où nous avons discuté des prix », de la même façon que vous le feriez dans le chat, et Clips y répond ou agit dessus directement.
+
+### Rester découplé
+
+Clips n'a jamais besoin de connaître les identifiants de Brain ou d'un CRM, ni l'inverse. L'événement `clip.created` et les liens lisibles par un agent se trouvent entre les applications, si bien que Clips se contente d'émettre des événements et de répondre à des demandes sans avoir besoin de savoir qui écoute.
+
+## Et ensuite
+
+- [**Clips**](/docs/template-clips) — la vue d'ensemble et ce qu'elle remplace
+- [**Fonctionnalités**](/docs/template-clips-features) — la Bibliothèque, Partagé avec moi, les Espaces, et toutes les autres fonctionnalités
+- [**Parler à l'agent**](/docs/template-clips-agent) — les invites par tâche et comment l'agent voit votre écran
+- [**Guide développeur**](/docs/template-clips-developers) — démarrage rapide, actions, modèle de données et routes
+- [**Dispatch**](/docs/template-dispatch) — le plan de contrôle d'espace de travail sur lequel ces modèles s'exécutent
+- [**Automatisations**](/docs/automations) — déclarer une automatisation qui réagit à `clip.created`
+- [**Protocole A2A**](/docs/a2a-protocol) — comment les applications se découvrent, s'authentifient et s'appellent entre elles
+- [**Espace de travail multi-apps**](/docs/multi-app-workspace) — le modèle général de composition d'applications de première partie plutôt que de les imbriquer

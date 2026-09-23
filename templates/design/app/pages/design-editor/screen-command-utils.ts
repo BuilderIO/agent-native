@@ -1,4 +1,5 @@
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
+import { designEditorViewFromSearchParams } from "@/lib/design-editor-route";
 
 import { queryUniqueSelector } from "./dom-utils";
 import {
@@ -35,7 +36,7 @@ export function designEditorCommandFromSearchParams(
   designId: string,
   searchParams: URLSearchParams,
 ): DesignEditorCommand | null {
-  const editorView = searchParams.get("view");
+  const editorView = designEditorViewFromSearchParams(searchParams);
   const inspector = searchParams.get("inspector");
   const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =

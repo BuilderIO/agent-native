@@ -1452,6 +1452,56 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
     expect(merged.messages[0].parentId).toBeNull();
     expect(merged.messages[1].parentId).toBe("user-1");
+    expect(merged.headId).toBe("server-run-1");
+  });
+
+  it("keeps the newest server branch active when a stale branch is merged", () => {
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            createdAt: "2026-05-17T12:00:00.000Z",
+            content: [{ type: "text", text: "start" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "assistant-server",
+            role: "assistant",
+            createdAt: "2026-05-17T12:00:01.000Z",
+            content: [{ type: "text", text: "server answer" }],
+            status: { type: "complete", reason: "stop" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      headId: "assistant-server",
+    };
+    const staleIncoming = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            createdAt: "2026-05-17T12:00:00.000Z",
+            content: [{ type: "text", text: "start" }],
+          },
+          parentId: null,
+        },
+      ],
+      headId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged.headId).toBe("assistant-server");
+    expect(merged.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-server",
+    ]);
   });
 
   it("drops empty assistant placeholders when the real server answer arrives", () => {
@@ -2357,6 +2407,37 @@ describe("upsertUserMessage", () => {
       id: "server-user-run-repeat",
       role: "user",
     });
+  });
+
+  it("parents a submitted message to the repository head, not an array sibling", () => {
+    const message = buildUserMessage({
+      text: "latest request",
+      runId: "run-latest",
+    });
+    const repo = {
+      messages: [
+        {
+          message: buildUserMessage({
+            text: "active request",
+            runId: "run-active",
+          }),
+          parentId: null,
+        },
+        {
+          message: buildUserMessage({
+            text: "stale sibling",
+            runId: "run-stale",
+          }),
+          parentId: "server-user-run-active",
+        },
+      ],
+      headId: "server-user-run-active",
+    };
+
+    const updated = upsertUserMessage(repo, message);
+
+    expect(updated.messages.at(-1)?.parentId).toBe("server-user-run-active");
+    expect(updated.headId).toBe("server-user-run-latest");
   });
 
   it("stores image attachments as URL references when a hosted URL exists", () => {

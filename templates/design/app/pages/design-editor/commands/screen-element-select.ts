@@ -9,6 +9,7 @@ import type {
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
+  canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
@@ -52,8 +53,10 @@ export interface ScreenElementSelectArgs {
   getScreenContent: (screenId: string) => string;
   handleBreakpointBarSelect: (widthPx: number | undefined) => void;
   id: string | undefined;
+  liveScreenIds?: ReadonlySet<string>;
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
+  renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   selectedLayerIdsState: string[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
@@ -84,8 +87,10 @@ export function runScreenElementSelect(
     getScreenContent,
     handleBreakpointBarSelect,
     id,
+    liveScreenIds,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    renderedElementInfoByLayerKeyRef,
     selectedLayerIdsState,
     setActiveFileId,
     setActiveTool,
@@ -143,7 +148,7 @@ export function runScreenElementSelect(
     !blockedSelection;
   if (ignoredLayerSelectionEcho) {
     if (exactPendingLayerEcho) setSelectedElement(canonical);
-    return;
+    return false;
   }
   pendingOverviewScreenSelectionRef.current = null;
   pendingOverviewLayerSelectionRef.current = null;
@@ -155,7 +160,7 @@ export function runScreenElementSelect(
       !node ||
       selectedLayerIdsState.includes(node.id))
   ) {
-    return;
+    return false;
   }
   // Node-id integrity (id-on-demand): AI-generated/duplicated screens
   // frequently ship elements with a missing or empty-string
@@ -178,6 +183,7 @@ export function runScreenElementSelect(
   const pendingNodeId = (canonical as { pendingNodeId?: string }).pendingNodeId;
   if (
     options.persistPendingNodeId !== false &&
+    !(liveScreenIds?.has(screenId) ?? false) &&
     !isScreenRootElementInfo(canonical) &&
     pendingNodeId &&
     !canonical.sourceId &&
@@ -224,7 +230,7 @@ export function runScreenElementSelect(
           if (node) {
             projection = acceptedProjection;
             canonical = withMeasuredGeometry(
-              elementInfoFromCodeLayerNode(node),
+              canonicalElementInfoForCodeLayerNode(canonical, node, screenId),
               screenId,
             );
           }
@@ -233,6 +239,7 @@ export function runScreenElementSelect(
     }
   } else if (
     options.persistPendingNodeId !== false &&
+    !(liveScreenIds?.has(screenId) ?? false) &&
     // Fallback sweep: an element the bridge didn't mint a pendingNodeId
     // for (older bridge instance, or a node resolved only through the
     // host's own projection) but that still lacks a stable id per the
@@ -258,11 +265,44 @@ export function runScreenElementSelect(
         if (node) {
           projection = acceptedProjection;
           canonical = withMeasuredGeometry(
-            elementInfoFromCodeLayerNode(node),
+            canonicalElementInfoForCodeLayerNode(canonical, node, screenId),
             screenId,
           );
         }
       }
+    }
+  }
+  if (node) {
+    if (viewModeRef.current === "overview") {
+      // Activate the frame scope before caching its measurement. The scope
+      // switch invalidates rendered metadata, so doing this after the write
+      // drops the only responsive measurement for the selected layer.
+      if (options.breakpointWidthPx !== undefined) {
+        handleBreakpointBarSelect(options.breakpointWidthPx);
+        const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
+        if (
+          typeof window !== "undefined" &&
+          window.localStorage.getItem(guidanceKey) !== "shown"
+        ) {
+          window.localStorage.setItem(guidanceKey, "shown");
+          toast.info(t("designEditor.breakpointBar.scope.firstEditGuidance"), {
+            duration: 6000,
+          });
+        }
+      } else if (activeBreakpointWidthStateRef.current !== undefined) {
+        handleBreakpointBarSelect(undefined);
+      }
+    }
+    renderedElementInfoByLayerKeyRef?.current.set(
+      `${screenId}:${node.id}`,
+      canonical,
+    );
+    const stableId = node.dataAttributes["data-agent-native-node-id"];
+    if (stableId) {
+      renderedElementInfoByLayerKeyRef?.current.set(
+        `${screenId}:${stableId}`,
+        canonical,
+      );
     }
   }
   // Known limitation: elements rendered from a `<template x-for>`
@@ -345,24 +385,9 @@ export function runScreenElementSelect(
     setOverviewSelectedScreenIds((current) =>
       !intent && current.length > 0 ? current : [],
     );
-    // A responsive sub-frame now owns a full editor bridge, so selection
-    // carries its exact width into the edit scope. Primary-frame clicks
-    // still return to Base. This prevents two identical selectors in the
-    // base and responsive runtimes from racing for one global scope.
-    if (options.breakpointWidthPx !== undefined) {
-      handleBreakpointBarSelect(options.breakpointWidthPx);
-      const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
-      if (window.localStorage.getItem(guidanceKey) !== "shown") {
-        window.localStorage.setItem(guidanceKey, "shown");
-        toast.info(t("designEditor.breakpointBar.scope.firstEditGuidance"), {
-          duration: 6000,
-        });
-      }
-    } else if (activeBreakpointWidthStateRef.current !== undefined) {
-      handleBreakpointBarSelect(undefined);
-    }
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
   focusDesignInspectorForSelection();
+  return true;
 }

@@ -335,9 +335,19 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     const sectionCloseIdx = html.indexOf("</section>", sectionOpen);
     expect(
-      alphaIdx > 0 &&
-        sectionOpen > 0 &&
-        sectionCloseIdx > 0 &&
+      sectionOpen,
+      "Fixture Card Title section sentinel must exist",
+    ).toBeGreaterThanOrEqual(0);
+    expect(alphaIdx, "Alpha Button sentinel must exist").toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      sectionCloseIdx,
+      "section close sentinel must exist",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      alphaIdx > sectionOpen &&
+        sectionCloseIdx > sectionOpen &&
         alphaIdx > sectionCloseIdx,
       "Alpha Button must not land inside the section while Space is held during the drag",
     ).toBe(true);
@@ -548,26 +558,38 @@ test.describe.serial("rare-but-real unique paths", () => {
     // plain drag has there.
     await selectByTextDeep(page, "Alpha Button");
     const box = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
+    const dropTarget = (await (
+      await frameNode(page, "Variant CTA")
+    ).boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.down("Control");
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 200, {
-      steps: 10,
-    });
+    await page.mouse.move(
+      dropTarget.x + dropTarget.width / 2,
+      dropTarget.y + dropTarget.height / 2,
+      { steps: 10 },
+    );
     await page.mouse.up();
     await page.keyboard.up("Control");
-    await page.waitForTimeout(200);
-
-    const html = await getFileHtml(page);
-    const rowOpen = html.indexOf('style="display:flex;flex-direction:row');
-    const rowClose = html.indexOf("</div>", rowOpen);
-    const alphaIdx = html.indexOf(
-      'data-agent-native-node-id="e2e-alpha-button"',
-    );
-    expect(
-      alphaIdx > 0 && (alphaIdx < rowOpen || alphaIdx > rowClose),
-      "Ctrl-drag should be able to pull the child out of the flex row against normal auto-layout drag resistance",
-    ).toBe(true);
+    const alphaOutsideRow = async () => {
+      const html = await getFileHtml(page);
+      const rowOpen = html.indexOf('style="display:flex;flex-direction:row');
+      const rowClose = html.indexOf("</div>", rowOpen);
+      const alphaIdx = html.indexOf(
+        'data-agent-native-node-id="e2e-alpha-button"',
+      );
+      return {
+        valid: rowOpen >= 0 && rowClose >= 0 && alphaIdx >= 0,
+        outside: alphaIdx < rowOpen || alphaIdx > rowClose,
+      };
+    };
+    await expect
+      .poll(alphaOutsideRow, {
+        timeout: 10_000,
+        message:
+          "Ctrl-drag should persist the child outside the flex row against normal auto-layout drag resistance",
+      })
+      .toMatchObject({ valid: true, outside: true });
   });
 
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
@@ -631,10 +653,12 @@ test.describe.serial("rare-but-real unique paths", () => {
     });
     await page.locator("[data-frame-label]").first().click();
     const handle = page.locator("[data-rotate-handle]").first();
-    if ((await handle.count()) === 0) {
-      test.skip(true, "no rotate handle rendered for a top-level screen frame");
-    }
-    const box = (await handle.boundingBox())!;
+    await expect(
+      handle,
+      "required rotate handle must render for a top-level screen frame",
+    ).toHaveCount(1);
+    const box = await handle.boundingBox();
+    if (!box) throw new Error("rotate handle has no bounding box");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.down("Shift");
     await page.mouse.down();
@@ -681,10 +705,35 @@ test.describe.serial("rare-but-real unique paths", () => {
     const beforeBeta = before.indexOf(
       'data-agent-native-node-id="e2e-beta-button"',
     );
+    expect(
+      beforeAlpha,
+      "Alpha Button sentinel must exist before reorder",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      beforeBeta,
+      "Beta Button sentinel must exist before reorder",
+    ).toBeGreaterThanOrEqual(0);
     expect(beforeAlpha).toBeLessThan(beforeBeta);
 
     await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(150);
+    await expect
+      .poll(
+        async () => {
+          const html = await getFileHtml(page);
+          const alpha = html.indexOf(
+            'data-agent-native-node-id="e2e-alpha-button"',
+          );
+          const beta = html.indexOf(
+            'data-agent-native-node-id="e2e-beta-button"',
+          );
+          return alpha >= 0 && beta >= 0 && alpha > beta;
+        },
+        {
+          timeout: 15_000,
+          message: "ArrowRight reorder must persist before the assertion",
+        },
+      )
+      .toBe(true);
 
     const after = await getFileHtml(page);
     const afterAlpha = after.indexOf(
@@ -693,6 +742,14 @@ test.describe.serial("rare-but-real unique paths", () => {
     const afterBeta = after.indexOf(
       'data-agent-native-node-id="e2e-beta-button"',
     );
+    expect(
+      afterAlpha,
+      "Alpha Button sentinel must exist after reorder",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      afterBeta,
+      "Beta Button sentinel must exist after reorder",
+    ).toBeGreaterThanOrEqual(0);
     expect(
       afterAlpha > afterBeta,
       "ArrowRight on a flex-row child must reorder it past its sibling in DOM order, not translate it via left/top",
@@ -921,8 +978,11 @@ async function getFileHtml(page: Page): Promise<string> {
   if (!res.ok()) throw new Error(`get-design failed: ${res.status()}`);
   const body = await res.json();
   const files: any[] = body?.files ?? body?.data?.files ?? [];
-  const file = files.find((f) => f.filename === "index.html") ?? files[0];
-  return String(file?.content ?? "");
+  const file = files.find((f) => f.filename === "index.html");
+  if (typeof file?.content !== "string") {
+    throw new Error("index.html has no content");
+  }
+  return file.content;
 }
 
 /**

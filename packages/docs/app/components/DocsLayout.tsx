@@ -1,5 +1,5 @@
 import { IconBrandGithub } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { useLocation } from "react-router";
 
 import { hasLocalizedDoc } from "./docs-content";
@@ -8,10 +8,36 @@ import {
   docsLocaleFromPathname,
   docsSlugFromPathname,
 } from "./docs-locale";
+import { resolveFragmentRedirect } from "./docs-slug-redirects";
 import DocsPrevNext from "./DocsPrevNext";
 import DocsSidebar from "./DocsSidebar";
 import MobileDocsNav from "./MobileDocsNav";
 import TableOfContents from "./TableOfContents";
+
+/**
+ * A page-merge rework renames or relocates headings, but a server redirect
+ * can never see the incoming fragment (browsers never send it), so the
+ * browser's own redirect handling preserves whatever stale fragment the
+ * visitor arrived with onto the new page. Fix it up client-side once we're
+ * there: same-page fragments get a corrected hash and a scroll; fragments
+ * that moved to a different page get a full navigation.
+ */
+function useLegacyFragmentRedirect(pathname: string, hash: string) {
+  useEffect(() => {
+    if (!hash) return;
+    const slug = docsSlugFromPathname(pathname);
+    if (!slug) return;
+    const target = resolveFragmentRedirect(slug, hash);
+    if (!target) return;
+    if (target.startsWith("/docs/")) {
+      window.location.replace(target);
+      return;
+    }
+    window.location.hash = target;
+    const id = target.slice(1);
+    document.getElementById(id)?.scrollIntoView();
+  }, [pathname, hash]);
+}
 
 interface TocItem {
   id: string;
@@ -51,6 +77,7 @@ export default function DocsLayout({
 }) {
   const location = useLocation();
   const editUrl = docsEditUrlForPathname(location.pathname);
+  useLegacyFragmentRedirect(location.pathname, location.hash);
 
   return (
     <div className="mx-auto flex w-full max-w-site px-0 lg:px-6">

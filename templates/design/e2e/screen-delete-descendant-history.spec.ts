@@ -177,11 +177,6 @@ async function deleteScreenFromLayers(page: Page, screenId: string) {
     button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
   ).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Delete");
-  const dialog = page.getByRole("alertdialog", {
-    name: "Delete this screen?",
-  });
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
 }
 
 async function cleanupDesign(page: Page, designId: string) {

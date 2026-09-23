@@ -95,7 +95,7 @@ export function runLayerSelectionChange(
     id: string;
     range: boolean;
   },
-) {
+): string[] {
   const requestedLayerIds = ids.filter((layerId) => !layerId.startsWith("__"));
   pendingOverviewScreenSelectionRef.current = null;
   pendingOverviewLayerSelectionRef.current = null;
@@ -226,7 +226,7 @@ export function runLayerSelectionChange(
   const selectedId = nextLayerIds[nextLayerIds.length - 1];
   if (!selectedId) {
     setSelectedElement(null);
-    return;
+    return nextLayerIds;
   }
   const codeLayerOwner =
     codeLayerOwnerByNodeId.get(selectedId) ??
@@ -269,7 +269,7 @@ export function runLayerSelectionChange(
       focusDesignInspectorForSelection();
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
-      return;
+      return nextLayerIds;
     }
     const selectedNode = selectedElementNode ?? codeLayerOwner.node;
     setSelectedElement(
@@ -282,9 +282,9 @@ export function runLayerSelectionChange(
     focusDesignInspectorForSelection();
     setActiveTool(resolveToolAfterSelection);
     setMode("edit");
-    return;
+    return nextLayerIds;
   }
-  if (selectedId.startsWith("element:")) return;
+  if (selectedId.startsWith("element:")) return nextLayerIds;
   const fileId = selectedId.startsWith("code:")
     ? selectedId.slice("code:".length)
     : selectedId;
@@ -304,4 +304,5 @@ export function runLayerSelectionChange(
     viewModeRef.current = "overview";
     setViewMode("overview");
   }
+  return nextLayerIds;
 }

@@ -83,7 +83,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
             throw new Error("--actions must be valid JSON array");
           }
 
-          const now = Date.now();
+          const now = Math.floor(Date.now() / 1_000);
           const rule = {
             id: nanoid(12),
             ownerEmail,
@@ -103,7 +103,9 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         case "update": {
           if (!args.id) throw new Error("--id is required for update");
 
-          const updates: Record<string, any> = { updatedAt: Date.now() };
+          const updates: Record<string, any> = {
+            updatedAt: Math.floor(Date.now() / 1_000),
+          };
           if (args.name !== undefined) updates.name = args.name;
           if (args.condition !== undefined) updates.condition = args.condition;
           if (args.actions !== undefined) {
@@ -150,7 +152,10 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
 
           await db
             .update(schema.automationRules)
-            .set({ enabled: 1, updatedAt: Date.now() } as any)
+            .set({
+              enabled: 1,
+              updatedAt: Math.floor(Date.now() / 1_000),
+            } as any)
             .where(
               and(
                 eq(schema.automationRules.id, args.id),
@@ -166,7 +171,10 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
 
           await db
             .update(schema.automationRules)
-            .set({ enabled: 0, updatedAt: Date.now() } as any)
+            .set({
+              enabled: 0,
+              updatedAt: Math.floor(Date.now() / 1_000),
+            } as any)
             .where(
               and(
                 eq(schema.automationRules.id, args.id),

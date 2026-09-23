@@ -99,7 +99,7 @@ describe("show-design-questions", () => {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
     });
     expect(result).toMatchObject({
       designId: "design_123",

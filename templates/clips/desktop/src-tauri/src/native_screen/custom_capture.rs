@@ -3814,9 +3814,12 @@ unsafe fn av_string_suffix(obj: *mut objc2::runtime::AnyObject) -> String {
 struct RestartParams {
     include_audio: bool,
     capture_system_audio: bool,
+    emit_recorder_stop: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     width: u32,
     height: u32,
@@ -3838,13 +3841,19 @@ impl CustomCaptureResume {
     /// Pause: stop only the capture source (SCStream). The writer, file, and
     /// live uploader stay alive; mic/screen go cold. The watchdog is told to
     /// hold so it never reads the silence as a stall and rebuilds.
-    pub(crate) fn pause(&self) {
+    pub(crate) fn pause(&self) -> Result<(), String> {
+        let guard = self
+            .stream
+            .lock()
+            .map_err(|error| format!("capture pause stream lock failed: {error}"))?;
+        guard
+            .stop_capture()
+            .map_err(|error| format!("capture pause stop_capture failed: {error:?}"))?;
+        drop(guard);
         self.watch.set_paused(true);
         self.handler.invalidate_stream();
-        if let Ok(guard) = self.stream.lock() {
-            let _ = guard.stop_capture();
-        }
         eprintln!("[mixer] capture paused; source stream stopped, writer/file kept open");
+        Ok(())
     }
 
     /// Resume: build a fresh SCStream wired to the SAME writer and start it,
@@ -3918,7 +3927,7 @@ impl SCStreamDelegateTrait for CustomCaptureStreamDelegate {
         if error.stream_error_code()
             == Some(screencapturekit::error::SCStreamErrorCode::UserStopped)
         {
-            eprintln!("[mixer] capture stopped by the user via macOS; requesting recording stop");
+            eprintln!("[mixer] capture stopped by the user via macOS");
             self.watch.note_user_stopped();
             return;
         }
@@ -3953,21 +3962,58 @@ fn build_custom_scstream(
         None => SCShareableContent::get()
             .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
     };
+    let window = params.target_window_id.and_then(|id| {
+        content
+            .windows()
+            .into_iter()
+            .find(|candidate| candidate.window_id() == id)
+    });
+    if params.target_window_id.is_some() && window.is_none() {
+        return Err("The selected window is no longer available.".to_string());
+    }
     let displays = content.displays();
-    let display = params
-        .target_display_id
-        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-        .or_else(|| displays.first())
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let region_rect = region_source_rect(params.capture_region, display.width(), display.height())?;
-    let filter_builder = SCContentFilter::create()
-        .with_display(display)
-        .with_excluding_windows(&[]);
-    let filter = if let Some((rect, _, _)) = region_rect {
-        filter_builder.with_content_rect(rect).build()
+    let display = if window.is_none() {
+        Some(
+            params
+                .target_display_id
+                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+                .or_else(|| displays.first())
+                .ok_or_else(|| {
+                    "No displays available for ScreenCaptureKit recording.".to_string()
+                })?,
+        )
     } else {
-        filter_builder.build()
+        None
+    };
+    let (source_width, source_height) = if let Some(window) = window.as_ref() {
+        params.target_window_dimensions.unwrap_or_else(|| {
+            let frame = window.frame();
+            (
+                frame.width.max(1.0).round() as u32,
+                frame.height.max(1.0).round() as u32,
+            )
+        })
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        (display.width(), display.height())
+    };
+    let region_rect = if window.is_some() {
+        None
+    } else {
+        region_source_rect(params.capture_region, source_width, source_height)?
+    };
+    let filter = if let Some(window) = window.as_ref() {
+        SCContentFilter::create().with_window(window).build()
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        let filter_builder = SCContentFilter::create()
+            .with_display(display)
+            .with_excluding_windows(&[]);
+        if let Some((rect, _, _)) = region_rect {
+            filter_builder.with_content_rect(rect).build()
+        } else {
+            filter_builder.build()
+        }
     };
 
     let selected_mic = if params.include_audio {
@@ -4150,7 +4196,9 @@ fn spawn_capture_watchdog(
                 if let Ok(guard) = stream.lock() {
                     let _ = guard.stop_capture();
                 }
-                let _ = app.emit("clips:recorder-stop", ());
+                if params.emit_recorder_stop {
+                    let _ = app.emit("clips:recorder-stop", ());
+                }
                 return;
             }
             // Nothing to supervise until output is enabled and the writer
@@ -4174,8 +4222,12 @@ fn spawn_capture_watchdog(
             // flow (same event the toolbar Stop button emits, so the clip is
             // finalized and uploaded) and stop supervising. Never rebuild.
             if watch.user_stopped() {
-                eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
-                let _ = app.emit("clips:recorder-stop", ());
+                if params.emit_recorder_stop {
+                    eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
+                    let _ = app.emit("clips:recorder-stop", ());
+                } else {
+                    eprintln!("[mixer] user stopped Screen Memory capture via macOS");
+                }
                 return;
             }
 
@@ -4220,7 +4272,9 @@ fn spawn_capture_watchdog(
                 // Fire the normal stop so the partial clip is finalized/uploaded
                 // and the UI leaves the recording state, rather than sitting on
                 // a frozen recording after the watchdog gives up.
-                let _ = app.emit("clips:recorder-stop", ());
+                if params.emit_recorder_stop {
+                    let _ = app.emit("clips:recorder-stop", ());
+                }
                 return;
             }
 
@@ -4298,9 +4352,12 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
     force_segmented_output: bool,
+    emit_recorder_stop: bool,
     // Popover-open prefetch from `take_prefetched_shareable_content`; `None`
     // (resume/segment/Rewind callers) keeps the self-contained fresh fetch.
     prefetched_content: Option<SCShareableContent>,
@@ -4311,15 +4368,45 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         None => SCShareableContent::get()
             .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
     };
+    let window = target_window_id.and_then(|id| {
+        content
+            .windows()
+            .into_iter()
+            .find(|candidate| candidate.window_id() == id)
+    });
+    if target_window_id.is_some() && window.is_none() {
+        return Err("The selected window is no longer available.".to_string());
+    }
     let displays = content.displays();
-    let display = target_display_id
-        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-        .or_else(|| displays.first())
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let source_width = display.width();
-    let source_height = display.height();
-    let region_rect = region_source_rect(capture_region, source_width, source_height)?;
+    let display = if window.is_none() {
+        Some(
+            target_display_id
+                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+                .or_else(|| displays.first())
+                .ok_or_else(|| {
+                    "No displays available for ScreenCaptureKit recording.".to_string()
+                })?,
+        )
+    } else {
+        None
+    };
+    let (source_width, source_height) = if let Some(window) = window.as_ref() {
+        target_window_dimensions.unwrap_or_else(|| {
+            let frame = window.frame();
+            (
+                frame.width.max(1.0).round() as u32,
+                frame.height.max(1.0).round() as u32,
+            )
+        })
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        (display.width(), display.height())
+    };
+    let region_rect = if window.is_some() {
+        None
+    } else {
+        region_source_rect(capture_region, source_width, source_height)?
+    };
     let (capture_width, capture_height) = region_rect
         .as_ref()
         .map(|(_, width, height)| (*width, *height))
@@ -4332,9 +4419,12 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     let params = RestartParams {
         include_audio,
         capture_system_audio,
+        emit_recorder_stop,
         mic_device_id: mic_device_id.map(str::to_string),
         mic_device_label: mic_device_label.map(str::to_string),
         target_display_id,
+        target_window_id,
+        target_window_dimensions,
         capture_region,
         width,
         height,

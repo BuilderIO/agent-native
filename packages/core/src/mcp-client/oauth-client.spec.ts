@@ -9,6 +9,7 @@ const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 const replaceOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const getAppConfigMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
@@ -39,6 +40,10 @@ vi.mock("../oauth-tokens/store.js", () => ({
   deleteOAuthTokensIfRevision: deleteOAuthTokensIfRevisionMock,
 }));
 
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: getAppConfigMock,
+}));
+
 vi.mock("../settings/store.js", () => ({
   mutateSetting: vi.fn(
     async (
@@ -63,6 +68,8 @@ import {
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   McpOAuthRegistrationUnsupportedError,
+  resolveMcpOAuthAuthorizationServerDiscovery,
+  resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
   validateMcpOAuthCallbackIssuer,
@@ -98,6 +105,7 @@ const credentials = {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  getAppConfigMock.mockReset().mockReturnValue({ app: {} });
   authMock.mockReset();
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
@@ -247,6 +255,114 @@ describe("MCP OAuth client", () => {
     ).toMatchObject({
       application_type: "web",
       grant_types: ["authorization_code", "refresh_token"],
+    });
+  });
+
+  it("uses app branding in OAuth client metadata", () => {
+    getAppConfigMock.mockReturnValue({
+      app: {
+        name: "Auttendo",
+        logoUrl: "https://auttendo.example/logo.png",
+        url: "https://different.example/workspace",
+      },
+    });
+
+    const metadata = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://auttendo.example/callback",
+      state: "<STATE>",
+    }).clientMetadata;
+
+    expect(metadata).toMatchObject({
+      client_name: "Auttendo",
+      logo_uri: "https://auttendo.example/logo.png",
+      client_uri: "https://auttendo.example",
+    });
+  });
+
+  it("resolves arbitrary OAuth metadata URLs to their issuer", async () => {
+    const metadata = {
+      issuer: "https://auth.example.com/tenant",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+    };
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerUrl(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toBe("https://auth.example.com/tenant");
+
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toEqual({
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: metadata,
+    });
+  });
+
+  it("bounds OAuth metadata before buffering the response", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response("{" + "x".repeat(256 * 1024) + "}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/oversized",
+      ),
+    ).rejects.toThrow("MCP OAuth response exceeded the size limit.");
+  });
+
+  it("keeps arbitrary authorization metadata through the real start flow", async () => {
+    const discoveryState = {
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: {
+        issuer: "https://auth.example.com/tenant",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        registration_endpoint: "https://auth.example.com/register",
+      },
+    };
+    authMock.mockImplementationOnce(
+      async (provider: McpOAuthClientProvider) => {
+        expect(provider.discoveryState()).toEqual(discoveryState);
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+
+    await expect(
+      startMcpOAuthAuthorization({
+        serverUrl: "https://mcp.example.com/mcp",
+        redirectUrl: "https://app.example.com/callback",
+        state: "<STATE>",
+        discoveryState,
+      }),
+    ).resolves.toMatchObject({
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation,
     });
   });
 

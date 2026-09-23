@@ -58,7 +58,9 @@ async function screenCheckpoint(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
   await shell.locator("[data-frame-title]").click();
-  const width = page.getByRole("textbox", { name: "W", exact: true });
+  const width = page.getByRole("textbox", {
+    name: /^W(?: size in pixels)?$/,
+  });
   const heightValue = page.getByRole("textbox", {
     name: /^H(?: size in pixels)?$/,
   });
@@ -214,7 +216,9 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       `[data-screen-shell][data-frame-id="${screenId}"]`,
     );
     await screenShell.locator("[data-frame-title]").click();
-    const width = page.getByRole("textbox", { name: "W", exact: true });
+    const width = page.getByRole("textbox", {
+      name: /^W(?: size in pixels)?$/,
+    });
     const height = page.getByRole("textbox", {
       name: /^H(?: size in pixels)?$/,
     });
@@ -323,6 +327,10 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       name: "Absolute position",
       exact: true,
     });
+    // Figma adds a newly drawn child to an auto-layout frame's flow. Toggle
+    // ignore-auto-layout on and off to cover both states explicitly.
+    await expect(absolutePosition).toHaveAttribute("aria-pressed", "false");
+    await absolutePosition.click();
     await expect(absolutePosition).toHaveAttribute("aria-pressed", "true");
     await absolutePosition.click();
     await expect(absolutePosition).toHaveAttribute("aria-pressed", "false");
@@ -476,17 +484,14 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     );
     reportTutorialCheckpoint(page, "title-and-creator-created");
 
-    const textRows = page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem", { name: /^Text / });
-    await textRows
-      .nth(0)
-      .getByRole("button", { name: "Text", exact: true })
-      .click();
-    await textRows
-      .nth(1)
-      .getByRole("button", { name: "Text", exact: true })
-      .click({ modifiers: ["Shift"] });
+    const layerRows = page.getByRole("tree", { name: "Layers" });
+    const textRow = (name: string) =>
+      layerRows
+        .locator("[data-layer-row-button]")
+        .filter({ hasText: name })
+        .first();
+    await textRow("The Summer Mix").click();
+    await textRow("Calypso Radio").click({ modifiers: ["Shift"] });
     console.log(
       "metadata-selection",
       await page
@@ -523,11 +528,14 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       exact: true,
     });
     const flowStartedAt = Date.now();
-    if (await flow.isVisible()) {
-      await expect(flow).toHaveAttribute("aria-pressed", "true");
-      await flow.click();
-      await expect(flow).toHaveAttribute("aria-pressed", "false");
-    }
+    // These text layers were created inside the Screen's auto-layout flow,
+    // so they already participate in it when selected together.
+    await expect(flow).toBeVisible();
+    await expect(flow).toHaveAttribute("aria-pressed", "false");
+    await flow.click();
+    await expect(flow).toHaveAttribute("aria-pressed", "true");
+    await flow.click();
+    await expect(flow).toHaveAttribute("aria-pressed", "false");
     await expect
       .poll(async () => {
         const html = await readScreenHtml(page, designId, screenId);
@@ -543,7 +551,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       ),
     });
     const groupWidthMode = page.getByRole("button", {
-      name: /^W sizing mode — /,
+      name: /^(?:W sizing mode —|W \d)/,
     });
     await groupWidthMode.click();
     await page.getByRole("menuitem", { name: "Fill container" }).click();
@@ -552,7 +560,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       await screenCheckpoint(page, designId, screenId),
       await readScreenHtml(page, designId, screenId),
       await designFrame(page, screenId)
-        .locator('[data-agent-native-layer-name="Frame 1"]')
+        .locator('[data-agent-native-layer-name="Frame"]')
         .evaluate((group) => {
           const art = group.ownerDocument.querySelector(
             '[data-agent-native-layer-name="Rectangle"]',
@@ -570,9 +578,12 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     reportTutorialCheckpoint(page, "metadata-flow-fill");
 
     const setFontFamily = async (text: string) => {
-      await designFrame(page, screenId)
-        .getByText(text, { exact: true })
-        .click({ force: true });
+      const frameRow = layerRows.getByRole("treeitem", { name: /Frame/ });
+      const expandFrame = frameRow.getByRole("button", {
+        name: "Expand layer",
+      });
+      if (await expandFrame.count()) await expandFrame.click();
+      await textRow(text).click();
       const typography = page
         .locator("section")
         .filter({ has: page.getByRole("heading", { name: "Typography" }) })
@@ -584,6 +595,12 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       await page.getByRole("option", { name: "Lato", exact: true }).click();
     };
     await setFontFamily("The Summer Mix");
+    await expect
+      .poll(async () => {
+        const html = await readScreenHtml(page, designId, screenId);
+        return /font-family:\s*['"]?Lato/i.test(html);
+      })
+      .toBe(true);
     reportTutorialCheckpoint(page, "title-font-lato");
     console.log(
       "after-title-font-family",
@@ -592,11 +609,14 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
         .evaluate((element) => {
           const target = element as HTMLElement;
           return {
-            fontFamily: getComputedStyle(target.parentElement ?? target)
-              .fontFamily,
-            sourceStyle: (target.parentElement ?? target).getAttribute("style"),
+            fontFamily: getComputedStyle(target).fontFamily,
+            sourceStyle: target.getAttribute("style"),
           };
         }),
+    );
+    await cdpScreenshot(
+      page,
+      test.info().outputPath("screen-root-responsive-card-final.png"),
     );
 
     const current = await readDesign(page, designId);

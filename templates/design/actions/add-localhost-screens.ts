@@ -17,6 +17,7 @@ import {
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
@@ -938,7 +939,7 @@ export default defineAction({
         )
           ? preferredExisting
           : undefined;
-      const existing =
+      let existing =
         matchingPreferredExisting ??
         routeCandidates.find((candidate) => {
           const frame = existingCanvasFrames[candidate.id];
@@ -997,27 +998,51 @@ export default defineAction({
       seenRouteRequestKeys.add(routeRequestKey);
 
       if (existing) {
-        await db
-          .update(schema.designFiles)
-          .set({ content: url, fileType: "html", updatedAt: now })
-          .where(eq(schema.designFiles.id, existing.id));
-        if (await hasCollabState(existing.id)) {
-          await applyText(existing.id, url, "content", "agent");
+        const updated = await withDesignSourceMutationTransaction(
+          designId,
+          async (tx) => {
+            const [current] = await tx
+              .select({ id: schema.designFiles.id })
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.id, existing!.id),
+                  eq(schema.designFiles.designId, designId),
+                ),
+              )
+              .limit(1);
+            if (!current) return false;
+            await tx
+              .update(schema.designFiles)
+              .set({ content: url, fileType: "html", updatedAt: now })
+              .where(eq(schema.designFiles.id, existing!.id));
+            return true;
+          },
+        );
+        if (updated) {
+          if (await hasCollabState(existing.id)) {
+            await applyText(existing.id, url, "content", "agent");
+          } else {
+            await seedFromText(existing.id, url);
+          }
         } else {
-          await seedFromText(existing.id, url);
+          existing = undefined;
         }
-      } else {
+      }
+      if (!existing) {
         for (let attempt = 0; ; attempt += 1) {
           try {
-            await db.insert(schema.designFiles).values({
-              id: fileId,
-              designId,
-              filename,
-              fileType: "html",
-              content: url,
-              createdAt: now,
-              updatedAt: now,
-            });
+            await withDesignSourceMutationTransaction(designId, (tx) =>
+              tx.insert(schema.designFiles).values({
+                id: fileId,
+                designId,
+                filename,
+                fileType: "html",
+                content: url,
+                createdAt: now,
+                updatedAt: now,
+              }),
+            );
             await seedFromText(fileId, url);
             break;
           } catch (err) {
@@ -1048,10 +1073,17 @@ export default defineAction({
               routeUrlsMatch(winner.content, url)
             ) {
               fileId = winner.id;
-              await db
-                .update(schema.designFiles)
-                .set({ content: url, fileType: "html", updatedAt: now })
-                .where(eq(schema.designFiles.id, winner.id));
+              await withDesignSourceMutationTransaction(designId, (tx) =>
+                tx
+                  .update(schema.designFiles)
+                  .set({ content: url, fileType: "html", updatedAt: now })
+                  .where(
+                    and(
+                      eq(schema.designFiles.id, winner.id),
+                      eq(schema.designFiles.designId, designId),
+                    ),
+                  ),
+              );
               if (await hasCollabState(winner.id)) {
                 await applyText(winner.id, url, "content", "agent");
               } else {

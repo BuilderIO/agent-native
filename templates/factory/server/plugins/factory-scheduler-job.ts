@@ -21,21 +21,31 @@ import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
 import {
   applyAutomationConfigFrontmatter,
-  buildGuardrailsText,
+  assembleAutomationContent,
   canonicalSeedLeafName,
+  composeFactoryAutomationBody,
+  computeExecutionPromptHash,
   defaultAutomationConfig,
+  needsAutomationBodyRepair,
+  normalizeUserPrompt,
   readFactoryAutomationConfig,
-  replaceUserPrompt,
+  readPromptVersion,
+  splitAutomationFrontmatter,
+  replaceAutomationContentWithUserPrompt,
   restoreFactoryAutomationIdentityFields,
   scheduleCron,
   seedNameForTemplate,
   slugifyAutomationLeaf,
   sourceForTemplate,
   templateIdForSeedName,
-  wrapGuardrails,
   type FactoryAutomationConfig,
   type FactoryAutomationTemplateId,
 } from "../lib/factory-automation-config.js";
+import {
+  deleteFactoryAutomationVersionRow,
+  insertFactoryAutomationVersionRow,
+  type FactoryAutomationVersionRow,
+} from "../lib/factory-automation-history.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
@@ -58,16 +68,16 @@ import {
   BABYSIT_WORK_RETRIGGER,
 } from "../lib/pr-babysit-prompt.js";
 import { SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS } from "../lib/slack-feedback-prompt.js";
-import { recordFactoryGovernanceAudit } from "../triage/audit.js";
 import {
-  syncManagedReviewSkillAlignment,
-  type FactoryAutomationName,
-} from "../triage/review-skill-alignment.js";
+  recordFactoryAutomationRunPrompt,
+  recordFactoryGovernanceAudit,
+} from "../triage/audit.js";
+import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
 
-type AutomationRunFinishedEvent = {
+export type AutomationRunFinishedEvent = {
   automationRunId: string;
   owner: string;
   automation: string;
@@ -178,18 +188,57 @@ async function notifyFactoryAutomationFailure(
   );
 }
 
+export async function recordFinishedAutomationPrompt(
+  event: AutomationRunFinishedEvent,
+): Promise<void> {
+  if (
+    !event.orgId ||
+    (!event.path.startsWith("jobs/factory-") &&
+      !event.path.startsWith("jobs/factories/"))
+  ) {
+    return;
+  }
+  // list-factory-audit joins audit events by the agent run id (event.runId),
+  // not the core history-row id (event.automationRunId) — every other writer
+  // of factoryAuditEvents.automationRunId already stores the agent run id.
+  // Without one, this row can never be joined to a displayed run.
+  if (!event.runId) return;
+  // Reads the live resource: known gap (Cause 1 in
+  // .tmp/notes/factory-prompt-audit-gap.md) — an edit mid-run can make this
+  // describe a newer prompt than the one that actually executed. Parked
+  // pending the factory_automation_versions rework.
+  const resource = await resourceGetByPath(event.owner, event.path);
+  if (!resource) return;
+  const { body } = splitAutomationFrontmatter(resource.content);
+  const factoryId =
+    readFactoryIdFromAutomationPath(event.path) ?? DEFAULT_FACTORY_ID;
+  await recordFactoryAutomationRunPrompt({
+    identity: { userEmail: event.owner, orgId: event.orgId },
+    automationRunId: event.runId,
+    factoryId,
+    path: event.path,
+    promptVersion: readPromptVersion(resource.content),
+    executionPromptHash: computeExecutionPromptHash(body),
+  });
+}
+
 function subscribeToAutomationFailures(): void {
   if (failureAlertSubscription) return;
-  failureAlertSubscription = subscribe("automation.run.finished", (payload) =>
-    notifyFactoryAutomationFailure(payload as AutomationRunFinishedEvent).catch(
-      (error) => {
-        console.error(
-          "[factory-scheduler-job] automation failure alert failed:",
-          error,
-        );
-      },
-    ),
-  );
+  failureAlertSubscription = subscribe("automation.run.finished", (payload) => {
+    const event = payload as AutomationRunFinishedEvent;
+    void recordFinishedAutomationPrompt(event).catch((error) => {
+      console.error(
+        "[factory-scheduler-job] automation run prompt audit failed:",
+        error,
+      );
+    });
+    void notifyFactoryAutomationFailure(event).catch((error) => {
+      console.error(
+        "[factory-scheduler-job] automation failure alert failed:",
+        error,
+      );
+    });
+  });
 }
 
 type AutomationSeed = {
@@ -198,12 +247,18 @@ type AutomationSeed = {
   legacySchedules?: string[];
   timezone?: string;
   model: string;
+  reasoningEffort: string;
   maxIterations: number;
   maxRunInputTokens: number;
   body: string;
 };
 
 const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
+// Not yet honored end to end for GPT + tools on the Builder gateway — see
+// packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md. Seeded
+// here so it takes effect immediately for non-GPT models, and for GPT once
+// that gateway lane ships, without a follow-up migration of every seed.
+const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const AUTOMATION_SEEDS: AutomationSeed[] = [
@@ -212,6 +267,7 @@ const AUTOMATION_SEEDS: AutomationSeed[] = [
     schedule: "*/5 * * * *",
     legacySchedules: ["* * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -225,11 +281,17 @@ A clear bug is a concrete broken behavior, reproducible failure, error,
 regression, stuck run, incorrect result, or a specific failing path with
 enough evidence to investigate — including visual/UI defects such as a
 duplicate control or broken layout. Feature requests, vague questions, and
-incomplete threads are not.
+incomplete threads are not. A clear bug still only reaches Builder when its
+risk and confidence both clear the bar below — most clear bugs will not.
 
 ${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
 Cluster only items listed in this run: one dispatch with relatedItemIds. Do
 not dispatch needs_manual items or items that already started.
+
+Across a run, expect roughly 1 in 10 items to qualify for dispatch. If most
+of what you are seeing lands at risk low and confidence high, you are
+under-weighting uncertainty — re-check the evidence bar before passing those
+values.
 
 Preserve action errors. Do not claim a Builder reply, PR, merge, or fix
 unless an action returned that state.
@@ -240,6 +302,7 @@ unless an action returned that state.
     schedule: "0 9 * * *",
     timezone: "America/Los_Angeles",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 24,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -253,14 +316,38 @@ full queue or use the action's default page size.
 
 Only classify a concrete unresolved error as a clear bug when the Sentry
 evidence is sufficient to investigate. Do not dispatch on noise, expected
-errors, product ideas, or incomplete provider responses. Clips, Design, and
-Content errors are owner-managed and must remain needs_manual.
+errors, product ideas, or incomplete provider responses.
 
-For each eligible clear bug, call dispatch-factory-item with clearBug true,
-an evidence-grounded reason, and clearErrorReport containing only the bounded
-Sentry evidence. That action opens or reuses a GitHub issue in the factory
-repository and tags @builderio-bot. Do not claim a PR exists until GitHub
-evidence confirms it.
+Classify risk and confidence on every item, including ones you skip — this
+data is read later even when Builder is never tagged. Risk is how bad it is
+if this item is mishandled, not how likely it is to be real: negligible
+(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
+would be comfortable seeing fixed with no further review), medium (ambiguous
+scope, or touches shared or critical code), high (serious functional or data
+breakage), or critical (security, auth, tenant isolation, payments, or data
+loss). When in doubt, pick the higher tier.
+
+Confidence is how sure you are this can be correctly diagnosed and fixed as
+a code or test change from the evidence already gathered, without
+reproducing it in a browser: high (the stack trace, culprit, and event
+evidence pin down a specific failing path, and correctness does not depend
+on rendering or manually interacting with the UI), medium (a plausible cause
+but real uncertainty — a thin event count, no clear culprit, or more than
+one reasonable fix), or low (needs visual or browser reproduction to
+confirm, or the root cause is genuinely unclear from the Sentry evidence
+alone).
+
+For each item, call dispatch-factory-item with clearBug true or false, risk,
+confidence, an evidence-grounded reason, and clearErrorReport containing
+only the bounded Sentry evidence when clearBug is true. The action only
+opens or reuses a GitHub issue and tags @builderio-bot when clearBug is
+true, risk is low, and confidence is high — everything else is recorded as
+a skip. Do not claim a PR exists until GitHub evidence confirms it.
+
+Across your decisions over time, expect roughly 1 in 10 items to qualify for
+dispatch. If most of what you are seeing lands at risk low and confidence
+high, you are under-weighting uncertainty — re-check the evidence bar before
+passing those values.
 `,
   },
   {
@@ -268,6 +355,7 @@ evidence confirms it.
     schedule: "0 * * * *",
     legacySchedules: ["* * * * *", "*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -281,12 +369,39 @@ page size.
 Treat an issue as a clear bug only when it has a concrete error report,
 reproduction, incorrect behavior, regression, or specific failing path. Do
 not dispatch feature requests, vague questions, or issues without enough
-evidence. Clips, Design, and Content remain owner-managed.
+evidence.
 
-For each eligible item call dispatch-factory-item with clearBug true,
-evidence-grounded reason, and the bounded issue body as clearErrorReport.
-That action comments @builderio-bot on the GitHub issue. Preserve failures
-and never report a successful Builder run without its action confirmation.
+Classify risk and confidence on every item, including ones you skip — this
+data is read later even when Builder is never tagged. Risk is how bad it is
+if this item is mishandled, not how likely it is to be real: negligible
+(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
+would be comfortable seeing fixed with no further review), medium (ambiguous
+scope, or touches shared or critical code), high (serious functional or data
+breakage), or critical (security, auth, tenant isolation, payments, or data
+loss). When in doubt, pick the higher tier.
+
+Confidence is how sure you are this can be correctly diagnosed and fixed as
+a code or test change from the evidence already gathered, without
+reproducing it in a browser: high (the issue body pins down a specific
+failing path — an error message, stack trace, log line, or a concrete
+reproducible input and output — and correctness does not depend on
+rendering or manually interacting with the UI), medium (a plausible cause
+but real uncertainty: a thin report, no stack trace, or more than one
+reasonable fix), or low (needs visual or browser reproduction to confirm, or
+the root cause is genuinely unclear).
+
+For each item call dispatch-factory-item with clearBug true or false, risk,
+confidence, an evidence-grounded reason, and the bounded issue body as
+clearErrorReport when clearBug is true. The action only comments
+@builderio-bot on the GitHub issue when clearBug is true, risk is low, and
+confidence is high — everything else is recorded as a skip. Preserve
+failures and never report a successful Builder run without its action
+confirmation.
+
+Across your decisions over time, expect roughly 1 in 10 items to qualify for
+dispatch. If most of what you are seeing lands at risk low and confidence
+high, you are under-weighting uncertainty — re-check the evidence bar before
+passing those values.
 `,
   },
   {
@@ -294,6 +409,7 @@ and never report a successful Builder run without its action confirmation.
     schedule: "*/10 * * * *",
     legacySchedules: ["*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 40,
     maxRunInputTokens: 2_000_000,
     body: `
@@ -355,6 +471,7 @@ confirms it.
     schedule: "*/5 * * * *",
     legacySchedules: ["*/2 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 12,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -430,11 +547,6 @@ function automationContent(
   displayName?: string,
   userPrompt?: string,
 ): string {
-  const alignmentName = seed.name as FactoryAutomationName;
-  const body = syncManagedReviewSkillAlignment(
-    (userPrompt?.trim() || seed.body).trim(),
-    alignmentName,
-  );
   const resolved = config ?? defaultAutomationConfig("slack", "blank");
   let content = `---
 schedule: "${scheduleCron(resolved)}"
@@ -447,12 +559,11 @@ factoryId: ${factoryId}
 createdBy: ${ownerEmail}
 runAs: creator
 model: ${seed.model}
+reasoningEffort: ${seed.reasoningEffort}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
+alignmentRevision: ${FACTORY_ALIGNMENT_REVISION}
 ---
-${wrapGuardrails(buildGuardrailsText(factoryId, resolved))}
-
-${body.trim()}
 `;
   content = applyAutomationConfigFrontmatter(content, resolved);
   if (displayName?.trim()) {
@@ -462,7 +573,32 @@ ${body.trim()}
       displayName.trim(),
     );
   }
-  return replaceUserPrompt(content, body.trim());
+  const promptText = normalizeUserPrompt(
+    (userPrompt?.trim() || seed.body).trim(),
+  );
+  return replaceAutomationContentWithUserPrompt(content, promptText, seed.name);
+}
+
+function recomposeAutomationBody(
+  content: string,
+  automationName: string,
+  factoryId: string,
+): string {
+  const config = readFactoryAutomationConfig(content, automationName);
+  const { frontmatter } = splitAutomationFrontmatter(content);
+  const body = composeFactoryAutomationBody({
+    userPrompt: normalizeUserPrompt(content),
+    automationName,
+    factoryId,
+    config,
+  });
+  let next = assembleAutomationContent(frontmatter, body);
+  next = setAutomationFrontmatterField(
+    next,
+    "alignmentRevision",
+    String(FACTORY_ALIGNMENT_REVISION),
+  );
+  return next;
 }
 
 async function disableLegacyObserver(): Promise<void> {
@@ -506,10 +642,16 @@ export async function ensureFactoryAutomations(
         return;
       }
 
+      const originalContent = existing.content;
+      let repaired = originalContent;
+      const bodyRepairNeeded = needsAutomationBodyRepair(repaired);
+      if (bodyRepairNeeded) {
+        repaired = recomposeAutomationBody(repaired, leafName, factoryId);
+      }
+      const contentBeforeMetadata = repaired;
+
       // Earlier Factory versions created these rows without identity and run
-      // budget metadata. Repair YAML only — editors own prompt body, injected
-      // blocks, and destination fields; never rewrite them during metadata repair.
-      let repaired = existing.content;
+      // budget metadata. Repair YAML only unless gated body repair above ran.
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
       repaired = setFrontmatterField(repaired, "appId", "factory");
@@ -552,38 +694,111 @@ export async function ensureFactoryAutomations(
             : existingConfig.template,
       });
       repaired = restoreFactoryAutomationIdentityFields(
-        existing.content,
+        originalContent,
         repaired,
         leafName,
       );
-      if (repaired === existing.content) return;
+      if (repaired === originalContent) return;
 
-      const updated = await resourcePutIfCurrent({
-        owner,
-        path,
-        content: repaired,
-        mimeType: "text/markdown",
-        expectedId: existing.id,
-        expectedUpdatedAt: existing.updatedAt,
-        expectedContent: existing.content,
-      });
+      // Insert the predecessor snapshot before the live write commits, same
+      // as save/restore: if the write below fails, this is just an unused
+      // extra row, but the reverse order would let the repair commit with no
+      // recoverable pre-repair version when the history insert fails.
+      let insertedRepairVersion: FactoryAutomationVersionRow | null = null;
+      if (bodyRepairNeeded) {
+        const automationName = factoryAutomationRunHistoryKey(path);
+        // Unconditional, not the no-op-skipping insert: repair's whole
+        // purpose is recording a change (deduped injected blocks) that the
+        // user-facing-identity no-op check would otherwise treat as
+        // unchanged, since normalizing strips those blocks either way.
+        insertedRepairVersion = await insertFactoryAutomationVersionRow({
+          automationId: existing.id,
+          factoryId,
+          orgId,
+          userEmail: ownerEmail,
+          automationName,
+          content: originalContent,
+          summary: "Before deduped injected prompt blocks",
+          source: "repair",
+        });
+        // The row above claims the current live version number as its own.
+        // Leaving the live promptVersion unchanged would let the next normal
+        // save try to insert that same number again and collide with the
+        // unique (orgId, automationId, version) index, so the repaired
+        // content must advance past it.
+        repaired = setFrontmatterField(
+          repaired,
+          "promptVersion",
+          String(insertedRepairVersion.version + 1),
+        );
+      }
+      // A thrown write failure must compensate exactly like a falsy return —
+      // resourcePutIfCurrent has no try/catch of its own.
+      let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
+      let writeError: unknown;
+      try {
+        updated = await resourcePutIfCurrent({
+          owner,
+          path,
+          content: repaired,
+          mimeType: "text/markdown",
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: originalContent,
+        });
+      } catch (error) {
+        writeError = error;
+      }
+      if (!updated && insertedRepairVersion) {
+        await deleteFactoryAutomationVersionRow({
+          id: insertedRepairVersion.id,
+          orgId,
+        }).catch((cleanupError) => {
+          console.error(
+            `[factory-scheduler-job] failed to remove orphaned predecessor version ${insertedRepairVersion.id} after a failed repair write:`,
+            cleanupError,
+          );
+        });
+      }
+      if (writeError) {
+        console.warn(
+          `[factory-scheduler-job] metadata repair failed for ${path}:`,
+          writeError,
+        );
+        return;
+      }
       if (!updated) {
         console.warn(
           `[factory-scheduler-job] skipped metadata repair for ${path}: the resource changed concurrently`,
         );
         return;
       }
-      await recordFactoryGovernanceAudit(
-        { userEmail: ownerEmail, orgId },
-        {
-          action: "repair-factory-automation-metadata",
-          kind: "governance",
-          status: "success",
-          factoryId,
-          summary: `Repaired metadata for ${leafName}.`,
-          details: { path, resourceId: existing.id },
-        },
-      );
+      if (bodyRepairNeeded) {
+        await recordFactoryGovernanceAudit(
+          { userEmail: ownerEmail, orgId },
+          {
+            action: "repair-factory-automation-body",
+            kind: "governance",
+            status: "success",
+            factoryId,
+            summary: `Recomposed prompt body for ${leafName}.`,
+            details: { path, resourceId: existing.id },
+          },
+        );
+      }
+      if (repaired !== contentBeforeMetadata) {
+        await recordFactoryGovernanceAudit(
+          { userEmail: ownerEmail, orgId },
+          {
+            action: "repair-factory-automation-metadata",
+            kind: "governance",
+            status: "success",
+            factoryId,
+            summary: `Repaired metadata for ${leafName}.`,
+            details: { path, resourceId: existing.id },
+          },
+        );
+      }
     }),
   );
 }
@@ -690,6 +905,7 @@ function blankAutomationSeed(
     name: leafName,
     schedule: "*/5 * * * *",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `# Factory ${source} automation\n`,

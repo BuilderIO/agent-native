@@ -1,3 +1,4 @@
+import { isStandaloneHttpUrl } from "@shared/html-content";
 import type { ReactNode } from "react";
 
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
@@ -136,11 +137,13 @@ export function getCachedScreenContentNode(
 ): ReactNode {
   const width = Math.max(1, Math.round(geometry.width));
   const height = Math.max(1, Math.round(geometry.height));
+  const renderKey = options?.cacheKey;
   const prior = cache.get(screen.id);
   if (
     prior &&
     prior.screen === screen &&
     prior.renderScreenContent === renderScreenContent &&
+    prior.renderKey === renderKey &&
     sameResolvedMetadata(prior.metadata, metadata) &&
     prior.width === width &&
     prior.height === height
@@ -154,6 +157,7 @@ export function getCachedScreenContentNode(
     width,
     height,
     renderScreenContent,
+    renderKey,
     contentNode,
   });
   return contentNode;
@@ -186,6 +190,7 @@ export function resolveScreenMetadata(
   const heightMode = resolveScreenHeightMode(
     metadata.heightMode,
     metadata.heightPinned,
+    metadata.sourceType,
   );
   return {
     source:
@@ -273,14 +278,9 @@ export function getPreviewUrl(content: string) {
   )?.toString();
 }
 
+// Screen content is usually a whole HTML document; the predicate rejects it at
+// the first `<` or whitespace instead of running the WHATWG parser over it.
 function getUrl(value: string | undefined) {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  if (!value || !isStandaloneHttpUrl(value)) return undefined;
+  return new URL(value.trim());
 }

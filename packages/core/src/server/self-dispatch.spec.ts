@@ -45,6 +45,43 @@ describe("fireInternalDispatch", () => {
     }
   });
 
+  it("uses HTTP for a loopback dev host behind an HTTPS tunnel", () => {
+    const keys = [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "VITE_APP_URL",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+    ] as const;
+    const previous = Object.fromEntries(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    for (const key of keys) delete process.env[key];
+
+    try {
+      expect(
+        resolveSelfDispatchBaseUrl({
+          node: {
+            req: {
+              headers: {
+                host: "127.0.0.1:8092",
+                "x-forwarded-proto": "https",
+              },
+            },
+          },
+        }),
+      ).toBe("http://127.0.0.1:8092");
+    } finally {
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("rejects quickly returned non-2xx processor responses", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     globalThis.fetch = vi.fn(async () => ({

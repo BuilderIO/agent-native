@@ -7,6 +7,7 @@ import {
   resolveToolCallRowContext,
   runningToolLabel,
   shadowedCallAgentToolCallIds,
+  toolLabel,
 } from "./tool-display.js";
 
 describe("tool display labels", () => {
@@ -22,6 +23,21 @@ describe("tool display labels", () => {
     expect(humanizeToolName("delete-file")).toBe("remove screen");
     expect(humanizeToolName("get-design-snapshot")).toBe("get screen snapshot");
     expect(humanizeToolName("edit-design")).toBe("edit screen");
+  });
+
+  it("prefers an app's translated tool label over the derived name", () => {
+    const translate = (key: string) =>
+      key === "agentChat.toolLabels.get-case" ? "Načítanie prípadu" : "";
+    expect(toolLabel(translate, "get-case")).toBe("Načítanie prípadu");
+  });
+
+  it("falls back to the derived name when no label is translated", () => {
+    const translate = (
+      _key: string,
+      options?: Record<string, unknown>,
+    ): string => String(options?.defaultValue ?? "");
+    expect(toolLabel(translate, "get-case")).toBe("get case");
+    expect(toolLabel(translate, undefined)).toBe("tool");
   });
 
   it("uses humanized names in running labels", () => {

@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const dbExec = vi.hoisted(() => ({ execute: vi.fn() }));
+
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => dbExec,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn(async () => {}),
+}));
+
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
@@ -10,6 +20,7 @@ import {
   normalizeEmbedTargetPath,
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
+  consumeEmbedSessionTicket,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
@@ -60,6 +71,40 @@ describe("embed session tokens", () => {
     expect(verifyEmbedSessionToken(token)).toMatchObject({
       ok: false,
       reason: "expired",
+    });
+  });
+});
+
+describe("embed session tickets", () => {
+  beforeEach(() => {
+    dbExec.execute.mockReset();
+  });
+
+  it("lets a signed-in collaborator redeem a resource-scoped capability", async () => {
+    dbExec.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "owner@example.com",
+            org_id: "owner-org",
+            target_path: "/visual-edit/design-1?editorView=overview",
+            scope: "capability:visual-edit:design:design-1",
+            expires_at: Date.now() + 60_000,
+            consumed_at: null,
+          },
+        ],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      consumeEmbedSessionTicket("collaborator-ticket", {
+        expectedOwnerEmail: "collaborator@example.com",
+        allowCapabilityIdentityMismatch: true,
+      }),
+    ).resolves.toMatchObject({
+      ownerEmail: "owner@example.com",
+      scope: "capability:visual-edit:design:design-1",
     });
   });
 });

@@ -215,6 +215,57 @@ describe("runCreateComponent", () => {
     });
   });
 
+  it("writes authored local JSX without routing it through the HTML history queue", async () => {
+    const transaction: CreateComponentMutationTransaction = {
+      enqueue: vi.fn(),
+    };
+    const result: CreateComponentActionResult = { persisted: true };
+    const createComponent = vi.fn(async (request) => {
+      expect(request).toEqual({
+        designId: "design-1",
+        fileId: "file-1",
+        name: "Primary Button",
+        source: {
+          local: {
+            connectionId: "connection-1",
+            path: "src/Component.jsx",
+            line: 4,
+            column: 3,
+            positionPrecision: "authored",
+            runtimeMultiplicity: 1,
+            scope: "single-instance",
+          },
+        },
+      });
+      return result;
+    });
+
+    const outcome = await runCreateComponent(
+      makeArgs(transaction, { createComponent }),
+      {
+        name: "Primary Button",
+        source: {
+          local: {
+            connectionId: "connection-1",
+            path: "src/Component.jsx",
+            line: 4,
+            column: 3,
+            positionPrecision: "authored",
+            runtimeMultiplicity: 1,
+            scope: "single-instance",
+          },
+        },
+      },
+    );
+
+    expect(transaction.enqueue).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({
+      historyRecorded: true,
+      hostSync: "accepted",
+      result,
+    });
+  });
+
   it("does not enqueue when editing is disabled", async () => {
     const transaction: CreateComponentMutationTransaction = {
       enqueue: vi.fn(),

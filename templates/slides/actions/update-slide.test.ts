@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
+const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
 // Captured by the Drizzle `update().set()` mock so tests can assert on the
 // persisted deck JSON + bumped updatedAt.
@@ -111,6 +113,12 @@ vi.mock("@agent-native/core/collab", () => ({
   agentTouchDocument: (...args: unknown[]) => mockAgentTouchDocument(...args),
 }));
 
+vi.mock("./_tab-state.js", () => ({
+  getCurrentRequestBrowserTabId: () => mockGetCurrentRequestBrowserTabId(),
+  readAppStateForCurrentTab: (...args: unknown[]) =>
+    mockReadAppStateForCurrentTab(...args),
+}));
+
 // Real per-deck lock just runs the fn; passthrough keeps the unit test focused
 // on update-slide's own read-modify-write logic.
 vi.mock("./patch-deck.js", () => ({
@@ -130,6 +138,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
+import { hashSlideContent } from "../shared/slide-fit";
 import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
 
@@ -148,6 +157,8 @@ beforeEach(() => {
       slides: [{ id: "slide-1", content: "<div>Old</div>" }],
     }),
   };
+  mockGetCurrentRequestBrowserTabId.mockReturnValue(null);
+  mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
 describe("update-slide", () => {
@@ -233,6 +244,53 @@ describe("update-slide", () => {
           descriptor: { kind: "paths", paths: ["slides.slide-1"] },
         }),
       }),
+    );
+  });
+
+  it("rejects a stale browser-tab target before writing", async () => {
+    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockReadAppStateForCurrentTab.mockResolvedValue({
+      deckId: "deck-1",
+      slideId: "slide-2",
+      slideIndex: 1,
+      items: [{ selectedText: "Old" }],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toThrow("selected Slides target is on slide slide-2");
+
+    expect(mockReadAppStateForCurrentTab).toHaveBeenCalledWith(
+      "slides-selection",
+      { fallbackToGlobal: false },
+    );
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit named edit to a non-current slide", async () => {
+    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockReadAppStateForCurrentTab.mockResolvedValue({
+      deckId: "deck-1",
+      slideId: "slide-2",
+      slideIndex: 1,
+      items: [{ selectedText: "Old" }],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
+      baseContentHash: hashSlideContent("<div>Old</div>"),
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      "<div>New</div>",
     );
   });
 

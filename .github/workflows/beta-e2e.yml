@@ -275,6 +275,9 @@ jobs:
       # These clusters share the e2e identity and production-backed databases.
       # Keep them serialized while giving each failure its own gating signal.
       max-parallel: 1
+      # Keep the authenticated projects declarative so guard:beta-e2e-suite
+      # can verify that each cluster remains independently visible. The steps
+      # below skip unrelated clusters for a Design-only selection.
       matrix:
         include:
           - cluster: registry
@@ -283,8 +286,10 @@ jobs:
             project: chat
           - cluster: journeys
             project: journeys
+          - cluster: design
+            project: design
     env:
-      BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
+      BETA_E2E_APPS: ${{ matrix.cluster == 'design' && 'design' || needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "1"
       BETA_E2E_CLUSTER: ${{ matrix.cluster }}
@@ -300,8 +305,11 @@ jobs:
       BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
       - uses: ./.github/actions/beta-e2e-setup
+        if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
       - name: Authenticated ${{ matrix.cluster }}
+        if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
         # Global setup fails loudly if a credential is missing rather than
         # degrading to an anonymous run that would pass without testing
         # anything. The clusters are separate so a provider failure cannot
@@ -334,7 +342,7 @@ jobs:
             pnpm e2e:beta --project=${{ matrix.project }}
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() }}
+        if: ${{ always() && (matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design') }}
         # The authenticated lanes record no trace and no video (see the
         # playwright config): a trace captures real request headers and would
         # publish the e2e account's live session cookie to anyone with repo

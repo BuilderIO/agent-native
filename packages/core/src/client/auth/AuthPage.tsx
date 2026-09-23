@@ -5,13 +5,17 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
+import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
+import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
@@ -19,6 +23,7 @@ export type AuthView =
   | "signup"
   | "login"
   | "forgot"
+  | "twoFactor"
   | "verification"
   | "magicLink"
   | "magicLinkSent"
@@ -29,6 +34,8 @@ export interface AuthMarketingProps {
   tagline?: string;
   description?: string;
   features?: string[];
+  authHeadline?: string;
+  authDescription?: string;
   screenshotSrc?: string;
   screenshotWidth?: number;
   screenshotHeight?: number;
@@ -112,6 +119,12 @@ const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+
+export function isVerificationLinkInvalid(error: string | null): boolean {
+  return error === "verification_link_invalid" || error === "INVALID_TOKEN";
+}
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -323,24 +336,33 @@ function trackAuth(
         return "";
       }
     })();
-    const body = JSON.stringify({
-      publicKey: config.agentNativeAnalyticsPublicKey,
-      event: name,
-      properties: { app, ...properties },
-      anonymousId,
-      sessionId: sessionId || undefined,
-      timestamp: new Date().toISOString(),
-    });
     const endpoint =
       config.agentNativeAnalyticsEndpoint ??
       "https://analytics.agent-native.com/track";
-    if (navigator.sendBeacon?.(endpoint, body)) return;
-    void fetch(endpoint, {
-      method: "POST",
-      body,
-      keepalive: true,
-      headers: { "Content-Type": "text/plain;charset=UTF-8" },
-    }).catch(() => undefined);
+    const legacyProperties = { app, ...properties };
+    const events: Array<{
+      name: string;
+      properties: Record<string, unknown>;
+    }> = [{ name, properties: legacyProperties }];
+    const canonical = canonicalTrackingEvent(name, legacyProperties);
+    if (canonical) events.push(canonical);
+    for (const event of events) {
+      const body = JSON.stringify({
+        publicKey: config.agentNativeAnalyticsPublicKey,
+        event: event.name,
+        properties: event.properties,
+        anonymousId,
+        sessionId: sessionId || undefined,
+        timestamp: new Date().toISOString(),
+      });
+      if (navigator.sendBeacon?.(endpoint, body)) continue;
+      void fetch(endpoint, {
+        method: "POST",
+        body,
+        keepalive: true,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      }).catch(() => undefined);
+    }
   } catch {
     // coercion-ok: analytics is best effort and cannot block authentication.
   }
@@ -660,6 +682,9 @@ function headingKeys(view: AuthView): { heading: string; subtitle: string } {
   if (view === "forgot") {
     return { heading: "resetPasswordTitle", subtitle: "resetPasswordSubtitle" };
   }
+  if (view === "twoFactor") {
+    return { heading: "twoFactorTitle", subtitle: "twoFactorSubtitle" };
+  }
   if (view === "verification") {
     return { heading: "checkEmailTitle", subtitle: "finishAccountSubtitle" };
   }
@@ -680,6 +705,23 @@ export function shouldHideAuthSubtitle(
   localDevAvailable: boolean,
 ): boolean {
   return view === "signup" && localDevAvailable;
+}
+
+export function shouldStartWithLocalDev(
+  pathname: string,
+  search: string,
+): boolean {
+  const params = new URLSearchParams(search);
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return (
+    !params.has("tab") &&
+    !params.has("c") &&
+    !params.has("verified") &&
+    !isVerificationLinkInvalid(params.get("error")) &&
+    !path.endsWith("/login") &&
+    !path.endsWith("/signup") &&
+    !path.endsWith("/sign-in")
+  );
 }
 
 export function AuthPage(props: AuthPageProps) {
@@ -732,6 +774,7 @@ export function AuthPage(props: AuthPageProps) {
     React.useState("");
   const [loginEmail, setLoginEmail] = React.useState("");
   const [loginPassword, setLoginPassword] = React.useState("");
+  const [twoFactorCode, setTwoFactorCode] = React.useState("");
   const [forgotEmail, setForgotEmail] = React.useState("");
   const [forgotSent, setForgotSent] = React.useState(false);
   const [verificationEmail, setVerificationEmail] = React.useState("");
@@ -786,7 +829,8 @@ export function AuthPage(props: AuthPageProps) {
     [defaultLocale, locale, locales],
   );
   const apiPath = React.useCallback(
-    (path: string) => `${runtimeAppBasePath}${path}`,
+    (path: string) =>
+      `${runtimeAppBasePath}${toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() })}`,
     [runtimeAppBasePath],
   );
   const identityHref = React.useMemo(
@@ -918,8 +962,7 @@ export function AuthPage(props: AuthPageProps) {
     if (googleOnly) return;
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
-    const verificationError =
-      params.get("error") === "verification_link_invalid";
+    const verificationError = isVerificationLinkInvalid(params.get("error"));
     if (params.get("verified") || verificationError) {
       setView("login");
       const rememberedEmail = readPendingSignupEmail();
@@ -1150,6 +1193,18 @@ export function AuthPage(props: AuthPageProps) {
     [builderPreviewLocalDevEnabled],
   );
 
+  useIsomorphicLayoutEffect(() => {
+    if (
+      !localDevAllowed ||
+      verificationStepStartedRef.current ||
+      !shouldStartWithLocalDev(window.location.pathname, window.location.search)
+    ) {
+      return;
+    }
+    setLocalDevAvailable(true);
+    setFullAuthOptionsVisible(false);
+  }, [localDevAllowed]);
+
   React.useEffect(() => {
     if (!runtimeBasePathResolved || !localDevAllowed) return;
     let active = true;
@@ -1174,14 +1229,16 @@ export function AuthPage(props: AuthPageProps) {
           setFullAuthOptionsVisible(true);
           return;
         }
-        const params = new URLSearchParams(window.location.search);
-        const startWithLocalDev =
-          !params.has("tab") &&
-          !params.has("verified") &&
-          params.get("error") !== "verification_link_invalid";
-        setFullAuthOptionsVisible(!startWithLocalDev);
+        const startWithLocalDev = shouldStartWithLocalDev(
+          window.location.pathname,
+          window.location.search,
+        );
+        setFullAuthOptionsVisible((visible) => visible || !startWithLocalDev);
       } catch {
-        if (active) setFullAuthOptionsVisible(true);
+        if (active) {
+          setLocalDevAvailable(false);
+          setFullAuthOptionsVisible(true);
+        }
       }
     };
     void loadAvailability();
@@ -1549,7 +1606,7 @@ export function AuthPage(props: AuthPageProps) {
       try {
         popup = openOAuthPopup({
           initialUrl: new URL(
-            `${runtimeAppBasePath}/_agent-native/oauth/popup`,
+            apiPath("/_agent-native/oauth/popup"),
             window.location.origin,
           ).href,
           features: "width=640,height=760",
@@ -1646,6 +1703,7 @@ export function AuthPage(props: AuthPageProps) {
       });
     }
   }, [
+    apiPath,
     googleAuthUrlPath,
     googleBusy,
     identityHref,
@@ -1653,7 +1711,6 @@ export function AuthPage(props: AuthPageProps) {
     googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
-    runtimeAppBasePath,
     setNotice,
     showGoogle,
     startOAuthExchange,
@@ -1988,6 +2045,11 @@ export function AuthPage(props: AuthPageProps) {
           },
         );
         if (response.ok) {
+          if (data.twoFactorRedirect === true) {
+            setTwoFactorCode("");
+            setView("twoFactor");
+            return;
+          }
           removeStorage(pendingEmailStorageKey());
           redirectToSignedInApp();
           return;
@@ -2012,6 +2074,53 @@ export function AuthPage(props: AuthPageProps) {
       t,
       trackingApp,
       view,
+    ],
+  );
+
+  const handleTwoFactor = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const code = twoFactorCode.trim();
+      if (!/^\d{6,8}$/.test(code)) {
+        setNotice("twoFactor", { kind: "error", text: t("twoFactorInvalid") });
+        return;
+      }
+      setSubmitting("twoFactor");
+      setNotice("twoFactor", null);
+      try {
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/two-factor/verify"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          },
+        );
+        if (response.ok && data.ok === true) {
+          removeStorage(pendingEmailStorageKey());
+          redirectToSignedInApp();
+          return;
+        }
+        setNotice("twoFactor", {
+          kind: "error",
+          text: authErrorText(data, t("twoFactorInvalid")),
+        });
+      } catch {
+        setNotice("twoFactor", {
+          kind: "error",
+          text: t("networkErrorDashRetry"),
+        });
+      } finally {
+        setSubmitting(null);
+      }
+    },
+    [
+      apiPath,
+      pendingEmailStorageKey,
+      redirectToSignedInApp,
+      setNotice,
+      t,
+      twoFactorCode,
     ],
   );
 
@@ -2283,6 +2392,15 @@ export function AuthPage(props: AuthPageProps) {
   const marketingCopy = marketing
     ? { ...marketing, ...(marketingLocales[locale] ?? {}) }
     : undefined;
+  const marketingAppName =
+    marketingCopy?.appName.replace(/^Agent-Native\s+/i, "") ?? "";
+  const marketingStatus = getAppStatus(trackingApp || marketingAppName);
+  const usesMarketingWelcome =
+    !!marketingCopy &&
+    (view === "signup" ||
+      view === "login" ||
+      view === "magicLink" ||
+      view === "googleOnly");
   const cardClassName = [
     "card",
     view === "verification" ? "verifying" : "",
@@ -2414,16 +2532,27 @@ export function AuthPage(props: AuthPageProps) {
   );
   const authCard = (
     <div className={cardClassName}>
-      <h1 id="heading" data-i18n={keys.heading}>
-        {t(keys.heading)}
+      <h1
+        id="heading"
+        data-i18n={usesMarketingWelcome ? "welcomeToApp" : keys.heading}
+        data-auth-marketing-title={usesMarketingWelcome ? "true" : undefined}
+      >
+        {usesMarketingWelcome
+          ? t("welcomeToApp").replace("{appName}", marketingAppName)
+          : t(keys.heading)}
       </h1>
       <p
         id="subtitle"
         className="subtitle"
-        data-i18n={keys.subtitle}
-        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
+        data-i18n={usesMarketingWelcome ? undefined : keys.subtitle}
+        data-auth-marketing-subtitle={usesMarketingWelcome ? "true" : undefined}
+        hidden={
+          usesMarketingWelcome
+            ? false
+            : shouldHideAuthSubtitle(view, localDevAvailable)
+        }
       >
-        {t(keys.subtitle)}
+        {usesMarketingWelcome ? t("welcomeSubtitle") : t(keys.subtitle)}
       </p>
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
@@ -2576,14 +2705,7 @@ export function AuthPage(props: AuthPageProps) {
               {magicLinkBusy ? t("sending") : t("sendMagicLink")}
             </button>
             {notice("magic-link")}
-            {legalNote}
-            <p
-              style={{
-                marginTop: "0.75rem",
-                fontSize: "0.75rem",
-                textAlign: "start",
-              }}
-            >
+            <p className="auth-mode-switch">
               <button
                 type="button"
                 className="link-button auth-mode-link"
@@ -2594,6 +2716,7 @@ export function AuthPage(props: AuthPageProps) {
                 {t("usePasswordInstead")}
               </button>
             </p>
+            {legalNote}
           </form>
         ) : null}
         {authMode === "magic-link" ? (
@@ -2627,7 +2750,11 @@ export function AuthPage(props: AuthPageProps) {
           <div
             className="tabs"
             id="auth-tabs"
-            hidden={view === "magicLink" || view === "magicLinkSent"}
+            hidden={
+              view === "magicLink" ||
+              view === "magicLinkSent" ||
+              view === "twoFactor"
+            }
           >
             <button
               className={`tab ${view === "signup" ? "active" : ""}`}
@@ -2733,6 +2860,51 @@ export function AuthPage(props: AuthPageProps) {
           </div>
           {notice("verification")}
         </div>
+        <form
+          id="two-factor-form"
+          className={`form ${view === "twoFactor" ? "active" : ""}`}
+          onSubmit={handleTwoFactor}
+        >
+          <label htmlFor="two-factor-code" data-i18n="twoFactorCodeLabel">
+            {t("twoFactorCodeLabel")}
+          </label>
+          <input
+            id="two-factor-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6,8}"
+            maxLength={8}
+            placeholder={t("twoFactorCodePlaceholder")}
+            value={twoFactorCode}
+            onChange={(event) =>
+              setTwoFactorCode(event.currentTarget.value.replace(/\D/g, ""))
+            }
+            required
+          />
+          <button
+            type="submit"
+            data-i18n="twoFactorVerify"
+            disabled={submitting === "twoFactor"}
+          >
+            {submitting === "twoFactor"
+              ? t("twoFactorVerifying")
+              : t("twoFactorVerify")}
+          </button>
+          {notice("twoFactor")}
+          <button
+            type="button"
+            className="link-button"
+            data-i18n="twoFactorBack"
+            onClick={() => {
+              setTwoFactorCode("");
+              setNotice("twoFactor", null);
+              setView("login");
+            }}
+          >
+            {t("twoFactorBack")}
+          </button>
+        </form>
         <form
           id="login-form"
           className={`form ${view === "login" ? "active" : ""}`}
@@ -2926,15 +3098,56 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
+  const marketingContent = marketingCopy ? (
+    <div className="marketing-content">
+      <h2 className="app-name">
+        <picture>
+          {brandMarkLightSrc ? (
+            <source
+              media="(prefers-color-scheme: light)"
+              srcSet={brandMarkLightSrc}
+            />
+          ) : null}
+          <img
+            className="brand-mark"
+            src={brandMarkSrc}
+            alt=""
+            aria-hidden="true"
+          />
+        </picture>
+        <span className="app-name-label">{marketingAppName}</span>
+        <span className="app-status-badge">{marketingStatus}</span>
+      </h2>
+      <div className="marketing-copy">
+        <p className="auth-marketing-headline" data-marketing-field="headline">
+          {marketingCopy.authHeadline ?? marketingCopy.tagline}
+        </p>
+        {(marketingCopy.authDescription ?? marketingCopy.description) ? (
+          <p
+            className="auth-marketing-description"
+            data-marketing-field="description"
+          >
+            {marketingCopy.authDescription ?? marketingCopy.description}
+          </p>
+        ) : null}
+        <div className="marketing-actions">
+          <a
+            className="oss-badge"
+            href={githubUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span data-i18n="openSource">{t("openSource")}</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  ) : null;
   const marketingSurface = marketingCopy ? (
     <MarketingHome
-      appName={marketingCopy.appName}
+      appName={marketingAppName}
       variant="auth"
-      background={
-        marketingCopy.screenshotSrc ? null : (
-          <OceanBackground className="auth-marketing-background" />
-        )
-      }
+      background={null}
       topRight={
         marketingCopy.learnMoreUrl ? (
           <a
@@ -2944,13 +3157,8 @@ export function AuthPage(props: AuthPageProps) {
             target="_blank"
             rel="noreferrer"
           >
-            <span>
-              {t("newToApp").replace(
-                "{appName}",
-                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
-              )}
-            </span>
-            <span aria-hidden="true"> - </span>
+            <span>{t("newToApp").replace("{appName}", marketingAppName)}</span>
+            <span aria-hidden="true"> </span>
             <span className="auth-marketing-learn-more-link">
               {t("learnMore")}
             </span>
@@ -2958,81 +3166,14 @@ export function AuthPage(props: AuthPageProps) {
         ) : null
       }
       auth={authCard}
-      className={[
-        "auth-marketing-home",
-        marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className="auth-marketing-home"
     >
-      {marketingCopy.screenshotSrc ? (
-        <div
-          className="auth-marketing-screenshot-wrap"
-          style={{
-            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
-          }}
-        >
+      <div className="auth-marketing-visual">
+        <div className="auth-marketing-screenshot-wrap">
           <OceanBackground className="auth-marketing-screenshot" />
         </div>
-      ) : (
-        <div className="marketing-content">
-          <h2 className="app-name">
-            <picture>
-              {brandMarkLightSrc ? (
-                <source
-                  media="(prefers-color-scheme: light)"
-                  srcSet={brandMarkLightSrc}
-                />
-              ) : null}
-              <img
-                className="brand-mark"
-                src={brandMarkSrc}
-                alt=""
-                aria-hidden="true"
-              />
-            </picture>
-            <span>{marketingCopy.appName}</span>
-          </h2>
-          <p className="app-tagline" data-marketing-field="tagline">
-            {marketingCopy.tagline}
-          </p>
-          {marketingCopy.description ? (
-            <p className="app-desc" data-marketing-field="description">
-              {marketingCopy.description}
-            </p>
-          ) : null}
-          {marketingCopy.features?.length ? (
-            <ul className="feature-list">
-              {marketingCopy.features.map((feature, index) => (
-                <li key={index} data-marketing-feature-index={index}>
-                  {feature}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="marketing-actions">
-            <a
-              className="oss-link"
-              href={githubUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
-              </svg>
-              <span data-i18n="openSource">{t("openSource")}</span>
-            </a>
-          </div>
-        </div>
-      )}
+        {marketingContent}
+      </div>
     </MarketingHome>
   ) : (
     <div className="auth-centered">{authCard}</div>

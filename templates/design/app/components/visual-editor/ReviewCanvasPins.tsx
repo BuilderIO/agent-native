@@ -2114,7 +2114,21 @@ export function ReviewCanvasPins({
   );
 
   if (hidden || !canvas) return null;
+  // Every live editor mounts one of these; reading the canvas rect during
+  // render forces a synchronous layout of the whole board on each commit.
+  if (
+    !active &&
+    !draftPin &&
+    !deleteCandidate &&
+    !threads.some((thread) => thread.root.anchor)
+  ) {
+    return null;
+  }
   const rect = canvas.getBoundingClientRect();
+  const viewport = {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
   void layoutTick;
 
   const visibleThreads = threads.filter((thread) => thread.root.anchor);
@@ -2245,6 +2259,10 @@ export function ReviewCanvasPins({
           const clientPoint = position.canvasPoint
             ? canvasPointToClientPoint(canvas, position.canvasPoint)
             : null;
+          const popoverPoint = clientPoint ?? {
+            x: rect.left + (position.point.xPct / 100) * rect.width,
+            y: rect.top + (position.point.yPct / 100) * rect.height,
+          };
           return (
             <ReviewPin
               key={thread.root.threadId}
@@ -2328,7 +2346,11 @@ export function ReviewCanvasPins({
                   onSetUnread={(unread) => setThreadUnread(thread, unread)}
                   onDelete={() => setDeleteCandidate(thread.root)}
                   canDelete={canPost && (thread.root.canDelete ?? false)}
-                  placement={getReviewPopoverPlacement(position.point)}
+                  placement={getReviewPopoverPlacement(
+                    position.point,
+                    popoverPoint,
+                    viewport,
+                  )}
                   replyDraft={replyDraft}
                   replyMentions={replyMentions}
                   mentionOptions={mentionOptions}
@@ -2484,7 +2506,23 @@ export function ReviewCanvasPins({
                 )
               }
               initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
-              placement={getReviewPopoverPlacement(draftPinPosition.point)}
+              placement={getReviewPopoverPlacement(
+                draftPinPosition.point,
+                draftPinPosition.canvasPoint
+                  ? canvasPointToClientPoint(
+                      canvas,
+                      draftPinPosition.canvasPoint,
+                    )
+                  : {
+                      x:
+                        rect.left +
+                        (draftPinPosition.point.xPct / 100) * rect.width,
+                      y:
+                        rect.top +
+                        (draftPinPosition.point.yPct / 100) * rect.height,
+                    },
+                viewport,
+              )}
               commentSubmitting={createComment.isPending}
               agentSubmitting={agentSubmitting}
             />

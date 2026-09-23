@@ -79,9 +79,11 @@ vi.mock("h3", () => ({
   getHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   getMethod: (event: any) => event.method ?? "GET",
-  setCookie: (event: any, name: string, value: string) => {
+  setCookie: (event: any, name: string, value: string, options?: any) => {
     event.cookies ??= {};
     event.cookies[name] = value;
+    event.cookieOptions ??= {};
+    event.cookieOptions[name] = options;
   },
 }));
 
@@ -435,6 +437,29 @@ describe("identity SSO browser contract", () => {
     );
     expect(location.searchParams.has("token")).toBe(false);
     expect(location.searchParams.has("id_token")).toBe(false);
+  });
+
+  it("keeps the mounted public prefix on the PKCE cookie and callback", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/mail");
+    vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+
+    const query = new URLSearchParams({ return: "/inbox" });
+    const loginEvent = event(`/mail/_agent-native/identity/login?${query}`);
+    const response = await handleIdentitySso(loginEvent, "/login");
+    const location = new URL(response.headers.get("Location")!);
+    const verifierCookie = Object.keys(loginEvent.cookies).find((name) =>
+      name.startsWith("agent_native_sso_verifier_"),
+    )!;
+
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      "https://mail.agent-native.com/mail/_platform/identity/callback",
+    );
+    expect(loginEvent.cookieOptions[verifierCookie].path).toBe(
+      "/mail/_platform/identity/callback",
+    );
   });
 
   it("uses a source-origin bridge when the configured hub is on another site", async () => {

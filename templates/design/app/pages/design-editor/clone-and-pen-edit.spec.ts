@@ -64,6 +64,25 @@ describe("extractLayerPosition", () => {
     );
   });
 
+  it("preserves live node identity when preparing a move", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" data-agent-native-source-id="source" style="transform:translate3d(60px, 0, 0)"><span data-agent-native-node-id="child">Source</span></div>',
+      ],
+      { preserveIncomingNodeIds: true },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-node-id")).toBe("source");
+    expect(
+      clone.querySelector("span")?.getAttribute("data-agent-native-node-id"),
+    ).toBe("child");
+    expect((clone as HTMLElement).style.transform).toBe(
+      "translate3d(60px, 0, 0)",
+    );
+  });
+
   it("keeps a transform-inclusive paste target near the canvas origin", () => {
     vi.stubGlobal(
       "DOMMatrixReadOnly",
@@ -733,7 +752,7 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
-        `<section id="card" data-agent-native-node-id="root">
+        `<section id="card" data-agent-native-node-id="root" data-agent-native-runtime-component-id="runtime-component-card" data-agent-native-runtime-instance-id="root">
           <label for="field" data-agent-native-node-id="label">Name</label>
           <input id="field" aria-labelledby="card" data-agent-native-node-id="input">
         </section>`,
@@ -746,6 +765,12 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     const label = clone.querySelector("label")!;
     const input = clone.querySelector("input")!;
     expect(clone.getAttribute("data-agent-native-node-id")).not.toBe("root");
+    expect(clone.getAttribute("data-agent-native-runtime-component-id")).toBe(
+      "runtime-component-card",
+    );
+    expect(clone.getAttribute("data-agent-native-runtime-instance-id")).toBe(
+      clone.getAttribute("data-agent-native-node-id"),
+    );
     expect(label.getAttribute("data-agent-native-node-id")).not.toBe("label");
     expect(input.getAttribute("data-agent-native-node-id")).not.toBe("input");
     expect(clone.id).not.toBe("card");
@@ -829,7 +854,18 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
           data-source-column="7"
           data-component-name="Card"
           style="display:flex;color:rgb(1, 2, 3)"
-        ><span data-agent-native-node-id="title">Title</span></article>`,
+        ><span
+          data-agent-native-node-id="title"
+          data-source-file="src/Card.tsx"
+          data-source-line="42"
+          data-source-column="7"
+          data-component-name="CardTitle"
+          data-source-owner-file="src/App.tsx"
+          data-source-owner-line="18"
+          data-source-owner-column="5"
+          data-source-owner-component="Card"
+          data-source-owner-key="featured"
+        >Title</span></article>`,
       ],
       {
         styleSnapshots: [
@@ -862,6 +898,16 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     expect(clone.getAttribute("data-source-line")).toBe("42");
     expect(clone.getAttribute("data-source-column")).toBe("7");
     expect(clone.getAttribute("data-component-name")).toBe("Card");
+    const title = clone.querySelector("span");
+    expect(title?.getAttribute("data-source-file")).toBe("src/Card.tsx");
+    expect(title?.getAttribute("data-source-line")).toBe("42");
+    expect(title?.getAttribute("data-source-column")).toBe("7");
+    expect(title?.getAttribute("data-component-name")).toBe("CardTitle");
+    expect(title?.getAttribute("data-source-owner-file")).toBe("src/App.tsx");
+    expect(title?.getAttribute("data-source-owner-line")).toBe("18");
+    expect(title?.getAttribute("data-source-owner-column")).toBe("5");
+    expect(title?.getAttribute("data-source-owner-component")).toBe("Card");
+    expect(title?.getAttribute("data-source-owner-key")).toBe("featured");
     expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
     expect((clone as HTMLElement).style.display).toBe("grid");
     expect((clone as HTMLElement).style.backgroundColor).toBe("rgb(4, 5, 6)");

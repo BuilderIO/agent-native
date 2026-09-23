@@ -318,10 +318,13 @@ describe("alt-drag clone identity", () => {
           if (fileId === "screen-b") screenB = content;
         },
         canEditDesign: true,
+        designSourceType: "inline",
         getScreenContent: (fileId) => files.get(fileId) ?? "",
         handleVisualDuplicateChange: () => {
           throw new Error("The inactive-Screen branch must own this duplicate");
         },
+        overviewScreens: [],
+        recordPendingLiveStructureEdit: vi.fn(),
         t: (key) => key,
       },
       "screen-b",

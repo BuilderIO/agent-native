@@ -17,6 +17,7 @@
  */
 
 import type { AgentActionScope } from "../agent/types.js";
+import type { TrackingEventScope } from "../observability/tracing.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -177,6 +178,8 @@ export interface RequestContext {
    * replay; never used for authorization.
    */
   browserSessionId?: string;
+  /** Pending OTel mirrors owned by this request, flushed at its response boundary. */
+  trackingScope?: TrackingEventScope;
   /**
    * Browser attribution captured before a Better Auth signup crosses into its
    * async user-create hook. Analytics-only; never used for authorization.
@@ -354,12 +357,19 @@ export function runWithRequestContext<T>(
   ctx: RequestContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
-  const inheritedSyntheticTraffic = als.getStore()?.isSyntheticTraffic;
-  const context =
+  const inheritedContext = als.getStore();
+  const inheritedSyntheticTraffic = inheritedContext?.isSyntheticTraffic;
+  let context =
     ctx.isSyntheticTraffic === undefined &&
     inheritedSyntheticTraffic !== undefined
       ? { ...ctx, isSyntheticTraffic: inheritedSyntheticTraffic }
       : ctx;
+  if (
+    context.trackingScope === undefined &&
+    inheritedContext?.trackingScope !== undefined
+  ) {
+    context = { ...context, trackingScope: inheritedContext.trackingScope };
+  }
   if (
     context.run?.allowedActionNames !== undefined ||
     context.run?.actionScope !== undefined

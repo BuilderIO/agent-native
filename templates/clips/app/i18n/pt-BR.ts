@@ -1,4 +1,64 @@
 const messages = {
+  timelineTrack: {
+    helpOtherSide:
+      "Clique primeiro naquela seção e arraste a linha vermelha para a direita.",
+    helpOtherSideTerm: "Tirar material da seção da direita em vez disso",
+    helpRemove: "Clique nela e pressione Delete.",
+    helpRemoveTerm: "Remover uma seção inteira",
+    helpRestore: "Clique nela e pressione Delete de novo, ou use a seta dela.",
+    helpRestoreTerm: "Trazer de volta um trecho removido",
+    helpShorten:
+      "Arraste a linha vermelha para a esquerda. Tudo por onde você passar sai do fim da seção à esquerda dela.",
+    helpShortenTerm: "Encurtar uma seção",
+    helpSplit: "Pressione S. O corte acontece no cursor de reprodução.",
+    helpSplitTerm: "Dividir o clipe onde você está",
+    helpTitle: "Usando a linha do tempo",
+    putBack: "Trazer esta seção de volta",
+    removedSection: "Seção removida, {{duration}}",
+    section: "Seção de {{start}} até {{end}}",
+    sectionEndsAt: "Fim da seção em {{at}} — arraste para mover",
+    sectionStartsAt: "Início da seção em {{at}} — arraste para mover",
+  },
+  redaction: {
+    box: "Caixa de tarja",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "A tarja termina em {{at}}",
+    goTo: "Ir para esta tarja",
+    helpDraw: "Arraste sobre a imagem.",
+    helpDrawTerm: "Cobrir algo",
+    helpFollow:
+      "Avance no vídeo e arraste a caixa até onde o elemento chegou. A caixa desliza entre os pontos que você definir. Desenhe-a um pouco maior do que aquilo que ela cobre.",
+    helpFollowTerm: "Acompanhar algo que se move",
+    helpLead:
+      "Nada fica oculto até você pressionar Aplicar. Até lá, a caixa está apenas desenhada por cima, e o vídeo embaixo continua mostrando tudo.",
+    helpMove: "Arraste a caixa, ou um dos cantos dela.",
+    helpMoveTerm: "Mover ou redimensionar uma caixa",
+    helpRemove: "Clique nela e pressione Delete. Cmd+Z traz de volta.",
+    helpRemoveTerm: "Remover uma caixa",
+    helpStylesTerm: "Desfoque ou Sólido",
+    helpTiming:
+      "Arraste uma das pontas da barra dela, na faixa abaixo da linha do tempo.",
+    helpTimingTerm: "Mudar quando uma caixa aparece",
+    helpTitle: "Usando a tarja",
+    helpWaypoint:
+      "Cada um é um ponto que você definiu. Arraste um para mudar quando ele acontece, ou pressione duas vezes para removê-lo.",
+    helpWaypointTerm: "Os losangos nessa barra",
+    helpWhenInDoubt: "Os dois estilos ocultam a área por completo.",
+    notYetBurned:
+      "{{count}} tarja(s) estão desenhadas, mas não aplicadas — o vídeo ainda mostra tudo o que está embaixo delas até você aplicá-las.",
+    range: "Tarja de {{start}} até {{end}}",
+    remove: "Excluir a tarja {{number}}",
+    resize: "Redimensionar esta tarja",
+    resizeTopLeft: "Redimensionar esta tarja pelo canto superior esquerdo",
+    startsAt: "A tarja começa em {{at}}",
+    styleBlur: "Desfoque",
+    styleBlurHint:
+      "Desfoque: um borrão de cor gerado sobre a área. Nada do que estava embaixo é usado para criá-lo, então não há nada nele a recuperar.",
+    styleSolid: "Sólido",
+    styleSolidHint:
+      "Sólido: preenche a área com uma cor. Tão seguro quanto o Desfoque — nenhum dos dois é construído a partir do que cobre — então escolha o que ficar melhor no clipe.",
+    waypoint: "Ponto em {{at}}",
+  },
   common: {
     cancel: "Cancelar",
     create: "Criar",
@@ -66,7 +126,7 @@ const messages = {
     folders: "Pastas",
     recordings: "Gravações",
     newFolder: "Nova pasta",
-    noSpaces: "Ainda não há espaços",
+    noSpaces: "Reúna os Clips da sua equipe em um só lugar",
     noSpacesAdminCta:
       "Peça a um administrador da organização para criar o primeiro espaço.",
     desktopCta: "Baixar app desktop",
@@ -82,38 +142,39 @@ const messages = {
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
+    breadcrumbBack: "Voltar para {{label}}",
   },
   empty: {
     library: {
-      title: "Sua biblioteca está vazia",
-      body: "Capture sua primeira gravação de tela e ela aparecerá aqui, pronta para compartilhar.",
-      cta: "Gravar seu primeiro Clip",
+      title: "Seus Clips começam aqui",
+      body: "Grave sua tela, câmera ou ambos. Seu Clip ficará aqui pronto para revisar e compartilhar.",
+      cta: "Gravar um Clip",
     },
     shared: {
-      title: "Nenhum clipe compartilhado com você",
-      body: "Os clipes que seus colegas compartilharem com você aparecerão aqui.",
+      title: "Explore gravações compartilhadas com você",
+      body: "Assista aos Clips da equipe e participe da conversa com comentários.",
     },
     folder: {
-      title: "Esta pasta está vazia",
-      body: "Arraste gravações para cá ou clique em gravar para começar algo novo nesta pasta.",
-      cta: "Gravar aqui",
+      title: "Mantenha este trabalho junto",
+      body: "Mova gravações relacionadas para esta pasta ou grave um novo Clip para este projeto.",
+      cta: "Gravar um Clip",
     },
     space: {
-      title: "Ainda não há gravações neste espaço",
-      body: "Compartilhe uma gravação com o espaço ou grave algo novo; sua equipe verá aqui.",
-      cta: "Gravar para este espaço",
+      title: "Dê a este espaço seu primeiro Clip",
+      body: "Grave ou mova um Clip para cá para que sua equipe o encontre em um só lugar.",
+      cta: "Gravar um Clip",
     },
     archive: {
-      title: "Nada arquivado",
-      body: "Gravações arquivadas ficam ocultas da biblioteca, mas são mantidas em segurança. Você sempre pode restaurá-las depois.",
+      title: "Nenhuma gravação arquivada",
+      body: "Clips arquivados ficam aqui até você querer trazê-los de volta.",
     },
     trash: {
       title: "A lixeira está vazia",
-      body: "Gravações excluídas aparecem aqui por 30 dias antes de serem removidas permanentemente.",
+      body: "Clips excluídos ficam aqui por 30 dias antes de serem removidos permanentemente.",
     },
     search: {
-      title: "Nenhum resultado",
-      body: "Tente outro termo de busca ou verifique seus filtros.",
+      title: "Nada corresponde a esta pesquisa",
+      body: "Tente outro termo ou limpe seus filtros para encontrar o Clip que você procura.",
     },
   },
   trashRoute: {
@@ -162,6 +223,10 @@ const messages = {
     aiRequestFailed: "Falha na solicitação de IA",
     titleUpdated: "Título atualizado",
     descriptionUpdated: "Descrição atualizada",
+    tags: "Etiquetas",
+    addTag: "Adicionar etiqueta…",
+    tagsUpdateFailed: "Não foi possível atualizar as etiquetas",
+    tagTooLong: "As etiquetas podem ter no máximo {{max}} caracteres",
     chaptersGenerated: "Capítulos gerados",
     fillerCompleted: "Remoção de palavras de preenchimento concluída",
     workflowReady: "Fluxo de trabalho pronto",
@@ -369,6 +434,9 @@ const messages = {
     ownerInsights: "Insights do proprietário",
     ownerInsightsDescription:
       "Visualizações, conclusão e detalhes dos espectadores ficam visíveis para editores deste clipe.",
+    beingEdited: "Em edição",
+    beingEditedMessage:
+      "O proprietário está fazendo alterações neste clipe. O link volta a funcionar quando ele terminar.",
   },
   meetingDetail: {
     untitledMeeting: "Reunião sem título",
@@ -556,6 +624,9 @@ const messages = {
     customizeEmbed: "Personalizar incorporação",
     more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
+    redactionsPendingBody:
+      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas. Abra o editor, aplique-as, e o compartilhamento volta.",
+    redactionsPendingTitle: "Conclua as tarjas primeiro",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",
@@ -1246,6 +1317,15 @@ const messages = {
     loadingRecording: "Carregando gravação…",
     recordingNotFound: "Gravação não encontrada",
     noVideoYet: "Ainda não há vídeo disponível.",
+    burnFailed: "Não foi possível aplicar as tarjas",
+    burnProgressUnreadable:
+      "Não dá para saber como está o andamento da tarja. É bem provável que ainda esteja sendo processada — atualize em instantes.",
+    burnedRedactionsDone:
+      "Tarjado. Essas áreas agora não estão mais no arquivo, e o original foi excluído.",
+    burningRedactions: "Aplicando as tarjas ao vídeo…",
+    burningRedactionsPercent: "Aplicando as tarjas ao vídeo… {{percent}}%",
+    editFailed: "Não foi possível salvar essa edição",
+    nothingToRedo: "Nada para refazer",
   },
   transcriptEditor: {
     transcript: "Transcrição",
@@ -1256,7 +1336,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "Novo espaço",
-    description: "Crie um espaço na organização atual.",
+    description:
+      "Organize gravações por projeto ou equipe para que todos encontrem o trabalho que importa.",
     name: "Nome",
     color: "Cor",
     useColor: "Usar cor {{color}}",
@@ -1449,6 +1530,26 @@ const messages = {
     exportedMp4: "Exported MP4",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
+    backToEditing: "Voltar à edição",
+    burnIn: "Aplicar {{count}}",
+    burnInConfirm: "Aplicar e excluir o original",
+    burnInHint:
+      "Aplicar as tarjas ao vídeo definitivamente e excluir o original",
+    burnInTitle: "Aplicar {{count}} tarja(s) a este vídeo?",
+    burnInWarning:
+      "As áreas cobertas serão destruídas em uma nova cópia do vídeo, e o arquivo original será excluído. Isso não pode ser desfeito.",
+    burning: "Aplicando…",
+    burningPercent: "Aplicando… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "Aplique as tarjas primeiro",
+    exportUnredactedWarning:
+      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas — e esta cópia também mostraria. Aplique-as e isto volta a ficar disponível.",
+    redact: "Tarjar",
+    redactHint: "Cubra algo na imagem. Nada fica oculto até você aplicar.",
+    redactOn: "Tarjando",
+    redoTooltip: "Refazer (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "Mostrar os controles à esquerda",
+    scrollOn: "Mostrar os controles à direita",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam",
@@ -1458,7 +1559,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app",
     surfaceBrowser: "Browser tab",
     surfaceBrowserDescription: "Choose an open tab",
-    surfaceScreen: "Screen",
+    surfaceScreen: "Tela cheia",
     surfaceScreenDescription: "Capture everything",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection.",
@@ -1550,9 +1651,10 @@ const messages = {
     videoReadyToUpload: "Video is ready to upload",
     videoUploaded: "Video uploaded",
     videoTooLarge: "Video is too large",
-    storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
+    storageNeededToFinishLoomImport:
+      "É necessário conectar o armazenamento para concluir a importação do Loom",
     loomImported: "Loom imported",
-    couldNotImportLoom: "Could not import that Loom.",
+    couldNotImportLoom: "Não foi possível importar esse Loom.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copiado",
@@ -1574,7 +1676,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.",
+    recordOnDesktop: "Gravar no desktop",
     downloadDesktopApp: "Download desktop app",
+    getChromeExtension: "Obter a extensão do Chrome",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
     downloadRecording: "Download",
@@ -1616,7 +1720,7 @@ const messages = {
     howToUse: "How to use Dictate",
     browserDictation: "Browser dictation",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.",
+      "Capture suas ideias enquanto fala. Copie a transcrição ou melhore o texto com IA.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.",
     quickNoteTitle: "Quick dictation note",
@@ -1625,18 +1729,45 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts",
     desktopShortcutsDescriptionSuffix: ", in the desktop app.",
     holdFn: "Hold Fn",
+    mobileDictation: "Ditado no celular",
+    fnShortcut: "Atalho Fn",
+    customShortcut: "Atalho personalizado",
+    otherSource: "Outra fonte",
+    voiceSource: "Voz",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.",
     browserUnavailableShort: "Browser speech recognition is unavailable here",
     startSpeaking: "Start speaking...",
-    replacedOriginal: "Replaced original with cleaned text",
+    newDictation: "Novo ditado",
+    startDictation: "Iniciar ditado",
+    stop: "Parar",
+    saving: "Salvando",
+    listening: "Ouvindo",
+    lastCapture: "Última captura",
+    copy: "Copiar",
+    copied: "Copiado",
+    copyFailed: "Não foi possível copiar",
+    aiProcessed: "Processado por IA",
+    aiCleaned: "Limpo com IA",
+    original: "Original",
+    cleaned: "Limpo",
+    delete: "Excluir",
+    deleteDictationTitle: "Excluir este ditado?",
+    deleteDictationDescription:
+      "Isso remove permanentemente o ditado do seu histórico.",
+    deleted: "Ditado excluído",
+    deleteFailed: "Não foi possível excluir o ditado",
+    showDetails: "Detalhes",
+    info: "Informações do ditado",
+    time: "Horário",
+    duration: "Duração",
+    hideDetails: "Ocultar detalhes",
     noText: "No text",
-    emptyTranscript: "Empty transcript",
-    replaceOriginal: "Replace original with cleaned",
     cleanupWithAi: "Cleanup with AI",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words.',
-    startFirst: "Start your first dictation",
+    cleanupComplete: "Ditado limpo",
+    cleanupFailed: "Não foi possível limpar o ditado",
+    startFirst: "Transforme suas ideias em texto",
+    recordOnDesktop: "Gravar no desktop",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here.",
     emptyWebDescription:
@@ -1665,17 +1796,17 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nagente nativo → Agent-Native",
     dictionaryTermsRequired: "Insira pelo menos um termo.",
     dictionarySearch: "Pesquisar no dicionário",
-    dictionaryNoMatches: "Nenhum termo correspondente.",
+    dictionaryNoMatches: "Nenhum termo corresponde a esta pesquisa",
     dictionaryRemoveTitle: "Remover “{{term}}”?",
     dictionaryRemoveDescription:
       "As próximas transcrições não usarão mais esta correção.",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
+      "Adicione grafias preferidas para que o Clips reconheça as palavras que você usa.",
     dictionaryTermPlaceholder: "Term",
     dictionaryReplacementPlaceholder: "Replacement (optional)",
     dictionaryAdd: "Add",
     dictionaryLoading: "Loading dictionary...",
-    dictionaryEmpty: "No learned terms yet.",
+    dictionaryEmpty: "Ensine seu vocabulário ao Clips",
     dictionaryUsesCount: "Usado {{count}} vezes",
     dictionaryRemove: "Remover",
     vocabularyAddFailed: "Couldn't add term",
@@ -1787,9 +1918,9 @@ const messages = {
     pastRecordings: "Past recordings",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
-    connectGoogleCalendar: "Connect Google Calendar",
+    connectGoogleCalendar: "Torne cada reunião mais memorável",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
+      "Conecte o Google Agenda para ver as próximas reuniões e registrar notas com o Clips Desktop.",
     getDesktopApp: "Get desktop app",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription.",
@@ -1810,19 +1941,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
+      "Inicie as notas no Clips Desktop durante uma reunião. A transcrição e as notas serão salvas aqui.",
     searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
     agendaTab: "Agenda",
     pastTab: "Anteriores",
     now: "Agora",
-    noPastMeetings: "Ainda não há reuniões anteriores",
+    noPastMeetings: "Seu histórico de reuniões começa aqui",
     loadOlder: "Carregar anteriores",
     searchFailed:
       "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",
     clearSearch: "Clear search",
-    noMeetingsYet: "No meetings yet",
+    noMeetingsYet: "Sua agenda está livre",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.",
+      "Os próximos eventos dos seus calendários conectados aparecerão aqui quando forem agendados.",
     noMeetingsMatch: 'No meetings match "{{query}}"',
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",

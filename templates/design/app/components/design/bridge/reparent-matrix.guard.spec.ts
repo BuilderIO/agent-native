@@ -88,7 +88,7 @@ async function dragCenterTo(
   page: Page,
   selector: string,
   target: { x: number; y: number },
-  modifier?: "Control" | "Space",
+  modifier?: "Control" | "Meta" | "Space" | "S",
 ): Promise<{ left: number; top: number }> {
   const box = await page.locator(selector).boundingBox();
   expect(box).not.toBeNull();
@@ -112,6 +112,16 @@ async function dragCenterTo(
   if (modifier) await page.keyboard.up(modifier);
   await page.waitForTimeout(40);
   return beforeRelease;
+}
+
+async function ignoreAutoLayoutModifier(page: Page): Promise<"Control" | "S"> {
+  const platform = await page.evaluate(() => navigator.platform);
+  return /Mac|iPhone|iPad|iPod/i.test(platform) ? "Control" : "S";
+}
+
+async function primaryModifier(page: Page): Promise<"Meta" | "Control"> {
+  const platform = await page.evaluate(() => navigator.platform);
+  return /Mac|iPhone|iPad|iPod/i.test(platform) ? "Meta" : "Control";
 }
 
 function sourceId(html: string, layerName: string): string {
@@ -140,6 +150,58 @@ describe("Chromium reparent matrix", () => {
   afterAll(async () => {
     await browser.close();
   });
+
+  it(
+    "primary-modifier drag nests into the deepest auto-layout container",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;position:relative;width:900px;height:700px">
+        <div id="outer" data-agent-native-node-id="outer" style="position:absolute;left:300px;top:80px;width:400px;height:220px;display:flex;flex-direction:column;gap:12px;padding:16px;background:#ddd">
+          <div id="inner" data-agent-native-node-id="inner" style="display:flex;flex-direction:row;gap:8px;padding:8px;width:360px;height:80px;background:#aaa"><span data-agent-native-node-id="peer">Peer</span></div>
+        </div>
+        <div id="source" data-agent-native-node-id="source" style="position:absolute;left:40px;top:100px;width:60px;height:40px;background:#f00">Source</div>
+      </body></html>`);
+      await installBridge(page);
+      await selectElementDirect(page, "#source");
+      const source = (await page.locator("#source").boundingBox())!;
+      const target = (await page.locator("#inner").boundingBox())!;
+      const modifier = await primaryModifier(page);
+      await page.keyboard.down(modifier);
+      try {
+        await page.mouse.move(
+          source.x + source.width / 2,
+          source.y + source.height / 2,
+        );
+        await page.mouse.down();
+        await page.mouse.move(source.x + 8, source.y + 8, { steps: 2 });
+        await page.mouse.move(
+          target.x + target.width / 2,
+          target.y + target.height / 2,
+          { steps: 8 },
+        );
+        expect(
+          await page
+            .locator("[data-agent-native-insertion-guide]")
+            .evaluate((element) => getComputedStyle(element).display),
+        ).toBe("block");
+        expect(
+          await page
+            .locator("#source")
+            .evaluate((el) => el.parentElement?.tagName),
+        ).toBe("BODY");
+        await page.mouse.up();
+      } finally {
+        await page.keyboard.up(modifier);
+      }
+      expect(
+        await page.locator("#source").evaluate((el) => el.parentElement?.id),
+      ).toBe("inner");
+      await page.close();
+    },
+  );
 
   it(
     "moves absolute layers into freeform, row, column, wrap, and grid parents with the correct geometry and flow cleanup",
@@ -641,7 +703,7 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
-    "honors Control Ignore Auto Layout and Space retain-parent for absolute drags",
+    "honors Ignore Auto Layout and Space retain-parent for absolute drags",
     { timeout: 30_000 },
     async () => {
       const page = await browser.newPage({
@@ -669,7 +731,7 @@ describe("Chromium reparent matrix", () => {
         page,
         "#control",
         { x: 560, y: 220 },
-        "Control",
+        await ignoreAutoLayoutModifier(page),
       );
       const ignored = await page.locator("#control").evaluate((element) => {
         const item = element as HTMLElement;
@@ -772,6 +834,45 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
+    "uses the nearest visual row and flex main axis for wrapped flex insertion",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #source { position:absolute;left:40px;top:430px;width:70px;height:50px;background:#6366f1; }
+        #wrap { position:absolute;left:300px;top:80px;width:220px;height:180px;padding:12px;display:flex;flex-direction:row;flex-wrap:wrap;align-content:flex-start;gap:12px;background:#eef2ff;box-sizing:border-box; }
+        .peer { flex:0 0 70px;height:50px;background:#a5b4fc; }
+      </style></head><body>
+        <div id="source" data-agent-native-node-id="source">Source</div>
+        <div id="wrap" data-agent-native-node-id="wrap">
+          <div id="a" class="peer" data-agent-native-node-id="a">A</div>
+          <div id="b" class="peer" data-agent-native-node-id="b">B</div>
+          <div id="c" class="peer" data-agent-native-node-id="c">C</div>
+          <div id="d" class="peer" data-agent-native-node-id="d">D</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+
+      // Drop on the second item in row 2. A Y-only wrapped-flex resolver
+      // ties every item in that row and anchors against C, while the visual
+      // two-dimensional resolver must keep the source after D.
+      await dragCenterTo(page, "#source", { x: 430, y: 179 });
+      const result = await page.locator("#wrap").evaluate((wrap) => ({
+        order: Array.from(wrap.children).map((child) => child.id),
+        sourcePosition: getComputedStyle(document.querySelector("#source")!)
+          .position,
+      }));
+      expect(result.order).toEqual(["a", "b", "c", "d", "source"]);
+      expect(result.sourcePosition).not.toBe("absolute");
+      await page.close();
+    },
+  );
+
+  it(
     "resolves before, between, and after sibling slots from real gap/padding pointer positions",
     { timeout: 30_000 },
     async () => {
@@ -809,6 +910,65 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
+    "uses the platform ignore-auto-layout chord to keep an absolute drag free inside a declared frame in an auto-layout row",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #source { position:absolute;left:40px;top:430px;width:70px;height:50px;background:#6366f1; }
+        #row { position:absolute;left:300px;top:80px;width:300px;height:180px;padding:12px;display:flex;flex-direction:row;gap:12px;background:#eef2ff;box-sizing:border-box; }
+        #frame { position:relative;flex:0 0 120px;width:120px;height:100px;background:#a5b4fc; }
+        #peer { flex:0 0 70px;height:50px;background:#c4b5fd; }
+      </style></head><body>
+        <div id="source" data-agent-native-node-id="source">Source</div>
+        <div id="row" data-agent-native-node-id="row">
+          <div id="frame" data-agent-native-node-id="frame" data-an-primitive="frame"></div>
+          <div id="peer" data-agent-native-node-id="peer">Peer</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+
+      const frameBox = await page.locator("#frame").boundingBox();
+      expect(frameBox).not.toBeNull();
+      await dragCenterTo(
+        page,
+        "#source",
+        {
+          x: frameBox!.x + frameBox!.width / 2,
+          y: frameBox!.y + frameBox!.height / 2,
+        },
+        await ignoreAutoLayoutModifier(page),
+      );
+      const result = await page.locator("#source").evaluate((element) => {
+        const source = element as HTMLElement;
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        const structures = messages.filter(
+          (message) => message.type === "visual-structure-change",
+        ) as Array<{ dropMode?: string }>;
+        return {
+          parent: source.parentElement?.id,
+          position: getComputedStyle(source).position,
+          left: source.style.left,
+          top: source.style.top,
+          dropMode: structures[structures.length - 1]?.dropMode,
+        };
+      });
+      expect(result.parent).toBe("frame");
+      expect(result.position).toBe("absolute");
+      expect(result.left).toMatch(/px$/);
+      expect(result.top).toMatch(/px$/);
+      expect(result.dropMode).toBe("absolute-container");
+      await page.close();
+    },
+  );
+
+  it(
     "Control-drag atomically toggles a flow child to Ignore auto layout and restores the exact flow snapshot",
     { timeout: 30_000 },
     async () => {
@@ -839,7 +999,12 @@ describe("Chromium reparent matrix", () => {
         };
       });
 
-      await dragCenterTo(page, "#item", { x: 540, y: 250 }, "Control");
+      await dragCenterTo(
+        page,
+        "#item",
+        { x: 540, y: 250 },
+        await ignoreAutoLayoutModifier(page),
+      );
       const ignored = await page.locator("#item").evaluate((element) => {
         const item = element as HTMLElement;
         const rect = item.getBoundingClientRect();
@@ -910,6 +1075,46 @@ describe("Chromium reparent matrix", () => {
           top: "",
           order: before.order,
         });
+      await page.close();
+    },
+  );
+
+  it(
+    "keeps an oversized flow child inside a smaller auto-layout target with the platform Ignore Auto Layout chord",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #outer { position:absolute;left:100px;top:80px;width:560px;height:220px;padding:20px;display:flex;gap:16px;background:#eef2ff;box-sizing:border-box; }
+        #item { flex:0 0 auto;width:220px;height:90px;background:#6366f1; }
+        #inner { position:relative;flex:0 0 100px;width:100px;height:70px;padding:6px;display:flex;gap:6px;background:#a5b4fc;box-sizing:border-box; }
+      </style></head><body>
+        <div id="outer" data-agent-native-node-id="outer">
+          <div id="item" data-agent-native-node-id="item">Item</div>
+          <div id="inner" data-agent-native-node-id="inner" data-an-primitive="frame"></div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+      const target = await page.locator("#inner").boundingBox();
+      expect(target).not.toBeNull();
+      await dragCenterTo(
+        page,
+        "#item",
+        { x: target!.x + target!.width / 2, y: target!.y + target!.height / 2 },
+        await ignoreAutoLayoutModifier(page),
+      );
+      await expect
+        .poll(() =>
+          page.locator("#item").evaluate((element) => ({
+            parent: element.parentElement?.id,
+            position: getComputedStyle(element).position,
+          })),
+        )
+        .toEqual({ parent: "inner", position: "absolute" });
       await page.close();
     },
   );
@@ -1020,6 +1225,11 @@ describe("Chromium reparent matrix", () => {
       expect(inserted.parent).toBe("host");
       expect(inserted.order).toEqual(["existing", "board-rect"]);
       expect(inserted.structures).toHaveLength(1);
+      // The host's runtime-insert request id must survive the bridge hop so a
+      // later Cmd+Z ack can find and remove the optimistic clone. Generating a
+      // fresh move id here leaves the pending ledger clear while the DOM copy
+      // remains in the running app.
+      expect(String(inserted.structures[0]!.requestId)).toBe("41");
       // insertedHtml is what tells the host (and then the coding agent) this is
       // new markup to add, not an existing element to relocate.
       expect(inserted.structures[0]!.insertedHtml).toContain(
@@ -1035,7 +1245,7 @@ describe("Chromium reparent matrix", () => {
             data: { type: "visual-structure-ack", requestId, applied: false },
           }),
         );
-      }, inserted.structures[0]!.requestId);
+      }, 41);
       await expect
         .poll(() =>
           page.evaluate(
@@ -1285,13 +1495,13 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenId: "screen-a",
       }),
     ).toBe("screen-bridge");
-    // A board primitive dropped into a live localhost screen: neither endpoint
-    // is runtimeOnly (the live anchor has no stored layer owner), so without
-    // targetScreenIsLive this resolves to "source-edit" and the move is written
-    // as an HTML document over the destination screen's bridge URL.
+    // A board primitive dropped into a live localhost screen: the live anchor
+    // has no stored layer owner, so without targetScreenIsLive this resolves to
+    // "source-edit" and the move is written as an HTML document over the
+    // destination screen's bridge URL.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: false,
+        subjectRuntimeOnly: true,
         targetRuntimeOnly: false,
         sourceScreenId: "board",
         targetScreenId: "live",
@@ -1299,8 +1509,9 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge-insert");
-    // Only the board may be reinterpreted as an insert — a stored screen's
-    // element moved into a live app would otherwise be silently duplicated.
+    // Only the board may be reinterpreted as an insert. This also covers a
+    // runtime-only node copied from a live screen onto the board: the board is
+    // the source surface, and the destination live DOM must receive the copy.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: false,

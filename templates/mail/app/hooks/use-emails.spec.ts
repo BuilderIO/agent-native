@@ -9,14 +9,19 @@ import {
   consumeExternalEmailRefresh,
   beginReadMutation,
   confirmReadMutation,
+  clearOptimisticOverride,
+  forgetSuppressionClaim,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
   rebasePinnedLabelsUpdate,
   releaseSuppression,
+  releaseSuppressionClaims,
   rollbackReadMutation,
+  settleSuppression,
+  setOptimisticOverride,
   suppressThread,
-  unsuppressThread,
+  hasFreshOptimisticOverrideEvidence,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -48,17 +53,72 @@ function threadCacheSource(): string {
   );
 }
 
+function removalComponentSource(name: "EmailList" | "EmailThread"): string {
+  return readFileSync(
+    new URL(`../components/email/${name}.tsx`, import.meta.url),
+    "utf8",
+  );
+}
+
+describe("removal undo claim ownership", () => {
+  it("releases only the claim created by the matching mutation hook", () => {
+    const hookSource = emailsHookSource();
+    const listSource = removalComponentSource("EmailList");
+    const threadSource = removalComponentSource("EmailThread");
+
+    expect(hookSource).not.toContain("export function unsuppressThread");
+    for (const name of [
+      "useArchiveEmail",
+      "useTrashEmail",
+      "useBulkArchiveEmails",
+      "useBulkTrashEmails",
+      "useMoveEmail",
+    ]) {
+      const start = hookSource.indexOf(`export function ${name}()`);
+      const end = hookSource.indexOf("export function", start + 1);
+      const hook = hookSource.slice(start, end === -1 ? undefined : end);
+
+      expect(hook).toContain("recordSuppressionClaim");
+      expect(hook).toContain("recordInboxMutationClaim");
+      expect(hook).toContain("suppressionToken");
+      expect(hook).toContain(
+        "return { ...mutation, createSuppressionToken, getSuppressionIds }",
+      );
+      expect(hook.indexOf("recordSuppressionClaim")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
+      expect(hook.indexOf("recordInboxMutationClaim")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
+    }
+    for (const source of [listSource, threadSource]) {
+      expect(source).not.toContain("unsuppressThread");
+      expect(source).toContain("releaseSuppressionClaims");
+      expect(source).toContain("releaseOwnedInboxRemoval");
+      expect(source).toContain("inboxRemovalSnapshot");
+      expect(source).toContain("createSuppressionToken");
+      expect(source).toContain("getSuppressionIds");
+    }
+  });
+});
+
 describe("filterSuppressedThreads", () => {
+  const archivedSuppressionIds: number[] = [];
+
   afterEach(() => {
-    unsuppressThread("thread-archived");
+    for (const id of archivedSuppressionIds)
+      releaseSuppression("thread-archived", id);
+    archivedSuppressionIds.length = 0;
     consumeExternalEmailRefresh();
     vi.useRealTimers();
   });
 
   it("keeps an archived thread hidden from stale inbox refetches", () => {
-    suppressThread("thread-archived", "archive", {
-      views: ["inbox", "unread"],
-    });
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
 
     const visible = filterSuppressedThreads(
       [
@@ -72,9 +132,11 @@ describe("filterSuppressedThreads", () => {
   });
 
   it("allows an archived thread in the archive destination view", () => {
-    suppressThread("thread-archived", "archive", {
-      views: ["inbox", "unread"],
-    });
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
     const row = () => [makeEmail("msg-archived", "thread-archived")];
 
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
@@ -82,6 +144,117 @@ describe("filterSuppressedThreads", () => {
     // still list the thread.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
+  });
+
+  it("does not expire a pending archive claim while stale data is possible", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-26T12:00:00.000Z"));
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
+
+    vi.advanceTimersByTime(60_001);
+
+    expect(
+      filterSuppressedThreads(
+        [makeEmail("msg-archived", "thread-archived")],
+        "inbox",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("optimistic property overrides", () => {
+  it("requires a provider request that started after the local mutation", () => {
+    expect(hasFreshOptimisticOverrideEvidence(true, true, 4, 4)).toBe(false);
+    expect(hasFreshOptimisticOverrideEvidence(true, true, 5, 4)).toBe(true);
+    expect(hasFreshOptimisticOverrideEvidence(false, true, 5, 4)).toBe(false);
+  });
+
+  it("retires read and star overrides only after provider evidence", () => {
+    const source = emailsHookSource();
+
+    expect(source).not.toContain("OVERRIDE_DURATION");
+    expect(source).toContain("reconcileOptimisticOverrides");
+    expect(source).toContain("hasFreshOptimisticOverrideEvidence(");
+    expect(source).toContain("providerSnapshotFences");
+    expect(source).toContain("observed.providerSnapshotId <=");
+
+    const threadHook = source.slice(
+      source.indexOf("export function useThreadMessages("),
+      source.indexOf("export function useMarkRead()"),
+    );
+    expect(threadHook).toContain("subscribeToOptimisticOverrides");
+    expect(threadHook).toContain("reconcileOptimisticOverrides");
+    expect(threadHook).toContain("providerSnapshotId");
+    expect(threadHook).toContain("applyOverrides(messages)");
+    expect(threadCacheSource()).toContain(
+      "prev?.providerSnapshotId !== result.providerSnapshotId",
+    );
+  });
+});
+
+describe("suppression evidence", () => {
+  it("does not use placeholder or search data to retire canonical claims", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain("providerSnapshotId");
+    expect(source).toContain("suppressionFence");
+    expect(source).toContain("if (search) return;");
+    expect(source).toContain("q.isPlaceholderData");
+    expect(source).toContain("page.suppressionFence < id");
+    expect(source).toContain("pages[pages.length - 1]?.nextPageToken");
+    expect(source).toContain("if (removed.onlyIn) return false;");
+  });
+
+  it("keeps an Undo claim addressable after evidence retires it", () => {
+    const threadId = "thread-evidence-settled";
+    const id = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+
+    // Provider evidence can retire the active suppression before the toast's
+    // Undo callback runs.
+    expect(settleSuppression(threadId, id)).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [])).toBe(false);
+  });
+
+  it("does not undo an older claim after newer evidence has settled", () => {
+    const threadId = "thread-settled-overlap";
+    const archived = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread(threadId, "mute", {
+      views: ["inbox", "unread"],
+    });
+
+    expect(settleSuppression(threadId, muted)).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [archived])).toBe(false);
+
+    // Releasing the newer committed claim removes its tombstone, so the
+    // older Undo can be honored after the newer action is explicitly undone.
+    expect(releaseSuppressionClaims(threadId, [muted])).toBe(true);
+  });
+
+  it("removes failed claims from a still-visible Undo token", () => {
+    const threadId = "thread-failed-undo";
+    const id = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const token = {
+      ids: new Map([[threadId, [id]]]),
+      inboxMutationIds: new Map<string, string[]>(),
+    };
+
+    forgetSuppressionClaim(token, threadId, id);
+    releaseSuppression(threadId, id);
+
+    expect(
+      releaseSuppressionClaims(threadId, token.ids.get(threadId) ?? []),
+    ).toBe(false);
   });
 });
 
@@ -133,8 +306,22 @@ describe("useLabels", () => {
     const source = emailsHookSource();
 
     expect(source).toContain(
+      "!query.isPlaceholderData && query.data?.errors.length",
+    );
+    expect(source).toContain(
       "return { ...query, data: query.data?.labels, accountErrors };",
     );
+  });
+});
+
+describe("account errors and placeholder data", () => {
+  it("does not carry account errors across an unsettled email query", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain(
+      "if (!q.data || q.isPlaceholderData) return undefined;",
+    );
+    expect(source).toContain("}, [q.data, q.isPlaceholderData]);");
   });
 });
 
@@ -167,6 +354,25 @@ describe("account-scoped triage mutations", () => {
     );
     expect(muteThread).toContain("accountEmail?: string");
     expect(muteThread).toContain("body: JSON.stringify({ accountEmail })");
+  });
+});
+
+describe("triage suppression ordering", () => {
+  it("records triage claims before waiting for query cancellation", () => {
+    const source = emailsHookSource();
+    for (const [name, end] of [
+      ["useReportSpam", "export function useBlockSender()"],
+      ["useBlockSender", "export function useMuteThread()"],
+      ["useMuteThread", "// ─── Contacts"],
+    ] as const) {
+      const hook = source.slice(
+        source.indexOf(`export function ${name}()`),
+        source.indexOf(end),
+      );
+      expect(hook.indexOf("suppressThread(")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
+    }
   });
 });
 
@@ -241,6 +447,16 @@ describe("useMarkRead", () => {
 
     confirmReadMutation("message-confirmed", first, false);
     expect(rollbackReadMutation("message-confirmed", second)).toBe(false);
+  });
+
+  it("uses a retained optimistic confirmation over stale cache data", () => {
+    const first = beginReadMutation("message-stale-cache", false, true);
+    expect(confirmReadMutation("message-stale-cache", first, true)).toBe(true);
+    setOptimisticOverride("message-stale-cache", { isRead: true });
+
+    const second = beginReadMutation("message-stale-cache", false, false);
+    expect(rollbackReadMutation("message-stale-cache", second)).toBe(true);
+    clearOptimisticOverride("message-stale-cache");
   });
 
   it("keeps a newer completion authoritative over an older completion", () => {
@@ -503,9 +719,26 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
       expect(hook).toContain("onMutate:");
       expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
-      expect(hook).toContain("clearInboxThreadRemoval(qc, threadId)");
+      expect(hook).toContain("releaseOwnedInboxRemoval(qc, threadId");
       expect(hook).toContain("restoreInboxThreadRemovals(qc");
     }
+  });
+
+  it("keeps a newer same-thread suppression claim after an older undo", () => {
+    const threadId = "thread-overlap";
+    const archived = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread(threadId, "mute", {
+      views: ["inbox", "unread"],
+    });
+    const row = [makeEmail("message-overlap", threadId)];
+
+    expect(releaseSuppression(threadId, archived)).toBe(false);
+    expect(filterSuppressedThreads(row, "inbox")).toEqual([]);
+
+    expect(releaseSuppression(threadId, muted)).toBe(true);
+    expect(filterSuppressedThreads(row, "inbox")).toEqual(row);
   });
 
   it("keeps bulk Gmail rollbacks scoped to the items that failed", () => {
@@ -579,7 +812,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
     const moved = suppressThread("thread-moved", "move", {
       views: ["inbox", "unread"],
     });
-    suppressThread("thread-archived-later", "archive", {
+    const archivedLater = suppressThread("thread-archived-later", "archive", {
       views: ["inbox", "unread"],
     });
 
@@ -596,7 +829,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
     );
 
     expect(visible.map((email) => email.id)).toEqual(["msg-moved"]);
-    unsuppressThread("thread-archived-later");
+    releaseSuppression("thread-archived-later", archivedLater);
   });
 
   it("keeps the same thread hidden when an overlapping mutation rolls back", () => {
@@ -605,7 +838,9 @@ describe("inbox-thread cache rollback on mutation error", () => {
     const moved = suppressThread("thread-both", "move", {
       views: ["inbox", "unread"],
     });
-    suppressThread("thread-both", "archive", { views: ["inbox", "unread"] });
+    const archived = suppressThread("thread-both", "archive", {
+      views: ["inbox", "unread"],
+    });
 
     releaseSuppression("thread-both", moved);
 
@@ -613,19 +848,40 @@ describe("inbox-thread cache rollback on mutation error", () => {
       filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
     ).toEqual([]);
 
-    unsuppressThread("thread-both");
+    releaseSuppression("thread-both", archived);
     expect(
       filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
     ).toHaveLength(1);
   });
 
+  it("keeps a newer mute claim when undo releases the earlier archive claim", () => {
+    const archived = suppressThread("thread-archive-mute", "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread("thread-archive-mute", "mute", {
+      views: ["inbox", "unread"],
+    });
+    const row = [makeEmail("msg-archive-mute", "thread-archive-mute")];
+
+    expect(releaseSuppressionClaims("thread-archive-mute", [archived])).toBe(
+      false,
+    );
+
+    expect(filterSuppressedThreads(row, "inbox")).toEqual([]);
+
+    expect(releaseSuppressionClaims("thread-archive-mute", [muted])).toBe(true);
+    expect(filterSuppressedThreads(row, "inbox")).toHaveLength(1);
+  });
+
   it("lets the newest claim decide where an overlapping thread stays visible", () => {
     // Archive then trash the same thread: Trash is its final location, so the
     // older archive claim must not keep hiding it there.
-    suppressThread("thread-relocated", "archive", {
+    const archived = suppressThread("thread-relocated", "archive", {
       views: ["inbox", "unread"],
     });
-    suppressThread("thread-relocated", "trash", { onlyIn: "trash" });
+    const trashed = suppressThread("thread-relocated", "trash", {
+      onlyIn: "trash",
+    });
     const row = () => [makeEmail("msg-relocated", "thread-relocated")];
 
     expect(filterSuppressedThreads(row(), "trash")).toHaveLength(1);
@@ -634,7 +890,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(filterSuppressedThreads(row(), "all")).toEqual([]);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toEqual([]);
 
-    unsuppressThread("thread-relocated");
+    releaseSuppression("thread-relocated", archived);
+    releaseSuppression("thread-relocated", trashed);
   });
 
   it("keeps a moved thread in the labels it still carries", () => {
@@ -673,7 +930,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
   it("hides an archived thread only in the label the archive removed", () => {
     // Archiving from a label view passes removeLabel, so that label stops
     // listing the thread while every other label it carries keeps it.
-    suppressThread("thread-filed-away", "archive", {
+    const archived = suppressThread("thread-filed-away", "archive", {
       views: ["inbox", "unread"],
       label: "Marketing",
     });
@@ -685,7 +942,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
 
-    unsuppressThread("thread-filed-away");
+    releaseSuppression("thread-filed-away", archived);
   });
 
   it("rolls spam, block, and mute back per thread instead of by snapshot", () => {
@@ -722,8 +979,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
     const end = source.indexOf("export function useSaveDraft()", start);
     const hook = source.slice(start, end);
 
-    expect(hook).toContain("accountEmails?: string");
-    expect(hook).toContain("threadIds?: string");
+    expect(source).toContain("accountEmails?: string");
+    expect(source).toContain("threadIds?: string");
     expect(hook).toContain("accountEmails,");
     expect(hook).toContain("threadIds,");
     expect(hook).toContain('callAction("move-email", {');

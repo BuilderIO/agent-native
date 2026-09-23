@@ -41,6 +41,8 @@ interface RecordingLite {
   thumbnailUrl?: string | null;
   videoFormat?: "webm" | "mp4";
   videoUrl?: string | null;
+  width: number;
+  height: number;
 }
 
 export function StitchManager({
@@ -116,10 +118,12 @@ export function StitchManager({
     setProgress(0);
     try {
       // 1) Client-side ffmpeg concat.
-      const blob = await exportConcat(
+      const { blob, width, height } = await exportConcat(
         queue.map((r) => ({
           url: r.videoUrl!,
           format: r.videoFormat ?? "webm",
+          width: r.width,
+          height: r.height,
         })),
         (p) => setProgress(p.progress),
       );
@@ -143,6 +147,8 @@ export function StitchManager({
         sourceRecordingIds: queue.map((r) => r.id),
         videoUrl,
         durationMs: totalDuration,
+        width,
+        height,
       });
       const newRecordingId = (result as { id?: string } | null)?.id;
       if (newRecordingId) {

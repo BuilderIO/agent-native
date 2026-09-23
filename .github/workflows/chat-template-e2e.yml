@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+          filter: blob:none
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -82,23 +83,12 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
-        uses: ./.github/actions/restore-dist-cache
-
       # postinstall rebuilds any stale/missing dists, including the local CLI
       # used by qa:standalone-chat-dev.
-      - if: needs.change-scope.outputs.agentkit_acceptance == 'true'
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
+        with:
+          restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
         if: needs.change-scope.outputs.agentkit_acceptance == 'true'

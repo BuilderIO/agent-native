@@ -62,6 +62,19 @@ describe("review canvas draft state", () => {
     });
   });
 
+  it("uses the viewport position when the canvas point is transformed", () => {
+    expect(
+      getReviewPopoverPlacement(
+        { xPct: 20, yPct: 30 },
+        { x: 100, y: 851 },
+        { width: 1440, height: 1000 },
+      ),
+    ).toEqual({
+      horizontal: "start",
+      vertical: "above",
+    });
+  });
+
   it("keeps the clicked position after associating a layer", () => {
     expect(
       getReviewPinPosition({

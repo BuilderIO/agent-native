@@ -20,7 +20,11 @@ vi.mock("./analytics.js", () => ({
   trackSessionStatus: vi.fn(),
 }));
 
-import { clearActiveRun, getActiveRun } from "./active-run-state.js";
+import {
+  clearActiveRun,
+  getActiveRun,
+  setActiveRun,
+} from "./active-run-state.js";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
@@ -685,6 +689,16 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+
+  it("queues a submit while an earlier submit is still being prepared", () => {
+    expect(
+      resolveAssistantChatSubmitIntent({
+        isRunning: false,
+        isSubmissionInFlight: true,
+        requestedIntent: "immediate",
+      }),
+    ).toBe("queued");
   });
 });
 
@@ -1916,7 +1930,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("onDismiss={");
     expect(source).toContain("onRetry={");
     expect(source).toMatch(
-      /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
+      /willQueue=\{\s*engineSetupRequired \|\|\s*isRunning \|\|/,
     );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain('"agentChat.setup.connectPlaceholder"');
@@ -1958,6 +1972,7 @@ describe("missing agent engine setup", () => {
     expect(dequeueSource).toContain("engineSetupRequired");
     expect(submitSource).toContain("engineSetupRequired");
     expect(submitSource).toContain("queueForActiveRun");
+    expect(submitSource).toContain("submissionTailRef");
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
     );
@@ -2530,6 +2545,94 @@ describe("settleInterruptedAssistantToolCallsInRepo", () => {
 });
 
 describe("resolveAssistantChatRunningStatusLabel", () => {
+  it("re-derives the live tool activity label from the tool name", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Running get case",
+        runningActivityTool: "get-case",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          runningTool: (toolName) =>
+            `${toolName === "get-case" ? "Fall abrufen" : toolName} wird ausgeführt`,
+        },
+      }),
+    ).toBe("Fall abrufen wird ausgeführt");
+  });
+
+  it("keeps the stored English tool activity label without a translator", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Running get case",
+        runningActivityTool: "get-case",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+      }),
+    ).toBe("Running get case");
+  });
+
+  it("leaves an activity label that is not the running tool label alone", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Still generating image",
+        runningActivityTool: "get-case",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          runningTool: () => "Sollte nicht verwendet werden",
+        },
+      }),
+    ).toBe("Still generating image");
+  });
+
+  it("localizes the tool name inside a Core-owned activity label", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Starting get case...",
+        runningActivityTool: "get-case",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          starting: (activity) => `${activity} wird gestartet...`,
+          toolDisplayName: (toolName) =>
+            toolName === "get-case" ? "Fall abrufen" : toolName,
+        },
+      }),
+    ).toBe("Fall abrufen wird gestartet...");
+  });
+
+  it("keeps an activity name that is not the active tool's derived name", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Still generating image",
+        runningActivityTool: "get-case",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          stillGenerating: (activity) => `${activity} wird weiterhin generiert`,
+          toolDisplayName: () => "Sollte nicht verwendet werden",
+        },
+      }),
+    ).toBe("image wird weiterhin generiert");
+  });
+
   it("keeps active tool activity ahead of recovery labels", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
@@ -3082,6 +3185,41 @@ describe("waitForThreadRunToClear", () => {
       threadId: "thread-deferred-successor",
       runId: "run-deferred-successor",
       lastSeq: -1,
+    });
+  });
+
+  it("preserves the existing stream owner while a queued surface waits", async () => {
+    setActiveRun({
+      threadId: "thread-owned",
+      runId: "run-owned",
+      tabId: "original-surface",
+      lastSeq: 7,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          active: true,
+          runId: "run-owned",
+          threadId: "thread-owned",
+          status: "running",
+          dispatchMode: "background",
+          awaitingRedispatch: true,
+          lastProgressAt: Date.now(),
+          serverNow: Date.now(),
+        }),
+      })),
+    );
+
+    await expect(
+      waitForThreadRunToClear("/_agent-native/agent-chat", "thread-owned"),
+    ).resolves.toBe(false);
+    expect(getActiveRun()).toEqual({
+      threadId: "thread-owned",
+      runId: "run-owned",
+      tabId: "original-surface",
+      lastSeq: 7,
     });
   });
 

@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Synchronisation de la boîte...",
     },
+    sort: {
+      label: "Trier la boîte de réception",
+      newest: "Plus récents",
+      priority: "Priorité",
+      priorityFailed: "Impossible de trier la boîte de réception.",
+    },
     toolbar: {
       toggleMenu: "Basculer le menu",
       menu: "Menu",
@@ -40,6 +46,7 @@ const messages = {
       unpinSidebar: "Désépingler la barre latérale",
       closeSidebar: "Fermer la barre latérale",
       settings: "Paramètres",
+      aiSettings: "Tags et spam IA",
     },
     search: {
       label: "Rechercher",
@@ -451,6 +458,8 @@ const messages = {
     aiFilter: {
       title: "Filtre IA",
       subtitle: "Un libellé réversible qui apprend de vos décisions.",
+      rulesTitle: "Règles",
+      newRule: "Nouvelle règle",
       lunaBadge: "Luna si disponible",
       toggle: "Activer le filtre IA",
       autoFilterTitle: "Filtrer automatiquement avec une confiance élevée",
@@ -504,6 +513,43 @@ const messages = {
       actionFailed: "Impossible de mettre à jour le filtre IA.",
       settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+      spamMode: "Indésirable",
+      tagMode: "Tag",
+      importantMode: "Important",
+      importantLabel: "Important par IA",
+      reviewImportant: "Voir les importants",
+      importantPlaceholder:
+        "ex. Messages nécessitant une réponse ou comportant une échéance",
+      ruleAdded: "Règle IA ajoutée.",
+      instructionHelp: "Utilisez le langage naturel",
+      tagNamePlaceholder: "Nom du tag",
+      spamLabelHint:
+        "Les correspondances sont marquées et déplacées hors de la boîte de réception.",
+      spamPlaceholder: "ex. Messages clairement promotionnels ou indésirables",
+      tagPlaceholder:
+        "ex. Reçus et confirmations de commande de boutiques en ligne",
+      addShortcut: "Appuyez sur ⌘ Entrée pour ajouter",
+      previewTitle: "Prévisualiser les emails récents",
+      previewDescription:
+        "Examinez les 20 derniers messages de la boîte de réception avant d’activer une règle. Les emails archivés ou archivés automatiquement ne sont jamais évalués.",
+      previewScope: "Boîte de réception uniquement · e-mails archivés exclus",
+      previewButton: "Lancer la prévisualisation",
+      previewRunning: "Vérification des emails récents…",
+      jevBadge: "Jev",
+      feedbackLabel: "Cochez les correspondances à exclure",
+      notSpamShort: "Pas indésirable",
+      notMatchShort: "Pas une correspondance",
+      noMatch: "Aucune correspondance",
+      feedbackPlaceholder:
+        "Facultatif : indiquez ce que l’IA a mal compris ou ce qu’elle devrait chercher à la place",
+      refineButton: "Mettre à jour et relancer",
+      instructionsUpdated: "Règle mise à jour et prévisualisation relancée.",
+      noRecentMail: "Aucun email récent à examiner.",
+      addRuleToPreview:
+        "Ajoutez une règle IA pour prévisualiser les emails récents.",
+      previewEmpty:
+        "Lancez une prévisualisation pour voir les correspondances probables.",
+      previewFailed: "Impossible de prévisualiser les emails récents.",
     },
     draftQueue: {
       title: "Cola de borradores",

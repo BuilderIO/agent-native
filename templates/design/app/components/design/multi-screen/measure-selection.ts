@@ -1,4 +1,8 @@
 import type { ElementInfo } from "../types";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "./iframe-targeting";
 
 /**
  * Ask a screen's bridge to re-measure one element. An inspector commit never
@@ -93,4 +97,25 @@ export function designPreviewWindows(): Window[] {
   ]
     .map((iframe) => iframe.contentWindow)
     .filter((w): w is Window => Boolean(w));
+}
+
+/** Only the active screen/breakpoint may answer a layer-panel measurement. */
+export function designPreviewWindowsForScreen(
+  screenId: string,
+  breakpointWidth?: number,
+  boardFileId?: string,
+): Window[] {
+  if (typeof document === "undefined") return [];
+  const iframeId =
+    boardFileId && screenId === boardFileId
+      ? boardFileId
+      : breakpointWidth === undefined
+        ? screenId
+        : getBreakpointIframeId(screenId, breakpointWidth);
+  const iframe = findCanvasIframeForScreen(
+    document.body,
+    iframeId,
+    boardFileId,
+  );
+  return iframe?.contentWindow ? [iframe.contentWindow] : [];
 }

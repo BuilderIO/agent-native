@@ -753,8 +753,13 @@ function ReplayPlayer({
         setPlaying(false);
         return;
       }
-      if (replayEvents.length < 2 || !hasPlayableReplayEvents(replayEvents)) {
-        throw new Error(t("sessions.noReplayEvents"));
+      const replayErrorKey = replayAvailabilityErrorKey(replayEvents);
+      if (replayErrorKey) {
+        throw new Error(
+          replayErrorKey === "noReplayEvents"
+            ? t("sessions.noReplayEvents")
+            : t("sessions.replayUnavailableDescription"),
+        );
       }
       setStatus("loading");
       setError(null);
@@ -2326,6 +2331,15 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
     if (hasFullSnapshot && hasMeta) return true;
   }
   return false;
+}
+
+export function replayAvailabilityErrorKey(
+  events: unknown[],
+): "noReplayEvents" | "replayUnavailableDescription" | null {
+  if (events.length === 0) return "noReplayEvents";
+  return hasPlayableReplayEvents(events)
+    ? null
+    : "replayUnavailableDescription";
 }
 
 function hideReplayCursorUntilPosition(replayer: any): () => void {

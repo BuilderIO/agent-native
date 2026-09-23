@@ -27,10 +27,26 @@ describe("DesignImportPanel", () => {
     expect(source).not.toContain("Paste Figma content here");
     expect(source).toContain('id="fig-file-import"');
     expect(source).toContain('accept=".fig,application/octet-stream"');
+    expect(source).toContain("validateFigUploadFile(file, { maxBytes: null })");
+    expect(source).toContain("importFigInBrowser");
+    expect(source).toContain("remoteMutationStarted");
     expect(source).toContain("uploadDesignFile({");
-    expect(source).toContain("validateFigUploadFile(file)");
+    expect(source).toContain("validateFigUploadFile");
     expect(source).toContain('role="progressbar"');
     expect(source).toContain("figUploadProgress === 100");
+    expect(source).toContain("figImportWarningTitle");
+    expect(source).toContain("figImportSelection");
+    expect(source).toContain(
+      "shouldWarnForFigImport(file.size, prepared.summary)",
+    );
+  });
+
+  it("frees the .fig worker and reports saved frames", () => {
+    expect(source).toContain("pendingFigImportRef.current?.dispose()");
+    expect(source).toContain("prepared.dispose()");
+    expect(source).not.toContain("prepared.decoded");
+    expect(source).toContain('t("designEditor.import.figImportSaving"');
+    expect(source).toContain("const FigImportFrameRow = memo(");
   });
 
   it("imports a Figma frame URL through the shared action surface", () => {

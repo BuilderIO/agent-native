@@ -202,6 +202,7 @@ describe("list-inbox-threads action", () => {
     expect(result.items[0].threadId).toBe("t1");
     // total/tab counts describe the whole tab, not the unread-filtered page.
     expect(result.total).toBe(2);
+    expect(result.complete).toBe(false);
     expect(result.tabs.find((t) => t.id === "important")?.total).toBe(2);
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(1);
   });

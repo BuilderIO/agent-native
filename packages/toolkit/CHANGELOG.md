@@ -1,5 +1,39 @@
 # @agent-native/toolkit
 
+## 0.20.7
+
+### Patch Changes
+
+- 2427195: Add Claude Opus 5.5 and GPT-6 Sol/Luna to direct API model selection.
+- d43305d: Allow editors to keep the latest local intent for overlapping changes while still merging independent server edits.
+- Release all public npm packages with a patch version bump.
+
+## 0.20.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- e973e00: Move the auth form to the top of the page on small screens and hide the learn-more link there.
+
+## 0.20.5
+
+### Patch Changes
+
+- 58b0779: Expand the shared font picker with curated Google Fonts.
+- 3ecc476: Preserve Alt/Option modifier metadata through design scrub gestures for mirrored padding edits.
+- Release all public npm packages with a patch version bump.
+- 15ec2fb: Keep chat lifecycle state and queue rows clear of stale UI overlap, and reserve space for the share dialog close control.
+
+## 0.20.4
+
+### Patch Changes
+
+- 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
+  Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
+- Release all public npm packages with a patch version bump.
+- ffafd84: Keep tall dialog content inside the viewport with internal vertical scrolling.
+- 424d0cd: Add `sortFontFamilyOptions` to alphabetize font family picker options (keeping "Inherit" pinned first), and use it in the Design and Slides typography font pickers.
+
 ## 0.20.3
 
 ### Patch Changes

@@ -26,7 +26,7 @@ import {
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
 import { agentNativePath, appMountedPath } from "../api-path.js";
-import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 import { useBuilderConnectFlow, useBuilderStatus } from "./useBuilderStatus.js";
@@ -467,7 +467,7 @@ export function VoiceTranscriptionSection({
                   Ready
                 </span>
               ) : googleRealtimeConfigured ? (
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={builderConnect}
                   onTriggerClick={(event) => event.stopPropagation()}
                 >
@@ -477,7 +477,7 @@ export function VoiceTranscriptionSection({
                   >
                     Connect Builder.io
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               ) : (
                 <button
                   type="button"
@@ -575,7 +575,7 @@ export function VoiceTranscriptionSection({
                     Ready
                   </span>
                 ) : googleRealtimeConfigured ? (
-                  <BuilderConnectPopover
+                  <DeferredBuilderConnectPopover
                     flow={builderConnect}
                     onTriggerClick={(event) => event.stopPropagation()}
                   >
@@ -585,7 +585,7 @@ export function VoiceTranscriptionSection({
                     >
                       Connect Builder.io
                     </button>
-                  </BuilderConnectPopover>
+                  </DeferredBuilderConnectPopover>
                 ) : (
                   <button
                     type="button"
@@ -630,7 +630,7 @@ export function VoiceTranscriptionSection({
                     Connected
                   </span>
                 ) : (
-                  <BuilderConnectPopover
+                  <DeferredBuilderConnectPopover
                     flow={builderConnect}
                     onTriggerClick={(event) => event.stopPropagation()}
                   >
@@ -640,7 +640,7 @@ export function VoiceTranscriptionSection({
                     >
                       Connect Builder.io
                     </button>
-                  </BuilderConnectPopover>
+                  </DeferredBuilderConnectPopover>
                 )
               }
             />

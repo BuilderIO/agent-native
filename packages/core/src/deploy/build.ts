@@ -65,7 +65,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
-import { LOADING_LABELS } from "../shared/loading-labels.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -1005,6 +1005,12 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
     "moveCursor",
   ]),
   repl: cloudflareNodeBuiltinStubSource("repl", ["start"]),
+  sqlite: cloudflareNodeBuiltinStubSource("sqlite", [
+    "DatabaseSync",
+    "StatementSync",
+    "backup",
+    "constants",
+  ]),
   sys: cloudflareNodeBuiltinStubSource("sys", [
     "debug",
     "deprecate",
@@ -1082,6 +1088,44 @@ interface ReactRouterAssetManifestRoute {
   clientLoaderModule?: string;
   clientMiddlewareModule?: string;
   hydrateFallbackModule?: string;
+}
+
+/**
+ * Resolve `runtime.frameworkRoutePrefix` from the app config once, before any
+ * bundle is written, and publish it to this process's env. Every later reader
+ * in the build — the Vite define, the Nitro replacement map, the generated
+ * worker, the Netlify headers — reads that one env key, so the browser bundle,
+ * the server bundle and the platform routing cannot disagree.
+ */
+async function resolveDeployFrameworkRoutePrefix(): Promise<void> {
+  const mode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const workspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const environment = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+  const config = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("build", mode),
+    { environment },
+  );
+  // guard:allow-env-mutation — build-time process, set once before any bundle is written; no request ever runs here
+  process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+    config.runtime?.frameworkRoutePrefix ?? "";
+}
+
+/** The public prefix baked into generated worker sources. */
+function resolveBuildFrameworkRoutePrefix(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return normalizeFrameworkRoutePrefix(
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || undefined,
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+  );
 }
 
 function normalizeConfiguredAppBasePath(): string {
@@ -1185,6 +1229,7 @@ export function generateWorkerEntry(
   immutableAssetPaths: string[] = [],
   builtAppBasePath = normalizeConfiguredAppBasePath(),
   options: GenerateWorkerEntryOptions = {},
+  builtFrameworkRoutePrefix = resolveBuildFrameworkRoutePrefix(),
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   // The worker ships as a static bundle with no access to runtime env, so the
@@ -1194,6 +1239,7 @@ export function generateWorkerEntry(
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
   );
+  const hasActions = actions.length > 0;
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1237,6 +1283,20 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
+    setResponseHeader(event, "Cache-Control", "no-" + "store");
+    const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
+    const uiActionContext = actionIsUiOnly
+      ? await getGeneratedUiActionContext(event)
+      : undefined;
+    if (actionIsUiOnly && !uiActionContext) {
+      return new Response(
+        JSON.stringify({
+          error: "This action can only be called from the signed-in app UI.",
+          errorCode: "ui_capability_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
     const requestMethod = event.req.method;
     const isFrontendMutation =
@@ -1255,7 +1315,21 @@ export function generateWorkerEntry(
         event.req.headers.get("x-agent-native-frontend") === "1"
           ? "frontend"
           : "http";
-      const result = await ${varName}.run(params, { caller });
+      const actionRunContext = {
+        caller,
+        requestHeaders: event.req.headers,
+        actionName: ${JSON.stringify(a.name)},
+        ...(uiActionContext
+          ? {
+              userEmail: uiActionContext.userEmail,
+              orgId: uiActionContext.orgId ?? null,
+            }
+          : {}),
+      };
+      const runAction = () => ${varName}.run(params, actionRunContext);
+      const result = actionIsUiOnly
+        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+        : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1284,8 +1358,10 @@ ${["post", "put", "delete"]
   pluginImports.push(
     `import {
   getAppConfig as getAgentNativeAppConfig,
+  getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
+${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -1342,7 +1418,7 @@ ${["post", "put", "delete"]
     );
   }
   const generatedPluginMarks =
-    providedPluginStems.size > 0
+    providedPluginStems.size > 0 || hasActions
       ? [
           ...new Set([
             ...Object.keys(DEFAULT_PLUGIN_REGISTRY),
@@ -1369,7 +1445,13 @@ ${["post", "put", "delete"]
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { H3, defineEventHandler, readBody, toResponse } from "h3";
+import {
+  H3,
+  defineEventHandler,
+  readBody,
+  setResponseHeader,
+  toResponse,
+} from "h3";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
@@ -1380,6 +1462,11 @@ function normalizeAppBasePath(value) {
   if (!trimmed || trimmed === "/") return "";
   return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
 }
+
+// The public framework route prefix this bundle was built for. Only path
+// CLASSIFICATION happens here; the h3 boundary inside the handler is what
+// translates the public prefix to the internal one, exactly once.
+const builtFrameworkRoutePrefix = ${JSON.stringify(builtFrameworkRoutePrefix)};
 
 function getAppBasePath() {
   const builtAppBasePath = ${JSON.stringify(builtAppBasePath)};
@@ -1393,7 +1480,9 @@ function getAppBasePath() {
 function stripAppBasePath(pathname) {
   const basePath = getAppBasePath();
   if (!basePath) return pathname;
+  if (pathname === basePath + ".data") return "/.data";
   if (pathname === basePath) return "/";
+  if (pathname === basePath + "//") return "/";
   if (pathname.startsWith(basePath + "/")) {
     return pathname.slice(basePath.length) || "/";
   }
@@ -1424,8 +1513,8 @@ function isApiPath(pathname) {
 }
 
 function isFrameworkPath(pathname) {
-  return (
-    pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")
+  return ["/_agent-native", builtFrameworkRoutePrefix].some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + "/"),
   );
 }
 
@@ -1448,7 +1537,8 @@ function requestWithMountedApiPrefixStripped(request) {
 
 function prefixMountedPath(path, basePath) {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
-  if (path === basePath || path.startsWith(basePath + "/")) return path;
+  const pathname = path.split(/[?#]/, 1)[0] || path;
+  if (pathname === basePath || pathname === basePath + ".data" || pathname.startsWith(basePath + "/")) return path;
   return basePath + path;
 }
 
@@ -1811,6 +1901,7 @@ function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
     resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    getAgentNativeFrameworkRoutePrefix(),
   );
 }
 
@@ -2006,7 +2097,7 @@ function isStaticAppShellRequest(request) {
   const p = stripAppBasePath(new URL(request.url).pathname);
   if (
     p.startsWith("/.well-known/") ||
-    p.startsWith("/_agent-native/") ||
+    isFrameworkPath(p) ||
     isApiPath(p) ||
     p === "/favicon.ico" ||
     p === "/favicon.png" ||
@@ -2094,7 +2185,28 @@ async function getHandler() {
   // framework defaults before later custom plugins get a chance to mark
   // themselves as provided.
 ${generatedPluginMarks.map((stem) => `  markGeneratedPluginProvided(nitroApp, ${JSON.stringify(stem)});`).join("\n")}
+${hasActions ? `  mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", ${JSON.stringify(builtAppBasePath)});` : ""}
 ${pluginCalls.join("\n")}
+
+${
+  hasActions
+    ? `  async function getGeneratedUiActionContext(event) {
+    const session = await getGeneratedSession(event);
+    const userEmail =
+      typeof session?.email === "string" ? session.email.trim().toLowerCase() : undefined;
+    if (
+      !userEmail ||
+      !isGeneratedSameOriginRequest(event) ||
+      !hasGeneratedUiActionCapability(event, userEmail)
+    ) {
+      return null;
+    }
+    const orgId = (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+    return { userEmail, orgId };
+  }
+`
+    : ""
+}
 
   // Register API routes
 ${routeRegistrations.join("\n")}
@@ -2111,7 +2223,7 @@ ${
     const p = stripAppBasePath(new URL(event.req.url).pathname);
     if (
       p.startsWith("/.well-known/") ||
-      p.startsWith("/_agent-native/") ||
+      isFrameworkPath(p) ||
       isApiPath(p) ||
       p === "/favicon.ico" ||
       p === "/favicon.png" ||
@@ -2224,6 +2336,58 @@ function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
   }
 
   return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
+}
+
+function clientAssetLogicalName(fileName: string): string {
+  const extension = path.extname(fileName);
+  if (!extension) return fileName;
+  const stem = fileName.slice(0, -extension.length);
+  return `${stem.replace(/-[A-Za-z0-9_-]{8,}$/, "")}${extension}`;
+}
+
+function createPairedClientAssetReplacements(
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
+): Map<string, string> {
+  const trustedAssetsDirectory = path.join(trustedClientDirectory, "assets");
+  const pairedAssetsDirectory = path.join(pairedClientDirectory, "assets");
+  if (
+    !fs.existsSync(trustedAssetsDirectory) ||
+    !fs.existsSync(pairedAssetsDirectory)
+  ) {
+    return new Map();
+  }
+
+  const pairedByLogicalName = new Map<string, string | undefined>();
+  for (const fileName of fs.readdirSync(pairedAssetsDirectory)) {
+    const logicalName = clientAssetLogicalName(fileName);
+    if (!pairedByLogicalName.has(logicalName)) {
+      pairedByLogicalName.set(logicalName, fileName);
+    } else {
+      pairedByLogicalName.set(logicalName, undefined);
+    }
+  }
+
+  const replacements = new Map<string, string>();
+  for (const fileName of fs.readdirSync(trustedAssetsDirectory)) {
+    const pairedFileName = pairedByLogicalName.get(
+      clientAssetLogicalName(fileName),
+    );
+    if (pairedFileName && pairedFileName !== fileName) {
+      replacements.set(`/assets/${fileName}`, `/assets/${pairedFileName}`);
+    }
+  }
+  return replacements;
+}
+
+function replacePairedClientAssetReferences(
+  source: string,
+  replacements: Map<string, string>,
+): string {
+  return source.replace(
+    /[/]assets[/][A-Za-z0-9][A-Za-z0-9._-]*/g,
+    (reference) => replacements.get(reference) ?? reference,
+  );
 }
 
 const REACT_ROUTER_ASSET_MANIFEST_FIELDS = [
@@ -2437,21 +2601,33 @@ function patchReactRouterServerManifestSource(
 
 function patchReactRouterServerManifestInOutput(
   serverDirectory: string,
-  clientDirectory: string,
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
 ): void {
-  const clientManifest = findReactRouterManifest(clientDirectory);
+  const clientManifest = findReactRouterManifest(pairedClientDirectory);
+  const assetReplacements = createPairedClientAssetReplacements(
+    trustedClientDirectory,
+    pairedClientDirectory,
+  );
   let patchedFile: string | undefined;
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
-    if (patchedFile) return;
     const source = fs.readFileSync(serverBuildFile, "utf8");
-    const patched = patchReactRouterServerManifestSource(
+    let rewritten = replacePairedClientAssetReferences(
       source,
-      serverBuildFile,
-      clientManifest,
+      assetReplacements,
     );
-    if (patched === undefined) return;
-    fs.writeFileSync(serverBuildFile, patched);
-    patchedFile = serverBuildFile;
+    if (!patchedFile) {
+      const patched = patchReactRouterServerManifestSource(
+        rewritten,
+        serverBuildFile,
+        clientManifest,
+      );
+      if (patched !== undefined) {
+        rewritten = patched;
+        patchedFile = serverBuildFile;
+      }
+    }
+    if (rewritten !== source) fs.writeFileSync(serverBuildFile, rewritten);
   });
   if (!patchedFile) {
     throw new Error(
@@ -2459,7 +2635,7 @@ function patchReactRouterServerManifestInOutput(
     );
   }
   console.log(
-    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(clientDirectory)}`,
+    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(pairedClientDirectory)}`,
   );
 }
 
@@ -2527,44 +2703,32 @@ const EMPTY_REACT_ROUTER_TURBO_STREAM =
 const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
 
-const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 const STATIC_SHELL_LOADING_MARKUP = [
-  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:var(--agent-native-viewport-height, 100vh);width:100%">',
-  '<div style="display:flex;align-items:center;gap:12px">',
-  '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
+  '<div role="status" aria-label="Loading application" data-agent-native-app-skeleton="true" style="display:flex;height:var(--agent-native-viewport-height, 100vh);width:100%;overflow:hidden;background-color:hsl(var(--background, 0 0% 100%));color:hsl(var(--foreground, 240 10% 3.9%))">',
   `<style>
-        @keyframes an-cube-pulse {
-          0%, 100% { opacity: 0.15; }
-          50% { opacity: 0.95; }
+        [data-agent-native-app-skeleton] [aria-hidden="true"] {
+          animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;
         }
-        .an-cube-cell {
-          animation: an-cube-pulse 650ms ease-in-out infinite;
-          fill: currentColor;
-          opacity: 0.15;
+        @keyframes an-app-shell-skeleton-pulse {
+          0%, 100% { opacity: 0.45; }
+          50% { opacity: 0.85; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .an-cube-cell { animation: none; }
+          [data-agent-native-app-skeleton] [aria-hidden="true"] { animation: none; }
+        }
+        @media (max-width: 767px) {
+          [data-agent-native-app-skeleton] [data-agent-native-app-skeleton-sidebar] { display: none; }
         }
       </style>`,
-  ...STATIC_SHELL_CUBE_DELAYS.map(
-    (delay, index) =>
-      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
-  ),
-  `</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">${LOADING_LABELS[0]}</span>`,
-  `<\/div><style>
-        html {
-          background: hsl(var(--background, 0 0% 100%));
-          color: hsl(var(--foreground, 240 10% 3.9%));
-        }
-        @media (prefers-color-scheme: dark) {
-          html {
-            background: hsl(var(--background, 240 10% 3.9%));
-            color: hsl(var(--foreground, 0 0% 98%));
-          }
-        }
-      </style></div>`,
+  '<aside data-agent-native-app-skeleton-sidebar="true" aria-hidden="true" style="display:flex;width:248px;flex-shrink:0;flex-direction:column;gap:16px;border-right:1px solid hsl(var(--border, 240 5.9% 90%));padding:16px">',
+  '<span aria-hidden="true" style="display:block;width:132px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span>',
+  '<div style="display:flex;flex-direction:column;gap:10px"><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div>',
+  "</aside>",
+  '<main style="display:flex;min-width:0;flex:1;flex-direction:column">',
+  '<header aria-hidden="true" style="display:flex;height:48px;flex-shrink:0;align-items:center;gap:12px;border-bottom:1px solid hsl(var(--border, 240 5.9% 90%));padding:0 16px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:128px;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></header>',
+  '<section aria-hidden="true" style="display:flex;width:100%;max-width:960px;flex:1;flex-direction:column;gap:12px;margin:0 auto;padding:24px"><span aria-hidden="true" style="display:block;width:38%;height:28px;margin-bottom:8px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:24%;height:14px;margin-bottom:16px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:34%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:44%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:54%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:64%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:74%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:84%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div></section>',
+  "</main></div>",
 ].join("");
-const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var label=document.querySelector('[data-agent-native-loading-label]');var loader=document.querySelector('[data-agent-native-cube-loader]');var observer;var cleanup=function(){if(window.__agentNativeLoadingLabelInterval!==undefined){window.clearInterval(window.__agentNativeLoadingLabelInterval);delete window.__agentNativeLoadingLabelInterval;}if(observer)observer.disconnect();if(window.__agentNativeLoadingLabelCleanup===cleanup)delete window.__agentNativeLoadingLabelCleanup;};window.__agentNativeLoadingLabelCleanup=cleanup;var update=function(){var now=window.performance.now();if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');if(label){label.textContent=labels[window.__agentNativeLoadingLabelIndex];label.style.animationDelay='-'+now%2600+'ms';}};window.__agentNativeLoadingLabelIndex=Math.floor(Math.random()*labels.length);update();window.__agentNativeLoadingLabelInterval=window.setInterval(function(){if(window.__agentNativeLoadingLabelHydrated||!loader||!loader.isConnected){cleanup();return;}window.__agentNativeLoadingLabelIndex=(window.__agentNativeLoadingLabelIndex+1)%labels.length;update();},3000);if(window.MutationObserver){observer=new MutationObserver(function(){if(!loader.isConnected)cleanup();});observer.observe(document,{childList:true,subtree:true});}})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
@@ -2601,7 +2765,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}${STATIC_SHELL_LOADING_LABEL_SCRIPT}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -3073,6 +3237,7 @@ const NODE_BUILTINS = [
   "stream",
   "stream/web",
   "string_decoder",
+  "sqlite",
   "sys",
   "timers",
   "tls",
@@ -3218,6 +3383,58 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+// Must track every package createAgentNativeConfig's ssr.external adds beyond
+// @agent-native/core and yjs (which have their own dedicated copy paths
+// below) — anything left off this list keeps its build-machine-only copy,
+// so the deployed function and the prebuilt route chunks resolve two
+// different module instances of the "same" package (e.g. a Router provider
+// from one react-router copy and useLocation() from another).
+const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
+  "react",
+  "react-dom",
+  "react-router",
+  "@tanstack/react-query",
+] as const;
+const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
+  {
+    "react-dom": [
+      // Netlify's Node runtime resolves react-dom/server to server.node, while
+      // the shared streaming entrypoint imports react-dom/server.browser.
+      // Keep that browser wrapper and its production implementation; the
+      // other browser, edge, bun, and profiling renderers cannot be reached.
+      "cjs/react-dom-client.development.js",
+      "cjs/react-dom-profiling.development.js",
+      "cjs/react-dom-profiling.profiling.js",
+      "cjs/react-dom-server-legacy.browser.development.js",
+      "cjs/react-dom-server-legacy.node.development.js",
+      "cjs/react-dom-server.browser.development.js",
+      "cjs/react-dom-server.bun.development.js",
+      "cjs/react-dom-server.bun.production.js",
+      "cjs/react-dom-server.edge.development.js",
+      "cjs/react-dom-server.edge.production.js",
+      "cjs/react-dom-server.node.development.js",
+      "cjs/react-dom-test-utils.development.js",
+      "cjs/react-dom-test-utils.production.js",
+      "cjs/react-dom.development.js",
+      "cjs/react-dom.react-server.development.js",
+      "profiling.js",
+      "server.bun.js",
+      "server.edge.js",
+      "server.react-server.js",
+      "static.browser.js",
+      "static.edge.js",
+      "static.react-server.js",
+      "test-utils.js",
+    ],
+    "react-router": ["dist/development", "docs", "CHANGELOG.md"],
+    "@tanstack/react-query": [
+      "build/codemods",
+      "build/legacy",
+      "build/query-codemods",
+      "src",
+    ],
+    "@tanstack/query-core": ["build/legacy", "src"],
+  };
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3485,6 +3702,39 @@ function copyRuntimePackageTree(
   return copiedCount;
 }
 
+function pruneExternalSsrPackageArtifacts(
+  serverDir: string,
+  packageName: string,
+): void {
+  const packageDir = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  if (!fs.existsSync(packageDir)) return;
+
+  for (const relativePath of SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS[
+    packageName
+  ] ?? []) {
+    fs.rmSync(path.join(packageDir, relativePath), {
+      recursive: true,
+      force: true,
+    });
+  }
+  for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
+    fs.rmSync(path.join(packageDir, sourceMap), { force: true });
+  }
+  if (packageName.startsWith("@tanstack/")) {
+    for (const cjsFile of fs.globSync("**/*.cjs", { cwd: packageDir })) {
+      if (cjsFile.startsWith("build/modern/")) continue;
+      fs.rmSync(path.join(packageDir, cjsFile), { force: true });
+    }
+    for (const declaration of fs.globSync("**/*.d.cts", { cwd: packageDir })) {
+      fs.rmSync(path.join(packageDir, declaration), { force: true });
+    }
+  }
+}
+
 export function copyInstalledBrowserRuntimePackages(
   serverDir: string | undefined,
   projectCwd = cwd,
@@ -3558,6 +3808,72 @@ export function copyInstalledBrowserRuntimePackages(
 
   console.log(
     `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle (required by ${consumer}).`,
+  );
+  return copiedCount;
+}
+
+/**
+ * Vite's production SSR graph keeps React external so every SSR entry shares
+ * one hook dispatcher. Nitro preserves that external from the prebuilt route
+ * chunks, so the serverless artifact must carry the package itself.
+ */
+export function copyInstalledExternalSsrPackages(
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): number {
+  if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  const packagesToCopy = new Set<string>();
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+      if (hasExternalSsrRuntimeReference(source, packageName)) {
+        packagesToCopy.add(packageName);
+      }
+    }
+  });
+  if (packagesToCopy.size === 0) return 0;
+
+  const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const copiedPackages = new Set<string>();
+  let copiedCount = 0;
+  const versions: Record<string, string> = {};
+  for (const packageName of packagesToCopy) {
+    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    if (!packageDir) continue;
+    const manifest = readPackageManifest(packageDir);
+    if (typeof manifest?.version === "string") {
+      versions[packageName] = manifest.version;
+    }
+    copiedCount += copyRuntimePackageTree(
+      packageName,
+      packageDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+  for (const packageName of copiedPackages) {
+    pruneExternalSsrPackageArtifacts(serverDir, packageName);
+  }
+
+  if (copiedCount === 0) return 0;
+
+  const packageJsonPath = path.join(serverDir, "package.json");
+  if (fs.existsSync(packageJsonPath) && Object.keys(versions).length > 0) {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    packageJson.dependencies = {
+      ...(packageJson.dependencies ?? {}),
+      ...versions,
+    };
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+  }
+
+  console.log(
+    `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
 }
@@ -4386,9 +4702,31 @@ const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const quote = `["\'\\\`]`;
+  const staticModuleReference = new RegExp(
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+  );
+  const dynamicImport = new RegExp(
+    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+  );
+  return staticModuleReference.test(source) || dynamicImport.test(source);
+}
+
+function hasBareRuntimeRequire(source: string, packageName: string): boolean {
+  const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(
-    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+    `\\b(?:require|[A-Za-z_$][\\w$]*)\\s*\\(\\s*(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
   ).test(source);
+}
+
+function hasExternalSsrRuntimeReference(
+  source: string,
+  packageName: string,
+): boolean {
+  return (
+    hasBareRuntimeImport(source, packageName) ||
+    hasBareRuntimeRequire(source, packageName)
+  );
 }
 
 function hasUnsupportedYjsSubpathImport(source: string): boolean {
@@ -5342,6 +5680,7 @@ export async function runNitroBuildPipeline(
     cwd,
     includeImmutableAssetRouteRules = true,
   } = opts;
+  const trustedClientDirectory = path.resolve(cwd, clientDir);
   const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
   const hasClientBuild =
     fs.existsSync(resolvedClientDir) && Boolean(publicOutputDir);
@@ -5386,6 +5725,7 @@ export async function runNitroBuildPipeline(
   if (hasClientBuild && usingPairedClientArtifact) {
     patchReactRouterServerManifestInOutput(
       nitro.options.output.serverDir,
+      trustedClientDirectory,
       resolvedClientDir,
     );
   }
@@ -5676,6 +6016,13 @@ export function resolveNitroBuildReplacements(
           ),
         }
       : {}),
+    // The public framework route prefix was resolved from the app config at
+    // the start of this deploy build and written to the env; the deployed
+    // function's single reader is this literal key.
+    "process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":
+      JSON.stringify(
+        env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
+      ),
   };
 }
 
@@ -5910,6 +6257,7 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
+    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
@@ -6389,6 +6737,7 @@ export default bundle;
 
 async function main() {
   console.log(`[deploy] Building for ${preset}...`);
+  await resolveDeployFrameworkRoutePrefix();
 
   switch (preset) {
     case "cloudflare_pages":

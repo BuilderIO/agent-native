@@ -16,7 +16,12 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
-import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
+import {
+  getCalendarAttendeeCount,
+  getCalendarAttendeeStatusCounts,
+  type CalendarEvent,
+  type ExternalCalendar,
+} from "../shared/api.js";
 import {
   addDaysToDateKey,
   dateKeyInTimezone,
@@ -148,6 +153,7 @@ export interface CalendarInventoryItem {
     displayName?: string;
     responseStatus?: string;
     optional?: boolean;
+    additionalGuests?: number;
     self?: boolean;
     organizer?: boolean;
   }>;
@@ -313,14 +319,7 @@ function decodeInventoryCursor(
 
 function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   const attendees = event.attendees ?? [];
-  const attendeeStatusCounts = attendees.reduce<Record<string, number>>(
-    (counts, attendee) => {
-      const status = attendee.responseStatus ?? "unknown";
-      counts[status] = (counts[status] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
+  const attendeeStatusCounts = getCalendarAttendeeStatusCounts(attendees);
   const key = [
     event.source,
     event.calendarSourceKey ??
@@ -370,7 +369,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         }
       : undefined,
     selfResponseStatus: event.responseStatus,
-    attendeeCount: attendees.length,
+    attendeeCount: getCalendarAttendeeCount(attendees),
     attendeeStatusCounts,
     attendees: attendees
       .slice(0, INVENTORY_ATTENDEE_PREVIEW_LIMIT)
@@ -379,6 +378,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         displayName: cap(attendee.displayName),
         responseStatus: attendee.responseStatus,
         optional: attendee.optional,
+        additionalGuests: attendee.additionalGuests,
         self: attendee.self,
         organizer: attendee.organizer,
       })),

@@ -275,7 +275,7 @@ function standaloneDesignSystemVars(
   ].join("; ");
 }
 
-function buildStandaloneHtml(
+export function buildStandaloneHtml(
   title: string,
   slides: Array<{
     id: string;
@@ -412,7 +412,8 @@ function buildStandaloneHtml(
     }
 
     .viewport:hover .bottom-bar,
-    .bottom-bar:hover {
+    .bottom-bar:hover,
+    .bottom-bar:focus-within {
       opacity: 1;
     }
 
@@ -426,8 +427,23 @@ function buildStandaloneHtml(
       align-items: center;
     }
 
-    .controls span {
-      opacity: 0.6;
+    .controls button {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      min-height: 32px;
+      padding: 0 4px;
+    }
+
+    .controls button:hover,
+    .controls button:focus-visible { text-decoration: underline; }
+    .controls button:focus-visible { outline: 2px solid currentColor; }
+    .controls button:disabled { opacity: 0.4; cursor: default; }
+
+    @media (hover: none), (any-pointer: coarse) {
+      .bottom-bar { opacity: 1; }
     }
 
     kbd {
@@ -447,8 +463,9 @@ function buildStandaloneHtml(
     <div class="bottom-bar">
       <div class="slide-counter" id="counter">1 / ${slides.length}</div>
       <div class="controls">
-        <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd> navigate</span>
-        <span><kbd>F</kbd> fullscreen</span>
+        <button type="button" id="previousSlide" aria-label="Previous slide"><kbd>&larr;</kbd></button>
+        <button type="button" id="nextSlide" aria-label="Next slide"><kbd>&rarr;</kbd></button>
+        <button type="button" id="fullscreenButton"><kbd>F</kbd> fullscreen</button>
         <span><kbd>Esc</kbd> exit</span>
       </div>
     </div>
@@ -460,6 +477,9 @@ function buildStandaloneHtml(
       var slides = document.querySelectorAll('.slide');
       var counter = document.getElementById('counter');
       var container = document.getElementById('slideContainer');
+      var previousButton = document.getElementById('previousSlide');
+      var nextButton = document.getElementById('nextSlide');
+      var fullscreenButton = document.getElementById('fullscreenButton');
 
       function showSlide(index) {
         if (index < 0 || index >= totalSlides) return;
@@ -467,7 +487,23 @@ function buildStandaloneHtml(
         currentSlide = index;
         slides[currentSlide].style.display = 'flex';
         counter.textContent = (currentSlide + 1) + ' / ' + totalSlides;
+        previousButton.disabled = currentSlide === 0;
+        nextButton.disabled = currentSlide === totalSlides - 1;
       }
+
+      previousButton.addEventListener('click', function() { showSlide(currentSlide - 1); });
+      nextButton.addEventListener('click', function() { showSlide(currentSlide + 1); });
+      fullscreenButton.addEventListener('click', function() {
+        if (document.fullscreenElement) {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
+          }
+        } else if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(function(error) { console.error('Fullscreen request failed', error); });
+        }
+      });
+      previousButton.disabled = true;
+      nextButton.disabled = totalSlides < 2;
 
       function fitSlide() {
         var vw = window.innerWidth;
@@ -484,6 +520,7 @@ function buildStandaloneHtml(
           case 'ArrowRight':
           case 'ArrowDown':
           case ' ':
+            if (e.key === ' ' && e.target instanceof Element && e.target.closest('button')) break;
             e.preventDefault();
             showSlide(currentSlide + 1);
             break;
@@ -503,13 +540,15 @@ function buildStandaloneHtml(
           case 'f':
           case 'F':
             if (!document.fullscreenElement) {
-              document.documentElement.requestFullscreen().catch(function() {});
-            } else {
-              document.exitFullscreen().catch(function() {});
+              if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(function(error) { console.error('Fullscreen request failed', error); });
+              }
+            } else if (document.exitFullscreen) {
+              document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
             }
             break;
           case 'Escape':
-            if (document.fullscreenElement) {
+            if (document.fullscreenElement && document.exitFullscreen) {
               document.exitFullscreen().catch(function() {});
             }
             break;

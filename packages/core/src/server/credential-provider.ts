@@ -31,13 +31,16 @@ import {
   isTransientDatabaseError,
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
-import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
-import { resolveDeployEnvironment } from "./deploy-environment.js";
+import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
+export {
+  isHostedWorkspaceRuntime,
+  resolveVercelDeploymentProtectionHeaders,
+} from "./deployment-protection.js";
 import {
   getRequestContext,
   getRequestUserEmail,
@@ -187,63 +190,9 @@ export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
 }
 
-function configuredOrigin(
-  value: string | undefined,
-  assumeHttps = false,
-): string | undefined {
-  const raw = value?.trim();
-  if (!raw) return undefined;
-  const candidate =
-    assumeHttps && !/^[a-z][a-z\d+.-]*:\/\//i.test(raw)
-      ? `https://${raw}`
-      : raw;
-  try {
-    const url = new URL(candidate);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
-    return url.origin;
-  } catch {
-    // coercion-ok: malformed optional target metadata cannot prove trust, so
-    // fail closed without sending the deployment bypass secret.
-    return undefined;
-  }
-}
-
-/**
- * Resolve the Vercel Deployment Protection header for one trusted deployment
- * target. The secret is never returned or logged, and arbitrary A2A targets do
- * not receive it just because this deployment has the credential configured.
- * These callers are server-to-server, so a browser bypass cookie is not useful.
- */
-export function resolveVercelDeploymentProtectionHeaders(
-  targetUrl: string,
-): Record<string, string> {
-  const secret = readDeployCredentialEnv("VERCEL_AUTOMATION_BYPASS_SECRET");
-  if (!secret?.trim()) return {};
-
-  const targetOrigin = configuredOrigin(targetUrl);
-  if (!targetOrigin) return {};
-
-  const config = getAppConfig();
-  const isProduction = resolveDeployEnvironment() === "production";
-  const trustedOrigins = [
-    configuredOrigin(process.env.VERCEL_URL, true),
-    configuredOrigin(process.env.VERCEL_BRANCH_URL, true),
-    configuredOrigin(config.workspace.gatewayUrl),
-    configuredOrigin(config.workspace.orgDirectoryUrl),
-    ...(isProduction
-      ? [
-          configuredOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL, true),
-          configuredOrigin(config.app.url),
-        ]
-      : []),
-  ].filter((origin): origin is string => origin !== undefined);
-
-  if (!trustedOrigins.includes(targetOrigin)) return {};
-  return { "x-vercel-protection-bypass": secret.trim() };
-}
-
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "ANTHROPIC_API_KEY",
+  "JEV_API_KEY",
   // The Builder-credits pair pays for the deployed app's own model calls and
   // carries no end-user identity — the token is scoped to ['gateway'] and can
   // make no identity-bearing Builder call. The legacy BUILDER_PRIVATE_KEY /
@@ -262,6 +211,10 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   // OAuth client ids identify the deployment; user identity remains in scoped tokens.
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
+  // The Slack bot belongs to the deployed app, not the signed-in webhook
+  // actor. The adapter still pins it to the incoming team and app via
+  // auth.test + bots.info before using it.
+  "SLACK_BOT_TOKEN",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",
@@ -332,21 +285,6 @@ function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
 }
 
-export function isHostedWorkspaceRuntime(): boolean {
-  const hasFusionPreview = Boolean(
-    process.env.FUSION_ENVIRONMENT ||
-    process.env.FUSION_ENV_ORIGIN ||
-    process.env.VITE_FUSION_ENV_ORIGIN,
-  );
-  return (
-    isTruthyRuntimeValue(process.env.AGENT_NATIVE_WORKSPACE) ||
-    isTruthyRuntimeValue(process.env.VITE_AGENT_NATIVE_WORKSPACE) ||
-    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
-    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
-    hasFusionPreview
-  );
-}
-
 /**
  * Whether a hosting PLATFORM marked this process as one of its runtimes.
  *
@@ -375,6 +313,24 @@ export function hasPlatformRuntimeMarker(): boolean {
 
 export function isProductionLikeRuntime(): boolean {
   return process.env.NODE_ENV === "production" || hasPlatformRuntimeMarker();
+}
+
+/**
+ * Whether this process is a genuinely self-hosted, single-tenant deployment
+ * rather than the hosted multi-tenant workspace runtime — the same bar
+ * `canUseDeployCredentialFallbackForRequest` uses to decide whether relaxing
+ * a security boundary for "this is the operator's own machine" is safe.
+ * `NODE_ENV` alone proves nothing (it travels with a copied `.env`), so a
+ * production-shaped runtime still counts as trusted when it is backed by the
+ * local embedded database, which has no cross-tenant blast radius.
+ *
+ * Used to allow a user-supplied Ollama endpoint to target a LAN address
+ * instead of only loopback — see `provider-endpoint-validation.ts`.
+ */
+export function isTrustedSelfHostedRuntime(): boolean {
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
 }
 
 /**

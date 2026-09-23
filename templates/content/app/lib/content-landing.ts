@@ -1,6 +1,7 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
+  contentSpaceLastLocationStateKey,
   type ContentLastLocationState,
 } from "@shared/content-landing";
 
@@ -49,22 +50,39 @@ export function readContentLandingRecovery(
 let landingWriteQueue = Promise.resolve();
 
 export function rememberContentLandingDocument(
+  target: ContentLastLocationState,
+  spaceId?: string,
+): Promise<void>;
+export function rememberContentLandingDocument(
   documentId: string,
   title?: string,
+): Promise<void>;
+export function rememberContentLandingDocument(
+  targetOrDocumentId: ContentLastLocationState | string,
+  spaceIdOrTitle?: string,
 ) {
-  const value: ContentLastLocationState = title?.trim()
-    ? { documentId, title }
-    : { documentId };
+  const target: ContentLastLocationState =
+    typeof targetOrDocumentId === "string"
+      ? {
+          documentId: targetOrDocumentId,
+          ...(spaceIdOrTitle?.trim() ? { title: spaceIdOrTitle } : {}),
+        }
+      : targetOrDocumentId;
+  const spaceId =
+    typeof targetOrDocumentId === "string" ? undefined : spaceIdOrTitle;
   const write = landingWriteQueue.then(() =>
     writeClientAppState<ContentLastLocationState>(
-      CONTENT_LAST_LOCATION_STATE_KEY,
-      value,
+      spaceId
+        ? contentSpaceLastLocationStateKey(spaceId)
+        : CONTENT_LAST_LOCATION_STATE_KEY,
+      target,
       { requestSource: "content-landing" },
     ),
   );
-  landingWriteQueue = write.then(
+  const result = write.then(() => undefined);
+  landingWriteQueue = result.then(
     () => undefined,
     () => undefined,
   );
-  return write;
+  return result;
 }

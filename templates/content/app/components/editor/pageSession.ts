@@ -11,6 +11,7 @@ export function mayClearRecoveryDraft(
 
 export interface PageSaveResult {
   contentPersisted: boolean;
+  outcome?: "superseded";
 }
 
 /**
@@ -35,6 +36,7 @@ export async function savePageWithRecovery({
   }
 
   if (!result.contentPersisted) {
+    if (result.outcome === "superseded") return result;
     await retain("conflict");
     return result;
   }

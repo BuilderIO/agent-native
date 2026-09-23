@@ -298,6 +298,15 @@ export function getAgentNativeWebMcpStatus(
  * bridge or browser evaluator still controls who can discover and invoke it.
  */
 export function initializeAgentNativeWebMcp(): boolean {
+  // The WebMCP polyfill calls Object.hasOwn even in browsers that lack it.
+  if (typeof Object.hasOwn !== "function") {
+    Object.defineProperty(Object, "hasOwn", {
+      configurable: true,
+      writable: true,
+      value: (object: object, key: PropertyKey) =>
+        Object.prototype.hasOwnProperty.call(object, key),
+    });
+  }
   if (isAgentNativeWebMcpSupported()) return true;
   if (typeof window === "undefined") return false;
   initializeWebMCPPolyfill();
@@ -1188,6 +1197,7 @@ export interface AgentNativeWebMcpRegistrationOptions {
   commands?: AgentNativeHostCommandHandlers;
   approve?: (
     request: AgentNativeWebMcpApprovalRequest,
+    signal?: AbortSignal,
   ) => boolean | Promise<boolean>;
   maxInputChars?: number;
   maxResultChars?: number;
@@ -1215,6 +1225,7 @@ interface AgentNativeServerActionManifest {
 export function createAgentNativeServerActionWebMcpRegistration(options?: {
   document?: Document;
   fetch?: typeof fetch;
+  excludeActionNames?: readonly string[];
 }): AgentNativeWebMcpRegistration {
   const fetchImpl =
     options?.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
@@ -1253,41 +1264,44 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
       if (!Array.isArray(manifest)) {
         throw new Error("WebMCP action manifest must be an array");
       }
-      return manifest.map((action) => ({
-        name: action.name,
-        title: agentNativeToolTitle(action.name, action.title),
-        description: action.description,
-        ...(action.inputSchema ? { schema: action.inputSchema } : {}),
-        ...(action.readOnly ? { readOnly: true } : {}),
-        run: async (args, runtime) => {
-          const result = await fetchImpl(
-            agentNativePath(
-              `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
-            ),
-            {
-              method: "POST",
-              credentials: "same-origin",
-              headers: {
-                Accept: "application/json",
-                "Content-Type": "application/json",
-                "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+      const excludedActionNames = new Set(options?.excludeActionNames ?? []);
+      return manifest
+        .filter((action) => !excludedActionNames.has(action.name))
+        .map((action) => ({
+          name: action.name,
+          title: agentNativeToolTitle(action.name, action.title),
+          description: action.description,
+          ...(action.inputSchema ? { schema: action.inputSchema } : {}),
+          ...(action.readOnly ? { readOnly: true } : {}),
+          run: async (args, runtime) => {
+            const result = await fetchImpl(
+              agentNativePath(
+                `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+              ),
+              {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  Accept: "application/json",
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+                },
+                body: JSON.stringify(args),
+                ...(runtime.signal ? { signal: runtime.signal } : {}),
               },
-              body: JSON.stringify(args),
-              ...(runtime.signal ? { signal: runtime.signal } : {}),
-            },
-          );
-          const body = await result.json();
-          if (!result.ok) {
-            throw new Error(
-              isRecord(body) && typeof body.error === "string"
-                ? body.error
-                : `WebMCP action failed (${result.status})`,
             );
-          }
-          if (!action.readOnly) await runtime.refresh();
-          return body;
-        },
-      }));
+            const body = await result.json();
+            if (!result.ok) {
+              throw new Error(
+                isRecord(body) && typeof body.error === "string"
+                  ? body.error
+                  : `WebMCP action failed (${result.status})`,
+              );
+            }
+            if (!action.readOnly) await runtime.refresh();
+            return body;
+          },
+        }));
     },
   });
 }
@@ -1427,6 +1441,8 @@ export function createAgentNativeWebMcpRegistration(
   let generation = 0;
   let startPromise: Promise<void> | undefined;
   const registrationId = Symbol("webmcp-registration");
+  // WebMCP has no portable unregisterTool method. The registration signal is
+  // the lifecycle owner for tools already published to the page context.
 
   async function runStart(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
@@ -1521,6 +1537,11 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
@@ -1532,6 +1553,11 @@ export function createAgentNativeWebMcpRegistration(
               const context = options.getContext
                 ? await options.getContext()
                 : {};
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               const request = {
                 action,
                 args: input,
@@ -1540,7 +1566,7 @@ export function createAgentNativeWebMcpRegistration(
               } satisfies AgentNativeWebMcpApprovalRequest;
               if (requiresApproval) {
                 const approved = options.approve
-                  ? await options.approve(request)
+                  ? await options.approve(request, executionOptions?.signal)
                   : await (
                       options.commands?.requestApproval ??
                       options.commands?.["request-approval"]
@@ -1572,6 +1598,14 @@ export function createAgentNativeWebMcpRegistration(
                     `WebMCP action "${action.name}" was not approved`,
                   );
                 }
+                if (executionOptions?.signal?.aborted) {
+                  throw new Error(`WebMCP action "${action.name}" was aborted`);
+                }
+              }
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
               }
               const result = await action.run(
                 input,
@@ -1582,6 +1616,11 @@ export function createAgentNativeWebMcpRegistration(
                   executionOptions?.signal,
                 ),
               );
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }

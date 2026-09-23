@@ -41,6 +41,8 @@ export interface ImportResult {
   unresolvedImages?: number;
   /** Set by .fig file upload: number of IMAGE fills not in the embedded blobs (need Figma API to resolve). */
   unresolvedImageRefCount?: number;
+  /** Set by the browser .fig importer when transport-sized embedded images are skipped. */
+  skippedEmbeddedImageCount?: number;
   /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;

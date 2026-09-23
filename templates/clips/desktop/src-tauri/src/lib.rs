@@ -1,7 +1,8 @@
 //! Clips menu-bar tray app.
 //!
 //! The app is a single always-on-top popover window. Clicking the tray icon
-//! toggles it. Pressing Cmd/Ctrl+Shift+L also toggles it. The popover itself
+//! toggles it. Pressing the platform recording shortcut starts or stops a take;
+//! the popover itself
 //! is served by the Vite-built React UI (see `../dist`).
 
 mod accessibility;
@@ -43,17 +44,20 @@ mod util;
 mod whisper_model;
 mod whisper_speech;
 
+use std::time::Duration;
+
 use tauri::{Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
 use state::{
     ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
-    PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor, TrayMeetings,
-    VoiceTargetBundle, VoiceWakePopover,
+    PopoverParked, PopoverShownAt, RecordingActive, SelectedRecordingDisplay,
+    SelectedRecordingWindow, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceTargetTextField,
+    VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
-    restart_bundle_path, schedule_restart_after_exit, set_capture_excluded,
+    restart_after_update, set_capture_excluded,
 };
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
@@ -61,6 +65,12 @@ use util::{
 // `tauri.conf.json` tray config points at `icons/tray.png`, which the user
 // should replace with their real icon.
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
+
+const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
+
+fn popover_blur_delay(elapsed: Duration) -> Option<Duration> {
+    (elapsed < POPOVER_BLUR_GUARD).then(|| POPOVER_BLUR_GUARD - elapsed)
+}
 
 fn present_popover(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("popover") {
@@ -109,9 +119,7 @@ pub fn run() {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let app = window.app_handle();
-                        let _ = window.hide();
-                        clips::close_bubble_if_idle(&app);
-                        let _ = app.emit("clips:popover-visible", false);
+                        clips::hide_popover(&app);
                     }
                     tauri::WindowEvent::Destroyed => {
                         clips::close_bubble_if_idle(window.app_handle());
@@ -197,6 +205,8 @@ pub fn run() {
             native_speech::native_speech_request_permission,
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
+            native_screen::show_window_picker,
+            native_screen::cancel_native_window_picker,
             native_screen::native_fullscreen_take_upload_finished,
             native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_prefetch_capture_content,
@@ -301,8 +311,7 @@ pub fn run() {
             // persistent log file (production debugging)
             logfile::frontend_log,
             logfile::open_logs,
-            restart_bundle_path,
-            schedule_restart_after_exit,
+            restart_after_update,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -323,6 +332,7 @@ pub fn run() {
         .manage(TrayAnchor::default())
         .manage(TrayMeetings::default())
         .manage(PopoverShownAt::default())
+        .manage(PopoverParked::default())
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
         .manage(ActiveMeetingId::default())
@@ -330,8 +340,10 @@ pub fn run() {
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
         .manage(VoiceTargetBundle::default())
+        .manage(VoiceTargetTextField::default())
         .manage(LastTranscript::default())
         .manage(SelectedRecordingDisplay::default())
+        .manage(SelectedRecordingWindow::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(capture_graph::CaptureGraphState::default())
@@ -480,7 +492,7 @@ pub fn run() {
             }
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
-            // The 250ms guard is the important bit — during the tray-click
+            // The 1.5s guard is the important bit — during the tray-click
             // itself macOS briefly steals focus from the popover, which would
             // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
@@ -494,14 +506,14 @@ pub fn run() {
                 // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        // Don't auto-hide while a recording is active or
-                        // mid-setup — the macOS screen-picker, devtools,
-                        // and other transient windows all steal focus
-                        // from the popover during that flow. Hiding
-                        // would also kill the RecordingRow UI the user
-                        // is relying on to stop.
-                        if is_recording_active(&app_handle) {
-                            dlog!("[clips-tray] popover blur ignored — recording active");
+                        // A parked popover is still alive for WebKit, but it
+                        // is intentionally not a user-facing menu. Ignore
+                        // its blur while native capture owns the handoff;
+                        // a full-size visible popover must still dismiss even
+                        // if an earlier start flow left the recording flag
+                        // latched.
+                        if is_recording_active(&app_handle) && clips::popover_is_parked(&app_handle) {
+                            dlog!("[clips-tray] popover blur ignored — popover parked");
                             return;
                         }
                         if !config::auto_hide_popover_enabled(&app_handle) {
@@ -511,14 +523,37 @@ pub fn run() {
                         let shown_at = app_handle
                             .try_state::<PopoverShownAt>()
                             .and_then(|s| s.0.lock().ok().and_then(|g| *g));
-                        let elapsed_ms = shown_at
-                            .map(|t| t.elapsed().as_millis())
-                            .unwrap_or(u128::MAX);
-                        dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
-                        if elapsed_ms >= 1500 {
-                            let _ = handle.hide();
-                            clips::close_bubble_if_idle(&app_handle);
-                            let _ = app_handle.emit("clips:popover-visible", false);
+                        let elapsed = shown_at.map(|t| t.elapsed()).unwrap_or(Duration::MAX);
+                        dlog!(
+                            "[clips-tray] popover blur, elapsed_ms={}",
+                            elapsed.as_millis()
+                        );
+                        if let Some(delay) = popover_blur_delay(elapsed) {
+                            let Some(shown_at) = shown_at else {
+                                return;
+                            };
+                            let delayed_handle = handle.clone();
+                            let delayed_app_handle = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(delay).await;
+                                let still_current = delayed_app_handle
+                                    .try_state::<PopoverShownAt>()
+                                    .and_then(|state| {
+                                        state.0.lock().ok().map(|guard| *guard == Some(shown_at))
+                                    })
+                                    .unwrap_or(false);
+                                if !still_current
+                                    || (is_recording_active(&delayed_app_handle)
+                                        && clips::popover_is_parked(&delayed_app_handle))
+                                    || !config::auto_hide_popover_enabled(&delayed_app_handle)
+                                    || delayed_handle.is_focused().unwrap_or(true)
+                                {
+                                    return;
+                                }
+                                clips::hide_popover(&delayed_app_handle);
+                            });
+                        } else {
+                            clips::hide_popover(&app_handle);
                         }
                     }
                 });
@@ -550,7 +585,7 @@ pub fn run() {
             // Reopen is macOS-only — gated behind cfg so Windows compiles.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
-                if is_recording_active(_app_handle) {
+                if is_recording_active(_app_handle) && clips::popover_is_parked(_app_handle) {
                     clips::force_show_popover(_app_handle);
                 } else {
                     toggle_popover(_app_handle);
@@ -622,4 +657,19 @@ pub fn run() {
                 mic_attribution::shutdown();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{popover_blur_delay, POPOVER_BLUR_GUARD};
+    use std::time::Duration;
+
+    #[test]
+    fn retries_blur_until_guard_expires() {
+        assert_eq!(
+            popover_blur_delay(Duration::from_millis(400)),
+            Some(Duration::from_millis(1100))
+        );
+        assert_eq!(popover_blur_delay(POPOVER_BLUR_GUARD), None);
+    }
 }

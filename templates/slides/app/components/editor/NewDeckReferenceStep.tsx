@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconLoader2,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
@@ -39,13 +38,9 @@ import {
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import {
-  isDesignSystemSelectable,
-  resolveSelectableDesignSystemId,
-} from "@/lib/design-system-selection";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
-import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
@@ -82,7 +77,6 @@ interface DesignSystemOption {
   id: string;
   title: string;
   isDefault?: boolean;
-  indexingStatus?: DesignSystemIndexingStatus;
 }
 
 interface NewDeckReferenceStepProps {
@@ -137,9 +131,7 @@ export function NewDeckReferenceStep({
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
-  >(() =>
-    resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
-  );
+  >(resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -157,40 +149,49 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
-  // Read inside the open-transition effect below without making it a
-  // dependency — a background list refresh must not re-seed the picker and
-  // discard a selection the user already made explicitly.
-  const designSystemsRef = useRef(designSystems);
-  designSystemsRef.current = designSystems;
+  // True while the picker still reflects an auto-applied default rather than
+  // an explicit user choice, so a default that resolves after this step is
+  // already open can still land - see the hydration effects below.
+  const designSystemAutoRef = useRef(true);
+  const referenceDeckAutoRef = useRef(true);
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
-  const selectedDesignSystem = selectedDesignSystemId
-    ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
-    : undefined;
-  // Selecting one from the list below already disables non-ready rows; this
-  // also covers a system that starts re-indexing after it was selected.
-  const selectedDesignSystemUnavailable = Boolean(
-    selectedDesignSystem && !isDesignSystemSelectable(selectedDesignSystem),
+  const hasSelection = Boolean(
+    selectedDesignSystemId ||
+    selectedReferenceDeckId ||
+    selectedSource?.value.trim(),
   );
 
   useEffect(() => {
     if (!open) return;
+    designSystemAutoRef.current = true;
+    referenceDeckAutoRef.current = true;
     setSelectedDesignSystemId(
-      resolveSelectableDesignSystemId(
-        designSystemsRef.current,
-        defaultDesignSystemId,
-      ),
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
     );
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
-  }, [open, defaultDesignSystemId, defaultReferenceDeckId]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !designSystemAutoRef.current) return;
+    setSelectedDesignSystemId(
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+    );
+  }, [open, designSystems, defaultDesignSystemId]);
+
+  useEffect(() => {
+    if (!open || !referenceDeckAutoRef.current) return;
+    setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setReferenceDeckTouched(defaultReferenceDeckId !== null);
+  }, [open, decks, defaultReferenceDeckId]);
 
   useEffect(() => {
     if (open) setContinuing(false);
@@ -213,6 +214,8 @@ export function NewDeckReferenceStep({
   };
 
   const applyImportedReference = (imported: ImportedReference) => {
+    designSystemAutoRef.current = false;
+    referenceDeckAutoRef.current = false;
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
     setReferenceDeckTouched(true);
@@ -221,7 +224,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || selectedDesignSystemUnavailable) return;
+    if (busy || !hasSelection) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -281,8 +284,10 @@ export function NewDeckReferenceStep({
     }
     setSelectedSource({ kind, value: "" });
     if (kind === "website" || kind === "figma") {
+      designSystemAutoRef.current = false;
       setSelectedDesignSystemId(null);
     } else {
+      referenceDeckAutoRef.current = false;
       setSelectedReferenceDeckId(null);
       setReferenceDeckTouched(true);
       setImportedReference(null);
@@ -347,6 +352,7 @@ export function NewDeckReferenceStep({
               <Select
                 value={selectedDesignSystemId ?? "none"}
                 onValueChange={(value) => {
+                  designSystemAutoRef.current = false;
                   setSelectedDesignSystemId(value === "none" ? null : value);
                   setSelectedSource(null);
                 }}
@@ -359,38 +365,13 @@ export function NewDeckReferenceStep({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t("home.none")}</SelectItem>
-                  {designSystems.map((designSystem) => {
-                    const selectable = isDesignSystemSelectable(designSystem);
-                    return (
-                      <SelectItem
-                        key={designSystem.id}
-                        value={designSystem.id}
-                        disabled={!selectable}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          {designSystem.title}
-                          {designSystem.indexingStatus === "indexing" && (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <IconLoader2 className="size-3 animate-spin" />
-                              {t("home.designSystemIndexing")}
-                            </span>
-                          )}
-                          {designSystem.indexingStatus === "unavailable" && (
-                            <span className="text-xs text-muted-foreground">
-                              ({t("home.designSystemUnavailable")})
-                            </span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
+                  {designSystems.map((designSystem) => (
+                    <SelectItem key={designSystem.id} value={designSystem.id}>
+                      {designSystem.title}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {selectedDesignSystemUnavailable && (
-                <p className="text-xs text-amber-500">
-                  {t("home.designSystemIndexingNotice")}
-                </p>
-              )}
             </div>
 
             <div className="grid gap-2">
@@ -443,6 +424,7 @@ export function NewDeckReferenceStep({
                           value={`none ${t("home.none")}`}
                           disabled={busy}
                           onSelect={() => {
+                            referenceDeckAutoRef.current = false;
                             setSelectedReferenceDeckId(null);
                             setReferenceDeckTouched(true);
                             setImportedReference(null);
@@ -466,6 +448,7 @@ export function NewDeckReferenceStep({
                             value={`${deck.title} ${deck.id}`}
                             disabled={busy}
                             onSelect={() => {
+                              referenceDeckAutoRef.current = false;
                               setSelectedReferenceDeckId(deck.id);
                               setReferenceDeckTouched(true);
                               setImportedReference(null);
@@ -625,7 +608,7 @@ export function NewDeckReferenceStep({
           aria-busy={busy}
           disabled={
             busy ||
-            selectedDesignSystemUnavailable ||
+            !hasSelection ||
             Boolean(selectedSource && !selectedSource.value.trim())
           }
         >

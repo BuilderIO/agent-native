@@ -28,6 +28,7 @@ import {
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import {
   pgTable,
   text as pgText,
@@ -123,13 +124,20 @@ import {
   type EmailReadiness,
 } from "./email.js";
 import {
+  canonicalFrameworkPathname,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
+import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
-import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
+import {
+  getConfiguredOriginAllowlist,
+  requestForwardedOrigin,
+} from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -832,7 +840,9 @@ export interface BetterAuthInstance {
     } | null>;
     signInEmail: (opts: {
       body: { email: string; password: string };
-    }) => Promise<{ token?: string; user?: any } | null>;
+      headers?: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
     signInMagicLink: (opts: {
       body: {
         email: string;
@@ -865,6 +875,21 @@ export interface BetterAuthInstance {
       headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    enableTwoFactor: (opts: {
+      body: { method: "totp"; password?: string };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    disableTwoFactor: (opts: {
+      body: { password?: string };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    verifyTOTP: (opts: {
+      body: { code: string; trustDevice?: boolean };
       headers: Headers;
       returnHeaders?: boolean;
     }) => Promise<any>;
@@ -914,10 +939,25 @@ const pgAuthSchema = {
     name: pgText("name").notNull(),
     email: pgText("email").notNull().unique(),
     emailVerified: pgBoolean("email_verified").notNull().default(false),
+    twoFactorEnabled: pgBoolean("two_factor_enabled").notNull().default(false),
     onboardingRole: pgText("onboarding_role"),
     image: pgText("image"),
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  twoFactor: pgTable("twoFactor", {
+    id: pgText("id").primaryKey(),
+    secret: pgText("secret").notNull(),
+    backupCodes: pgText("backup_codes").notNull(),
+    // guard:allow-identity-column — immutable Better Auth user id owned by the auth plugin
+    userId: pgText("user_id").notNull(),
+    verified: pgBoolean("verified").notNull().default(true),
+    failedVerificationCount: pgBigint("failed_verification_count", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    lockedUntil: pgTimestamp("locked_until", { withTimezone: true }),
   }),
   session: pgTable("session", {
     id: pgText("id").primaryKey(),
@@ -1356,19 +1396,29 @@ export function desktopMagicLinkLandingUrl(value: string): string | undefined {
     if (!callbackValue) return undefined;
     const callbackUrl = new URL(callbackValue, verificationUrl.origin);
     if (callbackUrl.origin !== verificationUrl.origin) return undefined;
-    if (!callbackUrl.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_MARKER)) {
+    // Better Auth issued these URLs in the public namespace; compare them in
+    // the internal form the markers are written in.
+    if (
+      !canonicalFrameworkPathname(callbackUrl.pathname).endsWith(
+        DESKTOP_MAGIC_LINK_CALLBACK_MARKER,
+      )
+    ) {
       return undefined;
     }
 
-    const verifyMarkerIndex = verificationUrl.pathname.lastIndexOf(
+    const verificationPathname = canonicalFrameworkPathname(
+      verificationUrl.pathname,
+    );
+    const verifyMarkerIndex = verificationPathname.lastIndexOf(
       BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER,
     );
     if (verifyMarkerIndex < 0) return undefined;
 
     const landingUrl = new URL(verificationUrl.origin);
-    landingUrl.pathname =
-      verificationUrl.pathname.slice(0, verifyMarkerIndex) +
-      DESKTOP_MAGIC_LINK_LANDING_MARKER;
+    landingUrl.pathname = publicFrameworkPath(
+      verificationPathname.slice(0, verifyMarkerIndex) +
+        DESKTOP_MAGIC_LINK_LANDING_MARKER,
+    );
     for (const key of [
       "token",
       "callbackURL",
@@ -2097,7 +2147,13 @@ function resetAuthOnPoolClose(driver?: string, url?: string): void {
 async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
-  const basePath = config?.basePath ?? "/_agent-native/auth/ba";
+  // Better Auth derives every URL it hands out — social-provider callbacks,
+  // magic-link verification, password reset — from this base path, so it
+  // must be the PUBLIC one. The framework still mounts the handler on the
+  // internal path and passes Better Auth a request in public form.
+  const basePath = publicFrameworkPath(
+    `${getConfiguredAppBasePath()}${config?.basePath ?? "/_agent-native/auth/ba"}`,
+  );
   const access = getAppConfig().access;
 
   // Build social providers from env vars
@@ -2168,6 +2224,7 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const configuredOrigins = [...getConfiguredOriginAllowlist()];
   const cookieNamespace = resolveAuthCookieNamespace();
   const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
@@ -2175,6 +2232,11 @@ async function createBetterAuthInstance(
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
+
+  const configuredPlugins = config?.plugins ?? [];
+  const hasConfiguredTwoFactor = configuredPlugins.some(
+    (plugin) => plugin.id === "two-factor",
+  );
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
@@ -2276,12 +2338,7 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const appBasePath = getConfiguredAppBasePath();
-      const magicLinkUrl = appBasePath
-        ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
-        : url;
-      const deliveredMagicLinkUrl =
-        desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
+      const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = renderMagicLinkEmail({
         email,
         magicLinkUrl: deliveredMagicLinkUrl,
@@ -2302,7 +2359,12 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
-    trustedOrigins: [...getConfiguredOriginAllowlist()],
+    // With no https public URL configured (a cloud dev container behind an
+    // https proxy), the proxied host's own same-origin POSTs would fail Better
+    // Auth's origin check. Configured deployments keep the static allowlist.
+    trustedOrigins: appUrl.startsWith("https://")
+      ? configuredOrigins
+      : (request) => [...configuredOrigins, requestForwardedOrigin(request)],
     secret,
     emailAndPassword: {
       enabled: true,
@@ -2320,7 +2382,7 @@ async function createBetterAuthInstance(
           process.env.APP_BASE_PATH ||
           ""
         ).replace(/\/$/, "");
-        const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
+        const resetUrl = `${appUrl}${appBasePath}${publicFrameworkPath("/_agent-native/auth/reset")}?token=${encodeURIComponent(token)}`;
         const { subject, html, text, appSender } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,
@@ -2457,7 +2519,10 @@ async function createBetterAuthInstance(
       session: {
         create: {
           before: async (session, context) => {
-            const email = await getAuthEmailForUserId(session.userId);
+            const email = await getAuthEmailForUserId(
+              session.userId,
+              context?.context.adapter,
+            );
             const requiredProvider =
               await getRequiredAuthProviderForEmail(email);
             if (!requiredProvider) return;
@@ -2688,8 +2753,19 @@ async function createBetterAuthInstance(
       ),
       // Bearer: accept Bearer tokens on API requests
       bearer(),
+      // TOTP is opt-in per account. The plugin adds no sign-in step until a
+      // user enables it from account settings.
+      ...(hasConfiguredTwoFactor
+        ? []
+        : [
+            twoFactor({
+              issuer: getAppConfig().app.name || "Agent-Native",
+              allowPasswordless: true,
+              accountLockout: { enabled: true },
+            }),
+          ]),
       ...enterprisePlugins,
-      ...(config?.plugins ?? []),
+      ...configuredPlugins,
     ],
   });
 

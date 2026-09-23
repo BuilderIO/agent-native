@@ -187,7 +187,7 @@ export default function AssetLibraryPanel({
           </span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.svg"
             multiple
             onChange={handleUpload}
             className="hidden"

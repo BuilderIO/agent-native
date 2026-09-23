@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
 import { BuilderImage } from "../builder-image";
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
@@ -120,6 +121,7 @@ export function TemplateShowcase() {
             icon={IconArrowUpRight}
             href={sitePathForLocale("/apps", locale)}
             className="uppercase"
+            onClick={() => sendAhrefsEvent("browse_apps_click")}
           >
             {t("homepage.showcase.browseApps")}
           </Button>
@@ -156,6 +158,11 @@ export function TemplateShowcase() {
                   key={app.slug}
                   to={sitePathForLocale(app.href, locale)}
                   className={CARD_CLASS}
+                  onClick={() =>
+                    sendAhrefsEvent("homepage_carousel_card_click", {
+                      app: app.slug,
+                    })
+                  }
                 >
                   {/* `relative` anchors the theme-img-light overlay, which is
                     absolutely positioned so it can sit exactly on top of the
@@ -245,6 +252,7 @@ export function TemplateShowcase() {
                       icon={null}
                       compact
                       className="uppercase"
+                      onClick={() => sendAhrefsEvent("build_online_click")}
                     >
                       {t("buildFromScratch.buildOnline")}
                     </Button>
@@ -256,6 +264,7 @@ export function TemplateShowcase() {
                   compact
                   href={sitePathForLocale("/docs", locale)}
                   className="uppercase"
+                  onClick={() => sendAhrefsEvent("read_docs_click")}
                 >
                   {t("buildFromScratch.readDocs")}
                 </Button>

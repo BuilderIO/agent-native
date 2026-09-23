@@ -54,11 +54,18 @@ async function runViteBuild(
   entryPath: string,
   publishDirectory: string,
   plugins: Plugin[],
+  buildId: string | null = "deploy-42",
 ): Promise<void> {
   await build({
     configFile: false,
     logLevel: "silent",
     plugins,
+    define:
+      buildId === null
+        ? undefined
+        : {
+            __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+          },
     build: {
       emptyOutDir: true,
       lib: {
@@ -110,6 +117,16 @@ describe("vite/sentry-source-maps", () => {
       ).toBeNull();
     });
 
+    it("returns null when no deployment build id is available", () => {
+      expect(
+        resolveSentrySourceMapUploadConfig({
+          SENTRY_AUTH_TOKEN: "tok",
+          SENTRY_ORG: "acme",
+          SENTRY_PROJECT: "web",
+        }),
+      ).toBeNull();
+    });
+
     it("does not accept the numeric SENTRY_PROJECT_ID as a project slug", () => {
       expect(
         resolveSentrySourceMapUploadConfig({
@@ -143,25 +160,61 @@ describe("vite/sentry-source-maps", () => {
       expect(sentryVitePluginMock).not.toHaveBeenCalled();
     });
 
-    it("calls sentryVitePlugin with the resolved config when enabled", () => {
+    it("uses the build id embedded in the resolved client config", async () => {
+      const { entryPath, publishDirectory } = temporaryBuild();
       const plugins = createSentrySourceMapUploadPlugin({
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
-        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
+
+      await runViteBuild(
+        entryPath,
+        publishDirectory,
+        plugins,
+        "resolved-deploy-42",
+      );
+
       expect(plugins).toHaveLength(2);
       const callArgs = sentryVitePluginMock.mock.calls[0][0];
       expect(callArgs).toMatchObject({
         org: "acme",
         project: "web",
         authToken: "tok",
-        release: { name: "agent-native-client@deploy-42", inject: false },
+        release: {
+          name: "agent-native-client@resolved-deploy-42",
+          inject: false,
+        },
       });
       expect(callArgs.sourcemaps).toBeUndefined();
       expect(plugins.at(-1)?.name).toBe(
         "agent-native:delete-uploaded-sentry-source-maps",
       );
+    });
+
+    it("warns and skips upload when the client build id is missing", async () => {
+      const { entryPath, mapPath, publishDirectory } = temporaryBuild();
+      const warning = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      const plugins = createSentrySourceMapUploadPlugin({
+        SENTRY_AUTH_TOKEN: "tok",
+        SENTRY_ORG: "acme",
+        SENTRY_PROJECT: "web",
+      });
+
+      try {
+        await runViteBuild(entryPath, publishDirectory, plugins, null);
+        expect(warning).toHaveBeenCalledWith(
+          expect.stringContaining("client build ID is missing"),
+        );
+      } finally {
+        warning.mockRestore();
+      }
+
+      expect(sentryVitePluginMock).not.toHaveBeenCalled();
+      expect(sentryUpload).not.toHaveBeenCalled();
+      expect(existsSync(mapPath)).toBe(false);
     });
 
     it("removes source maps from the publish artifact after upload succeeds", async () => {
@@ -173,6 +226,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       await runViteBuild(entryPath, publishDirectory, plugins);
@@ -196,6 +250,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       await runViteBuild(entryPath, publishDirectory, plugins);
@@ -217,6 +272,7 @@ describe("vite/sentry-source-maps", () => {
         SENTRY_AUTH_TOKEN: "tok",
         SENTRY_ORG: "acme",
         SENTRY_PROJECT: "web",
+        AGENT_NATIVE_BUILD_ID: "deploy-42",
       });
 
       try {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   factoryAuditEvents,
+  factoryAutomationVersions,
   factoryComments,
   factoryDefinitions,
   factoryGraphVersions,
@@ -155,6 +156,7 @@ describe("delete-factory", () => {
       factoryDefinitions,
       factoryComments,
       factoryGraphVersions,
+      factoryAutomationVersions,
       factoryAuditEvents,
       factoryPollCursors,
       triageFeedback,

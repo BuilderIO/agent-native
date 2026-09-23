@@ -14,6 +14,12 @@ Or from a terminal:
 gh workflow run beta-e2e.yml --ref main -f apps=all -f lane=public
 ```
 
+To run the authenticated Design interaction lane only:
+
+```bash
+gh workflow run beta-e2e.yml --ref main -f apps=design -f lane=authed
+```
+
 | Input        | Default         | What it does                                                                                                                           |
 | ------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps`       | `all`           | Restrict to specific beta apps, e.g. `slides,analytics`. An unknown or empty value fails the run rather than silently testing nothing. |
@@ -54,15 +60,18 @@ Analytics.
 | `registry` | yes               | session              | none                                                |
 | `chat`     | yes               | session + OpenAI key | ~1 luna turn per chat app; Slides adds one A2A turn |
 | `journeys` | yes               | session              | none                                                |
+| `design`   | yes               | session              | none                                                |
 | `advisory` | no                | none                 | none                                                |
 
 `public` is the one that always runs and needs nothing set up. It already
 covers the most-reported failures, because most of them are visible before a
 user finishes signing in.
 
-The workflow's `authed` lane runs the three authenticated projects above as
-separate serialized jobs, so a provider failure cannot hide a registry or
-journey regression.
+The workflow's `authed` lane runs the four authenticated projects above as
+separate serialized jobs, so a provider failure cannot hide a registry,
+journey, or Design editor regression. The `design` project drives the real
+beta editor and covers layered fill ordering plus multi-selected text style,
+undo, and reload persistence.
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
@@ -154,6 +163,19 @@ signed-out page is not a weaker test, it is a false one — and this repo has
 that exact bug in two template global-setups today, which warn and continue as
 a guest.
 
+If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
+failed. The existing recovery command for the fleet run is:
+
+```bash
+pnpm e2e:beta:capture
+```
+
+Replace the `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS` repository secrets
+with the command's output, then rerun the authenticated lane. A targeted
+`pnpm e2e:beta:capture design` refresh is valid only for a Design-only
+dispatch; it must not replace the fleet token map used by scheduled runs. Do
+not weaken the `+autoz` validation.
+
 **The model is read back off the wire.** Seeding `gpt-5.6-luna` into
 localStorage is a wish until something checks it. Every agent-chat POST is
 inspected and the run fails if anything other than luna was billed, including
@@ -186,7 +208,9 @@ exist yet, so the day it changes is visible.
 
 ### What this run leaves behind
 
-The specs create no app fixtures — no decks, documents, or forms — but an
+The specs create no persistent app fixtures — no decks, documents, or forms.
+The Design lane creates one run-marked temporary design and deletes it in
+`finally`; a failed cleanup remains under the dedicated QA account. An
 authenticated run is not read-only, and most of what it writes lands in a
 production database:
 

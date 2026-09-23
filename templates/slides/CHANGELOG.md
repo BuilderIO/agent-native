@@ -3,11 +3,79 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Design system indexing checks now back off instead of polling every few seconds indefinitely.
+- Moving and resizing slide content now works like Google Slides: boxes drag from anywhere on them, a second click edits their text, containers outline on hover, and resizing AI-generated text works even while editing.
+- An open deck no longer reloads every deck your teammates change.
+
+### Fixed
+
+- AI-generated bullets keep their markers when you add, indent, or undo bullet rows.
+
+## 2026-09-21
+
+### Fixed
+
+- PDF exports preserve slide fonts and text wrapping
+- Keep slide additions aligned with the deck's existing design system
+
+## 2026-09-20
+
+### Fixed
+
+- Continue is available only after selecting a reference or design system.
+
+## 2026-09-19
+
+### Fixed
+
+- HTML exports have clickable slide and fullscreen controls
+- Creating another presentation in chat keeps the existing deck intact.
+
+## 2026-09-18
+
+### Improved
+
+- New decks now keep the selected design system as the default
+- Share Presentation now keeps its heading inset and shows the relevant link clearly
+
+### Fixed
+
+- Inline slide editing now preserves text changes through teardown and reload
+- Slides keeps chat controls, queued prompts, sharing, and design-system status in sync.
+- Slides now hydrates configured design system defaults when references load after opening.
+
+### Removed
+
+- Slides opens directly into the deck workspace without the extra first-run setup flow
+
+## 2026-09-17
+
+### Fixed
+
+- Text editing keeps its focus, toolbar controls, and selection outline consistent
+
 ## 2026-09-16
 
 ### Fixed
 
+- Allow keyboard nudges to move multiple selected slide layers together
+- Dragging slide elements keeps selection handles aligned and snap guides on the visual edges
+- Duplicating slides saves successfully when speaker notes are missing
+- Editing slide text preserves its formatting, layout, line breaks, and rich clipboard styles
+- Keep layout wrappers selectable around text blocks in Slides
+- Moving a multi-selection keeps bordered slide cards together
+- Slide content edits reject regex patterns that could freeze the editor
+- Slides keeps chat turns in order and restores the current slide context when you navigate or select.
 - Content-only agent edits now preserve the slide's existing backgrounds and styling.
+
+### Changed
+
+- Imported decks now support adding, deleting, and reordering slides
 
 ## 2026-09-15
 

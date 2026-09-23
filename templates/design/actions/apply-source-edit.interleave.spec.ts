@@ -66,7 +66,13 @@ import * as Y from "yjs";
 // collab layer's. `applyUpdate`/`getDoc` are the REAL Y.Doc CRDT merge —
 // nothing about the merge semantics under test is faked.
 // ---------------------------------------------------------------------------
-const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabDocs = vi.hoisted(() => ({
+  docs: new Map<string, unknown>(),
+  rows: new Map<
+    string,
+    { yjs_state: string; text_snapshot: string; version: number }
+  >(),
+}));
 const collabTestControl = vi.hoisted(() => ({
   corruptNextValidatedApply: false,
   peerContentBeforeNextValidatedApply: null as string | null,
@@ -78,9 +84,47 @@ function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
     | undefined;
   if (!doc) {
     doc = new Y.Doc();
+    const row = collabDocs.rows.get(docId);
+    if (row?.yjs_state) {
+      doc.getText("content").insert(0, row.text_snapshot);
+    }
     collabDocs.docs.set(docId, doc);
   }
   return doc;
+}
+
+function persistMockCollabRow(
+  docId: string,
+  text: string,
+  expectedVersion?: number | null,
+): void {
+  const existing = collabDocs.rows.get(docId);
+  if (expectedVersion !== undefined) {
+    if (
+      expectedVersion === null
+        ? existing !== undefined
+        : existing?.version !== expectedVersion
+    ) {
+      throw new Error("mock collaboration version conflict");
+    }
+  }
+  collabDocs.rows.set(docId, {
+    yjs_state: "mock-yjs-state",
+    text_snapshot: text,
+    version:
+      existing === undefined || expectedVersion === null
+        ? 0
+        : existing.version + 1,
+  });
+}
+
+function persistChangedMockCollabText(
+  docId: string,
+  before: string,
+  doc: InstanceType<typeof Y.Doc>,
+): void {
+  const after = doc.getText("content").toString();
+  if (after !== before) persistMockCollabRow(docId, after);
 }
 
 /** Minimal common-prefix/suffix-trim diff -> cursor-based Y.Text delete+insert. */
@@ -111,7 +155,10 @@ vi.mock("@agent-native/core/collab", () => ({
   // source-workspace narrows on this class, so the mock has to expose it or
   // the `instanceof` check throws instead of classifying the error.
   CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
-  hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
+  hasCollabState: async (docId: string) => {
+    const row = collabDocs.rows.get(docId);
+    return row ? row.yjs_state.length > 0 : collabDocs.docs.has(docId);
+  },
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
   applyText: async (
@@ -125,11 +172,14 @@ vi.mock("@agent-native/core/collab", () => ({
     },
   ) => {
     const doc = getOrCreateDoc(docId);
+    const beforePeer = doc.getText("content").toString();
     if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
       const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
       collabTestControl.peerContentBeforeNextValidatedApply = null;
       applyTextDiff(doc, peerContent);
+      persistChangedMockCollabText(docId, beforePeer, doc);
     }
+    const before = doc.getText("content").toString();
     options?.validateBase?.(doc.getText("content").toString());
     applyTextDiff(doc, newText);
     if (
@@ -144,16 +194,87 @@ vi.mock("@agent-native/core/collab", () => ({
     }
     const snapshot = doc.getText("content").toString();
     options?.validateSnapshot?.(snapshot);
+    persistChangedMockCollabText(docId, before, doc);
     return snapshot;
   },
   seedFromText: async (docId: string, text: string) => {
-    if (collabDocs.docs.has(docId)) return;
+    const row = collabDocs.rows.get(docId);
+    if (row ? row.yjs_state.length > 0 : collabDocs.docs.has(docId)) return;
     const doc = getOrCreateDoc(docId);
     doc.getText("content").insert(0, text);
+    persistMockCollabRow(
+      docId,
+      text,
+      collabDocs.rows.get(docId)?.version ?? null,
+    );
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => {
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      const peerDoc = getOrCreateDoc(FILE_ID);
+      const beforePeer = peerDoc.getText("content").toString();
+      applyTextDiff(peerDoc, peerContent);
+      persistChangedMockCollabText(FILE_ID, beforePeer, peerDoc);
+      throw new Error("Source file changed while the edit was being applied.");
+    }
+    applyTextDiff(doc, text);
+    if (collabTestControl.corruptNextValidatedApply) {
+      collabTestControl.corruptNextValidatedApply = false;
+      applyTextDiff(
+        doc,
+        `${doc.getText("content").toString()}<!DOCTYPE html><html><body>concurrent</body></html>`,
+      );
+    }
+  },
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const baseVersion = collabDocs.rows.get(docId)?.version ?? null;
+    const doc = new Y.Doc();
+    if (base) {
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    } else if (baseVersion !== null) {
+      const row = collabDocs.rows.get(docId);
+      if (row?.yjs_state) doc.getText("content").insert(0, row.text_snapshot);
+    }
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion,
+        persist: async (_tx, text) => {
+          persistMockCollabRow(docId, text, baseVersion);
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
   getDoc: async (docId: string) => getOrCreateDoc(docId),
   applyUpdate: async (docId: string, update: Uint8Array) => {
-    Y.applyUpdate(getOrCreateDoc(docId), update);
+    const doc = getOrCreateDoc(docId);
+    const before = doc.getText("content").toString();
+    Y.applyUpdate(doc, update);
+    persistChangedMockCollabText(docId, before, doc);
   },
   releaseDoc: (docId: string) => {
     collabDocs.docs.delete(docId);
@@ -170,6 +291,14 @@ vi.mock("@agent-native/core/sharing", () => ({
   // collapse to just the eq predicate — the fake matches() below only needs
   // the id filter, and real and() drops undefined operands.
   accessFilter: vi.fn().mockReturnValue(undefined),
+}));
+
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
+  checkpointSkippedResultField: (result: unknown) =>
+    result && typeof result === "object" && "skipped" in (result as object)
+      ? { checkpoint: result }
+      : {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -268,7 +397,10 @@ vi.mock("../server/db/index.js", () => {
     return withLimit;
   };
   const db = {
-    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    execute: async () => {
+      const row = collabDocs.rows.get(FILE_ID);
+      return { rows: row ? [row] : [], rowsAffected: 1 };
+    },
     transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
       callback(db),
     select: (_projection: unknown) => ({
@@ -380,6 +512,7 @@ function currentFileRef(): FileRow {
 
 beforeEach(() => {
   collabDocs.docs.clear();
+  collabDocs.rows.clear();
   collabTestControl.corruptNextValidatedApply = false;
   collabTestControl.peerContentBeforeNextValidatedApply = null;
   designFilesStore.rows.clear();
@@ -1047,6 +1180,72 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toBe(next);
     assertWellFormed(finalLive.content);
+  });
+
+  it("rejects a newer same-tab replay against the oldest queued base", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        // A stale replay remains subject to the source CAS; the server cannot
+        // trust a caller-controlled flag to authorize a bypass.
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(first);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(first);
+  });
+
+  it("rejects a same-tab replay after a later writer moves the mirror and collab text", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const intervening = buildDoc(" data-intervening");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    // Simulate a writer that updates both stores through a path that does not
+    // advance the browser operation marker left by revision 1.
+    await applyText(FILE_ID, intervening, "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = intervening;
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(intervening);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      intervening,
+    );
   });
 
   it("checks the hash against LIVE collab text once collab state exists, not the SQL row", async () => {

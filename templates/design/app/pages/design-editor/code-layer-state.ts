@@ -21,8 +21,11 @@ export {
   replaceDataScreenReferences,
 } from "@shared/screen-rename";
 
+import { GOOGLE_FONT_QUERIES } from "@agent-native/toolkit/design-tweaks";
+
 import type { LayersPanelNode } from "@/components/design/LayersPanel";
 import type { ElementInfo } from "@/components/design/types";
+import type { UploadedFont } from "@/lib/font-upload";
 
 import { queryUniqueSelector } from "./dom-utils";
 
@@ -263,6 +266,63 @@ export function resolvedLayerName(node: CodeLayerTreeNode): string {
   return node.name;
 }
 
+export function previewCodeLayerTreeMove(
+  nodes: CodeLayerTreeNode[],
+  args: {
+    sourceId: string;
+    anchorId: string;
+    placement: "before" | "after" | "inside";
+    insert?: boolean;
+  },
+): CodeLayerTreeNode[] | null {
+  let moved: CodeLayerTreeNode | null = null;
+  let anchorFound = false;
+  const remove = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] =>
+    siblings.flatMap((node) => {
+      if (node.id === args.anchorId) anchorFound = true;
+      if (node.id === args.sourceId) {
+        moved = node;
+        return [];
+      }
+      return [{ ...node, children: remove(node.children) }];
+    });
+  const withoutSource = remove(nodes);
+  const movedNode = moved as CodeLayerTreeNode | null;
+  if (movedNode === null || movedNode.id === args.anchorId || !anchorFound) {
+    return null;
+  }
+  if (args.insert === false) return withoutSource;
+
+  const insert = (siblings: CodeLayerTreeNode[]): CodeLayerTreeNode[] => {
+    const next: CodeLayerTreeNode[] = [];
+    for (const node of siblings) {
+      if (args.placement === "before" && node.id === args.anchorId) {
+        next.push(movedNode, node);
+      } else if (args.placement === "after" && node.id === args.anchorId) {
+        next.push(node, movedNode);
+      } else {
+        next.push({ ...node, children: insert(node.children) });
+      }
+    }
+    if (args.placement === "inside") {
+      return next.map((node) =>
+        node.id === args.anchorId
+          ? { ...node, children: [...node.children, movedNode] }
+          : node,
+      );
+    }
+    return next;
+  };
+  const result = insert(withoutSource);
+  let sourceInserted = false;
+  const visit = (node: CodeLayerTreeNode) => {
+    if (node.id === args.sourceId) sourceInserted = true;
+    node.children.forEach(visit);
+  };
+  result.forEach(visit);
+  return sourceInserted ? result : null;
+}
+
 export function codeLayerTreeToPanelNodes(
   nodes: CodeLayerTreeNode[],
   lockedIds: Set<string>,
@@ -499,6 +559,8 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
+    componentAnnotation:
+      node.dataAttributes["data-agent-native-component"]?.trim() || undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
@@ -1051,6 +1113,11 @@ export function canonicalElementInfoForCodeLayerNode(
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
+    // Source projections are the authority for layer-panel selections. Keep
+    // their primitive marker when canonicalizing a live bridge payload so a
+    // drawn SVG stays on the vector inspector path even when the bridge
+    // payload omitted its optional primitiveKind field.
+    primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     isGroup: node.dataAttributes["data-agent-native-group"] === "true",
     confidence: node.confidence,
     childElementCount: node.children.length,
@@ -1096,6 +1163,7 @@ export function canonicalizeElementInfoFromProjection(
   },
   info: ElementInfo,
   ownerScreenId?: string,
+  resolvedNode?: CodeLayerNode | null,
 ): ElementInfo {
   if (
     info.sourceLayerIdentity?.screenId &&
@@ -1104,7 +1172,10 @@ export function canonicalizeElementInfoFromProjection(
   ) {
     return info;
   }
-  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
+  const node =
+    resolvedNode === undefined
+      ? resolveCodeLayerNodeFromElementInfo(projection, info)
+      : resolvedNode;
   if (node)
     return canonicalElementInfoForCodeLayerNode(info, node, ownerScreenId);
   return ownerScreenId && info.sourceLayerIdentity
@@ -1155,13 +1226,18 @@ export function isCodeLayerNodeRuntimeOnly(args: {
   );
 }
 
-/** Runtime/external projections are not a source-id inventory for movement. */
+/**
+ * Runtime/external projections are not a source-id inventory for movement.
+ * Pass the source bytes, or a projection already built from those same bytes.
+ */
 export function codeLayerSourceNodeIdAttrs(
-  content: string,
+  source: string | CodeLayerProjection,
 ): ReadonlySet<string> {
+  const projection =
+    typeof source === "string" ? buildCodeLayerProjection(source) : source;
   return new Set(
-    buildCodeLayerProjection(content)
-      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+    projection.nodes
+      .map((node) => node.dataAttributes["data-agent-native-node-id"])
       .filter((value): value is string => Boolean(value)),
   );
 }
@@ -1204,16 +1280,9 @@ export function codeLayerPatchMessage(
     : message;
 }
 
-// Known Google Font families offered by the inspector's font-family picker.
 // Lato's weight 500 comes from the pinned OFL face below because the CSS2 API
 // currently serves only its 400 and 700 files.
-export const KNOWN_GOOGLE_FONTS: Record<string, string> = {
-  Inter: "Inter:wght@400;500;600;700",
-  Poppins: "Poppins:wght@400;500;600;700",
-  "Playfair Display": "Playfair+Display:wght@400;500;600;700",
-  "JetBrains Mono": "JetBrains+Mono:wght@400;500;600;700",
-  Lato: "Lato:wght@400;700",
-};
+export const KNOWN_GOOGLE_FONTS = GOOGLE_FONT_QUERIES;
 
 const LATO_MEDIUM_FACE_URL =
   "https://raw.githubusercontent.com/google/fonts/809e4d8b8d7e9364a914909bb777679606c178b8/ofl/lato/Lato-Medium.ttf";
@@ -1278,7 +1347,18 @@ export function ensureGoogleFontLinkInHtml(
     );
     const alreadyLoaded = existingLinks.some((link) => {
       const href = link.getAttribute("href") ?? "";
-      return href.includes(encodeURIComponent(family)) || href.includes(family);
+      let normalizedHref = href;
+      try {
+        normalizedHref = decodeURIComponent(href);
+      } catch {
+        // coercion-ok: malformed legacy URL stays raw for conservative matching.
+        // Keep the raw URL when a legacy link contains malformed escaping.
+      }
+      normalizedHref = normalizedHref.replace(/\+/g, " ").toLowerCase();
+      return (
+        href.includes(`family=${fontQuery}`) ||
+        normalizedHref.includes(`family=${family.toLowerCase()}:`)
+      );
     });
     let changed = ensurePinnedFontFace(doc, family);
     if (!alreadyLoaded) {
@@ -1318,6 +1398,51 @@ export function ensureGoogleFontLinkInHtml(
   } catch {
     return content;
   }
+}
+
+function escapeCssString(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/[\r\n]/g, "");
+}
+
+/** Persist an uploaded face next to the screen HTML that uses it. */
+export function ensureUploadedFontFaceInHtml(
+  content: string,
+  font: UploadedFont,
+): string {
+  if (typeof window === "undefined") return content;
+  if (!font.url || !font.family) return content;
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  const head = doc.head;
+  if (!head) return content;
+  const alreadyLoaded = Array.from(
+    head.querySelectorAll('style[data-agent-native-uploaded-font="true"]'),
+  ).some(
+    (style) =>
+      style.getAttribute("data-font-family") === font.family &&
+      style.getAttribute("data-font-url") === font.url &&
+      style.getAttribute("data-font-weight") === font.weight &&
+      style.getAttribute("data-font-style") === font.style,
+  );
+  if (alreadyLoaded) return content;
+
+  const style = doc.createElement("style");
+  style.setAttribute("data-agent-native-uploaded-font", "true");
+  style.setAttribute("data-font-family", font.family);
+  style.setAttribute("data-font-url", font.url);
+  style.setAttribute("data-font-weight", font.weight);
+  style.setAttribute("data-font-style", font.style);
+  style.textContent = `@font-face {
+  font-family: "${escapeCssString(font.family)}";
+  font-style: ${font.style};
+  font-weight: ${font.weight};
+  font-display: swap;
+  src: url("${escapeCssString(font.url)}") format("${font.format}");
+}`;
+  head.appendChild(style);
+  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
 }
 
 export function refreshElementInfoFromContent(

@@ -201,6 +201,64 @@ describe("collectLiveSizeHints", () => {
     });
   });
 
+  it("accumulates scrolling static ancestors up to the containing block", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML = `<main><section><div data-agent-native-node-id="alpha"></div></section></main>`;
+    const main = doc.querySelector("main")!;
+    const section = doc.querySelector("section")!;
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    Object.defineProperty(element, "offsetParent", {
+      configurable: true,
+      value: main,
+    });
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(main, { left: 100, top: 200, width: 220, height: 120 });
+    stubRect(element, {
+      left: 130,
+      top: 250,
+      width: 25,
+      height: 14,
+    });
+    Object.defineProperty(section, "scrollLeft", {
+      configurable: true,
+      value: 7,
+    });
+    Object.defineProperty(section, "scrollTop", {
+      configurable: true,
+      value: 9,
+    });
+    Object.defineProperty(main, "scrollLeft", {
+      configurable: true,
+      value: 4,
+    });
+    Object.defineProperty(main, "scrollTop", {
+      configurable: true,
+      value: 5,
+    });
+
+    const projection = buildCodeLayerProjection(FIXTURE);
+    const hints = collectLiveSizeHints(
+      [alphaId()],
+      projection,
+      "active.html",
+      undefined,
+    );
+
+    expect(hints[alphaId()]).toEqual({
+      width: 25,
+      height: 14,
+      left: 41,
+      top: 64,
+    });
+  });
+
   it("keeps integer freeform dimensions for transformed absolute targets", () => {
     mountScreenIframe("active.html", { width: 60, height: 24 });
     const iframe = document.querySelector<HTMLIFrameElement>(

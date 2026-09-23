@@ -1528,8 +1528,18 @@ describe("DesignEditor URL state", () => {
         mode: "interact",
       }),
     ).toBe(
-      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
+      "?design_host=builder&editorView=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
     );
+  });
+
+  it("drops a conflicting legacy view when serializing the canonical editor view", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?editorView=overview&view=single&screen=old",
+        viewMode: "overview",
+        screenId: "screen-123",
+      }),
+    ).toBe("?editorView=overview&screen=screen-123");
   });
 
   it("removes stale selection aliases when no element is selected", () => {
@@ -1542,7 +1552,7 @@ describe("DesignEditor URL state", () => {
         selectionId: null,
         zoom: 33.3333,
       }),
-    ).toBe("?view=overview&screen=screen-123&zoom=33.33");
+    ).toBe("?editorView=overview&screen=screen-123&zoom=33.33");
   });
 
   it("drops gated Code panel state from the editor URL", () => {
@@ -1556,7 +1566,7 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe("?view=single&screen=screen-123&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
@@ -1567,7 +1577,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "pen",
       }),
-    ).toBe("?view=single&screen=screen-123&tool=pen&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&tool=pen&mode=interact");
 
     expect(
       getDesignEditorStateUrlSearch({
@@ -1576,7 +1586,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "move",
       }),
-    ).toBe("?view=single&screen=screen-123&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
 
   it("removes stale Interact mode after returning to the overview", () => {
@@ -1588,7 +1598,7 @@ describe("DesignEditor URL state", () => {
         mode: "edit",
         zoom: 100,
       }),
-    ).toBe("?view=overview&screen=screen-123&zoom=100");
+    ).toBe("?editorView=overview&screen=screen-123&zoom=100");
   });
 });
 

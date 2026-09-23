@@ -14,6 +14,7 @@
  * key with stricter requirements; the guard below preserves their definition.
  */
 
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
@@ -111,7 +112,9 @@ export function registerFrameworkSecrets(): void {
         kind: "oauth",
         required: false,
         oauthProvider: provider.oauthProvider,
-        oauthConnectUrl: `/_agent-native/connections/oauth/${provider.id}/start`,
+        oauthConnectUrl: publicFrameworkPath(
+          `/_agent-native/connections/oauth/${provider.id}/start`,
+        ),
       });
     }
   }
@@ -162,6 +165,30 @@ export function registerFrameworkSecrets(): void {
           : {
               ok: false,
               error: `OpenAI rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
+
+  if (!getRequiredSecret("JEV_API_KEY")) {
+    registerRequiredSecret({
+      key: "JEV_API_KEY",
+      label: "Decision model (Jev)",
+      description:
+        "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
+      docsUrl: "https://docs.typesafe.ai/",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.typesafe.ai/v1/models", {
+          headers: { Authorization: `Bearer ${value}` },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Jev rejected the key (HTTP ${response.status}).`,
             };
       },
     });

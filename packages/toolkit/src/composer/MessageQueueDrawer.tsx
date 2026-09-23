@@ -112,7 +112,7 @@ export function MessageQueueDrawer({
         style={recessedStyle}
         className={cn(
           recessed
-            ? "relative z-0 mx-auto -mb-4 h-[var(--agent-message-queue-height)] w-[calc(100%_-_4rem)] overflow-hidden rounded-xl border border-border/70 bg-muted/55 pb-2.5 opacity-100 shadow-none transition-[height,margin,opacity,transform,border-color,box-shadow] duration-200 ease-[var(--ease-collapse)] data-[empty=true]:pointer-events-none data-[empty=true]:mb-0 data-[empty=true]:translate-y-2 data-[empty=true]:border-0 data-[empty=true]:pb-0 data-[empty=true]:opacity-0 motion-reduce:transition-none"
+            ? "relative z-0 mx-auto mb-0 h-[var(--agent-message-queue-height)] w-[calc(100%_-_4rem)] overflow-hidden rounded-xl border border-border/70 bg-muted/55 pb-2.5 opacity-100 shadow-none transition-[height,margin,opacity,transform,border-color,box-shadow] duration-200 ease-[var(--ease-collapse)] data-[empty=true]:pointer-events-none data-[empty=true]:translate-y-2 data-[empty=true]:border-0 data-[empty=true]:pb-0 data-[empty=true]:opacity-0 motion-reduce:transition-none"
             : "w-full overflow-hidden rounded-xl border border-border/80 bg-background shadow-sm animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-drawer)] motion-reduce:animate-none",
           className,
         )}

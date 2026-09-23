@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   suppressThread,
-  unsuppressThread,
+  releaseSuppression,
   mapInfiniteEmails,
   flattenInfiniteEmails,
   LABELS_QUERY_KEY,
@@ -99,16 +99,17 @@ export function useSnoozeEmail() {
         .flatMap(([, d]) => flattenInfiniteEmails(d))
         .find((e) => e.id === data.emailId);
       const threadId = target?.threadId || data.emailId;
-      suppressThread(threadId, "snooze");
+      const suppressionId = suppressThread(threadId, "snooze");
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.filter((e) => (e.threadId || e.id) !== threadId),
         ),
       );
-      return { previous, threadId };
+      return { previous, threadId, suppressionId };
     },
     onError: (_err, _vars, context) => {
-      if (context?.threadId) unsuppressThread(context.threadId);
+      if (context?.threadId)
+        releaseSuppression(context.threadId, context.suppressionId);
       context?.previous?.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {

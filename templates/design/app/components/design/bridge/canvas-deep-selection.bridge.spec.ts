@@ -88,10 +88,18 @@ describe("canvas deep selection modifiers", () => {
       await page.setContent(FIXTURE);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
+        (window as any).__appClicks = 0;
         window.addEventListener("message", (event: MessageEvent) => {
           if (event.source === window)
             (window as any).__bridgeMessages.push(event.data);
         });
+        document.body.addEventListener("click", () => {
+          (window as any).__appClicks += 1;
+        });
+      });
+      await page.addStyleTag({
+        content:
+          "body{position:relative;z-index:2147483647;width:100vw;height:100vh}",
       });
       await page.addScriptTag({ content: hydratedBridge() });
       await page.waitForFunction(() =>
@@ -105,6 +113,7 @@ describe("canvas deep selection modifiers", () => {
       let elementSelectCount = await messageCount(page, "element-select");
       await page.mouse.click(150, 40);
       await waitForMessageAfter(page, "element-select", elementSelectCount);
+      expect(await page.evaluate(() => (window as any).__appClicks)).toBe(0);
       elementSelectCount = await messageCount(page, "element-select");
       await page.keyboard.down("Meta");
       await page.mouse.click(160, 148);

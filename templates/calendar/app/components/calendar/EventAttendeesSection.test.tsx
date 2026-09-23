@@ -13,8 +13,8 @@ const rsvpMutate = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
-    (key: string): string =>
-      key,
+    (key: string, values?: { count?: number }): string =>
+      values?.count === undefined ? key : `${key}:${values.count}`,
 }));
 
 vi.mock("@/components/calendar/ApolloPanel", () => ({
@@ -123,6 +123,35 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(guestOptions).toBeTruthy();
     expect(attendeeDetails!.contains(guestOptions)).toBe(false);
     expect(document.querySelector("button button")).toBeNull();
+  });
+
+  it("shows grouped guests in the attendee row", () => {
+    const event: CalendarEvent = {
+      id: "event-grouped-guests",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      allDay: false,
+      source: "google",
+      createdAt: "2026-07-10T15:00:00.000Z",
+      updatedAt: "2026-07-10T15:00:00.000Z",
+      attendees: [
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+          additionalGuests: 2,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={event} />);
+    });
+
+    expect(document.body.textContent).toContain("deleteEvent.guest_other:2");
   });
 
   it("shows the matching Google Calendar proposal action with RSVP controls", () => {

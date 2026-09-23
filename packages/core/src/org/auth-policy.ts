@@ -1,3 +1,5 @@
+import { getCurrentAdapter } from "better-auth";
+
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { invalidateSessionEmailCache } from "../server/session-email-cache.js";
@@ -134,12 +136,26 @@ export async function isGoogleSignInRequiredForEmail(
 }
 
 /** Resolve the email used by Better Auth's session lifecycle hook. */
-export async function getAuthEmailForUserId(userId: string): Promise<string> {
-  const result = await getDbExec().execute({
-    sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
-    args: [userId],
-  });
-  const email = result.rows[0]?.email;
+export async function getAuthEmailForUserId(
+  userId: string,
+  adapter?: Parameters<typeof getCurrentAdapter>[0],
+): Promise<string> {
+  let email: unknown;
+  if (adapter) {
+    // The session-create hook can run before the new user commits.
+    const user = await (
+      await getCurrentAdapter(adapter)
+    ).findOne<{
+      email: string;
+    }>({ model: "user", where: [{ field: "id", value: userId }] });
+    email = user?.email;
+  } else {
+    const result = await getDbExec().execute({
+      sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
+      args: [userId],
+    });
+    email = result.rows[0]?.email;
+  }
   if (typeof email !== "string" || !email) {
     throw new Error(`Better Auth user email not found: ${userId}`);
   }

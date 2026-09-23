@@ -16,6 +16,17 @@ describe("agent-native shell surface tokens", () => {
     expect(conversationCss).not.toContain("agent-markdown-stream-caret");
   });
 
+  it("does not pull recessed queue rows into the composer", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).not.toContain(
+      'data-agent-message-queue-variant="recessed"][data-empty="false"]',
+    );
+    expect(css).not.toContain("margin-bottom: -1.25rem");
+  });
+
   it("routes AgentKit density, geometry, elevation, and status through role tokens", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -397,7 +408,7 @@ describe("agent chat sidebar compositing invariants", () => {
 
   it("applies view-transition-name only while the drawer morph is running", () => {
     const source = readFileSync(
-      new URL("../client/AgentPanel.tsx", import.meta.url),
+      new URL("../client/AgentSidebar.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 

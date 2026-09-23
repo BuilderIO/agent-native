@@ -16,6 +16,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
@@ -226,6 +230,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    const actor = requireDocumentRequestActor(ctx);
 
     // Only publish AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
@@ -271,7 +276,11 @@ export default defineAction({
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
-    if (isExternalCaller || initializesBody) {
+    const suppliesRevisionProtocol =
+      args.baseRevision !== undefined || args.idempotencyKey !== undefined;
+    const usesRevisionProtocol =
+      isExternalCaller || initializesBody || suppliesRevisionProtocol;
+    if (usesRevisionProtocol) {
       if (!args.baseRevision || !args.idempotencyKey) {
         throw new ActionContractError(
           "External document edits require baseRevision and idempotencyKey from get-document.",
@@ -322,23 +331,25 @@ export default defineAction({
         ctx,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      try {
-        agentTouchDocument(id, {
-          edit: {
-            descriptor: {
-              kind: "text",
-              quote:
-                args.initializeContent?.slice(0, 80) ??
-                edits?.[0]?.replace.slice(0, 80) ??
-                "",
+      if (isAgentCaller) {
+        try {
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote:
+                  args.initializeContent?.slice(0, 80) ??
+                  edits?.[0]?.replace.slice(0, 80) ??
+                  "",
+              },
+              label: existing.title || undefined,
             },
-            label: existing.title || undefined,
-          },
-        });
-      } catch (error) {
-        console.error("edit-document: agent presence publish failed", error);
+          });
+        } catch (error) {
+          console.error("edit-document: agent presence publish failed", error);
+        }
       }
-      if (result.applied > 0) {
+      if (isAgentCaller && result.applied > 0) {
         track(
           "ai_refine_used",
           {
@@ -482,6 +493,7 @@ export default defineAction({
           .set({
             content,
             bodyRevision: existing.bodyRevision + 1,
+            ...documentEditAttribution(actor),
             updatedAt: now,
             ...(linkedLocalReconciliationDocument ?? {}),
           })

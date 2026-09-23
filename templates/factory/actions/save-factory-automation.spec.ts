@@ -50,6 +50,14 @@ vi.mock("../server/connectors/credentials.js", () => ({
   VaultUnavailableError,
 }));
 
+const insertValuesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const deleteReturningMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([{ id: "ver-deleted" }]),
+);
+const getDbMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../server/db/index.js", () => ({ getDb: getDbMock }));
+
 const existingContent = `---
 domain: factory
 factoryId: support-triage
@@ -97,6 +105,12 @@ beforeEach(() => {
   });
   resourcePutIfCurrentMock.mockResolvedValue({ id: "resource-1" });
   assertFactoryConnectorReadyMock.mockResolvedValue(undefined);
+  insertValuesMock.mockResolvedValue(undefined);
+  deleteReturningMock.mockResolvedValue([{ id: "ver-deleted" }]);
+  getDbMock.mockReturnValue({
+    insert: () => ({ values: insertValuesMock }),
+    delete: () => ({ where: () => ({ returning: deleteReturningMock }) }),
+  });
 });
 
 describe("save-factory-automation", () => {
@@ -128,6 +142,48 @@ describe("save-factory-automation", () => {
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
   });
 
+  it("saves and clears reasoningEffort, and rejects an unrecognized value", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    const baseInput = {
+      factoryId: "support-triage",
+      automationId: "resource-1",
+      name: "factories/support-triage/factory-slack-feedback",
+      prompt: "Watch Slack more closely.",
+      scheduleMode: "interval" as const,
+      intervalMinutes: 10,
+      enabled: true,
+    };
+
+    const result = await action.run(
+      { ...baseInput, reasoningEffort: "high" },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, reasoningEffort: "high" });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("reasoningEffort: high"),
+      }),
+    );
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-slack-feedback.md",
+      content: `${existingContent.replace("---\nObserve Slack.", "reasoningEffort: high\n---\nObserve Slack.")}`,
+      updatedAt: 1,
+    });
+    const cleared = await action.run(
+      { ...baseInput, reasoningEffort: "" },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(cleared).toMatchObject({ ok: true, reasoningEffort: null });
+
+    expect(
+      action.schema.safeParse({ ...baseInput, reasoningEffort: "extreme" })
+        .success,
+    ).toBe(false);
+  });
+
   it("removes a Slack channel when a disabled save clears it", async () => {
     const { default: action } = await import("./save-factory-automation.js");
     const result = await action.run(
@@ -147,6 +203,33 @@ describe("save-factory-automation", () => {
     const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
     expect(saved).not.toContain("slackChannelId:");
     expect(saved).not.toContain("slackChannelName:");
+  });
+
+  it("does not bump the version when an already-unset optional field is resent as an empty string", async () => {
+    // The form always resends every field, including unset optional
+    // destination fields as "" rather than omitting them. A freshly-read
+    // config reports these as null, so "" vs null must not look like a
+    // real change — otherwise every resave (e.g. toggling enabled alone)
+    // would bump the version for nothing.
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Observe Slack.",
+        slackChannelId: "C123",
+        slackChannelName: "",
+        repository: "",
+        sentryOrgSlug: "",
+        sentryProjectSlug: "",
+        sentryEnvironment: "",
+        enabled: true,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, promptVersion: 0 });
+    expect(insertValuesMock).not.toHaveBeenCalled();
   });
 
   it("rejects disabled saves that clear the channel without clearIdentityFields", async () => {
@@ -389,5 +472,47 @@ Babysit pull requests.
     expect(saved).toMatch(/^source: github$/m);
     expect(saved).not.toMatch(/^source: slack$/m);
     expect(saved).toContain("authorIds: 138030887");
+  });
+
+  it("deletes the inserted predecessor snapshot when the live write is rejected", async () => {
+    resourcePutIfCurrentMock.mockResolvedValue(null);
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("changed concurrently");
+
+    expect(insertValuesMock).toHaveBeenCalledTimes(1);
+    expect(deleteReturningMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes the inserted predecessor snapshot when the live write throws", async () => {
+    resourcePutIfCurrentMock.mockRejectedValue(new Error("db unavailable"));
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("db unavailable");
+
+    expect(insertValuesMock).toHaveBeenCalledTimes(1);
+    expect(deleteReturningMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   flushFileContentSavesOnBackground,
   flushPendingFileContentSavesOnCleanup,
+  prepareFileContentSaveKeepalive,
   shouldClearLatestUnloadSave,
   shouldSendKeepalive,
 } from "./design-editor/editor-state";
@@ -139,8 +140,24 @@ describe("shouldClearLatestUnloadSave", () => {
       ),
     ).toBe(false);
   });
+});
 
-  it("keeps the retry when the server skipped a stale mirror write", () => {
-    expect(shouldClearLatestUnloadSave(completed, completed, true)).toBe(false);
+describe("prepareFileContentSaveKeepalive", () => {
+  it("uses the edit's own CAS base instead of the folded unload base", () => {
+    const pending = {
+      id: "file-a",
+      content: "successor",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 2,
+      expectedVersionHash: "predecessor",
+      unloadExpectedVersionHash: "original",
+    };
+
+    expect(prepareFileContentSaveKeepalive(pending)).toEqual({
+      ...pending,
+      unloadExpectedVersionHash: undefined,
+    });
+    expect(pending.unloadExpectedVersionHash).toBe("original");
   });
 });

@@ -11,7 +11,6 @@
 
 import {
   base64ToBytes,
-  hexToBytes,
   readAscii,
   readF32LE,
   readU16BE,
@@ -196,8 +195,24 @@ export interface FigNode {
       styleID?: number;
       fillPaints?: Paint[];
       fontSize?: number;
+      fontName?: { family?: string; style?: string };
+      lineHeight?: { value: number; units?: string };
+      letterSpacing?: { value: number; units?: string };
+      textDecoration?: string;
     }>;
   };
+  /** Figma's own layout of this text; only the glyph outlines are read. */
+  derivedTextData?: {
+    glyphs?: Array<{
+      commandsBlob?: number;
+      position?: { x: number; y: number };
+      fontSize?: number;
+    }>;
+    baselines?: Array<{ endCharacter?: number }>;
+  };
+  /** ENDING draws an ellipsis where the text no longer fits. */
+  textTruncation?: string;
+  maxLines?: number;
   textAutoResize?: string;
   /** ORIGINAL / UPPER / LOWER / TITLE — Figma's own casing, applied at render. */
   textCase?: string;
@@ -424,36 +439,35 @@ interface ResolvedPropValue {
 }
 
 function resolvePropAssignment(a: unknown): ResolvedPropValue | null {
-  const ax = a as {
-    value?: {
-      boolValue?: boolean;
-      textValue?: { characters?: string };
-      guidValue?: Guid;
-    };
-    varValue?: {
-      value?: {
-        boolValue?: boolean;
-        textValue?: { characters?: string };
-        guidValue?: Guid;
-        symbolIdValue?: { guid?: Guid };
-        textIdValue?: { value?: string };
-      };
-    };
+  type RawValue = {
+    boolValue?: boolean;
+    textValue?: { characters?: string };
+    textDataValue?: { characters?: string };
+    guidValue?: Guid;
+    symbolIdValue?: { guid?: Guid };
+    slotContentIdValue?: { guid?: Guid };
+    textIdValue?: { value?: string };
   };
+  const ax = a as { value?: RawValue; varValue?: { value?: RawValue } };
   const vv = ax.varValue?.value;
   const v = ax.value;
   const out: ResolvedPropValue = {};
   if (typeof vv?.boolValue === "boolean") out.bool = vv.boolValue;
   else if (typeof v?.boolValue === "boolean") out.bool = v.boolValue;
-  if (vv?.textValue?.characters !== undefined)
-    out.text = vv.textValue.characters;
-  else if (v?.textValue?.characters !== undefined)
-    out.text = v.textValue.characters;
-  else if (vv?.textIdValue?.value !== undefined)
-    out.text = vv.textIdValue.value;
-  if (vv?.symbolIdValue?.guid) out.guid = vv.symbolIdValue.guid;
-  else if (vv?.guidValue) out.guid = vv.guidValue;
-  else if (v?.guidValue) out.guid = v.guidValue;
+  const text =
+    vv?.textValue?.characters ??
+    vv?.textDataValue?.characters ??
+    v?.textValue?.characters ??
+    v?.textDataValue?.characters ??
+    vv?.textIdValue?.value;
+  if (text !== undefined) out.text = text;
+  const guid =
+    vv?.symbolIdValue?.guid ??
+    vv?.slotContentIdValue?.guid ??
+    vv?.guidValue ??
+    v?.slotContentIdValue?.guid ??
+    v?.guidValue;
+  if (guid) out.guid = guid;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -496,6 +510,11 @@ function applyPropRefs(
     if (!v) continue;
     const field = ref.componentPropNodeField;
     if (field === "VISIBLE" && v.bool === false) return null;
+    // A master hides an optional layer and a BOOL prop turns it on per
+    // instance, so `true` must win over the literal flag too.
+    if (field === "VISIBLE" && v.bool === true && patched.visible === false) {
+      patched = { ...patched, visible: true };
+    }
     if (field === "TEXT_DATA" && v.text !== undefined) {
       patched = {
         ...patched,
@@ -510,6 +529,28 @@ function applyPropRefs(
     }
   }
   return patched;
+}
+
+/**
+ * A Figma slot: a frame in a master bound to a SLOT prop draws the frame the
+ * enclosing instance assigned to that prop — a hidden `isSlotContent` frame —
+ * in place of its own (default) children. Null when no content is assigned.
+ */
+function slotContentOf(
+  node: FigNode,
+  env: Map<string, ResolvedPropValue>,
+  ctx: Ctx,
+): FigNode | null {
+  for (const ref of (node.componentPropRefs ?? []) as Array<{
+    defID?: Guid;
+    componentPropNodeField?: string;
+  }>) {
+    if (ref.componentPropNodeField !== "SLOT_CONTENT_ID") continue;
+    const guid = env.get(guidKey(ref.defID))?.guid;
+    const content = guid ? ctx.byGuid.get(guidKey(guid)) : undefined;
+    if (content) return content;
+  }
+  return null;
 }
 
 /**
@@ -559,15 +600,14 @@ function buildSymbolOverrideLayer(node: FigNode): Map<string, OverrideEntry> {
       out.set(key, o);
     }
   }
-  // `derivedSymbolData` carries pre-computed geometry / text layout for
-  // descendants of this instance whose actual definition lives in a remote
-  // library (so the local document has only a stub master). Each entry is
-  // keyed by a guidPath into the library tree — same coordinate space as
-  // `symbolOverrides[].guidPath` — so we can fold them into the same layer.
-  // Only fill/stroke geometry are merged; positional fields (`transform`,
-  // `size`) and `derivedTextData` are intentionally skipped because they
-  // describe library-resolved layout that would overwrite the (already
-  // correct) values cached on the local master node.
+  // `derivedSymbolData` is Figma's resolved layout for this instance's
+  // descendants — geometry, and the `size`/`transform` auto-layout and the
+  // instance's own resize gave them — keyed by the same guidPaths as
+  // `symbolOverrides`. The master's stored values describe the master, not
+  // this instance: 45% of instance descendants in one 266-screen file drew at
+  // the master's size (p50 219px off) until these were taken.
+  // `derivedTextData` is read only for icon-font glyph outlines; the text
+  // itself is re-laid by the browser.
   for (const d of (
     node as {
       derivedSymbolData?: Array<
@@ -577,11 +617,15 @@ function buildSymbolOverrideLayer(node: FigNode): Map<string, OverrideEntry> {
   ).derivedSymbolData ?? []) {
     const guids = d.guidPath?.guids ?? [];
     if (guids.length === 0) continue;
-    if (!d.fillGeometry?.length && !d.strokeGeometry?.length) continue;
-    const key = guids.map((g) => guidKey(g)).join("/");
     const patch: SymbolOverride = {};
     if (d.fillGeometry?.length) patch.fillGeometry = d.fillGeometry;
     if (d.strokeGeometry?.length) patch.strokeGeometry = d.strokeGeometry;
+    if (d.size) patch.size = d.size;
+    if (d.transform) patch.transform = d.transform;
+    if (d.derivedTextData?.glyphs?.length)
+      patch.derivedTextData = d.derivedTextData;
+    if (Object.keys(patch).length === 0) continue;
+    const key = guids.map((g) => guidKey(g)).join("/");
     const existing = out.get(key);
     out.set(key, existing ? { ...existing, ...patch } : patch);
   }
@@ -590,14 +634,14 @@ function buildSymbolOverrideLayer(node: FigNode): Map<string, OverrideEntry> {
 
 /**
  * Apply any matching override entry from the active override layers to a
- * node about to be emitted. Returns `null` if the node is hidden by an
- * override; otherwise returns the (possibly patched) node.
+ * node about to be emitted. Visibility is left to the caller: an override that
+ * does not mention it must not hide a layer a VISIBLE prop turns on.
  */
 function applyOverrideLayers(
   node: FigNode,
   layers: OverrideLayer[],
   instancePath: string[],
-): FigNode | null {
+): FigNode {
   if (layers.length === 0) return node;
   // The lookup key for THIS node within a layer is the chain of inner
   // INSTANCE overrideKeys we've descended into since that layer was pushed,
@@ -639,6 +683,18 @@ function applyOverrideLayers(
     for (const [field, value] of Object.entries(entry)) {
       if (field === "guidPath" || field === "overriddenSymbolID") continue;
       if (value === undefined) continue;
+      if (field === "componentPropAssignments" && Array.isArray(value)) {
+        // Per prop, not wholesale: an outer override setting a nested
+        // instance's label must not drop that instance's own BOOL that hides
+        // an optional line.
+        const byDef = new Map(
+          ((merged.componentPropAssignments ?? []) as Array<{ defID?: Guid }>)
+            .concat(value as Array<{ defID?: Guid }>)
+            .map((a) => [guidKey(a.defID), a]),
+        );
+        merged.componentPropAssignments = [...byDef.values()];
+        continue;
+      }
       (merged as Record<string, unknown>)[field] = value;
     }
     if (entry.overriddenSymbolID) {
@@ -648,7 +704,6 @@ function applyOverrideLayers(
       };
     }
   }
-  if (merged.visible === false) return null;
   return merged;
 }
 
@@ -695,8 +750,8 @@ function num(n: number | null | undefined): number | null {
 
 interface TextRun {
   text: string;
-  /** CSS color when a per-character override differs from the base fill. */
-  color?: string;
+  /** Inline style when a per-character override differs from the base style. */
+  style?: string;
 }
 
 /**
@@ -713,11 +768,12 @@ function textCharacters(node: FigNode): string {
 }
 
 /**
- * Split TEXT into color runs from `characterStyleIDs` + `styleOverrideTable`
- * (how one node holds two colors). Overridden runs carry an explicit color;
- * base-fill runs inherit the element's `color`. One plain run when unstyled.
+ * Split TEXT into styled runs from `characterStyleIDs` + `styleOverrideTable`
+ * (how one node mixes colours, sizes, weights or families). Overridden runs
+ * carry an inline style; base runs inherit the element's. One plain run when
+ * unstyled.
  */
-function textStyleRuns(node: FigNode): TextRun[] {
+function textStyleRuns(node: FigNode, ctx: Ctx): TextRun[] {
   const chars = textCharacters(node);
   const ids = node.textData?.characterStyleIDs;
   const table = node.textData?.styleOverrideTable;
@@ -725,38 +781,70 @@ function textStyleRuns(node: FigNode): TextRun[] {
   if (!ids || ids.length === 0 || !table || table.length === 0) {
     return [{ text: chars }];
   }
-  const colorByStyle = new Map<number, string | undefined>();
+  const styleById = new Map<number, string | undefined>();
   for (const entry of table) {
     if (entry?.styleID == null) continue;
+    const css: Record<string, string | number> = {};
     // Topmost visible solid in the override's fill list.
     let solid: Paint | undefined;
     for (const p of entry.fillPaints ?? []) {
       if (p.visible !== false && p.type === "SOLID") solid = p;
     }
-    colorByStyle.set(
+    const color = solid ? colorToCss(solid.color, solid.opacity ?? 1) : null;
+    if (color) css.color = color;
+    const fontSize = entry.fontSize ?? node.fontSize;
+    if (typeof entry.fontSize === "number")
+      css.fontSize = `${num(entry.fontSize)}px`;
+    if (
+      entry.fontName?.family &&
+      entry.fontName.family !== node.fontName?.family
+    )
+      css.fontFamily = fontFamilyCss(entry.fontName.family);
+    if (entry.fontName?.style) {
+      const weight = fontWeightFromStyle(entry.fontName.style);
+      const italic = /italic|oblique/i.test(entry.fontName.style);
+      if (weight !== null) css.fontWeight = weight;
+      if (italic) css.fontStyle = "italic";
+      const family = entry.fontName.family ?? node.fontName?.family;
+      if (family)
+        ctx.fontUsage.add(`${family}|${weight ?? 400}|${italic ? 1 : 0}`);
+    }
+    const lineHeight = entry.lineHeight
+      ? lineHeightCss(
+          entry.lineHeight,
+          fontSize,
+          ctx.autoLineHeight.get(
+            autoLineHeightKey(entry.fontName ?? node.fontName),
+          ),
+        )
+      : null;
+    if (lineHeight !== null) css.lineHeight = lineHeight;
+    const letterSpacing = lengthFromUnits(entry.letterSpacing, fontSize);
+    if (letterSpacing !== null) css.letterSpacing = letterSpacing;
+    const decoration = textDecorationCss(entry.textDecoration as never);
+    if (decoration) css.textDecoration = decoration;
+    styleById.set(
       entry.styleID,
-      solid
-        ? (colorToCss(solid.color, solid.opacity ?? 1) ?? undefined)
-        : undefined,
+      Object.keys(css).length ? formatStyleString(css) : undefined,
     );
   }
   const runs: TextRun[] = [];
   let curText = "";
-  let curColor: string | undefined;
+  let curStyle: string | undefined;
   let started = false;
   for (let i = 0; i < chars.length; i++) {
-    const color = colorByStyle.get(ids[i] ?? 0);
+    const style = styleById.get(ids[i] ?? 0);
     if (!started) {
-      curColor = color;
+      curStyle = style;
       started = true;
-    } else if (color !== curColor) {
-      runs.push({ text: curText, color: curColor });
+    } else if (style !== curStyle) {
+      runs.push({ text: curText, style: curStyle });
       curText = "";
-      curColor = color;
+      curStyle = style;
     }
     curText += chars[i];
   }
-  if (curText) runs.push({ text: curText, color: curColor });
+  if (curText) runs.push({ text: curText, style: curStyle });
   return runs;
 }
 
@@ -920,10 +1008,19 @@ function hashToHex(
 function imageUrl(hashHex: string, ctx: Ctx): string {
   const resolved = ctx.imageMap.get(hashHex);
   if (!resolved && ctx.missingImageUrl) return ctx.missingImageUrl;
-  const filename = resolved ?? hashHex;
-  if (/^(?:https?:|blob:|about:|data:|file:)/i.test(filename)) return filename;
-  const base = ctx.imageRefBase ?? "images";
-  return `${base}/${filename}`;
+  return imageRefUrl(resolved ?? hashHex, ctx.imageRefBase);
+}
+
+/**
+ * Where an image reference points. Storage providers may hand back a
+ * root-relative URL ("/api/…"), so only a bare filename goes under the
+ * export's image directory. The one-pass import substitutes URLs through this
+ * too, so the two can never disagree.
+ */
+export function imageRefUrl(filename: string, base = "images"): string {
+  return /^(?:https?:|blob:|about:|data:|file:|\/)/i.test(filename)
+    ? filename
+    : `${base}/${filename}`;
 }
 
 /**
@@ -1256,14 +1353,63 @@ function withoutPrivateUse(text: string): string {
     .join("");
 }
 
-/** Record one fidelity note against a node the renderer could not reproduce exactly. */
+/**
+ * Private Use Area text — SF Symbols and other icon fonts — drawn from the
+ * glyph outlines Figma stored with the text: no browser font can draw those
+ * codepoints, but the file carries the exact paths Figma drew. Outlines are
+ * em-unit, y-up paths placed at each glyph's baseline origin.
+ */
+function glyphOutlineSvg(node: FigNode, ctx: Ctx): string | null {
+  const data = node.derivedTextData;
+  if (!data?.glyphs?.length) return null;
+  // The layout must be of THIS text: an override that changed the characters
+  // without new derived data leaves the master's glyphs behind.
+  const characters = Array.from(node.textData?.characters ?? "").length;
+  const baselines = data.baselines ?? [];
+  if (baselines[baselines.length - 1]?.endCharacter !== characters) {
+    return null;
+  }
+  const paths: string[] = [];
+  for (const glyph of data.glyphs) {
+    const d =
+      glyph.commandsBlob === undefined
+        ? ""
+        : decodePathCommands(ctx.blobs[glyph.commandsBlob]);
+    const size = glyph.fontSize ?? node.fontSize;
+    // A space has no outline.
+    if (!d || !glyph.position || !size) continue;
+    paths.push(
+      `<path transform="translate(${num(glyph.position.x)} ${num(glyph.position.y)}) scale(${num(size)} ${num(-size)})" d="${d}"/>`,
+    );
+  }
+  if (paths.length === 0) return null;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${num(node.size?.x) ?? 0}" height="${num(node.size?.y) ?? 0}" ` +
+    `fill="currentColor" aria-hidden="true" style="position:absolute;left:0;top:0;overflow:visible">` +
+    `${paths.join("")}</svg>`
+  );
+}
+
+/**
+ * Record one fidelity note against a node the renderer could not reproduce
+ * exactly. One entry per node: a component inlined on 200 screens is one
+ * approximated node, not 200.
+ */
 function recordApproximation(node: FigNode, ctx: Ctx, note: string): void {
-  ctx.approximatedNodes.push({
-    nodeId: guidKey(node.guid),
+  const nodeId = guidKey(node.guid);
+  const existing = ctx.approximationByNode.get(nodeId);
+  if (existing) {
+    if (!existing.notes.includes(note)) existing.notes.push(note);
+    return;
+  }
+  const entry = {
+    nodeId,
     nodeName: node.name,
     nodeType: node.type,
     notes: [note],
-  });
+  };
+  ctx.approximationByNode.set(nodeId, entry);
+  ctx.approximatedNodes.push(entry);
 }
 
 function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
@@ -1786,14 +1932,26 @@ function intrinsicImageSize(
   );
 }
 
-function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
+function borderShorthand(
+  node: FigNode,
+  ctx: Ctx,
+  /** Sink for a stroke drawn as a layer over the node's children. */
+  strokeOverlays?: string[],
+  rendersChildren = false,
+): Record<string, string> {
   const strokes = (effectiveStrokePaints(node, ctx) ?? []).filter(
     (p) => p.visible !== false,
   );
   if (strokes.length === 0) return {};
-  const first = strokes[0]!;
-  const color = colorToCss(first.color, first.opacity ?? 1);
-  if (!color) return {};
+  // CSS draws one stroke paint: the top-most, which is the last.
+  const paint = strokes[strokes.length - 1]!;
+  const gradient = !!paint.type?.startsWith("GRADIENT_");
+  const color =
+    paint.type === "SOLID" ? colorToCss(paint.color, paint.opacity ?? 1) : null;
+  if (!color && !gradient) {
+    recordApproximation(node, ctx, `${paint.type ?? "unknown"} stroke omitted`);
+    return {};
+  }
 
   // Kiwi states per-side weights with `borderStrokeWeightsIndependent` and
   // writes ONLY the sides that are set — an Untitled UI table cell carries
@@ -1814,6 +1972,62 @@ function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
   // A dash pattern only reaches CSS through `border-style`/`outline-style`.
   const dashed = dashArrayAttr(node) !== null;
   const style = dashed ? "dashed" : "solid";
+
+  // Per-side weights. When Figma says the sides are independent, a side it
+  // did not write is ZERO — not the uniform weight, which would invent the
+  // very borders the independence flag exists to remove. Otherwise an
+  // unspecified side still falls back to the uniform weight.
+  const side = (
+    resolved: number | undefined,
+    raw: number | undefined,
+  ): number => resolved ?? raw ?? (independent ? 0 : uniformW);
+  const topW = side(node.strokeTopWeight, node.borderTopWeight);
+  const rightW = side(node.strokeRightWeight, node.borderRightWeight);
+  const bottomW = side(node.strokeBottomWeight, node.borderBottomWeight);
+  const leftW = side(node.strokeLeftWeight, node.borderLeftWeight);
+
+  // A layer over the node: a gradient has no border colour, and Figma paints
+  // a frame's INSIDE stroke above its children, where an inset shadow paints
+  // under them — a full-bleed child hid the border entirely.
+  if (
+    strokeOverlays &&
+    (gradient || (node.strokeAlign === "INSIDE" && rendersChildren))
+  ) {
+    const weights = [topW, rightW, bottomW, leftW];
+    if (weights.every((w) => !w)) return {};
+    const outward =
+      node.strokeAlign === "OUTSIDE"
+        ? 1
+        : node.strokeAlign === "CENTER"
+          ? 0.5
+          : 0;
+    const background = gradient ? paintToBackground(paint, node, ctx) : null;
+    if (gradient && !background) {
+      recordApproximation(node, ctx, `${paint.type} stroke omitted`);
+      return {};
+    }
+    if (gradient && dashed) {
+      recordApproximation(node, ctx, "dashed gradient stroke drawn solid");
+    }
+    const widths = weights.map((w) => `${num(w)}px`).join(" ");
+    // guard:allow-raw-color — an opaque mask source in the imported design's own CSS, not app chrome
+    const opaque = "linear-gradient(#000 0 0)";
+    const paintCss = background
+      ? `padding:${widths};background:${background};` +
+        `-webkit-mask:${opaque} content-box,${opaque};` +
+        `-webkit-mask-composite:xor;` +
+        `mask:${opaque} content-box exclude,${opaque}`
+      : `border-style:${style};border-color:${color};border-width:${widths}`;
+    const inset = weights.map((w) => `${num(-w * outward)}px`).join(" ");
+    strokeOverlays.push(
+      `<div style="${escapeHtmlAttr(`position:absolute;inset:${inset};border-radius:inherit;box-sizing:border-box;pointer-events:none;${paintCss}`)}"></div>`,
+    );
+    return {};
+  }
+  if (!color) {
+    recordApproximation(node, ctx, `${paint.type} stroke omitted`);
+    return {};
+  }
 
   if (!hasPerSide) {
     if (!uniformW) return {};
@@ -1846,19 +2060,6 @@ function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
       "dashed stroke with per-side weights drawn solid",
     );
   }
-
-  // Per-side weights. When Figma says the sides are independent, a side it
-  // did not write is ZERO — not the uniform weight, which would invent the
-  // very borders the independence flag exists to remove. Otherwise an
-  // unspecified side still falls back to the uniform weight.
-  const side = (
-    resolved: number | undefined,
-    raw: number | undefined,
-  ): number => resolved ?? raw ?? (independent ? 0 : uniformW);
-  const topW = side(node.strokeTopWeight, node.borderTopWeight);
-  const rightW = side(node.strokeRightWeight, node.borderRightWeight);
-  const bottomW = side(node.strokeBottomWeight, node.borderBottomWeight);
-  const leftW = side(node.strokeLeftWeight, node.borderLeftWeight);
 
   if (!topW && !rightW && !bottomW && !leftW) return {};
 
@@ -1933,6 +2134,7 @@ function radiusStyles(node: FigNode): Record<string, number | string> {
  */
 function effectStyles(
   node: FigNode,
+  ctx: Ctx,
   shadowAsFilter = false,
 ): Record<string, string> {
   const effects = node.effects?.filter((e) => e.visible !== false) ?? [];
@@ -1968,6 +2170,17 @@ function effectStyles(
       );
     } else if (e.type === "BACKGROUND_BLUR") {
       backdropBlur = `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`;
+    } else if (e.type === "GLASS") {
+      // Frosting is the part CSS can draw; refraction, bevel, specular light
+      // and chromatic aberration are not.
+      backdropBlur = `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`;
+      recordApproximation(
+        node,
+        ctx,
+        "GLASS effect approximated as a background blur; refraction, bevel and highlights are not drawn",
+      );
+    } else {
+      recordApproximation(node, ctx, `${e.type ?? "unknown"} effect omitted`);
     }
   }
   const out: Record<string, string> = {};
@@ -2129,6 +2342,82 @@ function autolayoutStyles(
   return out;
 }
 
+/**
+ * A family plus a metric-compatible fallback stack, so a missing family never
+ * lands on the UA serif. Apple's own families cannot be named in a browser;
+ * `system-ui` reaches the same faces on Apple platforms and the platform UI
+ * font elsewhere, where the generic stack would fall through to Arial.
+ */
+function fontFamilyCss(fam: string): string {
+  const quoted = /\s/.test(fam) ? `"${fam}"` : fam;
+  if (/mono|courier|code|consol|menlo|fira code|source code/i.test(fam)) {
+    return `${quoted}, ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace`;
+  }
+  if (/serif|georgia|garamond|didot|baskerville|palatino|times/i.test(fam)) {
+    return `${quoted}, 'Times New Roman', Georgia, Garamond, serif`;
+  }
+  const system = NON_GOOGLE_FONT_FAMILY.test(fam) ? "system-ui, " : "";
+  return `${quoted}, ${system}-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif`;
+}
+
+/**
+ * Platform and commercial families Google Fonts does not serve. Asking for one
+ * fails the whole css2 request with HTTP 400 when it is the only family.
+ */
+const NON_GOOGLE_FONT_FAMILY =
+  /^(SF\b|San Francisco|New York|\.?AppleSystem|Helvetica|Arial|Segoe|Graphik|Avenir|Proxima Nova|Circular)/i;
+
+function textVerticalAlign(node: FigNode): string | null {
+  // Only a box taller than its text has room to align in; a hugging one
+  // has none.
+  if (
+    node.textAutoResize === "WIDTH_AND_HEIGHT" ||
+    node.textAutoResize === "HEIGHT"
+  ) {
+    return null;
+  }
+  if (node.textAlignVertical === "CENTER") return "center";
+  if (node.textAlignVertical === "BOTTOM") return "flex-end";
+  return null;
+}
+
+/**
+ * Figma's "truncate text": an ellipsis where the text stops fitting — after
+ * `maxLines`, or after as many lines as the fixed box holds.
+ */
+function textTruncationCss(
+  node: FigNode,
+  ctx: Ctx,
+): Record<string, string | number> | null {
+  if (node.textTruncation !== "ENDING") return null;
+  const lineHeight = lineHeightCss(
+    node.lineHeight,
+    node.fontSize,
+    ctx.autoLineHeight.get(autoLineHeightKey(node.fontName)),
+  );
+  const linePx =
+    typeof lineHeight === "string" && lineHeight.endsWith("px")
+      ? Number.parseFloat(lineHeight)
+      : null;
+  const fits =
+    linePx && node.size?.y ? Math.floor(node.size.y / linePx + 0.01) : 1;
+  const lines = Math.max(1, node.maxLines ?? fits);
+  if (lines === 1) {
+    return {
+      display: "block",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    };
+  }
+  return {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: lines,
+    overflow: "hidden",
+  };
+}
+
 function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (node.type !== "TEXT") return {};
   const out: Record<string, string | number> = {};
@@ -2150,28 +2439,7 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   const textAlignHorizontal =
     styleNode?.textAlignHorizontal ?? node.textAlignHorizontal;
 
-  if (fontName?.family) {
-    const fam = fontName.family;
-    const quoted = /\s/.test(fam) ? `"${fam}"` : fam;
-    // Append a metric-compatible fallback stack by classifying the family.
-    // This prevents UA serif from appearing when a Google/system font is missing.
-    const famLower = fam.toLowerCase();
-    let fallback: string;
-    if (
-      /mono|courier|code|consol|menlo|fira code|source code/i.test(famLower)
-    ) {
-      fallback =
-        "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace";
-    } else if (
-      /serif|georgia|garamond|didot|baskerville|palatino|times/i.test(famLower)
-    ) {
-      fallback = "'Times New Roman', Georgia, Garamond, serif";
-    } else {
-      fallback =
-        "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-    }
-    out.fontFamily = `${quoted}, ${fallback}`;
-  }
+  if (fontName?.family) out.fontFamily = fontFamilyCss(fontName.family);
   const weight = fontWeightFromStyle(fontName?.style);
   if (weight !== null) out.fontWeight = weight;
   // Track this family/weight/italic combo so the frame template can request
@@ -2230,6 +2498,17 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   ) {
     out.whiteSpace = "nowrap";
   }
+  // A fixed box centres or bottom-aligns its lines; the runs move into one
+  // inner span (see `emitNode`) so they stay inline under the flex column,
+  // and a truncation moves there with them.
+  const verticalAlign = textVerticalAlign(node);
+  if (verticalAlign) {
+    out.display = "flex";
+    out.flexDirection = "column";
+    out.justifyContent = verticalAlign;
+  } else if (ctx) {
+    Object.assign(out, textTruncationCss(node, ctx));
+  }
   const fills = (
     ctx ? effectiveFillPaints(node, ctx) : node.fillPaints
   )?.filter((fill) => fill.visible !== false);
@@ -2268,42 +2547,64 @@ function isAutolayout(parent: FigNode | null): boolean {
 
 /**
  * Compose an INSTANCE node with its inlined master's autolayout / padding /
- * sizing properties. The master is the source of truth for how children are
- * arranged; the instance's cached `stack*` fields can be a stale snapshot of
- * a previous variant. Per-axis sizing (`size`) stays on the instance — only
- * the layout description is taken from the master.
+ * sizing properties. After a variant swap the instance's cached `stack*`
+ * fields are a stale snapshot of the variant it ORIGINALLY pointed at, so the
+ * rendered master wins — except on a field where the instance differs from
+ * that original master, which is an override the instance made (a changed
+ * alignment or padding) and survives the swap, as it does in Figma. Taking
+ * the master wholesale dropped those: 150 stacks in one file lost an
+ * instance's counter-axis centring. Per-axis sizing (`size`) stays on the
+ * instance.
  */
-function withMasterLayout(instance: FigNode, master: FigNode): FigNode {
-  const layoutFields: (keyof FigNode)[] = [
-    "stackMode",
-    "stackPrimaryAlignItems",
-    "stackCounterAlignItems",
-    "stackSpacing",
-    "stackPaddingLeft",
-    "stackPaddingRight",
-    "stackPaddingTop",
-    "stackPaddingBottom",
-    "stackHorizontalPadding",
-    "stackVerticalPadding",
-    "stackPrimarySizing",
-    "stackCounterSizing",
-  ];
+const STACK_LAYOUT_FIELDS: (keyof FigNode)[] = [
+  "stackMode",
+  "stackPrimaryAlignItems",
+  "stackCounterAlignItems",
+  "stackSpacing",
+  "stackPaddingLeft",
+  "stackPaddingRight",
+  "stackPaddingTop",
+  "stackPaddingBottom",
+  "stackHorizontalPadding",
+  "stackVerticalPadding",
+  "stackPrimarySizing",
+  "stackCounterSizing",
+];
+
+function withMasterLayout(
+  instance: FigNode,
+  master: FigNode,
+  original: FigNode = master,
+): FigNode {
+  const layoutFields = STACK_LAYOUT_FIELDS;
   const merged: FigNode = { ...instance };
-  // If the master defines its own stack direction, the instance's cached
-  // stack-related fields are stale (they were captured against whatever
-  // variant the instance originally pointed at). Take ALL layout fields
-  // from the master wholesale — including `undefined` values — so we don't
-  // leak e.g. `stackPrimarySizing="FIXED"` from a HORIZONTAL variant onto a
-  // VERTICAL one whose master leaves it undefined (HUG).
+  // A field the instance did not override comes from the master wholesale —
+  // including `undefined` — so a stale `stackPrimarySizing="FIXED"` from a
+  // HORIZONTAL variant cannot leak onto a VERTICAL one that leaves it HUG.
   const masterDrivesLayout =
     typeof master.stackMode === "string" && master.stackMode !== "NONE";
   for (const f of layoutFields) {
     const mv = (master as Record<string, unknown>)[f as string];
+    const iv = (instance as Record<string, unknown>)[f as string];
+    if (iv !== (original as Record<string, unknown>)[f as string]) continue;
     if (masterDrivesLayout) {
       (merged as Record<string, unknown>)[f as string] = mv;
     } else if (mv !== undefined) {
       (merged as Record<string, unknown>)[f as string] = mv;
     }
+  }
+  return merged;
+}
+
+/**
+ * A slot frame arranges the content assigned to it by that content's own
+ * layout: the content frame, not the master's placeholder, carries the
+ * spacing and padding Figma lays the slot out with.
+ */
+function withSlotLayout(slot: FigNode, content: FigNode): FigNode {
+  const merged: FigNode = { ...slot };
+  for (const f of STACK_LAYOUT_FIELDS) {
+    (merged as Record<string, unknown>)[f as string] = content[f];
   }
   return merged;
 }
@@ -2405,81 +2706,72 @@ function layoutSizing(
 }
 
 /**
- * Re-lay a master's children for an INSTANCE that was resized.
+ * Re-lay the children of a container that renders at a different size from
+ * the one its children were placed against.
  *
- * An instance can be a different size from the component it came from, and
- * Figma re-lays the master's children according to each one's constraint. We
- * inlined them at the MASTER's geometry instead, so a resized instance drew its
- * contents at the wrong size: DashStack's dashboard has a 1440-wide instance of
- * a 1202-wide component, and the full-bleed background rectangle inside it
- * (`horizontalConstraint: SCALE`) painted only the first 1202px, leaving 238px
- * of bare white down the right edge of every screen.
+ * Figma re-lays children by their constraints when their parent resizes, and
+ * only writes the result back where auto-layout moved them. An instance of a
+ * narrower component is the common case: DashStack's dashboard has a 1440-wide
+ * instance of a 1202-wide component, and the full-bleed background inside it
+ * (`horizontalConstraint: SCALE`) painted only the first 1202px. A frame inside
+ * an instance that Figma resized (its derived size), or a slot whose content
+ * was authored at another size, is the same problem one level down — children
+ * of the resized frame kept the master's offsets against the new edges.
  *
- * Fixing it here, once, at the inline boundary means every downstream consumer
- * — CSS, masks, auto-layout, the export walk — sees geometry that is already
+ * Fixing it here, once, at the boundary means every downstream consumer —
+ * CSS, masks, auto-layout, the export walk — sees geometry that is already
  * correct, instead of each of them having to know about the resize.
  *
- * Children are shared: the same master is inlined by every instance of it, so
- * they are cloned rather than mutated.
+ * Children of an auto-layout parent are placed by the stack, not constraints,
+ * unless they ignore it. Children are shared across every instance of a
+ * master, so they are cloned rather than mutated.
  */
-function resizeInlinedSymbolChildren(
-  children: FigNode[],
-  symbol: FigNode,
-  instance: FigNode,
-  ctx: Ctx,
-): FigNode[] {
-  const mw = symbol.size?.x;
-  const mh = symbol.size?.y;
-  const iw = instance.size?.x;
-  const ih = instance.size?.y;
+function relayoutResizedChildren(
+  children: readonly FigNode[],
+  authored: { x: number; y: number } | undefined,
+  rendered: { x: number; y: number } | undefined,
+  parentIsFlex: boolean,
+): readonly FigNode[] {
+  const mw = authored?.x;
+  const mh = authored?.y;
+  const iw = rendered?.x;
+  const ih = rendered?.y;
   if (!mw || !mh || !iw || !ih) return children;
   const dx = iw - mw;
   const dy = ih - mh;
   if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return children;
-  const sx = mw ? iw / mw : 1;
-  const sy = mh ? ih / mh : 1;
+  const sx = iw / mw;
+  const sy = ih / mh;
+  // Figma's default when a node carries no constraint is MIN — pinned to the
+  // start edge at its own size — which is what leaving it alone produces.
+  const axis = (
+    constraint: string | undefined,
+    pos: number,
+    extent: number,
+    delta: number,
+    scale: number,
+  ): { pos: number; extent: number } => {
+    switch (constraint) {
+      case "SCALE":
+        return { pos: pos * scale, extent: extent * scale };
+      case "STRETCH":
+        return { pos, extent: extent + delta };
+      case "MAX":
+        return { pos: pos + delta, extent };
+      case "CENTER":
+        return { pos: pos + delta / 2, extent };
+      default:
+        return { pos, extent };
+    }
+  };
 
   return children.map((child) => {
     const t = child.transform;
     const size = child.size;
     if (!t || !size) return child;
-    // Figma's default when a node carries no constraint is MIN — pinned to the
-    // start edge at its own size — which is what leaving it alone produces.
-    const axis = (
-      constraint: string | undefined,
-      pos: number,
-      extent: number,
-      delta: number,
-      scale: number,
-    ): { pos: number; extent: number; scaled: boolean } => {
-      switch (constraint) {
-        case "SCALE":
-          return { pos: pos * scale, extent: extent * scale, scaled: true };
-        case "STRETCH":
-          return { pos, extent: extent + delta, scaled: false };
-        case "MAX":
-          return { pos: pos + delta, extent, scaled: false };
-        case "CENTER":
-          return { pos: pos + delta / 2, extent, scaled: false };
-        default:
-          return { pos, extent, scaled: false };
-      }
-    };
+    if (parentIsFlex && child.stackPositioning !== "ABSOLUTE") return child;
     const h = axis(child.horizontalConstraint, t.m02, size.x, dx, sx);
     const v = axis(child.verticalConstraint, t.m12, size.y, dy, sy);
-    if (
-      (h.scaled || v.scaled) &&
-      (ctx.childrenOf.get(guidKey(child.guid))?.length ?? 0) > 0
-    ) {
-      // SCALE scales the whole subtree in Figma. Scaling only this box leaves
-      // its descendants at the master's geometry inside a resized parent, so
-      // say so rather than let the difference pass as exact.
-      recordApproximation(
-        child,
-        ctx,
-        `SCALE constraint on a container in a resized instance; its descendants keep the component's geometry`,
-      );
-    }
     return {
       ...child,
       transform: { ...t, m02: h.pos, m12: v.pos },
@@ -2550,6 +2842,10 @@ function buildCss(
   shadowAsFilter = false,
   /** Sink for paint layers that render as a child instead of a layer. */
   overlays?: string[],
+  /** Whether any child actually renders; defaults to "has stored children". */
+  rendersChildren?: boolean,
+  /** Sink for strokes that render as a last child, above the others. */
+  strokeOverlays?: string[],
 ): Record<string, unknown> {
   const css: Record<string, unknown> = {};
   // An absolutely-positioned node is out of the parent's flex flow, so it must
@@ -2607,9 +2903,11 @@ function buildCss(
   // HUG means "size to content", so it only holds when there IS content.
   // Figma keeps a childless auto-layout frame at the size it resolved rather
   // than collapsing it, and the baked `node.size` is that size; letting CSS
-  // hug nothing collapses the box to 0x0 and deletes it from the render.
+  // hug nothing collapses the box to 0x0 and deletes it from the render. A
+  // frame whose only child is hidden hugs nothing too.
   const hugsNothing =
-    node.type !== "TEXT" && getChildren(node, ctx).length === 0;
+    node.type !== "TEXT" &&
+    !(rendersChildren ?? getChildren(node, ctx).length > 0);
   const emitWidth =
     sizing.horizontal === "FIXED" ||
     (sizing.horizontal === "HUG" && hugsNothing);
@@ -2705,6 +3003,12 @@ function buildCss(
         css.flex = "0 0 auto";
         if (parent?.stackMode === "HORIZONTAL") css.width = `${ownMain}px`;
         else css.height = `${ownMain}px`;
+      } else if (typeof ownMain === "number" && ownMain > 0) {
+        // Figma gives FILL siblings equal OUTER sizes. A `0` basis grows from
+        // the padding box instead, so three 96px cells with different padding
+        // came out 106.7/74.7/106.7. Figma's resolved size as the basis starts
+        // each from where Figma put it and shares any difference evenly.
+        css.flex = `1 1 ${num(ownMain)}px`;
       } else {
         css.flex = "1 0 0";
       }
@@ -2788,13 +3092,20 @@ function buildCss(
   // Border / outline (skipped for vector nodes — strokes go on <path>).
   // Merge box-shadows from border (e.g. INSIDE strokes) and effects so neither overwrites the other.
   const borderStyle =
-    !vectorLike && !geometrylessVector ? borderShorthand(node, ctx) : {};
+    !vectorLike && !geometrylessVector
+      ? borderShorthand(
+          node,
+          ctx,
+          node.type === "TEXT" ? undefined : strokeOverlays,
+          rendersChildren ?? getChildren(node, ctx).length > 0,
+        )
+      : {};
   const { boxShadow: borderBoxShadow, ...restBorderStyle } = borderStyle;
   Object.assign(css, restBorderStyle);
   // Radius
   Object.assign(css, radiusStyles(node));
   // Effects (shadows, blurs)
-  const effectStyle = effectStyles(node, shadowAsFilter);
+  const effectStyle = effectStyles(node, ctx, shadowAsFilter);
   const { boxShadow: effectBoxShadow, ...restEffectStyle } = effectStyle;
   Object.assign(css, restEffectStyle);
   const mergedBoxShadows = (
@@ -2871,6 +3182,10 @@ function buildCss(
     css.overflow = "visible";
   }
   // (Hidden nodes are dropped entirely in emitNode; no display:none needed.)
+  // Overlay layers are `inset`, so they need this box as their containing block.
+  if (!css.position && (overlays?.length || strokeOverlays?.length)) {
+    css.position = "relative";
+  }
 
   return css;
 }
@@ -2888,6 +3203,7 @@ interface Ctx {
   // `key` so we can resolve `styleIdForFill.assetRef.key` lookups.
   byKey: Map<string, FigNode>;
   childrenOf: Map<string, FigNode[]>;
+  sortedChildren: Map<string, readonly FigNode[]>;
   symbolByGuid: Map<string, FigNode>;
   // Boolean visibility vars often carry no variableSetID; this index maps mode id → owning set.
   modeToSet: Map<string, string>;
@@ -2927,12 +3243,8 @@ interface Ctx {
   /** Monotonic id suffix for SVG <defs> entries; ids must be document-unique. */
   svgDefSeq: number;
   /** Collect fidelity verdicts for approximated nodes. */
-  approximatedNodes: Array<{
-    nodeId: string;
-    nodeName?: string;
-    nodeType?: string;
-    notes: string[];
-  }>;
+  approximatedNodes: RenderHtmlFidelityEntry[];
+  approximationByNode: Map<string, RenderHtmlFidelityEntry>;
 }
 
 /**
@@ -2959,7 +3271,12 @@ function decodePathCommands(bytes: Uint8Array | undefined): string {
     const op = bytes[i]!;
     let n = 0;
     let letter = "";
-    if (op === 0) {
+    if (op === 0 && out.length === 0) {
+      // Glyph outlines open with a ClosePath. SVG path data must start with a
+      // MoveTo or the whole path is in error and draws nothing.
+      i += 1;
+      continue;
+    } else if (op === 0) {
       letter = "Z";
       n = 0;
     } else if (op === 1) {
@@ -3667,13 +3984,20 @@ function emitSvgBody(
   out.push(...lines);
 }
 
-function getChildren(node: FigNode, ctx: Ctx): FigNode[] {
-  const kids = ctx.childrenOf.get(guidKey(node.guid)) ?? [];
-  return kids.slice().sort((a, b) => {
-    const pa = a.parentIndex?.position ?? "";
-    const pb = b.parentIndex?.position ?? "";
-    return pa < pb ? -1 : pa > pb ? 1 : 0;
-  });
+/** Children in paint order, sorted once per parent: every emitted node asks
+ *  several times, and a master's children are asked for once per instance. */
+function getChildren(node: FigNode, ctx: Ctx): readonly FigNode[] {
+  const key = guidKey(node.guid);
+  let sorted = ctx.sortedChildren.get(key);
+  if (!sorted) {
+    sorted = (ctx.childrenOf.get(key) ?? []).slice().sort((a, b) => {
+      const pa = a.parentIndex?.position ?? "";
+      const pb = b.parentIndex?.position ?? "";
+      return pa < pb ? -1 : pa > pb ? 1 : 0;
+    });
+    ctx.sortedChildren.set(key, sorted);
+  }
+  return sorted;
 }
 
 function buildAttrs(
@@ -3686,6 +4010,8 @@ function buildAttrs(
   hasAbsoluteChild = false,
   shadowAsFilter = false,
   overlays?: string[],
+  rendersChildren?: boolean,
+  strokeOverlays?: string[],
 ): string[] {
   const attrs: string[] = [];
 
@@ -3777,6 +4103,8 @@ function buildAttrs(
     hasAbsoluteChild,
     shadowAsFilter,
     overlays,
+    rendersChildren,
+    strokeOverlays,
   );
   if (Object.keys(css).length > 0) {
     attrs.push(`style="${escapeHtmlAttr(formatStyleString(css))}"`);
@@ -3916,6 +4244,34 @@ function resolveBoundVisibility(
   return undefined;
 }
 
+/**
+ * The node as it renders under its enclosing instances — overrides and prop
+ * refs applied — or null when a variable binding, its own flag, an override or
+ * a VISIBLE prop hides it.
+ */
+function resolveRenderedNode(
+  node: FigNode,
+  propEnv: Map<string, ResolvedPropValue>,
+  overrideLayers: OverrideLayer[],
+  instancePath: string[],
+  varModes: Map<string, string>,
+  ctx: Ctx,
+): FigNode | null {
+  // Variable bindings override the literal flag — masters hide all variant
+  // layers by default and the active mode turns one on. An override or a
+  // VISIBLE prop can likewise show a layer the master hides, so the literal
+  // flag is only read once they have been applied.
+  const boundVisible = resolveBoundVisibility(node, varModes, ctx);
+  if (boundVisible === false) return null;
+  const overridden = applyOverrideLayers(
+    boundVisible && node.visible === false ? { ...node, visible: true } : node,
+    overrideLayers,
+    instancePath,
+  );
+  const patched = applyPropRefs(overridden, propEnv);
+  return patched && patched.visible !== false ? patched : null;
+}
+
 function emitNode(
   node: FigNode,
   parent: FigNode | null,
@@ -3953,24 +4309,21 @@ function emitNode(
   if (ctx.renderedNodeCount > ctx.maxRenderedNodes) {
     throw new Error(".fig render exceeded its expanded-node budget.");
   }
-  // Match smart-export: skip invisible nodes entirely. Variable bindings override the literal flag —
-  // masters hide all variant layers by default and the active mode turns one on.
-  const boundVisible = resolveBoundVisibility(node, varModes, ctx);
-  if (boundVisible === false) return;
-  if (boundVisible === undefined && node.visible === false) return;
-
-  // Apply enclosing-instance symbol overrides (variant swap, text override,
-  // visibility flip) targeted at this node by guidPath.
-  const overridden = applyOverrideLayers(node, overrideLayers, instancePath);
-  if (overridden === null) return;
-  node = overridden;
-
-  // Apply parent-instance prop overrides for this node (text/symbol/swap,
-  // visibility). May hide the node entirely or rewrite its textData /
-  // symbolData before we resolve the inlined symbol below.
-  const patched = applyPropRefs(node, propEnv);
-  if (patched === null) return;
-  node = patched;
+  // Match smart-export: skip invisible nodes entirely.
+  const originalSymbol =
+    node.type === "INSTANCE"
+      ? ctx.symbolByGuid.get(guidKey(node.symbolData?.symbolID))
+      : undefined;
+  const resolved = resolveRenderedNode(
+    node,
+    propEnv,
+    overrideLayers,
+    instancePath,
+    varModes,
+    ctx,
+  );
+  if (resolved === null) return;
+  node = resolved;
 
   const indent = "  ".repeat(depth);
 
@@ -3985,6 +4338,7 @@ function emitNode(
       if (sym) inlinedSymbol = sym;
     }
   }
+  const slotContent = inlinedSymbol ? null : slotContentOf(node, propEnv, ctx);
 
   // When entering an INSTANCE, extend the prop env with its assignments so
   // descendants (whether the instance's own children or the inlined SYMBOL's
@@ -3992,7 +4346,7 @@ function emitNode(
   // symbolOverrides map (overrides scope to a single instance), and reset
   // the current path so descendant guidPaths are evaluated against the new
   // master.
-  const childPropEnv =
+  let childPropEnv =
     node.type === "INSTANCE" ? buildPropEnv(node, propEnv) : propEnv;
   // When entering an INSTANCE that will inline a master, descendants live
   // one level deeper in the instance-path. Push the new override layer with
@@ -4000,7 +4354,7 @@ function emitNode(
   // inside this instance's master) are evaluated against an empty prefix at
   // the master's first level. Outer layers stay active so deeper overrides
   // from enclosing instances still apply across nested boundaries.
-  const childInstancePath =
+  let childInstancePath =
     node.type === "INSTANCE" && inlinedSymbol
       ? [...instancePath, guidKey(node.overrideKey ?? node.guid)]
       : instancePath;
@@ -4013,6 +4367,13 @@ function emitNode(
         { startIndex: childInstancePath.length, map },
       ];
     }
+  }
+  // Slot content is ordinary document content, not part of the enclosing
+  // master: none of the instance's overrides or props address it.
+  if (slotContent) {
+    childPropEnv = new Map();
+    childInstancePath = [];
+    childOverrideLayers = [];
   }
   // Layer this instance's variant prop modes over inherited ones before descending into the master.
   let childVarModes = varModes;
@@ -4045,19 +4406,53 @@ function emitNode(
   // parent (Figma's "ignore auto layout").
   const isPositioned = !parentIsFlex || node.stackPositioning === "ABSOLUTE";
 
-  // For INSTANCE nodes with an inlined master, the autolayout / padding /
-  // sizing properties cached on the instance reflect the *previous* master
-  // and become stale after a variant swap. Use the master's values for the
-  // instance's own container styling so the rendered layout matches the
-  // currently-resolved variant.
-  const layoutNode = inlinedSymbol
-    ? withMasterLayout(node, inlinedSymbol)
-    : node;
+  // An INSTANCE arranges its children by its master's layout, bar the fields
+  // it overrode (see `withMasterLayout`); a slot by its assigned content's.
+  let layoutNode = inlinedSymbol
+    ? withMasterLayout(node, inlinedSymbol, originalSymbol ?? inlinedSymbol)
+    : slotContent
+      ? withSlotLayout(node, slotContent)
+      : node;
+  const childSource = slotContent ?? inlinedSymbol ?? node;
+  // Children were placed against the size of the node that holds them in the
+  // document — the master, the slot content, or this frame as stored — which
+  // is not the size this node renders at once an instance resized it.
+  const children: readonly FigNode[] =
+    vectorLike || node.type === "TEXT"
+      ? []
+      : relayoutResizedChildren(
+          getChildren(childSource, ctx),
+          (childSource === node
+            ? ctx.byGuid.get(guidKey(node.guid))
+            : childSource
+          )?.size,
+          node.size,
+          !!layoutNode.stackMode && layoutNode.stackMode !== "NONE",
+        );
+  const rendersChild = (child: FigNode): boolean =>
+    resolveRenderedNode(
+      child,
+      childPropEnv,
+      childOverrideLayers,
+      childInstancePath,
+      childVarModes,
+      ctx,
+    ) !== null;
+  // Figma centres a lone child under "space between"; CSS `space-between`
+  // puts it at the start edge.
+  if (
+    (layoutNode.stackPrimaryAlignItems === "SPACE_EVENLY" ||
+      layoutNode.stackPrimaryAlignItems === "SPACE_BETWEEN") &&
+    children.filter(
+      (c) => !c.mask && c.stackPositioning !== "ABSOLUTE" && rendersChild(c),
+    ).length === 1
+  ) {
+    layoutNode = { ...layoutNode, stackPrimaryAlignItems: "CENTER" };
+  }
   // If any rendered child ignores auto-layout (position: absolute), this
   // container must establish a positioning context so the child is offset
   // relative to it. Check the actually-rendered children (the inlined
   // master's, for an INSTANCE).
-  const childSource = inlinedSymbol ?? node;
   const childrenOfSource = ctx.childrenOf.get(guidKey(childSource.guid)) ?? [];
   const hasAbsoluteChild =
     childrenOfSource.some((c) => c.stackPositioning === "ABSOLUTE") ||
@@ -4074,12 +4469,14 @@ function emitNode(
   // (e.g. a tooltip caret) needs `filter: drop-shadow()` rather than
   // `box-shadow`, which would only trace the body's box. Children render from
   // the inlined master for an INSTANCE.
-  const shadowAsFilter = getChildren(inlinedSymbol ?? node, ctx).some(
+  const shadowAsFilter = getChildren(childSource, ctx).some(
     (c) => c.stackPositioning === "ABSOLUTE" && c.visible !== false,
   );
   // Paint layers CSS cannot express in the background stack render as the
-  // node's first children instead; see `paintOverlayMarkup`.
+  // node's first children instead; see `paintOverlayMarkup`. Strokes drawn as
+  // layers render as its last, above the real children.
   const paintOverlays: string[] = [];
+  const strokeOverlays: string[] = [];
   const attrs = buildAttrs(
     layoutNode,
     parent,
@@ -4090,6 +4487,10 @@ function emitNode(
     hasAbsoluteChild,
     shadowAsFilter,
     paintOverlays,
+    vectorLike || node.type === "TEXT"
+      ? undefined
+      : children.some(rendersChild),
+    strokeOverlays,
   );
   if (vectorLike) {
     // viewBox prefers the geometry source node's intrinsic size so the
@@ -4136,80 +4537,88 @@ function emitNode(
   }
 
   if (node.type === "TEXT") {
+    emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
     const stored = textCharacters(node);
     const chars = withoutPrivateUse(stored);
-    if (chars !== stored) {
+    // Outlines replace the whole text, so only icon-only text takes them: a
+    // label beside a symbol stays live text the editor and agent can read.
+    const outlines =
+      chars !== stored && chars.trim() === ""
+        ? glyphOutlineSvg(node, ctx)
+        : null;
+    if (outlines) {
+      lines.push(`${indent}  ${outlines}`);
+    } else if (chars !== stored) {
       recordApproximation(
         node,
         ctx,
-        "icon-font glyphs dropped: their Private Use Area codepoints have no meaning outside the font that assigned them, and no substitute font can draw them",
+        "icon-font glyphs dropped: their Private Use Area codepoints have no meaning outside the font that assigned them, and stored outlines are drawn only for text that is icons alone",
       );
     }
-    if (chars.length === 0) {
-      emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
-      lines.push(`${indent}</${tag}>`);
-      return;
-    }
-    emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
-    // Preserve newlines in the source by splitting into <br>-separated lines
-    // (HTML otherwise collapses whitespace).
-    const runs = textStyleRuns(node);
-    const toHtml = (s: string) => escapeHtmlText(s).replace(/\n/g, "<br>");
-    if (runs.length <= 1) {
-      lines.push(`${indent}  ${toHtml(chars)}`);
-    } else {
-      // Per-character color runs → one <span> per run; base-color runs inherit
-      // the element's `color`, overridden runs carry their own.
-      const html = runs
-        .map((r) => withoutPrivateUse(r.text))
-        .map((text, index) =>
-          runs[index].color
-            ? `<span style="color: ${runs[index].color}">${toHtml(text)}</span>`
-            : toHtml(text),
-        )
-        .join("");
+    if (!outlines && chars.length > 0) {
+      // Preserve newlines in the source by splitting into <br>-separated lines
+      // (HTML otherwise collapses whitespace).
+      const runs = textStyleRuns(node, ctx);
+      const toHtml = (s: string) => escapeHtmlText(s).replace(/\n/g, "<br>");
+      // Per-character style runs → one <span> per run; base runs inherit the
+      // element's style, overridden runs carry their own.
+      let html =
+        runs.length <= 1
+          ? toHtml(chars)
+          : runs
+              .map((run) => {
+                const text = toHtml(withoutPrivateUse(run.text));
+                return run.style
+                  ? `<span style="${escapeHtmlAttr(run.style)}">${text}</span>`
+                  : text;
+              })
+              .join("");
+      if (textVerticalAlign(node)) {
+        const truncation = textTruncationCss(node, ctx);
+        html = truncation
+          ? `<span style="${escapeHtmlAttr(formatStyleString(truncation))}">${html}</span>`
+          : `<span>${html}</span>`;
+      }
       lines.push(`${indent}  ${html}`);
     }
     lines.push(`${indent}</${tag}>`);
     return;
   }
 
-  // Pick which children to render: the inlined SYMBOL's, or the node's own.
-  let children: FigNode[];
   let symKeyForCycle: string | null = null;
   if (inlinedSymbol) {
     symKeyForCycle = guidKey(inlinedSymbol.guid);
     ctx.inliningStack.add(symKeyForCycle);
-    children = resizeInlinedSymbolChildren(
-      getChildren(inlinedSymbol, ctx),
-      inlinedSymbol,
-      node,
-      ctx,
-    );
-  } else {
-    children = getChildren(node, ctx);
   }
 
   try {
+    const closeTag = () => {
+      for (const overlay of strokeOverlays) lines.push(`${indent}  ${overlay}`);
+      lines.push(`${indent}</${tag}>`);
+    };
     if (children.length === 0) {
       emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
-      lines.push(`${indent}</${tag}>`);
+      closeTag();
       return;
     }
     emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
     // When inlining a SYMBOL, its child positions are relative to the SYMBOL's
     // own frame, which now coincides with this INSTANCE's frame. So they keep
     // their original transforms.
-    const childParentIsFlex = inlinedSymbol
-      ? !!(inlinedSymbol.stackMode && inlinedSymbol.stackMode !== "NONE")
-      : !!isFlex;
-    // `resizeInlinedSymbolChildren` puts the master's children into the
+    const childParentIsFlex = !!isFlex;
+    // `relayoutResizedChildren` puts the master's children into the
     // INSTANCE's coordinate space, so the parent the constraint code measures
     // against has to be that size too — otherwise a MAX or STRETCH child
     // resolves its end edge against the component's width and lands outside.
-    const childParentNode = inlinedSymbol
-      ? { ...inlinedSymbol, size: node.size ?? inlinedSymbol.size }
-      : node;
+    // It keeps the children's source guid, which is how siblings are found.
+    const childParentNode =
+      childSource === node
+        ? layoutNode
+        : {
+            ...layoutNode,
+            guid: childSource.guid,
+            size: node.size ?? childSource.size,
+          };
     // A Figma mask clips the siblings painted after it, up to the next mask,
     // and is never drawn itself. `openMaskRun` tracks the wrapper holding the
     // current run so it closes before the next mask opens one and before the
@@ -4272,7 +4681,7 @@ function emitNode(
       );
     }
     closeMaskRun();
-    lines.push(`${indent}</${tag}>`);
+    closeTag();
   } finally {
     if (symKeyForCycle) ctx.inliningStack.delete(symKeyForCycle);
   }
@@ -4320,7 +4729,7 @@ function buildGoogleFontsUrl(fontUsage: Set<string>): string | null {
   >();
   for (const entry of fontUsage) {
     const [family, weightStr, italicStr] = entry.split("|");
-    if (!family) continue;
+    if (!family || NON_GOOGLE_FONT_FAMILY.test(family)) continue;
     const weight = Number(weightStr) || 400;
     const italic = italicStr === "1";
     if (!byFamily.has(family)) byFamily.set(family, []);
@@ -4344,6 +4753,7 @@ function buildGoogleFontsUrl(fontUsage: Set<string>): string | null {
       families.push(`family=${famParam}:wght@${weights.join(";")}`);
     }
   }
+  if (families.length === 0) return null;
   return `https://fonts.googleapis.com/css2?${families.join("&")}&display=swap`;
 }
 
@@ -4426,6 +4836,10 @@ export interface RenderedFrame {
   html: string;
   width?: number;
   height?: number;
+  /** Top-left of the frame's bounding box on its page, in the same space as
+   *  width/height; sections are flattened. Consumers normalize. */
+  x: number;
+  y: number;
 }
 
 export interface RenderHtmlFidelityEntry {
@@ -4470,7 +4884,7 @@ export interface RenderHtmlOptions {
   maxTotalOutputBytes?: number;
 }
 
-const DEFAULT_MAX_RENDER_FRAMES = 200;
+const DEFAULT_MAX_RENDER_FRAMES = 300;
 const DEFAULT_MAX_RENDERED_NODES = 250_000;
 const DEFAULT_MAX_TREE_DEPTH = 256;
 const DEFAULT_MAX_FRAME_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -4483,27 +4897,79 @@ const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
  * nodes (and nested sections) to wrap frames; sections are organizational
  * containers, not standalone designs, so we recurse THROUGH them and
  * collect the frames inside. Anything that isn't a SECTION or a
- * renderable type is ignored. Children are returned in document order
- * (depth-first across sections).
+ * renderable type is ignored.
+ *
+ * The traversal itself walks children in `parentIndex.position` order (the
+ * layer stacking/creation order), but that has no necessary relation to how
+ * frames are actually laid out on the canvas — a designer can duplicate or
+ * reorder frames in the layers panel without moving them, or create later
+ * frames to the LEFT of earlier ones. Once collected, the top-level frames
+ * are re-sorted by the minimum X/Y of their transformed canvas bounds (then
+ * the traversal order for exact ties) so multi-frame flows import left-to-right
+ * in the same reading order they have in Figma, instead of in creation/layer
+ * order.
  */
 export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
 ): FigNode[] {
+  return collectTopLevelFrameBounds(parent, childrenOf).map(
+    (entry) => entry.node,
+  );
+}
+
+function collectTopLevelFrameBounds(
+  parent: FigNode,
+  childrenOf: Map<string, FigNode[]>,
+): Array<{ node: FigNode; x: number; y: number }> {
+  type Affine = {
+    m00: number;
+    m01: number;
+    m02: number;
+    m10: number;
+    m11: number;
+    m12: number;
+  };
+  const identity: Affine = {
+    m00: 1,
+    m01: 0,
+    m02: 0,
+    m10: 0,
+    m11: 1,
+    m12: 0,
+  };
+  const multiply = (parentMatrix: Affine, localMatrix: Affine): Affine => ({
+    m00:
+      parentMatrix.m00 * localMatrix.m00 + parentMatrix.m01 * localMatrix.m10,
+    m01:
+      parentMatrix.m00 * localMatrix.m01 + parentMatrix.m01 * localMatrix.m11,
+    m02:
+      parentMatrix.m00 * localMatrix.m02 +
+      parentMatrix.m01 * localMatrix.m12 +
+      parentMatrix.m02,
+    m10:
+      parentMatrix.m10 * localMatrix.m00 + parentMatrix.m11 * localMatrix.m10,
+    m11:
+      parentMatrix.m10 * localMatrix.m01 + parentMatrix.m11 * localMatrix.m11,
+    m12:
+      parentMatrix.m10 * localMatrix.m02 +
+      parentMatrix.m11 * localMatrix.m12 +
+      parentMatrix.m12,
+  });
   const sortChildren = (kids: FigNode[]): FigNode[] =>
     kids.slice().sort((a, b) => {
       const pa = a.parentIndex?.position ?? "";
       const pb = b.parentIndex?.position ?? "";
       return pa < pb ? -1 : pa > pb ? 1 : 0;
     });
-  const out: FigNode[] = [];
+  const out: Array<{ node: FigNode; x: number; y: number }> = [];
   const visitedSections = new Set<string>();
   const stack = sortChildren(childrenOf.get(guidKey(parent.guid)) ?? [])
     .reverse()
-    .map((node) => ({ node, depth: 1 }));
+    .map((node) => ({ node, depth: 1, matrix: identity }));
   let visited = 0;
   while (stack.length > 0) {
-    const { node, depth } = stack.pop()!;
+    const { node, depth, matrix } = stack.pop()!;
     visited += 1;
     if (visited > DEFAULT_MAX_RENDERED_NODES) {
       throw new Error(".fig section traversal exceeded its node budget.");
@@ -4512,6 +4978,7 @@ export function collectTopLevelFrames(
       throw new Error(".fig section tree is nested too deeply.");
     }
     if (!node.type || node.visible === false) continue;
+    const nodeMatrix = multiply(matrix, node.transform ?? identity);
     if (node.type === "SECTION") {
       const key = guidKey(node.guid);
       if (visitedSections.has(key)) {
@@ -4520,21 +4987,48 @@ export function collectTopLevelFrames(
       visitedSections.add(key);
       const children = sortChildren(childrenOf.get(key) ?? []);
       for (let index = children.length - 1; index >= 0; index -= 1) {
-        stack.push({ node: children[index]!, depth: depth + 1 });
+        stack.push({
+          node: children[index]!,
+          depth: depth + 1,
+          matrix: nodeMatrix,
+        });
       }
       continue;
     }
-    if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) out.push(node);
+    if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
+      const width = node.size?.x ?? 0;
+      const height = node.size?.y ?? 0;
+      const bounds = [
+        [0, 0],
+        [width, 0],
+        [0, height],
+        [width, height],
+      ].map(([x, y]) => ({
+        x: nodeMatrix.m00 * x + nodeMatrix.m01 * y + nodeMatrix.m02,
+        y: nodeMatrix.m10 * x + nodeMatrix.m11 * y + nodeMatrix.m12,
+      }));
+      out.push({
+        node,
+        x: Math.min(...bounds.map((point) => point.x)),
+        y: Math.min(...bounds.map((point) => point.y)),
+      });
+    }
   }
-  return out;
+  return out
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => a.x - b.x || a.y - b.y || a.index - b.index)
+    .map(({ node, x, y }) => ({ node, x, y }));
 }
 // Maps a Figma `variableField` (on a node's variableConsumptionMap entry) to
 // the literal FigNode field it overrides. Only layout-affecting numeric fields
 // are listed — colors/text tokens are resolved elsewhere or left as baked.
 const VARIABLE_FIELD_TO_PROP: Record<string, keyof FigNode> = {
-  STACK_PADDING_LEFT: "stackPaddingLeft",
+  // Kiwi keeps the LEFT and TOP padding in `stackHorizontalPadding` /
+  // `stackVerticalPadding` (see `autolayoutStyles`); `stackPaddingLeft/Top`
+  // are never read, so a binding resolved into them did nothing.
+  STACK_PADDING_LEFT: "stackHorizontalPadding",
   STACK_PADDING_RIGHT: "stackPaddingRight",
-  STACK_PADDING_TOP: "stackPaddingTop",
+  STACK_PADDING_TOP: "stackVerticalPadding",
   STACK_PADDING_BOTTOM: "stackPaddingBottom",
   STACK_HORIZONTAL_PADDING: "stackHorizontalPadding",
   STACK_VERTICAL_PADDING: "stackVerticalPadding",
@@ -4693,19 +5187,17 @@ export function renderHtmlTemplates(
 ): RenderHtmlResult {
   const doc = document as {
     nodeChanges?: FigNode[];
-    blobs?: Array<{ bytes?: string | Uint8Array }>;
+    blobs?: Array<{ bytes?: unknown }>;
   };
   const nodes = doc.nodeChanges ?? [];
 
-  // Decode blob bytes once. The kiwi document JSON-serializes blob bytes as
-  // hex strings; Buffer / Uint8Array values may also appear depending on how
-  // the caller decoded the document.
+  // The decoder hands blobs over as bytes (Buffer is a Uint8Array). Anything
+  // else would silently erase every path that indexes it, so it is refused.
   const blobs: Uint8Array[] = (doc.blobs ?? []).map((b) => {
     const v = b?.bytes;
-    if (!v) return new Uint8Array(0);
+    if (v === undefined) return new Uint8Array(0);
     if (v instanceof Uint8Array) return v;
-    if (typeof v === "string") return hexToBytes(v);
-    return new Uint8Array(0);
+    throw new Error(".fig document blob is not bytes.");
   });
 
   const byGuid = new Map<string, FigNode>();
@@ -4746,6 +5238,7 @@ export function renderHtmlTemplates(
     byGuid,
     byKey,
     childrenOf,
+    sortedChildren: new Map(),
     symbolByGuid,
     modeToSet,
     imageRefBase: options.imageRefBase,
@@ -4764,6 +5257,7 @@ export function renderHtmlTemplates(
     inliningStack: new Set(),
     svgDefSeq: 0,
     approximatedNodes: [],
+    approximationByNode: new Map(),
     renderedNodeCount: 0,
     maxRenderedNodes: options.maxRenderedNodes ?? DEFAULT_MAX_RENDERED_NODES,
     maxTreeDepth: options.maxTreeDepth ?? DEFAULT_MAX_TREE_DEPTH,
@@ -4784,12 +5278,14 @@ export function renderHtmlTemplates(
 
   const selection =
     options.selection && options.selection.size > 0 ? options.selection : null;
+  const maxFrames = options.maxFrames ?? DEFAULT_MAX_RENDER_FRAMES;
 
   const pages = selection
     ? allPages.filter((page) => {
         if (selection.has(guidKey(page.guid))) return true;
-        const children = childrenOf.get(guidKey(page.guid)) ?? [];
-        return children.some((c) => selection.has(guidKey(c.guid)));
+        return collectTopLevelFrames(page, childrenOf).some((frame) =>
+          selection.has(guidKey(frame.guid)),
+        );
       })
     : allPages;
 
@@ -4798,22 +5294,21 @@ export function renderHtmlTemplates(
     const page = pages[pageIdx]!;
     const pageDirName = sanitizeFilename(page.name, `page-${pageIdx + 1}`);
     const pageSelected = selection?.has(guidKey(page.guid)) ?? false;
-    const pageFrames = collectTopLevelFrames(page, ctx.childrenOf).filter(
+    const pageFrames = collectTopLevelFrameBounds(page, ctx.childrenOf).filter(
       (c) => {
         if (!selection || pageSelected) return true;
-        return selection.has(guidKey(c.guid));
+        return selection.has(guidKey(c.node.guid));
       },
     );
-    if (
-      frames.length + pageFrames.length >
-      (options.maxFrames ?? DEFAULT_MAX_RENDER_FRAMES)
-    ) {
-      throw new Error(".fig document has too many top-level frames.");
+    if (frames.length + pageFrames.length > maxFrames) {
+      throw new Error(
+        `.fig document has too many top-level frames (max ${maxFrames}).`,
+      );
     }
 
     const seen = new Map<string, number>();
     for (let frameIdx = 0; frameIdx < pageFrames.length; frameIdx++) {
-      const frame = pageFrames[frameIdx]!;
+      const { node: frame, x, y } = pageFrames[frameIdx]!;
       const baseFile = sanitizeFilename(frame.name, `frame-${frameIdx + 1}`);
       const dupeIdx = seen.get(baseFile) ?? 0;
       seen.set(baseFile, dupeIdx + 1);
@@ -4834,6 +5329,8 @@ export function renderHtmlTemplates(
         html,
         width: frame.size?.x,
         height: frame.size?.y,
+        x,
+        y,
       });
     }
   }

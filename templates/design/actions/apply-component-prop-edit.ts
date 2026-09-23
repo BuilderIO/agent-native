@@ -12,12 +12,9 @@
  *                    HTML attribute on the component root.
  * - `classReplace` — replaces one Tailwind class with another on the root node.
  *
- * **Real-app sources (localhost / fusion):** deliberately fail closed. This
- * action's patcher operates on SQL-backed HTML design files; it must never be
- * reused for compiled JSX/TSX source. Real-app prop persistence needs a
- * dedicated consented, version-guarded bridge transform. Until that exists,
- * callers may preview but this action returns `ctaRequired: true` without
- * reading or modifying a design file.
+ * **Real-app sources:** a literal JSX attribute on a single authored localhost
+ * anchor uses the consented, version-guarded local-file CAS path. Transformed,
+ * repeated, shared, and fusion sources still fail closed for agent handoff.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1, §7 (preview/apply contract), §11 phase 2.
  */
@@ -76,9 +73,16 @@ import {
   type ComponentSourceDocument,
 } from "../shared/component-links.js";
 import {
+  COMPONENT_PROP_PREFIX,
   componentNameFor,
   componentNodeIdMatches,
+  propNameToDataAttribute,
 } from "../shared/component-model.js";
+import {
+  planLocalJsxVisualEdit,
+  readLiteralJsxPropsAtAnchor,
+  type LocalJsxSourceAnchor,
+} from "../shared/local-jsx-visual-edit.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
@@ -87,6 +91,8 @@ import {
   restoreComponentMainInDesign,
   type ComponentArchiveMutationResult,
 } from "./_component-archive.js";
+import readLocalFileAction from "./read-local-file.js";
+import writeLocalFileAction from "./write-local-file.js";
 
 type SupportedStructureIntent =
   | DeleteNodeEditIntent
@@ -104,6 +110,32 @@ type ComponentStructureEdit =
       selectionNodeIds?: string[];
     }
   | { kind: "structure"; intents: SupportedStructureIntent[] };
+
+interface LocalComponentSource extends LocalJsxSourceAnchor {
+  connectionId: string;
+  path: string;
+  expectedVersionHash?: string;
+  expectedValue?: string;
+}
+
+function jsxPropNameForComponentAttribute(attribute: string): string {
+  if (!attribute.startsWith(COMPONENT_PROP_PREFIX)) return attribute;
+  return attribute
+    .slice(COMPONENT_PROP_PREFIX.length)
+    .replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+}
+
+function literalJsxPropNameForComponentAttribute(
+  content: string,
+  anchor: LocalJsxSourceAnchor,
+  attribute: string,
+): string | undefined {
+  const literalProps = readLiteralJsxPropsAtAnchor({ content, anchor });
+  const matches = literalProps?.filter(
+    ({ name }) => propNameToDataAttribute(name) === attribute,
+  );
+  return matches?.length === 1 ? matches[0]!.name : undefined;
+}
 
 interface LinkedComponentSelection {
   fileId: string;
@@ -808,8 +840,9 @@ export default defineAction({
     "For inline/Alpine designs, edits the data-agent-native-prop-* attributes, " +
     "x-data expression, or class list of the component root via the deterministic " +
     "HTML-patch path (same seam as apply-visual-edit). " +
-    "For real-app sources, returns ctaRequired=true without modifying any file; " +
-    "compiled source requires a dedicated consented bridge transform. " +
+    "For a literal JSX attribute on a single authored localhost anchor, uses the " +
+    "consented local-file CAS path; transformed, repeated, shared, and fusion " +
+    "sources return ctaRequired=true. " +
     "The structure variant atomically propagates bounded delete, wrap, unwrap, " +
     "move, and style intents across linked HTML files; unsupported structural " +
     "operations fail before any file is written. " +
@@ -923,6 +956,31 @@ export default defineAction({
           .describe(
             "Exact source version hashes for every HTML file in the Design. Required for linked property and structure edits.",
           ),
+        local: z
+          .object({
+            connectionId: z.string().min(1),
+            path: z.string().min(1),
+            line: z.number().int().positive(),
+            column: z.number().int().positive(),
+            positionPrecision: z
+              .enum(["authored", "transformed", "unknown"])
+              .optional(),
+            runtimeMultiplicity: z.number().int().positive().optional(),
+            scope: z
+              .enum([
+                "single-instance",
+                "repeated-render",
+                "shared-component-definition",
+                "unknown",
+              ])
+              .optional(),
+            expectedVersionHash: z.string().optional(),
+            expectedValue: z
+              .string()
+              .optional()
+              .describe("Current literal JSX prop value used as a CAS guard."),
+          })
+          .optional(),
       })
       .optional(),
   }),
@@ -935,13 +993,115 @@ export default defineAction({
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
 
-    // Fail closed for every real-app tier even if its generic capability map
-    // advertises applyEdit. This action only knows how to patch SQL-backed HTML;
-    // allowing localhost through here could report success for the mirror while
-    // leaving the real JSX/TSX file untouched. A future compiled-source action
-    // must perform consent, canonical path resolution, AST anchoring, and an
-    // expected-version bridge write as one dedicated transaction.
+    const localSource = source?.local as LocalComponentSource | undefined;
+
+    // Literal localhost JSX props reuse the existing authored-anchor planner
+    // and consented bridge CAS. All other real-app edits stay fail-closed.
     if (sourceType !== "inline") {
+      if (
+        sourceType === "localhost" &&
+        localSource &&
+        edit.kind === "attribute"
+      ) {
+        await assertAccess("design", designId, "editor");
+        if (!localSource.expectedVersionHash) {
+          return {
+            designId,
+            nodeId,
+            sourceType,
+            persisted: false,
+            conflict: true,
+            error:
+              "Component prop edits require the source version captured with the live selection. Refresh the selection and retry.",
+          };
+        }
+        const live = await readLocalFileAction.run({
+          designId,
+          connectionId: localSource.connectionId,
+          path: localSource.path,
+        });
+        if (
+          localSource.expectedVersionHash &&
+          live.versionHash !== localSource.expectedVersionHash
+        ) {
+          return {
+            designId,
+            nodeId,
+            sourceType,
+            persisted: false,
+            conflict: true,
+            error:
+              "The local component source changed while the prop edit was being prepared. Refresh and retry.",
+            source: {
+              kind: "local-file" as const,
+              connectionId: localSource.connectionId,
+              path: localSource.path,
+              versionHash: live.versionHash,
+            },
+          };
+        }
+
+        const jsxPropName =
+          literalJsxPropNameForComponentAttribute(
+            live.content,
+            localSource,
+            edit.attribute,
+          ) ?? jsxPropNameForComponentAttribute(edit.attribute);
+        const planned = planLocalJsxVisualEdit({
+          content: live.content,
+          anchor: localSource,
+          intent: {
+            kind: "attributes",
+            values: {
+              [jsxPropName]: edit.value,
+              [edit.attribute]: edit.value,
+            },
+            expectedValues: {
+              [jsxPropName]: localSource.expectedValue,
+            },
+          },
+        });
+        if (planned.result.status !== "applied") {
+          return {
+            designId,
+            nodeId,
+            sourceType,
+            persisted: false,
+            ctaRequired: planned.result.status === "needsAgent",
+            error: planned.result.message,
+            result: planned.result,
+          };
+        }
+
+        let write: Awaited<ReturnType<typeof writeLocalFileAction.run>> | null =
+          null;
+        if (planned.result.changed) {
+          await snapshotDesignBeforeAgentEdit(designId, context);
+          write = await writeLocalFileAction.run({
+            designId,
+            connectionId: localSource.connectionId,
+            relPath: localSource.path,
+            content: planned.content,
+            expectedVersionHash: live.versionHash,
+            requireExpectedVersionHash: true,
+          });
+        }
+        return {
+          designId,
+          nodeId,
+          sourceType,
+          persisted: write ? write.written : !planned.result.changed,
+          ctaRequired: false,
+          source: {
+            kind: "local-file" as const,
+            connectionId: localSource.connectionId,
+            path: localSource.path,
+            versionHash: write?.versionHash ?? live.versionHash,
+          },
+          content: planned.content,
+          result: planned.result,
+        };
+      }
       return {
         designId,
         nodeId,
@@ -1041,7 +1201,11 @@ export default defineAction({
       }
     }
 
+    const isLinkedComponentAttributeEdit =
+      edit.kind === "attribute" &&
+      edit.attribute.startsWith(COMPONENT_PROP_PREFIX);
     if (
+      isLinkedComponentAttributeEdit ||
       edit.kind === "style" ||
       edit.kind === "styleBatch" ||
       edit.kind === "styleTargetsBatch" ||
@@ -1073,6 +1237,7 @@ export default defineAction({
           }
         | { kind: "resetOverrides" }
         | ComponentStructureEdit =
+        isLinkedComponentAttributeEdit ||
         edit.kind === "style" ||
         edit.kind === "textContent" ||
         edit.kind === "layerName"

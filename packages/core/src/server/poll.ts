@@ -46,7 +46,6 @@ import {
 } from "../extensions/change-marker.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
-import { getSession } from "./auth.js";
 
 export interface ChangeEvent {
   version: number;
@@ -2295,7 +2294,10 @@ export function createPollHandler(
   // per-app instance learns of changes by tailing its own DB.
   if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
-    const session = await getSession(event).catch(() => null);
+    // coercion-ok: polling must fail closed when session resolution is unavailable.
+    const session = await import("./auth.js")
+      .then(({ getSession }) => getSession(event))
+      .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Unauthenticated" };

@@ -94,7 +94,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   account: {
     label: "Account",
     keywords: [
-      "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock",
+      "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock privacy personal data rights GDPR CCPA delete deletion export access",
       ...SIGN_OUT_SEARCH_TERMS,
     ].join(" "),
   },

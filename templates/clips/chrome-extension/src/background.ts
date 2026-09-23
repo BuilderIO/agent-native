@@ -77,6 +77,13 @@ type PopupStartMessage = {
   settings?: Partial<ExtensionSettings>;
 };
 
+type AuthSessionMessage = {
+  type: "CLIPS_AUTH_SESSION";
+  token?: string;
+  email?: string;
+  clipsBaseUrl?: string;
+};
+
 type ExternalMessage =
   | {
       type: "CLIPS_CAPTURE_START";
@@ -93,12 +100,7 @@ type ExternalMessage =
       type: "CLIPS_CAPTURE_CANCEL";
       sessionId?: string;
     }
-  | {
-      type: "CLIPS_AUTH_SESSION";
-      token?: string;
-      email?: string;
-      clipsBaseUrl?: string;
-    };
+  | AuthSessionMessage;
 
 type ChromeTab = {
   id?: number;
@@ -2237,6 +2239,35 @@ async function handlePopupSignIn(message: {
   return { ok: true };
 }
 
+async function handleAuthSession(
+  message: AuthSessionMessage,
+  senderUrl?: string,
+) {
+  const settings = await readSettings();
+  const clipsBaseUrl = normalizeBaseUrl(
+    message.clipsBaseUrl ?? settings.clipsBaseUrl,
+  );
+  const senderOrigin = originOf(senderUrl);
+  if (
+    !senderOrigin ||
+    senderOrigin !== originOf(clipsBaseUrl) ||
+    senderOrigin !== originOf(settings.clipsBaseUrl)
+  ) {
+    return { ok: false, error: "Auth message came from the wrong origin." };
+  }
+  if (typeof message.token !== "string" || !message.token.trim()) {
+    return { ok: false, error: "Missing auth token." };
+  }
+  await storageSet({ ...settings, clipsBaseUrl });
+  await saveAuthSession({
+    token: message.token,
+    email: typeof message.email === "string" ? message.email : undefined,
+    clipsBaseUrl,
+    savedAt: nowIso(),
+  });
+  return { ok: true };
+}
+
 function summarize(snapshot: {
   endedAt: string;
   consoleLogs: ConsoleLog[];
@@ -2734,25 +2765,7 @@ async function handleExternalMessage(
   }
 
   if (message.type === "CLIPS_AUTH_SESSION") {
-    const settings = await readSettings();
-    const clipsBaseUrl = normalizeBaseUrl(
-      message.clipsBaseUrl ?? settings.clipsBaseUrl,
-    );
-    const senderOrigin = originOf(sender?.url);
-    if (!senderOrigin || senderOrigin !== originOf(clipsBaseUrl)) {
-      return { ok: false, error: "Auth message came from the wrong origin." };
-    }
-    if (typeof message.token !== "string" || !message.token.trim()) {
-      return { ok: false, error: "Missing auth token." };
-    }
-    await storageSet({ ...settings, clipsBaseUrl });
-    await saveAuthSession({
-      token: message.token,
-      email: typeof message.email === "string" ? message.email : undefined,
-      clipsBaseUrl,
-      savedAt: nowIso(),
-    });
-    return { ok: true };
+    return handleAuthSession(message, sender?.url);
   }
 
   if (message.type === "CLIPS_CAPTURE_START") {
@@ -2857,6 +2870,13 @@ async function dispatchRuntimeMessage(
   sender?: chrome.runtime.MessageSender,
 ): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
+
+  if (type === "CLIPS_AUTH_SESSION") {
+    return handleAuthSession(
+      message as AuthSessionMessage,
+      sender?.tab?.url ?? sender?.url,
+    );
+  }
 
   if (type === "CLIPS_DIAGNOSTIC_INTERACTION") {
     const tabId = sender?.tab?.id;

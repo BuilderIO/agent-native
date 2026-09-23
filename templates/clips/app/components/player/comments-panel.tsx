@@ -9,10 +9,10 @@ import {
 } from "@agent-native/core/client/markdown";
 import {
   IconArrowUp,
+  IconMessageCircle,
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
-  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -872,7 +872,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
           <EmptyCommentsState
             enableComments={enableComments}
             isSharePresentation={isSharePresentation}
-            isInlinePresentation={isInlinePresentation}
           />
         ) : (
           <ul
@@ -887,12 +886,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
       </div>
 
       {isInlinePresentation && enableComments ? (
-        <div className="relative z-10 -mt-16 shrink-0 bg-transparent pt-16">
+        <div className="pointer-events-none relative z-10 -mt-16 shrink-0 bg-transparent pt-16">
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 z-0 h-16 bg-gradient-to-b from-background/0 to-background lg:from-background/0 lg:to-background"
+            className="absolute inset-x-0 top-0 z-0 h-16 bg-gradient-to-b from-background/0 to-background lg:from-background/0 lg:to-background"
           />
-          <div className="relative z-10 bg-background">{composer}</div>
+          <div className="pointer-events-auto relative z-10 bg-background">
+            {composer}
+          </div>
         </div>
       ) : isSharePresentation && enableComments ? (
         <div className="px-4 py-4">{composer}</div>
@@ -906,11 +907,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
 function EmptyCommentsState({
   enableComments,
   isSharePresentation,
-  isInlinePresentation,
 }: {
   enableComments: boolean;
   isSharePresentation: boolean;
-  isInlinePresentation: boolean;
 }) {
   const t = useT();
   if (!enableComments) {
@@ -932,11 +931,6 @@ function EmptyCommentsState({
       </Empty>
     );
   }
-
-  // Inline comments keep the composer in the reading flow for every viewer;
-  // the signed-out composer is the empty-state affordance, so a second
-  // centered prompt would make the public and signed-in layouts diverge.
-  if (isInlinePresentation) return null;
 
   return (
     <Empty
@@ -1408,6 +1402,7 @@ function CommentCard({
             <InlineMarkdown
               content={comment.content}
               className="mt-0.5 text-sm leading-5 text-foreground [overflow-wrap:anywhere]"
+              linkClassName="text-link underline-offset-2 hover:underline"
               renderLists
               protectedSpans={commentMentionSpans(comment.mentions)}
             />

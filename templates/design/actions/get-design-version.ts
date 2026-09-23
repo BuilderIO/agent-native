@@ -28,6 +28,9 @@ function parseChatContext(raw: string | null): DesignVersionChatContext | null {
       context[key] = candidate;
     }
   }
+  if ((value as { surface?: unknown }).surface === "editor") {
+    context.surface = "editor";
+  }
   return Object.keys(context).length > 0 ? context : null;
 }
 
@@ -77,7 +80,12 @@ export default defineAction({
       designId,
       label: version.label,
       createdAt: version.createdAt,
-      source: chatContext ? ("chat" as const) : ("legacy" as const),
+      source:
+        chatContext?.surface === "editor"
+          ? ("editor" as const)
+          : chatContext
+            ? ("chat" as const)
+            : ("legacy" as const),
       fileCount: version.fileCount ?? snapshot.files.length,
       chatContext,
       designTitle: snapshot.designTitle ?? null,

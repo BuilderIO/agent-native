@@ -83,7 +83,7 @@ import {
 } from "@/lib/deck-filter";
 import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import { isDesignSystemSelectable } from "@/lib/design-system-selection";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -332,8 +332,13 @@ export default function Index() {
     loading,
     loadError,
     reloadDecks,
+    catchUpStaleDeckList,
   } = useDecks();
-  const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
+  const {
+    designSystems,
+    defaultSystem,
+    refetch: refetchDesignSystems,
+  } = useDesignSystems();
   const {
     referenceDeck: workspaceReferenceDeck,
     designSystem: workspaceDesignSystem,
@@ -403,9 +408,9 @@ export default function Index() {
   // True while the picker still reflects an auto-applied default rather than
   // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
   // resolve asynchronously, so the initial value set on dialog open can be a
-  // placeholder ("none", or the first-loaded design system) - these stay
-  // true so the hydration effects below can overwrite it once the real
-  // default arrives, and flip to false the moment the user picks explicitly.
+  // placeholder ("none") - these stay true so the hydration effects below
+  // can overwrite it once the real default arrives, and flip to false the
+  // moment the user picks explicitly.
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
@@ -414,25 +419,19 @@ export default function Index() {
   const anchorRef = useRef<HTMLElement | null>(null);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
+  const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
+    designSystems,
+    defaultSystem?.id,
+  );
   const workspaceDesignSystemId =
-    workspaceDesignSystem &&
-    workspaceDesignSystem.status === "available" &&
-    designSystems.some(
-      (designSystem) =>
-        designSystem.id === workspaceDesignSystem.id &&
-        isDesignSystemSelectable(designSystem),
-    )
+    workspaceDesignSystem && workspaceDesignSystem.status === "available"
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some(
-          (designSystem) =>
-            designSystem.id === reference.id &&
-            isDesignSystemSelectable(designSystem),
-        ),
+        designSystems.some((designSystem) => designSystem.id === reference.id),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
@@ -441,7 +440,9 @@ export default function Index() {
         decks.some((deck) => deck.id === reference.id),
     )?.id ?? null;
   const initialDesignSystemId =
-    lastUsedDesignSystemId ?? workspaceDesignSystemId;
+    lastUsedDesignSystemId ??
+    effectiveDefaultDesignSystemId ??
+    workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const createdByParam = searchParams.get("createdBy");
   const deckFilter = resolveDeckFilter(createdByParam, storedDeckFilter);
@@ -470,6 +471,12 @@ export default function Index() {
     const result = forgetRecentReference(kind);
     if (result.readable) setRecentReferences(result.items);
   }, []);
+
+  // Refreshes cards for decks that changed while a different deck was open
+  // (see `catchUpStaleDeckList`'s own comment in DeckContext).
+  useEffect(() => {
+    catchUpStaleDeckList();
+  }, [catchUpStaleDeckList]);
 
   useEffect(() => {
     const result = readRecentReferences();

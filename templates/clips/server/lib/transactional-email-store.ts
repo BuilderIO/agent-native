@@ -543,6 +543,34 @@ export function createTransactionalEmailStore(
     );
   }
 
+  async function releaseClaimedAi(logicalKey: string, claimantEmail: string) {
+    const claimant = normalizeRecipient(claimantEmail);
+    const job = await readJob(logicalKey);
+    if (
+      !job ||
+      !isAiBackedType(job.type) ||
+      job.state !== "ai_dispatched" ||
+      job.aiClaimedBy !== claimant
+    ) {
+      return null;
+    }
+    const timestamp = now().toISOString();
+    return replaceJob(
+      transactionalEmailJobSchema.parse({
+        ...job,
+        state: "awaiting_ai",
+        aiClaimedBy: undefined,
+        aiDispatchedAt: undefined,
+        updatedAt: timestamp,
+      }),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, "ai_dispatched"),
+        eq(schema.transactionalEmailJobs.aiClaimedBy, claimant),
+      ),
+    );
+  }
+
   async function completeClaimedAi(
     logicalKey: string,
     claimantEmail: string,
@@ -746,6 +774,7 @@ export function createTransactionalEmailStore(
     transition,
     claimAwaitingAi,
     reclaimStaleAiDispatch,
+    releaseClaimedAi,
     completeClaimedAi,
     claimNextAwaitingAi,
     acquireSendingLease,

@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, expandAllLayers } from "./helpers";
+import { appPath, cdpScreenshot, expandAllLayers } from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const SCREEN_HTML = `<!doctype html>
@@ -316,10 +316,10 @@ test("draws an overlaid play triangle and converts the grouped layers to a compo
     expect(beforeReload?.childLayerNames).toEqual(
       expect.arrayContaining(["Ellipse", "Vector"]),
     );
-    await page.screenshot({
-      path: test.info().outputPath("overlay-component-ui-proof.png"),
-      fullPage: true,
-    });
+    await cdpScreenshot(
+      page,
+      test.info().outputPath("overlay-component-ui-proof.png"),
+    );
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(

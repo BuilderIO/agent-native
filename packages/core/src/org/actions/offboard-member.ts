@@ -13,6 +13,11 @@ export default defineAction({
     email: z.string().email(),
     transferTo: z.string().email(),
   }),
+  uiOnly: true,
+  agentTool: false,
+  mcpTool: false,
+  toolCallable: false,
+  authorize: (_args, ctx) => ctx?.caller === "frontend",
   audit: { enabled: false },
   run: async ({ email, transferTo }, ctx) => {
     const caller = await requireOrgMember(ctx, true);

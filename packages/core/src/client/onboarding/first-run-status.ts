@@ -1,3 +1,4 @@
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentNativePath } from "../api-path.js";
 
 export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
@@ -64,11 +65,18 @@ async function requestFirstRunOnboardingStatus(): Promise<boolean> {
 
 /** Save the optional role selected during the shared first-run flow. */
 export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
+  const browserSessionId = getOrCreateAnalyticsSessionId();
   const response = await fetch(
     agentNativePath("/_agent-native/onboarding/first-run/role"),
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(browserSessionId
+          ? { "X-Agent-Native-Session-Id": browserSessionId }
+          : {}),
+      },
+      credentials: "same-origin",
       body: JSON.stringify({ role }),
     },
   );

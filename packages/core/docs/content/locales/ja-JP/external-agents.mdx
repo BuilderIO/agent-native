@@ -128,6 +128,16 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` とコピー可能な URL および
 Claude、ChatGPT、カーソル、Claude コード、Codex、Grok、その他のホスト固有のタブ。
 
+## 非公開 Content リンク {#private-content-links}
+
+非公開の Content 共有リンクは、本文を公開せずに文書を識別できます。同じ Content インスタンスの `/mcp` URL をエージェントのリモート MCP サーバーとして追加し、Agent-Native アカウントで認証して、接続またはツールを有効にしたうえで元の文書リクエストを再試行します。`/mcp/connect` ページには設定方法がありますが、ページを開くだけでは接続はインストールされません。
+
+この手順は Claude、ChatGPT、Claude Code、Codex、Cursor、Antigravity、OpenCode、GitHub Copilot / VS Code など、MCP 対応ホストで共通です。設定画面と認証方法はホストごとに異なります。Antigravity は **Settings → Customizations → Installed MCP Servers** または MCP 設定ファイルでリモートサーバーを管理します。Agent-Native の `connect` コマンドは現在 Antigravity を設定しません。
+
+認証は接続アカウントを識別するだけで、文書権限を拡張しません。公開文書は共有ページから引き続き読めます。非公開文書は、そのアカウントに既存のアクセス権がある場合にのみ MCP で読めます。接続後に `get-document` が「見つかりません」を返しても、権限不足と、古い・削除済み・無効な文書 ID を区別できません。権限を変更する前に、リンクと接続アカウントのアクセス権を確認してください。
+
+コネクタを再インストールしたり公開共有リンクを変更したりしても、確認済みの接続アカウントの権限拒否は解決しません。
+
 <a id="access-tab"></a>
 
 ### アプリ内の MCP 設定 {#mcp-settings}

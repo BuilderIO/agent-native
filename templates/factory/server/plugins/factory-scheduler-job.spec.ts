@@ -11,9 +11,18 @@ const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const recordFactoryGovernanceAuditMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
+const recordFactoryAutomationRunPromptMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
+
+const insertAutomationVersionValuesMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
+const getDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../triage/audit.js", () => ({
   recordFactoryGovernanceAudit: recordFactoryGovernanceAuditMock,
+  recordFactoryAutomationRunPrompt: recordFactoryAutomationRunPromptMock,
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({
@@ -53,7 +62,7 @@ vi.mock("@agent-native/core/triggers", () => ({
 }));
 
 vi.mock("../db/index.js", () => ({
-  getDb: vi.fn(),
+  getDb: getDbMock,
 }));
 
 vi.mock("../lib/factory-automation-repair.js", () => ({
@@ -63,6 +72,7 @@ vi.mock("../lib/factory-automation-repair.js", () => ({
 import {
   ensureFactoryAutomations,
   factoryAutomationTemplatePrompt,
+  recordFinishedAutomationPrompt,
   removeFactoryAutomationResources,
   removeFactoryAutomationRunHistory,
   snapshotFactoryAutomations,
@@ -75,6 +85,10 @@ beforeEach(() => {
   resourceListContentMock.mockResolvedValue([]);
   resourceDeleteByPathMock.mockResolvedValue(true);
   deleteAutomationRunsMock.mockResolvedValue(undefined);
+  insertAutomationVersionValuesMock.mockResolvedValue(undefined);
+  getDbMock.mockReturnValue({
+    insert: () => ({ values: insertAutomationVersionValuesMock }),
+  });
 });
 
 describe("ensureFactoryAutomations", () => {
@@ -253,6 +267,80 @@ ${customPrompt}
     expect(saved).not.toContain("# Factory Slack feedback triage");
   });
 
+  it("recomposes duplicate alignment blocks while preserving identity and user prompt", async () => {
+    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const { managedReviewSkillAlignmentMarkers } =
+      await import("../triage/review-skill-alignment.js");
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const userPrompt = "Only triage paying customers.";
+    const content = `---
+schedule: "* * * * *"
+enabled: true
+orgId: org-1
+appId: factory
+template: slack-feedback
+source: slack
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+authorIds: U096KN3EL2Y
+model: claude-sonnet-4-20250514
+maxIterations: 20
+maxRunInputTokens: 200000
+---
+${start}
+stale one
+${end}
+
+${start}
+stale two
+${end}
+
+${userPrompt}
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
+      if (p !== path) return null;
+      return {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "product-an-feedback",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === path,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toBeDefined();
+    expect(saved).toContain("displayName: Product feedback");
+    expect(saved).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(saved).toContain("authorIds: U096KN3EL2Y");
+    expect(saved).toContain(userPrompt);
+    expect(saved!.split(start).length - 1).toBe(1);
+    expect(insertAutomationVersionValuesMock).toHaveBeenCalled();
+    expect(recordFactoryGovernanceAuditMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.objectContaining({
+        action: "repair-factory-automation-body",
+      }),
+    );
+  });
+
   it("keeps the Slack template prompt lean and names the reaction argument", () => {
     const prompt = factoryAutomationTemplatePrompt("slack-feedback", "slack");
     expect(prompt).toContain("MUST pass reaction eyes");
@@ -398,5 +486,72 @@ describe("snapshotFactoryAutomations", () => {
         "support-triage",
       ),
     ).rejects.toThrow("unreadable and cannot be snapshotted");
+  });
+});
+
+describe("recordFinishedAutomationPrompt", () => {
+  const path = "jobs/factories/support-triage/factory-slack-feedback.md";
+
+  it("audits the live resource's prompt version under the agent run id", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      path,
+      content: "---\npromptVersion: 3\n---\nCurrent prompt.\n",
+    });
+
+    await recordFinishedAutomationPrompt({
+      automationRunId: "history-row-1",
+      owner: "workspace",
+      automation: "factory-slack-feedback",
+      path,
+      orgId: "org-1",
+      runId: "agent-run-1",
+      threadId: null,
+      status: "success",
+      error: null,
+    });
+
+    expect(resourceGetByPathMock).toHaveBeenCalledWith("workspace", path);
+    expect(recordFactoryAutomationRunPromptMock).toHaveBeenCalledTimes(1);
+    const call = recordFactoryAutomationRunPromptMock.mock.calls[0][0];
+    expect(call.promptVersion).toBe(3);
+    // Must be the agent run id (list-factory-audit's join key), not the core
+    // history-row id — those are two different id spaces.
+    expect(call.automationRunId).toBe("agent-run-1");
+    expect(call.path).toBe(path);
+  });
+
+  it("does not record when the run has no agent run id to join on", async () => {
+    await recordFinishedAutomationPrompt({
+      automationRunId: "history-row-3",
+      owner: "workspace",
+      automation: "factory-slack-feedback",
+      path,
+      orgId: "org-1",
+      runId: null,
+      threadId: null,
+      status: "success",
+      error: null,
+    });
+
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("does not record when the automation resource is gone", async () => {
+    resourceGetByPathMock.mockResolvedValue(null);
+
+    await recordFinishedAutomationPrompt({
+      automationRunId: "history-row-2",
+      owner: "workspace",
+      automation: "factory-slack-feedback",
+      path,
+      orgId: "org-1",
+      runId: "agent-run-2",
+      threadId: null,
+      status: "success",
+      error: null,
+    });
+
+    expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
   });
 });

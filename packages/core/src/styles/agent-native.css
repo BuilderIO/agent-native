@@ -228,11 +228,6 @@
   width: calc(100% - 2.5rem);
 }
 
-.agent-sidebar-panel
-  [data-agent-message-queue-variant="recessed"][data-empty="false"] {
-  margin-bottom: -1.25rem;
-}
-
 /* The mask is declared unconditionally and the fade is driven by its size
    variable. Adding/removing a mask changes the element's paint properties, and
    the `--top-fade` modifier flips with `hasContentAbove` — which oscillates

@@ -70,9 +70,7 @@ describe("DesktopIdentityGate", () => {
 
     expect(container.textContent).toContain("Sign in with Google");
     expect(container.textContent).toContain("Welcome");
-    expect(container.textContent).toContain(
-      "Continue to sign in or create your account",
-    );
+    expect(container.textContent).toContain("Sign in or create your account");
     expect(
       container.querySelector(".desktop-identity-gate__app-name"),
     ).toBeNull();

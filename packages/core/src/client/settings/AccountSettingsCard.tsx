@@ -5,17 +5,42 @@ import {
   TextField,
 } from "@agent-native/toolkit/design-system";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import {
   IconCamera,
   IconCheck,
+  IconDownload,
+  IconExternalLink,
   IconLock,
+  IconShieldLock,
   IconLogout,
   IconPencil,
+  IconShieldCheck,
+  IconTrash,
 } from "@tabler/icons-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
+import { docsUrl } from "../../shared/docs-url.js";
 import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 import type { UserProfile } from "../../user-profile/shared.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  disableTwoFactor,
+  enableTwoFactor,
+  getTwoFactorStatus,
+  verifyTwoFactor,
+  type TwoFactorSetup,
+} from "../auth/two-factor.js";
 import {
   Popover,
   PopoverContent,
@@ -53,6 +78,271 @@ interface AuthMethods {
 
 interface PasswordMutationResult {
   status: boolean;
+}
+
+function TwoFactorSettings() {
+  const t = useT();
+  const { session } = useSession();
+  const authMethods = useActionQuery<AuthMethods>(
+    "get-auth-methods",
+    undefined,
+    { enabled: !!session?.email },
+  );
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!session?.email) return;
+    let active = true;
+    void getTwoFactorStatus()
+      .then((status) => {
+        if (active) setEnabled(status.enabled);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : t("settings.twoFactorLoadError"),
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.email, t]);
+
+  if (!session?.email) return null;
+
+  const hasPassword = authMethods.data?.hasPassword ?? false;
+  const isLoading = enabled === null || authMethods.isLoading;
+
+  const resetForm = () => {
+    setError(null);
+    setSaved(false);
+    setPassword("");
+    setCode("");
+  };
+
+  const startSetup = async () => {
+    const currentPassword = password;
+    setPending(true);
+    resetForm();
+    try {
+      setSetup(
+        await enableTwoFactor(hasPassword ? currentPassword : undefined),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("settings.twoFactorSetupError"),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const confirmSetup = async () => {
+    if (!/^\d{6,8}$/.test(code.trim())) {
+      setError(t("settings.twoFactorCodeError"));
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await verifyTwoFactor(code.trim());
+      setEnabled(true);
+      setSaved(true);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("settings.twoFactorSetupError"),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const turnOff = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      await disableTwoFactor(hasPassword ? password : undefined);
+      setEnabled(false);
+      setSetup(null);
+      setSaved(false);
+      setPassword("");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("settings.twoFactorDisableError"),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const passwordField = hasPassword ? (
+    <TextField
+      id="agent-native-two-factor-password"
+      type="password"
+      label={t("settings.passwordCurrentLabel")}
+      value={password}
+      onChange={(value) => {
+        setError(null);
+        setPassword(value);
+      }}
+      placeholder={t("settings.passwordPlaceholder")}
+      autoComplete="current-password"
+      disabled={pending}
+    />
+  ) : null;
+
+  const panel = isLoading ? (
+    <SettingsSkeleton lines={2} />
+  ) : setup ? (
+    <div className="space-y-3">
+      <p className="text-sm text-foreground">
+        {t("settings.twoFactorSetupTitle")}
+      </p>
+      <QRCodeSVG
+        value={setup.totpURI}
+        size={176}
+        fgColor="hsl(var(--foreground))"
+        bgColor="hsl(var(--background))"
+        className="rounded-md p-2"
+        aria-label={t("settings.twoFactorQrLabel")}
+      />
+      <code className="block break-all rounded-md bg-muted p-2 text-[11px] text-muted-foreground">
+        {setup.totpURI}
+      </code>
+      {!enabled && (
+        <>
+          <TextField
+            id="agent-native-two-factor-code"
+            type="text"
+            label={t("settings.twoFactorCodeLabel")}
+            value={code}
+            onChange={(value) => setCode(value.replace(/\D/g, ""))}
+            placeholder="000000"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            disabled={pending}
+          />
+          <ActionButton
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            size="compact"
+            pending={pending}
+            disabled={pending || !code}
+            onPress={() => void confirmSetup()}
+          >
+            {t("settings.twoFactorVerify")}
+          </ActionButton>
+        </>
+      )}
+      {enabled && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {t("settings.twoFactorBackupCodes")}
+          </p>
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-2 font-mono text-xs">
+            {setup.backupCodes.map((backupCode) => (
+              <code key={backupCode}>{backupCode}</code>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : enabled ? (
+    <div className="space-y-3">
+      {passwordField}
+      <ActionButton
+        type="button"
+        intent="danger"
+        emphasis="outline"
+        size="compact"
+        pending={pending}
+        disabled={pending || (hasPassword && !password)}
+        onPress={() => void turnOff()}
+      >
+        {t("settings.twoFactorDisable")}
+      </ActionButton>
+    </div>
+  ) : (
+    <div className="space-y-3">
+      {passwordField}
+      <ActionButton
+        type="button"
+        intent="primary"
+        emphasis="solid"
+        size="compact"
+        pending={pending}
+        disabled={pending || (hasPassword && !password)}
+        onPress={() => void startSetup()}
+      >
+        {t("settings.twoFactorEnable")}
+      </ActionButton>
+    </div>
+  );
+
+  return (
+    <SettingsRow
+      id="two-factor"
+      label={
+        <span className="flex items-center gap-2">
+          <IconShieldLock className="size-4 text-muted-foreground" />
+          {t("settings.twoFactorTitle")}
+        </span>
+      }
+      description={
+        error ? (
+          <span className="text-destructive" role="alert">
+            {error}
+          </span>
+        ) : saved ? (
+          <span className="flex items-center gap-1 text-primary" role="status">
+            <IconCheck className="size-3" />
+            {t("settings.twoFactorSaved")}
+          </span>
+        ) : enabled ? (
+          t("settings.twoFactorEnabled")
+        ) : (
+          t("settings.twoFactorDescription")
+        )
+      }
+      control={
+        <Popover>
+          <PopoverTrigger asChild>
+            <ActionButton
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              size="compact"
+            >
+              {t("settings.twoFactorManage")}
+            </ActionButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={6}
+            className="w-[min(460px,calc(100vw-2rem))] p-4"
+          >
+            {panel}
+          </PopoverContent>
+        </Popover>
+      }
+    />
+  );
 }
 
 function PasswordSettings() {
@@ -367,6 +657,165 @@ function EmailSettings({ email }: { email: string }) {
   );
 }
 
+type PrivacyRequestType = "access" | "deletion";
+
+interface PrivacyRequestResult {
+  requestType: PrivacyRequestType;
+  status: "pending";
+  requestedAt: number;
+}
+
+function PrivacySettings() {
+  const t = useT();
+  const requestPrivacyRight = useActionMutation<
+    PrivacyRequestResult,
+    { requestType: PrivacyRequestType }
+  >("request-privacy-right");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingType, setPendingType] = useState<PrivacyRequestType | null>(
+    null,
+  );
+  const [submittedType, setSubmittedType] = useState<PrivacyRequestType | null>(
+    null,
+  );
+
+  const submitRequest = (requestType: PrivacyRequestType) => {
+    requestPrivacyRight.reset();
+    setPendingType(requestType);
+    requestPrivacyRight.mutate(
+      { requestType },
+      {
+        onSuccess: (result) => {
+          setSubmittedType(result.requestType);
+          if (result.requestType === "deletion") setDeleteDialogOpen(false);
+        },
+        onSettled: () => setPendingType(null),
+      },
+    );
+  };
+
+  return (
+    <SettingsRow
+      id="privacy-data"
+      label={t("settings.privacyTitle")}
+      icon={<IconShieldCheck className="size-4" />}
+      description={
+        submittedType ? (
+          <span className="text-primary" role="status">
+            {t("settings.privacyRequestRecorded")}
+          </span>
+        ) : (
+          t("settings.privacyDescription")
+        )
+      }
+      control={
+        <Popover>
+          <PopoverTrigger asChild>
+            <ActionButton
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              size="compact"
+            >
+              {t("settings.privacyManage")}
+            </ActionButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={6}
+            className="w-[min(440px,calc(100vw-2rem))] p-4"
+          >
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {t("settings.privacyRightsTitle")}
+                </p>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {t("settings.privacyRightsDescription")}
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ActionButton
+                  type="button"
+                  intent="neutral"
+                  emphasis="outline"
+                  size="compact"
+                  leadingIcon={<IconDownload className="size-3.5" />}
+                  pending={pendingType === "access"}
+                  disabled={requestPrivacyRight.isPending}
+                  onPress={() => submitRequest("access")}
+                >
+                  {submittedType === "access"
+                    ? t("settings.privacyRequestRecordedShort")
+                    : t("settings.privacyRequestCopy")}
+                </ActionButton>
+                <AlertDialog
+                  open={deleteDialogOpen}
+                  onOpenChange={setDeleteDialogOpen}
+                >
+                  <AlertDialogTrigger asChild>
+                    <ActionButton
+                      type="button"
+                      intent="danger"
+                      emphasis="outline"
+                      size="compact"
+                      leadingIcon={<IconTrash className="size-3.5" />}
+                      disabled={requestPrivacyRight.isPending}
+                    >
+                      {t("settings.privacyRequestDeletion")}
+                    </ActionButton>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        {t("settings.privacyDeletionTitle")}
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t("settings.privacyDeletionDescription")}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>
+                        {t("common.cancel")}
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={requestPrivacyRight.isPending}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          submitRequest("deletion");
+                        }}
+                      >
+                        {pendingType === "deletion"
+                          ? t("settings.privacyRequesting")
+                          : t("settings.privacyRequestDeletion")}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+              {requestPrivacyRight.error && (
+                <p className="text-xs text-destructive" role="alert">
+                  {t("settings.privacyRequestError")}
+                </p>
+              )}
+              <a
+                href={docsUrl("privacy-and-data-rights")}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                {t("settings.privacyDocsLink")}
+                <IconExternalLink className="size-3" />
+              </a>
+            </div>
+          </PopoverContent>
+        </Popover>
+      }
+    />
+  );
+}
+
 export interface AccountSettingsFormProps {
   compact?: boolean;
 }
@@ -601,7 +1050,9 @@ export function AccountSettingsForm({
         })}
         control={<SchedulingTimezoneField compact />}
       />
+      <TwoFactorSettings />
       <PasswordSettings />
+      {email && <PrivacySettings />}
       <SettingsRow
         id="sign-out"
         label={t("agentChat.auth.logOut")}

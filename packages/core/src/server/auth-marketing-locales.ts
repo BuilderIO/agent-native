@@ -4,6 +4,8 @@ export interface AuthMarketingLocaleCopy {
   tagline?: string;
   description?: string;
   features?: string[];
+  authHeadline?: string;
+  authDescription?: string;
 }
 
 export const AUTH_MARKETING_LOCALE_COPY: Partial<

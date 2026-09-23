@@ -141,7 +141,7 @@ export default defineAction({
       view: "editor",
       designId,
       editorView: "overview",
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
 
     return {

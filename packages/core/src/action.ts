@@ -603,6 +603,9 @@ interface DefineActionWithSchema<
    *  `Content-Length` before parsing. Use for public, no-auth POST actions;
    *  unset = no route-level cap. */
   maxBodyBytes?: number;
+  /** Require a server-minted browser capability and hide this action from
+   * every agent surface. */
+  uiOnly?: boolean;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -842,6 +845,9 @@ interface DefineActionWithParams<
   /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
    *  See the schema overload above. */
   maxBodyBytes?: number;
+  /** Require the server-minted browser capability and hide this action from
+   * every agent surface. See the schema overload above. */
+  uiOnly?: boolean;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
@@ -945,6 +951,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
+  readonly uiOnly?: boolean;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly deferLoading?: boolean;
@@ -1085,13 +1092,25 @@ export function defineAction(options: any) {
     typeof options.authorize === "function" || options.access
       ? wrapRunWithAccess(options.run, options.access, options.authorize)
       : options.run;
+  const uiOnlyGuardedRun =
+    options.uiOnly === true
+      ? async (args: any, ctx?: ActionRunContext) => {
+          if (ctx?.caller !== "frontend") {
+            fail("This action can only be called from the signed-in app UI.", {
+              errorCode: "ui_only_action",
+              statusCode: 403,
+            });
+          }
+          return guardedRun(args, ctx);
+        }
+      : guardedRun;
 
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
   const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, guardedRun, toolParameters)
-    : guardedRun;
+    ? wrapWithValidation(options.schema, uiOnlyGuardedRun, toolParameters)
+    : uiOnlyGuardedRun;
 
   // Then wrap with OUTPUT validation when an outputSchema is provided. This
   // composes AROUND the input-validated run so the order is: validate input →
@@ -1134,6 +1153,8 @@ export function defineAction(options: any) {
       : inferredReadOnly
         ? true
         : undefined;
+  const uiOnly: boolean | undefined =
+    typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   // Audit: wrap the validated run so every mutating call records an audit
   // event (who/what/when/from-where, and for the agent which run). Default-on
@@ -1237,6 +1258,7 @@ export function defineAction(options: any) {
     ...(typeof options.maxBodyBytes === "number"
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
+    ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
@@ -1318,7 +1340,9 @@ export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
   mcpTool?: boolean;
   endsTurn?: boolean;
+  uiOnly?: boolean;
 }): boolean {
+  if (entry.uiOnly === true) return false;
   // An action that ends the in-app agent's turn is in-app only by default,
   // because the user's answer flows back through the in-app chat that an
   // external caller is not on — only an explicit `mcpTool: true` opts back in.
@@ -1344,8 +1368,12 @@ export function isActionExposedToExternalAgents(entry: {
 export function isActionHiddenFromEveryAgentSurface(entry: {
   agentTool?: boolean;
   mcpTool?: boolean;
+  uiOnly?: boolean;
 }): boolean {
-  return entry.agentTool === false && entry.mcpTool !== true;
+  return (
+    entry.uiOnly === true ||
+    (entry.agentTool === false && entry.mcpTool !== true)
+  );
 }
 
 function wrapRunWithAccess(

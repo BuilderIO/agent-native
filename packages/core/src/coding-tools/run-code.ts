@@ -763,6 +763,7 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
     const isReadOnlyAction =
       entry.readOnly === true &&
       entry.agentTool !== false &&
+      entry.uiOnly !== true &&
       entry.toolCallable !== false &&
       isCallableWithoutApproval(entry);
     const childArgs =
@@ -796,7 +797,9 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
         !isReadOnlyAction
       ) {
         const isMutatingAction =
-          entry.agentTool !== false && entry.readOnly !== true;
+          entry.agentTool !== false &&
+          entry.uiOnly !== true &&
+          entry.readOnly !== true;
         throw new BridgeInvocationError(
           403,
           isMutatingAction
@@ -1106,6 +1109,7 @@ function isReadOnlyProviderApiRequest(
     !entry.tool ||
     !isCallableWithoutApproval(entry) ||
     entry.agentTool === false ||
+    entry.uiOnly === true ||
     entry.allowInPlanMode === false
   ) {
     return false;
@@ -1126,6 +1130,7 @@ function isReadOnlyOrchestrationAction(
     !entry.tool ||
     !isCallableWithoutApproval(entry) ||
     entry.agentTool === false ||
+    entry.uiOnly === true ||
     entry.toolCallable === false ||
     entry.allowInPlanMode === false
   ) {

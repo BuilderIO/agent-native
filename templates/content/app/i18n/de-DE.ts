@@ -872,6 +872,7 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content-Bereich",
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
     database: "Sammlung",
@@ -911,6 +912,9 @@ const landing = {
   requestedPageUnavailable:
     "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
   saveFailed: "Deine Position konnte nicht gespeichert werden",
+  workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
+  workspaceWelcomeUnavailableDescription:
+    "Du kannst diesen Arbeitsbereich ansehen, hast aber keine Berechtigung, seine Willkommensseite zu erstellen.",
 };
 
 const comments = {
@@ -979,6 +983,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "Zuletzt besucht",
+  customizeSidebar: "Seitenleiste anpassen",
+  noRecentVisits: "Keine letzten Besuche",
+  noPinnedItems: "Keine angehefteten Elemente",
+  showMore: "Mehr anzeigen",
+  showLess: "Weniger anzeigen",
+  seeAll: "Alle anzeigen…",
+  seeAllFiles: "Alle Dateien anzeigen",
   pinned: "Angeheftet",
   loadingPinned: "Angeheftete Elemente werden geladen…",
   dragToReorder: "{{label}} zum Neuordnen ziehen",

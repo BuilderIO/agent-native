@@ -31,6 +31,7 @@ import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { getRequestContext } from "./request-context.js";
 
 /**
@@ -86,9 +87,16 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
     );
   }
 
-  const proto = readHeader(event, "x-forwarded-proto") || "http";
   const host =
     readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+  const hostName = (
+    host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0]
+  ).toLowerCase();
+  const isLoopback =
+    hostName === "localhost" || hostName === "127.0.0.1" || hostName === "::1";
+  const proto = isLoopback
+    ? "http"
+    : readHeader(event, "x-forwarded-proto") || "http";
   return withConfiguredAppBasePath(`${proto}://${host}`);
 }
 
@@ -177,7 +185,7 @@ export async function fireInternalDispatch(
   // routes land on the right app; for a host-root function url we must dispatch
   // to `https://host/.netlify/functions/<name>` instead. Strip the base path
   // suffix from the resolved base url for `/.netlify/*` dispatch targets only.
-  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${options.path}`;
+  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${publicFrameworkPath(options.path)}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };

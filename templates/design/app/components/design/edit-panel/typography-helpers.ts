@@ -11,6 +11,7 @@ export {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
   splitFontFamilyList,
 } from "@agent-native/toolkit/design-tweaks";
 

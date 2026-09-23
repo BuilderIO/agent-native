@@ -254,6 +254,15 @@ describe("discoverActionFiles", () => {
           `    await fetch("https://example.com", { method: "GET" });`,
         ),
       );
+      fs.writeFileSync(
+        path.join(actionsDir, "delete-data.ts"),
+        `import { defineAction } from "@agent-native/core/action";
+export default defineAction({
+  uiOnly: true,
+  run: async () => ({ ok: true }),
+});
+`,
+      );
 
       const discovered = await discoverActionFiles(root);
       const byName = Object.fromEntries(discovered.map((a) => [a.name, a]));
@@ -270,6 +279,10 @@ describe("discoverActionFiles", () => {
         path: "nested-route",
       });
       expect(byName["posts-then-gets"]).toMatchObject({ method: "post" });
+      expect(byName["delete-data"]).toMatchObject({
+        method: "post",
+        uiOnly: true,
+      });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

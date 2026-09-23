@@ -30,6 +30,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useMseVideoSource } from "@/hooks/use-mse-video-source";
 import { usePlaybackPosition } from "@/hooks/use-playback-position";
+import { setUrlSearchParam } from "@/lib/media-url";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -48,6 +49,7 @@ import {
   originalToEdited,
   parseEdits,
   type TrimRange,
+  lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
@@ -110,23 +112,6 @@ function videoSourceIdentity(url: string | undefined): string {
     }
     parsed.searchParams.sort();
     return `${parsed.origin}${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
-
-function setUrlSearchParam(url: string, key: string, value: string): string {
-  try {
-    const base =
-      typeof window === "undefined"
-        ? "http://clips.local"
-        : window.location.href;
-    const parsed = new URL(url, base);
-    parsed.searchParams.set(key, value);
-    if (url.startsWith("/") && !url.startsWith("//")) {
-      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    }
-    return parsed.href;
   } catch {
     return url;
   }
@@ -393,6 +378,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // start muted or the browser blocks autoplay with a NotAllowedError. The
     // share page (no autoplay) keeps full sound.
     const [muted, setMuted] = useState(() => !!autoPlay);
+    // True while the only reason we're muted is that autoplay-policy fallback,
+    // not a deliberate viewer choice. The viewer's first real gesture inside
+    // the player clears it and restores sound (see `unmuteAutoplayFallback`).
+    const autoMutedRef = useRef(!!autoPlay);
+    const lastAutoMutedRecordingIdRef = useRef(recordingId);
     const [speed, setSpeed] = useState(() =>
       readPlaybackSpeedPreference(defaultSpeed),
     );
@@ -983,6 +973,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       videoRef.current?.pause();
     }, [clearPlayAttemptWatchdog]);
 
+    // The viewer made a deliberate audio choice, so stop treating the mute as
+    // the autoplay-policy fallback. Called from every explicit mute/volume
+    // control as well as the gesture-driven unmute below.
+    const clearAutoMuted = useCallback(() => {
+      autoMutedRef.current = false;
+    }, []);
+
+    // Restore sound the first time the viewer engages an autoplay-muted clip
+    // (the Slack unfurl case): the embed had to start muted to satisfy the
+    // browser, but the tap/play is a real gesture that permits audio. Returns
+    // true when it consumed the gesture as an unmute.
+    const unmuteAutoplayFallback = useCallback(() => {
+      const v = videoRef.current;
+      if (!v || !autoMutedRef.current || !v.muted) return false;
+      v.muted = false;
+      setMuted(false);
+      autoMutedRef.current = false;
+      return true;
+    }, []);
+
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
       if (!v) return;
@@ -997,6 +1007,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         } catch {
           // Let the normal play attempt report a media error if the seek fails.
         }
+        unmuteAutoplayFallback();
         requestPlay();
         return;
       }
@@ -1004,11 +1015,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pauseVideo();
         return;
       }
+      unmuteAutoplayFallback();
       requestPlay();
-    }, [isPlaying, pauseVideo, requestPlay]);
+    }, [isPlaying, pauseVideo, requestPlay, unmuteAutoplayFallback]);
 
     const activateVideoSurface = useCallback(
       (input: "mouse" | "touch") => {
+        // An autoplay-muted embed (Slack unfurl) is already playing silently.
+        // The viewer's first tap means "let me hear it", so unmute in place
+        // instead of pausing an otherwise-fine clip; later taps toggle play.
+        const v = videoRef.current;
+        if (v && !v.paused && !v.ended && unmuteAutoplayFallback()) {
+          bumpControls();
+          return;
+        }
+
         // Touch taps should behave like native mobile players: pause while
         // playing, resume while paused, and keep the chrome visible long
         // enough to expose the explicit controls. Embeds that explicitly hide
@@ -1022,7 +1043,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         togglePlayback();
         bumpControls();
       },
-      [bumpControls, hideChrome, togglePlayback],
+      [bumpControls, hideChrome, togglePlayback, unmuteAutoplayFallback],
     );
 
     const handlePlayerPointerDown = useCallback(
@@ -1111,7 +1132,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         const v = videoRef.current;
         if (!v) return;
-        const clamped = clampSeek(ms, v, resolvedDurationMs);
+        // Dragging past the end of the kept footage would otherwise show the
+        // trimmed tail, which is still in the file and was never redacted.
+        const requested =
+          lastKept > 0 && lastKept < resolvedDurationMs // i18n-ignore — a comparison, not copy
+            ? Math.min(ms, lastKept - 1)
+            : ms;
+        const clamped = clampSeek(requested, v, resolvedDurationMs);
         const visibleMs = clampSeek(
           skipExcludedRange(clamped, excludedRanges, resolvedDurationMs),
           v,
@@ -1178,6 +1205,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           if (videoRef.current) {
             videoRef.current.muted = !videoRef.current.muted;
             setMuted(videoRef.current.muted);
+            autoMutedRef.current = false;
           }
         },
         toggleCaptions: () => setCaptionsOn((v) => !v),
@@ -1333,6 +1361,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
       autoPlayAttemptedSourceRef.current = "";
+      // Only re-arm the autoplay-muted marker for an actual recording change.
+      // A repaired/replaced media URL for the *same* recording changes
+      // `activeVideoSourceIdentity` too, and must not overwrite a mute choice
+      // the viewer already made on this clip.
+      if (lastAutoMutedRecordingIdRef.current !== recordingId) {
+        lastAutoMutedRecordingIdRef.current = recordingId;
+        autoMutedRef.current = !!autoPlay;
+      }
       clearPlayAttemptWatchdog();
       setCanPlay(false);
       setIsPlayPending(!!autoPlay);
@@ -1685,6 +1721,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ? "Buffering"
           : "Preparing clip";
 
+    // Trims are not baked into the file, so playback can run past the end of the
+    // kept footage into removed material a redaction never covered.
+    const lastKept = useMemo(
+      () => lastKeptMs(resolvedDurationMs, excludedRanges),
+      [excludedRanges, resolvedDurationMs],
+    );
+
     return (
       <div
         ref={containerRef}
@@ -1859,6 +1902,38 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onTimeUpdate?.(0, resolvedDurationMs);
                 return;
               }
+              // A trimmed tail is not somewhere to skip forward to: there is
+              // nothing kept after it, so correcting forward lands on the last
+              // frame of the file — removed footage, which a redaction drawn
+              // against the edited video never covered — and it is on screen
+              // until `ended` fires. Stop at the last kept frame instead.
+              if (
+                lastKept > 0 && // i18n-ignore — a comparison, not copy
+                lastKept < resolvedDurationMs &&
+                ms >= lastKept
+              ) {
+                try {
+                  v.pause();
+                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+                } catch (err) {
+                  // Seeking can throw while the element is tearing down. The
+                  // state below still reads as finished, which is what matters
+                  // — but a seek failing for any other reason leaves the
+                  // trimmed tail on screen, so it gets said out loud.
+                  console.warn(
+                    "[player] could not stop at the last kept frame",
+                    {
+                      err: err instanceof Error ? err.message : String(err),
+                    },
+                  );
+                }
+                setCurrentMs(lastKept);
+                setIsPlaying(false);
+                setIsBuffering(false);
+                onTimeUpdate?.(lastKept, resolvedDurationMs);
+                onEnded?.();
+                return;
+              }
               const visibleMs = clampSeek(
                 skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
                 v,
@@ -1891,6 +1966,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onEnded={() => {
               clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;
+              // Leave a frame the viewer is meant to see. Without this the
+              // element rests wherever it stopped, which after a trimmed tail
+              // is inside the removed footage — and a redaction that ran to
+              // the end of the edit does not cover it.
+              const v = videoRef.current;
+              const restOnKeptFrame =
+                lastKept > 0 && lastKept < resolvedDurationMs; // i18n-ignore — a comparison, not copy
+              if (v && restOnKeptFrame) {
+                try {
+                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+                } catch (err) {
+                  // A seek can throw while the element is tearing down; the
+                  // poster is the fallback. Still worth saying, because the
+                  // frame left on screen is the thing this exists to control.
+                  console.warn(
+                    "[player] could not rest on the last kept frame",
+                    {
+                      err: err instanceof Error ? err.message : String(err),
+                    },
+                  );
+                }
+              }
               const endedMs =
                 resolvedDurationMs > 0
                   ? resolvedDurationMs
@@ -2022,6 +2119,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 v.muted = false;
                 setMuted(false);
               }
+              clearAutoMuted();
               requestPlay();
             }}
             onSpeedChange={applySpeed}
@@ -2152,6 +2250,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   v.muted = vol === 0;
                   setVolume(vol);
                   setMuted(vol === 0);
+                  clearAutoMuted();
                 }
               }}
               onToggleMute={() => {
@@ -2159,6 +2258,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 if (v) {
                   v.muted = !v.muted;
                   setMuted(v.muted);
+                  clearAutoMuted();
                 }
               }}
               onSpeedChange={(rate) => {

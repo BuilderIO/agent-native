@@ -56,7 +56,7 @@ import {
   useReconnectMcpServer,
   type McpServer,
 } from "../resources/use-mcp-servers.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
 import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
 import {
@@ -1357,7 +1357,6 @@ export function IntegrationsPanel() {
           const builderItem: IntegrationGridItem = {
             id: "builder-cms",
             name: "Builder.io",
-            fullWidth: true,
             badge: t("integrations.recommended"),
             description: viewModel.description,
             logo: (
@@ -1367,10 +1366,6 @@ export function IntegrationsPanel() {
                 integrationId="builder-cms"
               />
             ),
-            status: viewModel.status.label,
-            statusClassName: builderConnected
-              ? "text-emerald-600 dark:text-emerald-400"
-              : undefined,
             actionKind: builderConnected ? "manage" : "connect",
             actionLabel: builderConnected
               ? t("integrations.manage")
@@ -1383,7 +1378,7 @@ export function IntegrationsPanel() {
                   variant="text"
                 />
               ) : viewModel.connectFlow && viewModel.action ? (
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={viewModel.connectFlow}
                   onConnect={viewModel.action.onPress}
                 >
@@ -1392,9 +1387,9 @@ export function IntegrationsPanel() {
                     disabled={viewModel.action.disabled}
                     className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {viewModel.action.label}
+                    {t("mcpIntegrations.connect")}
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               ) : null,
           };
           const connectedItems = builderConnected

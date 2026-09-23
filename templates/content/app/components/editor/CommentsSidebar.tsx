@@ -338,13 +338,6 @@ export function layoutCommentThreads<T extends ThreadLayoutIdentity>(
         Math.min(target, nextTop - gap - heightFor(thread)),
       );
     }
-    const firstTop = tops.get(anchored[0]?.threadId ?? "") ?? 0;
-    if (firstTop < 0) {
-      for (let index = 0; index <= selectedIndex; index += 1) {
-        const thread = anchored[index];
-        tops.set(thread.threadId, (tops.get(thread.threadId) ?? 0) - firstTop);
-      }
-    }
     for (let index = selectedIndex + 1; index < anchored.length; index += 1) {
       const thread = anchored[index];
       const previous = anchored[index - 1];
@@ -1250,16 +1243,27 @@ export function CommentsSidebar({
       : inlineThreads.length > 0 || !!pendingComment;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
+  const selectedLayoutThreadId =
+    inlineSuggestions.find((suggestion) => suggestion.id === activeSuggestionId)
+      ?.threadId ??
+    inlineDraftSuggestions.find(
+      (suggestion) => suggestion.id === activeSuggestionId,
+    )?.threadId ??
+    selectedThreadId;
+  const restingItems = layoutCommentThreads(
+    inlineThreads,
+    threadPositions,
+    threadCardHeights,
+    null,
+  );
+  const restingItemsById = new Map(
+    restingItems.map((item) => [item.thread.threadId, item]),
+  );
   const items = layoutCommentThreads(
     inlineThreads,
     threadPositions,
     threadCardHeights,
-    inlineSuggestions.find((suggestion) => suggestion.id === activeSuggestionId)
-      ?.threadId ??
-      inlineDraftSuggestions.find(
-        (suggestion) => suggestion.id === activeSuggestionId,
-      )?.threadId ??
-      selectedThreadId,
+    selectedLayoutThreadId,
   );
 
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
@@ -1776,22 +1780,34 @@ export function CommentsSidebar({
 
       {/* Open thread cards — positioned to align with their referenced text */}
       {items.map((item, index) => {
-        const { thread, marginTop, top, isOrphaned } = item;
-        if ("suggestion" in thread) {
-          return "durability" in thread.suggestion
-            ? renderDraftSuggestionCard(thread.suggestion, marginTop)
-            : renderSuggestionCard(thread.suggestion, marginTop);
-        }
-        const isActive = activeThreadId === thread.threadId;
+        const { thread, top, isOrphaned } = item;
+        const restingItem = restingItemsById.get(thread.threadId);
+        const marginTop = restingItem?.marginTop ?? item.marginTop;
+        const translateY = top - (restingItem?.top ?? top);
+        const card =
+          "suggestion" in thread
+            ? "durability" in thread.suggestion
+              ? renderDraftSuggestionCard(thread.suggestion)
+              : renderSuggestionCard(thread.suggestion)
+            : renderCommentThread(
+                thread,
+                0,
+                activeThreadId === thread.threadId,
+              );
         const startsOrphanedSection =
           isOrphaned &&
           !items.slice(0, index).some((prior) => prior.isOrphaned);
         return (
-          <Fragment key={thread.threadId}>
+          <div
+            key={thread.threadId}
+            className="relative transition-transform duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transition-none"
+            data-comment-layout-thread={thread.threadId}
+            style={{ marginTop, transform: `translateY(${translateY}px)` }}
+          >
             {startsOrphanedSection ? (
               <div
                 className="absolute inset-x-2 flex items-center gap-2 text-[11px] text-muted-foreground"
-                style={{ top: Math.max(0, top - 20) }}
+                style={{ top: -20 }}
                 data-unanchored-comments
               >
                 <span className="h-px flex-1 bg-border" />
@@ -1799,8 +1815,8 @@ export function CommentsSidebar({
                 <span className="h-px flex-1 bg-border" />
               </div>
             ) : null}
-            {renderCommentThread(thread, marginTop, isActive)}
-          </Fragment>
+            {card}
+          </div>
         );
       })}
     </div>

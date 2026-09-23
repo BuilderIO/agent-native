@@ -158,14 +158,61 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     const onCopy = vi.fn();
     const onDuplicate = vi.fn();
     const onBringForward = vi.fn();
-    await withHotkeys({ onCopy, onDuplicate, onBringForward }, () => {
-      dispatchKey("c", { metaKey: true });
-      dispatchKey("d", { metaKey: true });
-      dispatchKey("}", { code: "BracketRight", metaKey: true });
-    });
+    const onBringToFront = vi.fn();
+    const onSendBackward = vi.fn();
+    const onSendToBack = vi.fn();
+    await withHotkeys(
+      {
+        onCopy,
+        onDuplicate,
+        onBringForward,
+        onBringToFront,
+        onSendBackward,
+        onSendToBack,
+      },
+      () => {
+        dispatchKey("c", { metaKey: true });
+        dispatchKey("d", { metaKey: true });
+        dispatchKey("}", { code: "BracketRight", metaKey: true });
+        dispatchKey("BracketRight", { code: "BracketRight", metaKey: true });
+        dispatchKey("BracketLeft", { code: "BracketLeft", metaKey: true });
+        dispatchKey("BracketRight", { code: "BracketRight" });
+        dispatchKey("BracketLeft", { code: "BracketLeft" });
+      },
+    );
     expect(onCopy).toHaveBeenCalledTimes(1);
     expect(onDuplicate).toHaveBeenCalledTimes(1);
-    expect(onBringForward).toHaveBeenCalledTimes(1);
+    expect(onBringForward).toHaveBeenCalledTimes(2);
+    expect(onBringToFront).toHaveBeenCalledTimes(1);
+    expect(onSendBackward).toHaveBeenCalledTimes(1);
+    expect(onSendToBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps physical plain arrange keys native inside editable targets", async () => {
+    const onBringToFront = vi.fn();
+    const onSendToBack = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    try {
+      await withHotkeys({ onBringToFront, onSendToBack }, () => {
+        const bringToFront = dispatchKey(
+          "BracketRight",
+          { code: "BracketRight" },
+          input,
+        );
+        const sendToBack = dispatchKey(
+          "BracketLeft",
+          { code: "BracketLeft" },
+          input,
+        );
+        expect(bringToFront.defaultPrevented).toBe(false);
+        expect(sendToBack.defaultPrevented).toBe(false);
+      });
+    } finally {
+      input.remove();
+    }
+    expect(onBringToFront).not.toHaveBeenCalled();
+    expect(onSendToBack).not.toHaveBeenCalled();
   });
 
   it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {

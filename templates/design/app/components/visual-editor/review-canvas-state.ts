@@ -56,12 +56,23 @@ export function placeReviewDraftPin(
   };
 }
 
-export function getReviewPopoverPlacement(point: ReviewAnchorPoint): {
+export function getReviewPopoverPlacement(
+  point: ReviewAnchorPoint,
+  viewportPoint?: ReviewCanvasPoint | null,
+  viewport?: { width: number; height: number },
+): {
   horizontal: "start" | "end";
   vertical: "above" | "below";
 } {
+  const placementPoint =
+    viewportPoint && viewport && viewport.width > 0 && viewport.height > 0
+      ? {
+          xPct: (viewportPoint.x / viewport.width) * 100,
+          yPct: (viewportPoint.y / viewport.height) * 100,
+        }
+      : point;
   return {
-    horizontal: point.xPct > 60 ? "end" : "start",
-    vertical: point.yPct > 65 ? "above" : "below",
+    horizontal: placementPoint.xPct > 60 ? "end" : "start",
+    vertical: placementPoint.yPct > 65 ? "above" : "below",
   };
 }

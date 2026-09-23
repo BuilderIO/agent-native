@@ -180,6 +180,7 @@ export default function Index() {
   const { data: templatesData, isLoading: templatesLoading } = useActionQuery(
     "list-design-templates",
     { includePreview: "true" },
+    { enabled: showNewPrompt },
   );
   const createMutation = useActionMutation("create-design");
   const createFromTemplateMutation = useActionMutation(
@@ -199,7 +200,7 @@ export default function Index() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems();
+  } = useDesignSystems(showNewPrompt);
 
   /**
    * The picker showed a column of near-identical names ("Builder indexed
@@ -483,7 +484,7 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          designSystemId: linkedDesignSystemId,
+          ...(designSystemId !== undefined ? { designSystemId } : {}),
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -550,7 +551,9 @@ export default function Index() {
       const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
-          ? resolveDefaultDesignSystemId()
+          ? designSystemsLoading
+            ? undefined
+            : resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
@@ -562,7 +565,7 @@ export default function Index() {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,
             title,
-            designSystemId,
+            ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
@@ -720,6 +723,7 @@ export default function Index() {
       navigate,
       newDesignMode,
       newDesignSystemId,
+      designSystemsLoading,
       queryClient,
       resolveDefaultDesignSystemId,
       selectedTemplate,
@@ -734,7 +738,9 @@ export default function Index() {
 
     const designSystemId =
       newDesignSystemId === undefined
-        ? resolveDefaultDesignSystemId()
+        ? designSystemsLoading
+          ? undefined
+          : resolveDefaultDesignSystemId()
         : newDesignSystemId;
     const { id, ready } = createDesign(
       t("home.untitledDesign"),
@@ -757,6 +763,7 @@ export default function Index() {
     createDesign,
     navigate,
     newDesignSystemId,
+    designSystemsLoading,
     resolveDefaultDesignSystemId,
     t,
   ]);
@@ -776,12 +783,10 @@ export default function Index() {
       setNewDesignDraftRevision((revision) => revision + 1);
       newDesignSystemWasChosenRef.current = false;
       syncSelectedTemplate(null);
-      setNewDesignSystemId(
-        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
-      );
+      setNewDesignSystemId(undefined);
       setShowNewPrompt(true);
     },
-    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
+    [syncSelectedTemplate],
   );
 
   const handleDelete = useCallback(() => {

@@ -127,8 +127,7 @@ export default function ImageDropPromptPopover({
       const form = new FormData();
       form.append("file", file);
       // Prefer the hosted provider chain. When none is configured the route
-      // returns 503 — fall back to an inline data URL so the agent still gets
-      // the image (chat already accepts `images` data URLs).
+      // returns 503 — fall back to an inline data URL for inline-safe images.
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,

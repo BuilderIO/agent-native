@@ -54,10 +54,13 @@ async function getDesign(page: Page, id: string) {
 
 async function fileContent(page: Page, id: string, filename: string) {
   const record = await getDesign(page, id);
-  return (
-    (record.files ?? []).find((f: any) => f.filename === filename)?.content ??
-    ""
-  );
+  const content = (record.files ?? []).find(
+    (f: any) => f.filename === filename,
+  )?.content;
+  if (typeof content !== "string" || content.length === 0) {
+    throw new Error(`${filename} is missing or empty`);
+  }
+  return content;
 }
 
 async function dumpTrace(page: Page) {
@@ -548,11 +551,17 @@ test.describe("YT #2 (landing page tutorial)", () => {
       await expect(heroImage).toBeVisible();
       const before = (await heroImage.boundingBox())!;
 
-      await page.mouse.click(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
+      await expandAllLayers(page);
+      await clickLayerRow(page, "HeroImage");
       await page.waitForTimeout(200);
+      const heroRows = layerTree(page)
+        .locator("[data-layer-row-content]")
+        .filter({ has: page.locator('span[title="HeroImage"]') });
+      await expect(heroRows).toHaveCount(1);
+      await expect(heroRows.first()).toHaveAttribute(
+        "data-layer-selection",
+        "primary",
+      );
 
       const startX = before.x + before.width / 2;
       const startY = before.y + before.height / 2;
@@ -568,6 +577,18 @@ test.describe("YT #2 (landing page tutorial)", () => {
         '[data-agent-native-layer-name="HeroImage"]',
       );
       await expect(heroImages).toHaveCount(2, { timeout: 10_000 });
+      const persisted = await fileContent(page, designId, "index.html");
+      const copyId = [
+        ...persisted.matchAll(
+          /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="HeroImage"/g,
+        ),
+      ]
+        .map((match) => match[1])
+        .find((id) => id !== "heroimage");
+      expect(
+        copyId,
+        "alt-drag must persist a generated copy node",
+      ).toBeTruthy();
 
       // The tutorial calls this "preview alternate spacing" then "undo the
       // nudge" — but Figma's alt-drag is a duplicate gesture, so the
@@ -577,11 +598,27 @@ test.describe("YT #2 (landing page tutorial)", () => {
         .boundingBox();
       expect(Math.round(originalAfter!.x)).toBe(Math.round(before.x));
       expect(Math.round(originalAfter!.y)).toBe(Math.round(before.y));
+      const copyAfter = await frame
+        .locator(`[data-agent-native-node-id="${copyId}"]`)
+        .boundingBox();
+      expect(copyAfter).not.toBeNull();
+      expect(Math.round(copyAfter!.x - before.x)).toBe(60);
+      expect(Math.round(copyAfter!.y - before.y)).toBe(40);
+      await expect(heroRows).toHaveCount(2);
+      await expect(heroRows.first()).toHaveAttribute(
+        "data-layer-selection",
+        "primary",
+      );
 
       await page.keyboard.press(`${MOD}+z`);
       await page.waitForTimeout(400);
 
       await expect(heroImages).toHaveCount(1, { timeout: 10_000 });
+      await expect(heroRows).toHaveCount(1);
+      await expect(heroRows.first()).toHaveAttribute(
+        "data-layer-selection",
+        "primary",
+      );
       const afterUndo = await frame
         .locator('[data-agent-native-node-id="heroimage"]')
         .boundingBox();

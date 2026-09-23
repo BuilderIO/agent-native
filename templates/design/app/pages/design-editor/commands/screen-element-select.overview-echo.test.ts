@@ -9,6 +9,12 @@ function makeArgs(overrides: {
   onOverviewSelectedScreenIdsChange: (next: string[]) => void;
 }) {
   let overviewSelectedScreenIds = overrides.overviewSelectedScreenIds;
+  const pendingOverviewLayerSelectionRef = {
+    current: null as string | null,
+  };
+  const pendingOverviewScreenSelectionRef = {
+    current: null as string | null,
+  };
   return {
     activeBreakpointWidthStateRef: { current: undefined },
     applyFileContentUpdate: vi.fn(),
@@ -19,8 +25,8 @@ function makeArgs(overrides: {
     handleBreakpointBarSelect: vi.fn(),
     id: "design-1",
     createdOverviewLayerSelection: null,
-    pendingOverviewLayerSelectionRef: { current: null },
-    pendingOverviewScreenSelectionRef: { current: null },
+    pendingOverviewLayerSelectionRef,
+    pendingOverviewScreenSelectionRef,
     selectedLayerIdsState: [],
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),
@@ -61,7 +67,7 @@ describe("runScreenElementSelect — overview screen selection on intent-less ec
     });
     // No `intent` argument — this is the bridge's intent-less echo, not a
     // real user pick.
-    runScreenElementSelect(args, "screen-1", info);
+    expect(runScreenElementSelect(args, "screen-1", info)).toBe(true);
     expect(result).toEqual(["desk-screen"]);
   });
 
@@ -73,7 +79,27 @@ describe("runScreenElementSelect — overview screen selection on intent-less ec
         result = next;
       },
     });
-    runScreenElementSelect(args, "screen-1", info, { metaKey: false });
+    expect(
+      runScreenElementSelect(args, "screen-1", info, { metaKey: false }),
+    ).toBe(true);
     expect(result).toEqual([]);
+  });
+
+  it("rejects the mirrored layer-panel echo before guidance can count it", () => {
+    const args = makeArgs({
+      overviewSelectedScreenIds: ["desk-screen"],
+      onOverviewSelectedScreenIdsChange: () => {},
+    });
+    args.pendingOverviewLayerSelectionRef.current = "layer-1";
+    args.pendingOverviewScreenSelectionRef.current = "screen-1";
+
+    expect(
+      runScreenElementSelect(
+        args,
+        "screen-1",
+        { ...info, sourceId: "layer-1" },
+        { source: "pointer" },
+      ),
+    ).toBe(false);
   });
 });

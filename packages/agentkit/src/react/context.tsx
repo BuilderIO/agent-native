@@ -208,6 +208,9 @@ export interface AgentKitLabels {
   suggestions: string;
   copy: string;
   copied: string;
+  messageActions: string;
+  copyRequestId: string;
+  requestIdUnavailable: string;
   positiveFeedback: string;
   negativeFeedback: string;
   fork: string;
@@ -265,6 +268,9 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   suggestions: "Suggested next actions",
   copy: "Copy message",
   copied: "Copied",
+  messageActions: "Message actions",
+  copyRequestId: "Copy request ID",
+  requestIdUnavailable: "Request ID unavailable",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",
   fork: "Fork conversation",

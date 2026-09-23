@@ -95,11 +95,11 @@ import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js
 import type { ContentPart } from "../sse-event-processor.js";
 import { useThinkingDisplay } from "../thinking-display.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   isToolCallActive,
   resolveToolCallRowContext,
   shadowedCallAgentToolCallIds,
+  toolLabel,
 } from "../tool-display.js";
 import { actionErrorMessage } from "../use-action.js";
 import { cn } from "../utils.js";
@@ -2057,11 +2057,14 @@ function assistantActivityItem(
   part: AssistantWorkPart,
   index: number,
   isLast: boolean,
+  translate: (key: string, options?: Record<string, unknown>) => string,
 ): AgentActivityItem {
   if (part.type === "reasoning") {
     return {
       id: `reasoning-${index}`,
-      label: "Reasoning",
+      label: translate("agentChat.activity.reasoning", {
+        defaultValue: "Reasoning",
+      }),
       variant: "reasoning",
       status: isLast ? "running" : "complete",
     };
@@ -2079,7 +2082,7 @@ function assistantActivityItem(
         : "steps";
   return {
     id: part.toolCallId ?? `tool-${index}`,
-    label: humanizeToolName(toolName),
+    label: toolLabel(translate, toolName),
     detail: resolveToolCallRowContext(part.args)?.text,
     variant,
     status: isLast ? "running" : "complete",
@@ -2599,6 +2602,7 @@ export function AssistantMessage() {
                             index,
                             messageIsRunning &&
                               itemIndex === part.indices.length - 1,
+                            t,
                           );
                         })
                         .filter(

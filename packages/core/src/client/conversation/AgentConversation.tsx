@@ -30,8 +30,9 @@ import {
   MessageScrollerViewport,
 } from "../components/ui/message-scroller.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
-import { humanizeToolName } from "../tool-display.js";
+import { toolLabel } from "../tool-display.js";
 import { cn } from "../utils.js";
 import type {
   AgentConversationAttachment,
@@ -403,6 +404,7 @@ function parseJsonObject(value: string | undefined): Record<string, unknown> {
 }
 
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
+  const t = useT();
   const resultJson = parseJsonText(tool.result);
   const nativeToolContext = {
     toolName: tool.name,
@@ -444,7 +446,7 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     <>
       <span className="agent-conversation-tool__icon">{icon}</span>
       <span className="agent-conversation-tool__name">
-        {humanizeToolName(tool.name)}
+        {toolLabel(t, tool.name)}
       </span>
       {tool.summary && (
         <span className="agent-conversation-tool__summary">{tool.summary}</span>

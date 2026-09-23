@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "推理",
   "approval.alwaysAllow": "始终允许",
   "approval.alwaysAllowHint": "批准并始终允许此完全相同的命令",
   "approval.alwaysAllowAction": "始终允许此操作",
@@ -34,14 +35,16 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "选择你的角色",
   "onboarding.customizeRole": "让我们为你定制体验。",
   "onboarding.roleQuestion": "哪一项最符合你的角色？",
-  "onboarding.roleProduct": "产品",
-  "onboarding.roleDesign": "设计",
+  "onboarding.roleHelperText": "这有助于我们个性化你的体验",
+  "onboarding.roleProduct": "产品经理",
+  "onboarding.roleDesign": "设计师",
   "onboarding.roleDeveloper": "开发",
   "onboarding.roleMarketing": "市场营销",
   "onboarding.roleSales": "销售",
   "onboarding.roleOps": "运营",
   "onboarding.roleIndividual": "个人用户",
   "onboarding.roleOther": "其他",
+  "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暂时跳过",
   "onboarding.saveRoleError": "无法保存你的角色。",
   "onboarding.builderActivateCredits": "激活 Builder.io 免费额度",
@@ -56,8 +59,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "我们会一键自动为您创建 Builder.io 账户。",
   "onboarding.builderCreateAndActivate": "创建并激活",
-  "onboarding.builderConsentPrefix": "继续即表示您同意 Builder.io 的",
-  "onboarding.builderTerms": "条款",
+  "onboarding.builderConsentPrefix": "创建 Builder.io 账户即表示您同意我们的",
+  "onboarding.builderTerms": "服务条款",
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
@@ -70,9 +73,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI 积分已准备就绪。云端代码编辑需要在后台代理设置中配置 Builder 项目。",
   "onboarding.openBackgroundAgentSettings": "打开后台代理设置",
-  "onboarding.capability.llm.keySummary": "连接 AI 提供商或本地模型",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.capability.llm.keySummary": "连接您自己的 AI 模型",
+  "onboarding.capability.fileStorage.keySummary": "文件上传和存储",
   "onboarding.fileStorage.title": "选择文件存储",
   "onboarding.fileStorage.description":
     "选择 Builder 托管存储，或为自己的兼容 S3 存储桶使用自定义存储密钥。",
@@ -80,12 +82,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "配置带有稳定公共 URL 的兼容 S3 存储桶。",
   "onboarding.capability.voiceInput.label": "语音输入",
-  "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
+  "onboarding.capability.voiceInput.keySummary": "语音输入",
   "onboarding.capability.voiceInput.why":
     "语音输入会将口述请求转换为文字；始终可以使用键盘输入。",
   "onboarding.capability.embeddings.label": "嵌入向量",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini、Cohere 或 Voyage 密钥",
+  "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
@@ -123,6 +124,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "当前使用的是共享密钥。",
   "agentPanel.useOrganizationKey": "改用组织密钥",
   "agentPanel.keyStatusUnavailable": "无法获取密钥状态。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "允许此网站弹出窗口，然后重试。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 订阅",
+  "agentPanel.chatgptSubscriptionDescription":
+    "通过你的 ChatGPT 订阅使用实验性 Codex。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "已连接",
+  "agentPanel.chatgptSubscriptionConnecting": "正在连接…",
+  "agentPanel.chatgptSubscriptionReconnect": "重新连接",
+  "agentPanel.chatgptSubscriptionConnect": "连接 ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "在聊天中使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "断开连接",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",
@@ -144,6 +157,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "正在加载...",
   "common.no": "否",
   "common.retry": "重试",
+  "common.chunkLoadFailed": "无法加载。请重试。",
   "common.save": "保存",
   "agents.hostedAgent": "托管代理",
   "agents.provider": "提供商",
@@ -716,6 +730,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "正在准备 {{activity}}...",
   "status.writing": "正在写入 {{activity}}...",
   "status.stillGenerating": "仍在生成 {{activity}}",
+  "status.runningTool": "正在运行 {{activity}}",
   "tabs.allChats": "所有聊天",
   "tabs.closeTab": "关闭标签页",
   "tabs.main": "主聊天",

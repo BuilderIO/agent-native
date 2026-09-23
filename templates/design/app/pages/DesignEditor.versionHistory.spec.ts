@@ -23,4 +23,22 @@ describe("DesignEditor version history", () => {
     expect(rootSource).toContain("IconHistory");
     expect(editorSource).toContain("DESIGN_HISTORY_OPEN_EVENT");
   });
+
+  it("keeps ordered undo and redo intents while a grouped delete is pending", () => {
+    expect(editorSource).toContain(
+      "pendingHistoryDirectionsRef.current.push(direction)",
+    );
+    expect(editorSource).toContain(
+      "clearPendingHistory: clearPendingHistoryDirections",
+    );
+    expect(editorSource).not.toContain(
+      "pendingHistoryDirectionRef.current ??=",
+    );
+  });
+
+  it("routes inline workbench deletion into the editor history boundary", () => {
+    expect(editorSource).toContain("onDeleteInlineFile={");
+    expect(editorSource).toContain("await performDeleteFiles([targetFile], {");
+    expect(editorSource).toContain("recordDeletionHistory: true,");
+  });
 });

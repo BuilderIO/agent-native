@@ -136,12 +136,20 @@ describe("visual style controls", () => {
     act(() => dragContainer.dispatchEvent(pointer("pointermove", 10, true)));
     expect(onChange).toHaveBeenCalledWith(
       20,
-      expect.objectContaining({ source: "scrub", phase: "preview" }),
+      expect.objectContaining({
+        source: "scrub",
+        phase: "preview",
+        altKey: true,
+      }),
     );
     act(() => dragContainer.dispatchEvent(pointer("pointerup", 10, true)));
     expect(onChange).toHaveBeenLastCalledWith(
       20,
-      expect.objectContaining({ source: "scrub", phase: "commit" }),
+      expect.objectContaining({
+        source: "scrub",
+        phase: "commit",
+        altKey: true,
+      }),
     );
     expect(dragContainer.setPointerCapture).toHaveBeenCalledWith(1);
   });
@@ -176,6 +184,8 @@ describe("visual style controls", () => {
       [10, expect.objectContaining({ source: "scrub", phase: "preview" })],
       [10, expect.objectContaining({ source: "scrub", phase: "cancel" })],
     ]);
+    expect(onChange.mock.calls[1]?.[1]).not.toHaveProperty("altKey");
+    expect(onChange.mock.calls[2]?.[1]).not.toHaveProperty("altKey");
     expect(onChange).not.toHaveBeenCalledWith(
       20,
       expect.objectContaining({ phase: "commit" }),
@@ -238,6 +248,11 @@ describe("visual style controls", () => {
       expect.objectContaining({ source: "scrub", phase: "cancel" }),
     );
     expect(input.value).toBe("normal");
+    const textCommitCalls = onTextCommit.mock.calls as unknown as Array<
+      [string, Record<string, unknown>]
+    >;
+    expect(textCommitCalls[0]?.[1]).not.toHaveProperty("altKey");
+    expect(textCommitCalls[1]?.[1]).not.toHaveProperty("altKey");
   });
 
   it("shows an honest mixed color instead of the fallback color", () => {

@@ -133,18 +133,20 @@ Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
 A tracked clear-bug or authorized upvoted improvement receives at most one
-disposition per run. Evidence-limited active dispositions are **Verified
+disposition per run. Active evidence-limited dispositions are **Verified
 locally**, **Built - live unverified**, **Deployed - live unverified**, **Not
 reproducible - attempted**, **In progress**, **Asked**, **Clarification
-needed**, **Blocked on reporter**, and **Merged - release pending**; they
-retain the workflow's eye. Terminal dispositions are **Fixed**, **Shipped**,
+needed**, and **Blocked on reporter**; they
+retain the workflow's eye. Terminal dispositions: **Fixed**, **Shipped**,
 **Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
-**Clustered**, and **Abandoned - no answer in 4 days**, each with the required
-evidence and disposition-specific release marker. An already-eyed item later
-found to be out of scope gets a `:no_entry_sign:` release marker and no new
+**Clustered**, and **Abandoned - no answer in 4 days**, each with required
+evidence and a release marker. An already-eyed out-of-scope item gets a
+`:no_entry_sign:` release marker and no new
 reply; if
 this workflow already replied, delete that reply when safe or edit it to one
-concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
+concise **Skipped** disposition. **Fixed** closes the issue after a verified
+source fix merges; publication, beta, and live verification follow separately.
+**In progress** is
 an open ownership state for a thread
 where `@agent-native` or another participant already found the cause, linked a
 fix, or said the work is being fixed; use it to acknowledge the existing work,

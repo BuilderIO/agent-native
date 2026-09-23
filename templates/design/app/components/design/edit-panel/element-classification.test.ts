@@ -349,6 +349,16 @@ describe("commitElementMinMax — meta forwarding", () => {
     });
   });
 
+  it("preserves fractional constraint values", () => {
+    const onStyleChange = vi.fn();
+    commitElementMinMax("horizontal", "min", 120.5, onStyleChange);
+    expect(onStyleChange).toHaveBeenCalledWith(
+      "minWidth",
+      "120.5px",
+      undefined,
+    );
+  });
+
   it("clearing (null) still works without meta — discrete remove action", () => {
     const onStyleChange = vi.fn();
     commitElementMinMax("horizontal", "max", null, onStyleChange);

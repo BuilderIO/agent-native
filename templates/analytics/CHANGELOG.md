@@ -3,6 +3,28 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-22
+
+### Added
+
+- Action success rate and action reliability metrics now weight sampled events correctly and leave cancelled requests out of the failure rate.
+
+### Improved
+
+- Analytics data reaches reports sooner, temporary event copies clear from Postgres after delivery or a limited recovery window, and out-of-range client clocks use the server receive time.
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Daily chart tooltips show the weekday alongside the date
+
+### Fixed
+
+- Analytics now distinguishes timeline-only sessions from missing replay data
+
+## 2026-09-16
+
+### Improved
+
+- Dashboards open without background synchronization scans during cold starts
+
 ## 2026-09-15
 
 ### Improved

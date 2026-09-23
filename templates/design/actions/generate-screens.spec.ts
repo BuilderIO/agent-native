@@ -133,11 +133,11 @@ describe("generate-screens", () => {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
     });
     expect(result).toMatchObject({
       designId: "design_123",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
       targets: [
         {
           title: "Onboarding",
@@ -166,7 +166,7 @@ describe("generate-screens", () => {
         result: { designId: "design_123" },
       }),
     ).toEqual({
-      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3Fview%3Doverview",
+      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3FeditorView%3Doverview",
       label: "Open generation session",
       view: "editor",
     });

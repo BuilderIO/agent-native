@@ -163,7 +163,8 @@ async function openEditor(page: Page, designId: string): Promise<void> {
   await page.waitForURL(
     (url) =>
       url.pathname === `/design/${designId}` &&
-      url.searchParams.get("view") === "overview" &&
+      (url.searchParams.get("editorView") ?? url.searchParams.get("view")) ===
+        "overview" &&
       url.searchParams.has("screen") &&
       url.searchParams.has("zoom"),
     { timeout: 45_000 },

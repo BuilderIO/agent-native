@@ -89,6 +89,7 @@ export const attendeeObjectInput = z.object({
   email: z.string(),
   displayName: z.string().optional(),
   optional: cliBoolean.optional(),
+  additionalGuests: z.coerce.number().int().nonnegative().optional(),
   comment: z.string().optional(),
   responseStatus: z
     .enum(["accepted", "declined", "tentative", "needsAction"])
@@ -106,6 +107,7 @@ export type NormalizedAttendee = {
   email: string;
   displayName?: string;
   optional?: boolean;
+  additionalGuests?: number;
   comment?: string;
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   organizer?: boolean;
@@ -130,6 +132,9 @@ export function normalizeAttendees(
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.organizer === true ? { organizer: true } : {}),

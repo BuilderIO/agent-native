@@ -468,6 +468,22 @@ function messageId(message: any): string | undefined {
   return typeof message?.id === "string" && message.id ? message.id : undefined;
 }
 
+function messageCreatedAtMs(message: any): number | null {
+  const value = message?.createdAt;
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const time = Date.parse(value);
+    return Number.isFinite(time) ? time : null;
+  }
+  return null;
+}
+
 function getMessageRunId(message: any): string | undefined {
   const meta = message?.metadata;
   const direct = meta?.runId;
@@ -1399,6 +1415,100 @@ function rewriteEntryParentId(
   return { ...entry, parentId: rewritten };
 }
 
+function isMessageAncestor(
+  messages: readonly any[],
+  ancestorId: string,
+  descendantId: string,
+): boolean {
+  if (ancestorId === descendantId) return true;
+  const parentById = new Map<string, string | null>();
+  for (const entry of messages) {
+    const id = messageId(getStoredMessage(entry));
+    if (!id) continue;
+    const parentId = getStoredParentId(entry);
+    parentById.set(id, typeof parentId === "string" ? parentId : null);
+  }
+
+  const visited = new Set<string>();
+  let currentId: string | null = descendantId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    currentId = parentById.get(currentId) ?? null;
+    if (currentId === ancestorId) return true;
+  }
+  return false;
+}
+
+/**
+ * Keep the newest reachable branch as assistant-ui's active head. Full-thread
+ * saves can arrive from a stale tab after a server completion; preserving every
+ * entry is not enough if the stale head still hides the server branch.
+ */
+function chooseMergedHeadId(
+  existingRepo: any,
+  incomingRepo: any,
+  mergedRepo: any,
+): string | null {
+  const existingHead = messageId(
+    getStoredMessage(
+      existingRepo?.messages?.find(
+        (entry: any) =>
+          messageId(getStoredMessage(entry)) === existingRepo?.headId,
+      ),
+    ),
+  );
+  const incomingHead = messageId(
+    getStoredMessage(
+      incomingRepo?.messages?.find(
+        (entry: any) =>
+          messageId(getStoredMessage(entry)) === incomingRepo?.headId,
+      ),
+    ),
+  );
+  const mergedMessages = Array.isArray(mergedRepo?.messages)
+    ? mergedRepo.messages
+    : [];
+  const mergedIds = new Set(
+    mergedMessages
+      .map((entry: any) => messageId(getStoredMessage(entry)))
+      .filter((id: string | undefined): id is string => Boolean(id)),
+  );
+  const existingCandidate =
+    existingHead && mergedIds.has(existingHead) ? existingHead : null;
+  const incomingCandidate =
+    incomingHead && mergedIds.has(incomingHead) ? incomingHead : null;
+  if (!existingCandidate) return incomingCandidate;
+  if (!incomingCandidate || existingCandidate === incomingCandidate) {
+    return existingCandidate;
+  }
+
+  if (isMessageAncestor(mergedMessages, existingCandidate, incomingCandidate)) {
+    return incomingCandidate;
+  }
+  if (isMessageAncestor(mergedMessages, incomingCandidate, existingCandidate)) {
+    return existingCandidate;
+  }
+
+  const messageById = new Map(
+    mergedMessages.map((entry: any) => {
+      const message = getStoredMessage(entry);
+      return [messageId(message), message] as const;
+    }),
+  );
+  const existingTime = messageCreatedAtMs(messageById.get(existingCandidate));
+  const incomingTime = messageCreatedAtMs(messageById.get(incomingCandidate));
+  if (
+    existingTime !== null &&
+    incomingTime !== null &&
+    existingTime !== incomingTime
+  ) {
+    return incomingTime > existingTime ? incomingCandidate : existingCandidate;
+  }
+
+  // An un-timestamped incoming snapshot is not evidence that it is newer.
+  return existingCandidate;
+}
+
 /**
  * Merge an incoming client-side full-thread save over the current SQL copy.
  *
@@ -1561,7 +1671,15 @@ export function mergeThreadDataForClientSave(
   merged.messages = nextMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
-  return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
+  const normalizedMerged = normalizeThreadRepository(
+    pruneClaimedQueuedMessages(merged),
+  );
+  normalizedMerged.headId = chooseMergedHeadId(
+    existingNormalized,
+    incomingNormalized,
+    normalizedMerged,
+  );
+  return normalizedMerged;
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -1889,7 +2007,11 @@ export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
   }
 
   const parentId =
-    lastIndex >= 0 ? (messageId(getStoredMessage(lastEntry)) ?? null) : null;
+    typeof nextRepo.headId === "string"
+      ? nextRepo.headId
+      : lastIndex >= 0
+        ? (messageId(getStoredMessage(lastEntry)) ?? null)
+        : null;
   nextRepo.messages.push({ message: userMsg, parentId });
   nextRepo.headId = userMsg.id;
   return nextRepo;
@@ -1958,11 +2080,13 @@ export function upsertAssistantMessage(
   }
 
   const fallbackParentId =
-    nextRepo.messages.length > 0
-      ? (messageId(
-          getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
-        ) ?? null)
-      : null;
+    typeof nextRepo.headId === "string"
+      ? nextRepo.headId
+      : nextRepo.messages.length > 0
+        ? (messageId(
+            getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
+          ) ?? null)
+        : null;
   const resolvedParentId =
     parentId === null ||
     (typeof parentId === "string" &&

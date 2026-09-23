@@ -377,7 +377,6 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
 
   // Step 6: Shift-select lens + handle, "Union selection" — no equivalent.
   // Continue with the closest equivalent: Group (Cmd/Ctrl+G).
-  let groupChildCountAfterGroup = 0;
   await test.step("Union selection does not exist (finding); Cmd+G groups instead, one undo restores both layers", async () => {
     await layerRowButton(page, "Ellipse").click();
     await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
@@ -402,16 +401,22 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         }, content);
       })
       .toBe(1);
-    groupChildCountAfterGroup = await page.evaluate(async () => 0);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(selectedLayerRow(page)).toContainText(/Group/i);
     const content = await fileContent(page, "index.html");
-    const childCount = await page.evaluate((html) => {
+    const groupChildren = await page.evaluate((html) => {
       const doc = new DOMParser().parseFromString(html, "text/html");
-      return (
-        doc.querySelector('[data-agent-native-layer-name="Group"]')?.children
-          .length ?? 0
-      );
+      return Array.from(
+        doc.querySelector('[data-agent-native-layer-name="Group"]')?.children ??
+          [],
+      ).map((child) => child.getAttribute("data-agent-native-layer-name"));
     }, content);
-    expect(childCount).toBe(2);
+    expect(groupChildren).toEqual(
+      expect.arrayContaining(["Ellipse", "Vector"]),
+    );
+    expect(groupChildren).toHaveLength(2);
 
     await page.keyboard.press(undoShortcut);
     await expect
@@ -427,6 +432,20 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         }, c);
       })
       .toBe(0);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
+    const selectedLayerNames = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button] span[title]',
+      )
+      .evaluateAll((nodes) =>
+        nodes
+          .map((node) => node.getAttribute("title"))
+          .filter((name): name is string => Boolean(name))
+          .sort(),
+      );
+    expect(selectedLayerNames).toEqual(["Ellipse", "Vector"]);
 
     // Redo the group so later steps have it again.
     await layerRowButton(page, "Ellipse").click();

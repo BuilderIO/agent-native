@@ -913,11 +913,17 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
         threadId = msg.threadId;
       }
       // Report spam on entire thread
-      await gmailModifyThread(accessToken, threadId!, ["SPAM"], ["INBOX"]);
+      const updated = (await gmailModifyThread(
+        accessToken,
+        threadId!,
+        ["SPAM"],
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(email, threadId!);
       await syncInboxLabelDelta(email, acct, [threadId!], {
         add: ["SPAM"],
         remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
       });
       return { id, threadId, spam: true };
     } catch (error: any) {
@@ -997,11 +1003,17 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
 
       // Report the entire thread as spam
       const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
+      const updated = (await gmailModifyThread(
+        accessToken,
+        msg.threadId,
+        ["SPAM"],
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(email, msg.threadId);
       await syncInboxLabelDelta(email, acct, [msg.threadId], {
         add: ["SPAM"],
         remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
       });
 
       // Create a filter to auto-delete future emails from this sender
@@ -1103,10 +1115,16 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     try {
       const threadId = getRouterParam(event, "threadId") as string;
       // Gmail "mute" = remove from inbox; future replies also skip inbox
-      await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
+      const updated = (await gmailModifyThread(
+        accessToken,
+        threadId,
+        undefined,
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(email, threadId);
       await syncInboxLabelDelta(email, acct, [threadId], {
         remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
       });
       return { threadId, muted: true };
     } catch (error: any) {

@@ -171,12 +171,7 @@ async function zoomOutToBoardDropPoint(page: Page) {
           continue;
         }
         const hit = document.elementFromPoint(x, y);
-        if (
-          !hit ||
-          hit.closest(
-            '[data-design-chrome-region="left-panel"], [data-design-chrome-region="right-panel"]',
-          )
-        ) {
+        if (!hit || hit.closest("[data-design-chrome-region]")) {
           continue;
         }
         return {
@@ -763,23 +758,49 @@ test.describe("alt-drag duplicate (overview)", () => {
       await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
         timeout: 20_000,
       });
-      const after = await page.evaluate(() =>
-        Object.fromEntries(
-          Array.from(
-            document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-          ).map((node) => [
-            node.getAttribute("data-frame-id")!,
-            {
-              left: Number.parseFloat(node.style.left),
-              top: Number.parseFloat(node.style.top),
-            },
-          ]),
-        ),
-      );
+      const readFramePositions = () =>
+        page.evaluate(() =>
+          Object.fromEntries(
+            Array.from(
+              document.querySelectorAll<HTMLElement>("[data-frame-id]"),
+            ).map((node) => [
+              node.getAttribute("data-frame-id")!,
+              {
+                left: Number.parseFloat(node.style.left),
+                top: Number.parseFloat(node.style.top),
+              },
+            ]),
+          ),
+        );
+      let after: Record<string, { left: number; top: number }> = {};
+      let copyId = "";
+      await expect
+        .poll(
+          async () => {
+            after = await readFramePositions();
+            copyId = Object.keys(after).find((id) => id !== fileIds[0]) ?? "";
+            return (
+              Boolean(copyId) && after[copyId]!.left > before[fileIds[0]!]!.left
+            );
+          },
+          { timeout: 20_000 },
+        )
+        .toBe(true);
       expect(after[fileIds[0]!]).toEqual(before[fileIds[0]!]);
-      const copyId = Object.keys(after).find((id) => id !== fileIds[0]);
       expect(copyId).toBeTruthy();
       expect(after[copyId!]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
+
+      const copyTitle = page.locator(
+        `[data-frame-id="${copyId}"] [data-frame-title]`,
+      );
+      await expect(copyTitle).toHaveAttribute("title", "index-copy.html");
+      await expect(copyTitle).toHaveText("Index copy");
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]')
+          .filter({ hasText: "Index copy" }),
+      ).toHaveCount(1);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
@@ -820,17 +841,6 @@ test.describe("alt-drag duplicate (overview)", () => {
           x: labelBox.x + labelBox.width / 2,
           y: labelBox.y + labelBox.height / 2,
         },
-      );
-
-      console.log(
-        "DEBUG left-shell overlap:",
-        JSON.stringify({
-          labelBox,
-          shellVisible,
-          shellBox,
-          overlapsShell,
-          elementAtPoint,
-        }),
       );
 
       // Try the plain click (no force) as a real user would.

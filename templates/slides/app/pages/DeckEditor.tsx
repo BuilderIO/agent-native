@@ -145,6 +145,7 @@ import {
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   insertDroppedImageIntoSlideHtml,
+  prefetchImage,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
   stripOptimisticImagePreviews,
@@ -1222,6 +1223,13 @@ export default function DeckEditor() {
 
       try {
         const newUrl = await uploadImageAsset(file);
+        if (!(await prefetchImage(newUrl))) {
+          clearPreview();
+          toast.error(t("deckEditor.imageUploadFailed"), {
+            description: t("deckEditor.imageUploadError"),
+          });
+          return;
+        }
         if (
           !pendingImagePreviewsRef.current.some(
             (preview) => preview.previewSrc === previewSrc,
@@ -3054,7 +3062,7 @@ export default function DeckEditor() {
       <input
         ref={uploadInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.svg"
         onChange={handleDirectUpload}
         className="hidden"
       />

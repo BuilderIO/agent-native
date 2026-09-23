@@ -47,10 +47,18 @@ const groupFixture = `<!doctype html><html><body style="margin:0">
   </main>
 </body></html>`;
 
+const freeDragFixture = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="free" style="position:absolute;left:80px;top:70px;width:100px;height:60px;background:#eee"></div>
+</body></html>`;
+
 type Rect = { left: number; top: number; width: number; height: number };
 
-async function install(page: Page, selectId: string): Promise<void> {
-  await page.setContent(groupFixture);
+async function install(
+  page: Page,
+  selectId: string,
+  fixture = groupFixture,
+): Promise<void> {
+  await page.setContent(fixture);
   await page.addScriptTag({ content: hydratedBridge() });
   await page.evaluate((nodeId) => {
     window.postMessage(
@@ -194,6 +202,67 @@ describe("Alt-drag clone cursor tracking", () => {
       expect(dragged.top).toBeCloseTo(source.top + 25, 0);
 
       await page.mouse.up();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("uses the original grab point when Alt-drag crosses the free-move threshold", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await install(page, "free", freeDragFixture);
+      const source = await rectOf(page, "free");
+      const grabPoint = { x: source.left + 32, y: source.top + 26 };
+      await page.evaluate(() => {
+        const originalPostMessage = window.postMessage.bind(window);
+        (
+          window as Window & {
+            __capturedCrossScreenStarts?: unknown[];
+          }
+        ).__capturedCrossScreenStarts = [];
+        window.postMessage = ((message: unknown, targetOrigin: string) => {
+          if (
+            (message as { type?: string; phase?: string })?.type ===
+              "agent-native:cross-screen-drag" &&
+            (message as { phase?: string }).phase === "start"
+          ) {
+            (
+              window as Window & {
+                __capturedCrossScreenStarts?: unknown[];
+              }
+            ).__capturedCrossScreenStarts?.push(message);
+          }
+          return originalPostMessage(message, targetOrigin);
+        }) as typeof window.postMessage;
+      });
+
+      await page.keyboard.down("Alt");
+      await page.mouse.move(grabPoint.x, grabPoint.y);
+      await page.mouse.down();
+      await page.mouse.move(grabPoint.x + 18, grabPoint.y + 16, { steps: 3 });
+
+      const start = (await page
+        .waitForFunction(
+          () =>
+            (
+              window as Window & {
+                __capturedCrossScreenStarts?: unknown[];
+              }
+            ).__capturedCrossScreenStarts?.[0],
+        )
+        .then((handle) => handle.jsonValue())) as {
+        iframeX: number;
+        iframeY: number;
+        pointerOffset?: { x: number; y: number };
+      };
+      expect(start.iframeX).toBeCloseTo(grabPoint.x, 0);
+      expect(start.iframeY).toBeCloseTo(grabPoint.y, 0);
+      expect(start.pointerOffset?.x).toBeCloseTo(32, 0);
+      expect(start.pointerOffset?.y).toBeCloseTo(26, 0);
+
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
     } finally {
       await browser.close();
     }

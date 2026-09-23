@@ -59,6 +59,14 @@ describe("onboarding app profiles", () => {
           required: false,
           suggested: true,
         }),
+        expect.objectContaining({
+          id: "system-one",
+          label: "Decision model (Jev)",
+          required: false,
+          suggested: true,
+          builderIncluded: true,
+          keySummary: "Jev decision model key",
+        }),
       ]),
     );
   });
@@ -69,15 +77,16 @@ describe("onboarding app profiles", () => {
 
     expect(ids).toEqual([
       "llm",
+      "system-one",
       "video-storage",
       "voice-input",
       "embeddings",
       "transcription",
     ]);
-    expect(clips.capabilities[1]?.required).toBe(true);
-    expect(clips.capabilities[1]?.keySummary).toContain("S3");
-    expect(clips.capabilities[1]?.label).toBe("Object storage");
-    expect(clips.capabilities[3]?.required).toBe(false);
+    expect(clips.capabilities[2]?.required).toBe(true);
+    expect(clips.capabilities[2]?.keySummary).toBe("Object storage");
+    expect(clips.capabilities[2]?.label).toBe("Object storage");
+    expect(clips.capabilities[4]?.required).toBe(false);
 
     clips.capabilities[0]!.label = "Changed locally";
     expect(getOnboardingAppProfile("clips").capabilities[0]?.label).toBe(

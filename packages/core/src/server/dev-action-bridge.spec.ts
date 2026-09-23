@@ -43,8 +43,14 @@ vi.mock("../scripts/dev-session.js", () => ({
   resolveDevUserEmail: () => mockResolveDevUserEmail(),
 }));
 
+const mockRunDbQuery = vi.hoisted(() => vi.fn());
+vi.mock("../scripts/db/query.js", () => ({
+  runDbQuery: (...args: unknown[]) => mockRunDbQuery(...args),
+}));
+
 import {
   DEV_ACTION_ROUTE,
+  DEV_DB_QUERY_ROUTE,
   DEV_ACTION_ORG_HEADER,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
@@ -52,10 +58,12 @@ import {
   hashDatabaseKey,
   isValidDevActionHandoffUrl,
   mountDevActionForwardRoute,
+  mountDevDbQueryForwardRoute,
   readDevActionDiscoveryFile,
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "./dev-action-bridge.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 describe("dev action browser handoff validation", () => {
   it("accepts only the relative embed path or a loopback APP_URL origin", () => {
@@ -89,6 +97,16 @@ function mountedHandler(actions: Record<string, any>, options?: any) {
       mounted.push({ path: routePath, handler }),
   };
   mountDevActionForwardRoute(nitroApp, actions, options);
+  return mounted[0]!.handler;
+}
+
+function mountedDbQueryHandler() {
+  const mounted: Array<{ path: string; handler: any }> = [];
+  const nitroApp = {
+    use: (routePath: string, handler: any) =>
+      mounted.push({ path: routePath, handler }),
+  };
+  mountDevDbQueryForwardRoute(nitroApp);
   return mounted[0]!.handler;
 }
 
@@ -263,6 +281,27 @@ describe("mountDevActionForwardRoute", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("rejects UI-only actions from the CLI bridge", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    const run = vi.fn();
+    const handler = mountedHandler({
+      "delete-data": { uiOnly: true, run } as any,
+    });
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { name: "delete-data" },
+    };
+
+    const response = await handler(event);
+    expect(response).toEqual({
+      ok: false,
+      error: "This action can only be called from the signed-in app UI.",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("runs a registered action under caller cli with the header identity and returns its result", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const token = getDevActionToken()!;
@@ -377,20 +416,186 @@ describe("mountDevActionForwardRoute", () => {
   });
 });
 
+describe("mountDevDbQueryForwardRoute", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-db-query-route-"));
+    mockIsLoopbackRequest.mockReset();
+    mockIsLoopbackRequest.mockReturnValue(true);
+    mockResolveDeployEnvironment.mockReset();
+    mockResolveDeployEnvironment.mockReturnValue("local");
+    mockResolveDevUserEmail.mockReset();
+    mockResolveDevUserEmail.mockResolvedValue(undefined);
+    mockRunDbQuery.mockReset();
+  });
+
+  afterEach(() => {
+    removeDevActionDiscoveryFile(tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("rejects with 401 on a production deploy, before checking the token", async () => {
+    mockResolveDeployEnvironment.mockReturnValue("production");
+    const handler = mountedDbQueryHandler();
+    const event: any = { _headers: {} };
+    await expect(handler(event)).resolves.toMatchObject({ ok: false });
+    expect(event._status).toBe(401);
+    expect(mockRunDbQuery).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-loopback request with 401", async () => {
+    mockIsLoopbackRequest.mockReturnValue(false);
+    const handler = mountedDbQueryHandler();
+    const event: any = { _headers: {} };
+    await expect(handler(event)).resolves.toMatchObject({ ok: false });
+    expect(event._status).toBe(401);
+    expect(mockRunDbQuery).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing or wrong dev token with 401", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const handler = mountedDbQueryHandler();
+
+    const noToken: any = { _headers: {} };
+    await expect(handler(noToken)).resolves.toMatchObject({ ok: false });
+    expect(noToken._status).toBe(401);
+
+    const wrongToken: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: "wrong" },
+    };
+    await expect(handler(wrongToken)).resolves.toMatchObject({ ok: false });
+    expect(wrongToken._status).toBe(401);
+    expect(mockRunDbQuery).not.toHaveBeenCalled();
+  });
+
+  it("rejects a body with no SQL string", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    const handler = mountedDbQueryHandler();
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: {},
+    };
+    const response = await handler(event);
+    expect(response.ok).toBe(false);
+    expect(event._status).toBe(500);
+    expect(mockRunDbQuery).not.toHaveBeenCalled();
+  });
+
+  it("runs the query through runDbQuery and returns its rows", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    mockRunDbQuery.mockResolvedValue({
+      rows: [{ id: 1 }],
+      sql: "SELECT id FROM items LIMIT 100",
+    });
+    const handler = mountedDbQueryHandler();
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { sql: "SELECT id FROM items", params: [1], limit: 100 },
+    };
+
+    const response = await handler(event);
+    expect(response).toEqual({
+      ok: true,
+      rows: [{ id: 1 }],
+      sql: "SELECT id FROM items LIMIT 100",
+    });
+    expect(mockRunDbQuery).toHaveBeenCalledWith({
+      sql: "SELECT id FROM items",
+      sqlArgs: [1],
+      limit: 100,
+      databaseUrl: "pglite:./data/pglite",
+    });
+  });
+
+  it("runs runDbQuery inside the header-provided user/org request context", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    mockRunDbQuery.mockImplementation(async () => ({
+      rows: [{ userEmail: getRequestUserEmail(), orgId: getRequestOrgId() }],
+      sql: "SELECT 1",
+    }));
+    const handler = mountedDbQueryHandler();
+    const event: any = {
+      _headers: {
+        [DEV_ACTION_TOKEN_HEADER]: token,
+        [DEV_ACTION_USER_HEADER]: "owner@example.test",
+        [DEV_ACTION_ORG_HEADER]: "org_1",
+      },
+      _body: { sql: "SELECT 1" },
+    };
+
+    const response = await handler(event);
+    expect(response.rows).toEqual([
+      { userEmail: "owner@example.test", orgId: "org_1" },
+    ]);
+    expect(mockResolveDevUserEmail).not.toHaveBeenCalled();
+  });
+
+  it("falls back to resolveDevUserEmail when no user header is sent", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    mockResolveDevUserEmail.mockResolvedValue("resolved@example.test");
+    mockRunDbQuery.mockImplementation(async () => ({
+      rows: [{ userEmail: getRequestUserEmail() }],
+      sql: "SELECT 1",
+    }));
+    const handler = mountedDbQueryHandler();
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { sql: "SELECT 1" },
+    };
+
+    const response = await handler(event);
+    expect(mockResolveDevUserEmail).toHaveBeenCalledTimes(1);
+    expect(response.rows).toEqual([{ userEmail: "resolved@example.test" }]);
+  });
+
+  it("returns 500 with the thrown message when runDbQuery rejects the query", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    mockRunDbQuery.mockRejectedValue(
+      new Error("Only SELECT, WITH, and EXPLAIN queries are allowed."),
+    );
+    const handler = mountedDbQueryHandler();
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { sql: "DELETE FROM items" },
+    };
+
+    const response = await handler(event);
+    expect(response).toEqual({
+      ok: false,
+      error: "Only SELECT, WITH, and EXPLAIN queries are allowed.",
+    });
+    expect(event._status).toBe(500);
+  });
+});
+
 describe("auth guard exemption", () => {
   // The template auth middleware (`runAuthGuard`) 401s anonymous
-  // /_agent-native/* requests before any route runs. The dev route must be
+  // /_agent-native/* requests before any route runs. The dev routes must be
   // let through for loopback, non-production requests or `pnpm action`
   // forwarding silently degrades to "Unauthorized".
-  it("keeps the loopback dev-action bypass in auth.ts", () => {
+  function expectLoopbackBypass(route: string) {
     const source = fs.readFileSync(
       path.join(import.meta.dirname, "auth.ts"),
       "utf8",
     );
-    const index = source.indexOf(`p === "${DEV_ACTION_ROUTE}"`);
+    const index = source.indexOf(`p === "${route}"`);
     expect(index).toBeGreaterThan(-1);
     const bypass = source.slice(index, index + 200);
     expect(bypass).toContain('resolveDeployEnvironment() !== "production"');
     expect(bypass).toContain("isLoopbackRequest(event)");
+  }
+
+  it("keeps the loopback dev-action bypass in auth.ts", () => {
+    expectLoopbackBypass(DEV_ACTION_ROUTE);
+  });
+
+  it("keeps the loopback dev-db-query bypass in auth.ts", () => {
+    expectLoopbackBypass(DEV_DB_QUERY_ROUTE);
   });
 });

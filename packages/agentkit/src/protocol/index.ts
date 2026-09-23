@@ -1055,6 +1055,8 @@ export interface AgentRunSnapshot {
   threadId: ThreadId;
   status: AgentRunStatus;
   lastSequence: number;
+  /** Most recent assistant message associated with this run, when known. */
+  activeMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;

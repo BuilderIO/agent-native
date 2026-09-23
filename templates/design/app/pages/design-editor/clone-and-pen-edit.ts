@@ -1046,6 +1046,7 @@ export function prepareClonedHtmlLayer(
   styleSnapshot?: PortableStyleSnapshot | null,
   reservedNodeIds: Set<string> | null = null,
   componentContext?: ComponentCloneContext,
+  preserveIncomingNodeIds = false,
 ): {
   element: Element;
   rootNodeId: string;
@@ -1102,25 +1103,34 @@ export function prepareClonedHtmlLayer(
   }
   const nodeIdMap = new Map<string, string>();
   const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");
-  const rootNodeId = claimClonedNodeId(
-    previousRootNodeId,
-    "copy",
-    reservedNodeIds,
-  );
+  const rootNodeId = preserveIncomingNodeIds
+    ? previousRootNodeId || uniqueLayerId("move")
+    : claimClonedNodeId(previousRootNodeId, "copy", reservedNodeIds);
   clone.setAttribute("data-agent-native-node-id", rootNodeId);
-  if (previousRootNodeId) nodeIdMap.set(previousRootNodeId, rootNodeId);
-  Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
-    (node) => {
-      const previousChildId = node.getAttribute("data-agent-native-node-id");
-      const nextChildId = claimClonedNodeId(
-        previousChildId,
-        "copy-child",
-        reservedNodeIds,
-      );
-      node.setAttribute("data-agent-native-node-id", nextChildId);
-      if (previousChildId) nodeIdMap.set(previousChildId, nextChildId);
-    },
-  );
+  if (previousRootNodeId) {
+    nodeIdMap.set(previousRootNodeId, rootNodeId);
+  }
+  if (!preserveIncomingNodeIds) {
+    Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
+      (node) => {
+        const previousChildId = node.getAttribute("data-agent-native-node-id");
+        const nextChildId = claimClonedNodeId(
+          previousChildId,
+          "copy-child",
+          reservedNodeIds,
+        );
+        node.setAttribute("data-agent-native-node-id", nextChildId);
+        if (previousChildId) nodeIdMap.set(previousChildId, nextChildId);
+      },
+    );
+  } else {
+    Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
+      (node) => {
+        const nodeId = node.getAttribute("data-agent-native-node-id");
+        if (nodeId) nodeIdMap.set(nodeId, nodeId);
+      },
+    );
+  }
   // U14: also regenerate plain `id="..."` attributes on the clone (root +
   // descendants). Without this, duplicating/pasting an element that (or
   // whose descendants) carries an authored id="..." produces two elements
@@ -1128,8 +1138,30 @@ export function prepareClonedHtmlLayer(
   // later selector-based edit then resolve to whichever one the browser
   // happens to match first (typically the ORIGINAL, not the new copy),
   // silently misapplying edits meant for the duplicate.
-  reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
-  reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
+  if (!preserveIncomingNodeIds) {
+    reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
+    reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
+  }
+  // Runtime snapshots carry the source component identity separately from
+  // the DOM node id. Keep the component boundary stable across a clone, but
+  // mint its instance handle with the same fresh id used for the cloned node.
+  // Leaving the old handle in place makes two live instances address the same
+  // runtime component when the next snapshot is serialized.
+  for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
+    const runtimeInstanceId = element.getAttribute(
+      "data-agent-native-runtime-instance-id",
+    );
+    if (!runtimeInstanceId) continue;
+    const nextInstanceId =
+      nodeIdMap.get(runtimeInstanceId) ??
+      element.getAttribute("data-agent-native-node-id");
+    if (nextInstanceId) {
+      element.setAttribute(
+        "data-agent-native-runtime-instance-id",
+        nextInstanceId,
+      );
+    }
+  }
   const linkedClone = linkedCloneSubtree(
     source,
     clone,
@@ -1187,6 +1219,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
     stripRootPosition?: boolean;
     positions?: Array<CloneLayerPosition | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
+    preserveIncomingNodeIds?: boolean;
   } = {},
 ): {
   destinationContent: string;
@@ -1212,6 +1245,9 @@ export function prepareClonedHtmlLayersForLiveInsert(
         doc,
         layerHtml,
         options.styleSnapshots?.[index],
+        null,
+        undefined,
+        options.preserveIncomingNodeIds,
       );
       if (!prepared) return;
       const position = options.positions?.[index];

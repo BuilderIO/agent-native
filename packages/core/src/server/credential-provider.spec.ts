@@ -792,6 +792,7 @@ describe("resolveBuilderCredential", () => {
     process.env.BUILDER_PUBLIC_KEY = "space-id";
     process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.SLACK_BOT_TOKEN = "slack-deploy-token";
     process.env.GITHUB_TOKEN = "github-deploy-token";
     // Fusion/workspace dev servers can still look "local" to DB detection
     // during startup, but their Builder env fallback must not impersonate the
@@ -809,6 +810,7 @@ describe("resolveBuilderCredential", () => {
       "anthropic-deploy-key",
     );
     expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("SLACK_BOT_TOKEN")).toBe("slack-deploy-token");
     expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
     expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(

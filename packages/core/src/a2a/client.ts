@@ -4,7 +4,7 @@ import * as jose from "jose";
 
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
+import { resolveVercelDeploymentProtectionHeaders } from "../server/deployment-protection.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,

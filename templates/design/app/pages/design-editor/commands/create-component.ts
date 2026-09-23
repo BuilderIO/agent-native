@@ -1,3 +1,4 @@
+import type { LocalJsxSourceAnchor } from "@shared/local-jsx-visual-edit";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type {
@@ -10,6 +11,13 @@ export interface CreateComponentSourcePreimage {
   versionHash: string;
 }
 
+export interface CreateComponentLocalSource extends LocalJsxSourceAnchor {
+  connectionId: string;
+  path: string;
+  expectedVersionHash?: string;
+  propStamps?: Array<{ name: string; value: string }>;
+}
+
 export interface CreateComponentRequest {
   designId: string;
   nodeId?: string;
@@ -17,8 +25,9 @@ export interface CreateComponentRequest {
   name: string;
   fileId?: string;
   source?: {
-    currentContent: string;
-    expectedVersionHash: string;
+    currentContent?: string;
+    expectedVersionHash?: string;
+    local?: CreateComponentLocalSource;
   };
 }
 
@@ -49,6 +58,12 @@ export interface CreateComponentActionResult {
     versionHash: string;
     updatedAt: string;
   }>;
+  source?: {
+    kind: "local-file";
+    connectionId: string;
+    path: string;
+    versionHash: string;
+  };
   updatedAt?: string;
 }
 
@@ -155,9 +170,25 @@ export function createComponentActionChange(
 /** Build the command-side request and hand it to the queue-owned transaction. */
 export async function runCreateComponent(
   args: CreateComponentArgs,
-  request: Omit<CreateComponentRequest, "designId" | "fileId" | "source">,
+  request: Omit<CreateComponentRequest, "designId" | "fileId" | "source"> & {
+    source?: { local?: CreateComponentLocalSource };
+  },
 ): Promise<CreateComponentCommandOutcome | undefined> {
   if (!args.canEditDesign) return undefined;
+
+  if (request.source?.local) {
+    const result = await args.createComponent({
+      ...request,
+      designId: args.designId,
+      fileId: args.fileId,
+      source: { local: request.source.local },
+    });
+    return {
+      result,
+      historyRecorded: result.persisted === true,
+      hostSync: result.persisted === true ? "accepted" : "skipped",
+    };
+  }
 
   return args.mutationTransaction.enqueue({
     fileId: args.fileId,
@@ -170,6 +201,16 @@ export async function runCreateComponent(
         source: {
           currentContent: source.content,
           expectedVersionHash: source.versionHash,
+          ...(request.source?.local
+            ? {
+                local: {
+                  ...request.source.local,
+                  expectedVersionHash:
+                    request.source.local.expectedVersionHash ??
+                    source.versionHash,
+                },
+              }
+            : {}),
         },
       }),
   });

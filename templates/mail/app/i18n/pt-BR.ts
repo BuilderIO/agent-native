@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Sincronizando caixa de entrada…",
     },
+    sort: {
+      label: "Ordenar caixa de entrada",
+      newest: "Mais recentes",
+      priority: "Prioridade",
+      priorityFailed: "Não foi possível ordenar a caixa de entrada.",
+    },
     toolbar: {
       toggleMenu: "Alternar menu",
       menu: "Menu",
@@ -40,6 +46,7 @@ const messages = {
       unpinSidebar: "Desafixar barra lateral",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
+      aiSettings: "Tags e spam com IA",
     },
     search: {
       label: "Buscar",
@@ -447,6 +454,8 @@ const messages = {
     aiFilter: {
       title: "Filtro de IA",
       subtitle: "Uma etiqueta reversível que aprende com suas decisões.",
+      rulesTitle: "Regras",
+      newRule: "Nova regra",
       lunaBadge: "Luna quando disponível",
       toggle: "Ativar filtro de IA",
       autoFilterTitle: "Filtrar automaticamente com alta confiança",
@@ -500,6 +509,41 @@ const messages = {
       settingsFailed:
         "Não foi possível salvar as configurações do filtro de IA.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+      spamMode: "Spam",
+      tagMode: "Tag",
+      importantMode: "Importante",
+      importantLabel: "Importante por IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "ex.: mensagens que precisam de resposta ou têm prazo",
+      ruleAdded: "Regra de IA adicionada.",
+      instructionHelp: "Use linguagem natural",
+      tagNamePlaceholder: "Nome da tag",
+      spamLabelHint:
+        "As correspondências recebem uma etiqueta e saem da Caixa de entrada.",
+      spamPlaceholder: "ex.: mensagens claramente promocionais ou indesejadas",
+      tagPlaceholder: "ex.: recibos e confirmações de pedidos de lojas online",
+      addShortcut: "Pressione ⌘ Enter para adicionar",
+      previewTitle: "Prévia dos emails recentes",
+      previewDescription:
+        "Revise as 20 mensagens mais recentes da Caixa de entrada antes de ativar uma regra. Emails arquivados ou arquivados automaticamente nunca são avaliados.",
+      previewScope: "Somente Caixa de entrada · emails arquivados excluídos",
+      previewButton: "Executar prévia",
+      previewRunning: "Verificando emails recentes da Caixa de entrada…",
+      jevBadge: "Jev",
+      feedbackLabel: "Marque as correspondências que não devem ser incluídas",
+      notSpamShort: "Não é spam",
+      notMatchShort: "Não corresponde",
+      noMatch: "Sem correspondência",
+      feedbackPlaceholder:
+        "Opcional: diga o que a IA entendeu errado ou o que deve procurar em vez disso",
+      refineButton: "Atualizar regra e executar novamente",
+      instructionsUpdated: "Regra atualizada e prévia executada novamente.",
+      noRecentMail: "Não há emails recentes na Caixa de entrada para revisar.",
+      addRuleToPreview:
+        "Adicione uma regra de IA para visualizar emails recentes.",
+      previewEmpty: "Execute uma prévia para ver possíveis correspondências.",
+      previewFailed: "Não foi possível visualizar os emails recentes.",
     },
     draftQueue: {
       title: "Cola de borradores",

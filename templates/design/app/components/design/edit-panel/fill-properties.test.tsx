@@ -29,7 +29,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
-import { baseFillLayerSourceProps, FillProperties } from "./fill-properties";
+import {
+  baseFillLayerSourceProps,
+  FillProperties,
+  shouldUseTextFill,
+} from "./fill-properties";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -225,12 +229,141 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position="center, 0% 0%"');
   });
 
+  it("uses a visible background for a text-bearing control", () => {
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "button",
+          hasOwnText: true,
+          textContent: "Listen now",
+          primitiveKind: undefined,
+          childElementCount: 0,
+          computedStyles: {
+            color: "#ffffff",
+            backgroundColor: "#0f766e",
+          },
+        }),
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="#0f766e"');
+  });
+
+  it("uses a visible gradient for a text-bearing control with a transparent background color", () => {
+    const el = element({
+      tagName: "button",
+      hasOwnText: true,
+      textContent: "Listen now",
+      primitiveKind: undefined,
+      childElementCount: 0,
+      computedStyles: {
+        color: "#ffffff",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: "linear-gradient(90deg, #0f766e, #14b8a6)",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(false);
+  });
+
+  it("pairs layered image and clip values before choosing the fill target", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "transparent",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage: "none, linear-gradient(black, white)",
+        backgroundClip: "text, border-box",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(false);
+  });
+
+  it("keeps layers paired to text clips on the text-fill path", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "transparent",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage:
+          "linear-gradient(red, blue), linear-gradient(black, white)",
+        backgroundClip: "text, text",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
+  it("repeats a shorter clip list across visible background layers", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "transparent",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage:
+          "linear-gradient(red, blue), linear-gradient(black, white)",
+        backgroundClip: "text",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
+  it("recognizes fully transparent modern computed colors", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "#111827",
+        backgroundColor: "rgb(0 0 0 / 0)",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
+  it("does not treat none-only background layers as visible paint", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "#111827",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage: "none, none",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
+  it("keeps mixed background paint on the text-fill path", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "#111827",
+        backgroundColor: "Mixed",
+        backgroundImage: "Mixed",
+        backgroundClip: "Mixed",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
   it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
       computedStyles: {
         color: "#000000",
         backgroundImage: "linear-gradient(red, blue)",
+        backgroundClip: "text",
         backgroundSize: "100% 100%",
         backgroundRepeat: "no-repeat",
         backgroundPosition: "center",

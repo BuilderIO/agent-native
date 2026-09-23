@@ -8,7 +8,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import {
-  isEmbedAuthActive,
+  getEmbedAuthToken,
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
@@ -49,6 +49,7 @@ import {
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
@@ -76,6 +77,7 @@ export const links: LinksFunction = () => [
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -221,8 +223,17 @@ function DesignToaster() {
 
 function RootContent() {
   const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
+  if (location.pathname === "/") return <MarketingRootContent />;
   return <PrivateRootContent />;
+}
+
+function MarketingRootContent() {
+  return (
+    <>
+      <OpenVisualEditWebMcp />
+      <Outlet />
+    </>
+  );
 }
 
 function PrivateRootContent() {
@@ -248,6 +259,7 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
+      <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -256,18 +268,31 @@ function PrivateRootContent() {
   );
 }
 
+/**
+ * Bypass requires an actual embed credential, not just the `embedded=1`
+ * display flag: the Electron desktop shell opens every app tab with that
+ * flag and no token, and a bare-flag bypass sent those signed-out tabs
+ * straight into an infinite 401 poll instead of sign-in.
+ */
+export function computeSessionBypass(pathname: string): boolean {
+  return Boolean(getEmbedAuthToken()) || isPublicDesignAppPath(pathname);
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
   const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isPublicDesignAppPath(location.pathname);
+  const isPublicPath = isMarketingHome;
+  // Public design routes still resolve their editor layout client-side; SSR
+  // would render route-state hooks before the document router is available.
+  const sessionBypass = computeSessionBypass(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        sessionBypass={isEmbedAuthActive()}
+        sessionBypass={sessionBypass}
+        webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >

@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "Raisonnement",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
     "Approuver et toujours autoriser cette commande exacte",
@@ -39,14 +40,17 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "Choisissez votre rôle",
   "onboarding.customizeRole": "Personnalisons cette expérience pour vous.",
   "onboarding.roleQuestion": "Quel choix décrit le mieux votre rôle ?",
-  "onboarding.roleProduct": "Produit",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText":
+    "Cela nous aide à personnaliser votre expérience",
+  "onboarding.roleProduct": "Chef de produit",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Développement",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Ventes",
   "onboarding.roleOps": "Opérations",
   "onboarding.roleIndividual": "Individuel",
   "onboarding.roleOther": "Autre",
+  "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderActivateCredits":
@@ -65,9 +69,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "Nous créerons automatiquement votre compte Builder.io en un clic.",
   "onboarding.builderCreateAndActivate": "Créer et activer",
-  "onboarding.builderConsentPrefix": "En continuant, vous acceptez les",
-  "onboarding.builderTerms": "Conditions",
-  "onboarding.builderPrivacy": "Règles de confidentialité",
+  "onboarding.builderConsentPrefix":
+    "En créant un compte Builder.io, vous acceptez nos",
+  "onboarding.builderTerms": "Conditions d’utilisation",
+  "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
   "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
@@ -82,10 +87,9 @@ const messages: AgentChatTranslation = {
     "Les crédits IA sont prêts à l’emploi. Les modifications de code dans le cloud nécessitent un projet Builder dans les paramètres de l’agent en arrière-plan.",
   "onboarding.openBackgroundAgentSettings":
     "Ouvrir les paramètres de l’agent en arrière-plan",
-  "onboarding.capability.llm.keySummary":
-    "Connectez un fournisseur d’IA ou un modèle local",
+  "onboarding.capability.llm.keySummary": "Connectez votre propre modèle d’IA",
   "onboarding.capability.fileStorage.keySummary":
-    "Stockage Builder ou bucket compatible S3",
+    "Téléversement et stockage de fichiers",
   "onboarding.fileStorage.title": "Choisir le stockage des fichiers",
   "onboarding.fileStorage.description":
     "Choisissez le stockage Builder géré ou vos propres clés pour un bucket compatible S3.",
@@ -94,12 +98,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",
-  "onboarding.capability.voiceInput.keySummary":
-    "Reconnaissance vocale du navigateur ou conversion parole-texte",
+  "onboarding.capability.voiceInput.keySummary": "Entrée vocale",
   "onboarding.capability.voiceInput.why":
     "L’entrée vocale transforme les demandes parlées en texte ; la saisie reste toujours disponible.",
   "onboarding.capability.embeddings.label": "Représentations vectorielles",
-  "onboarding.capability.embeddings.keySummary": "Clé Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.keySummary": "Représentations vectorielles",
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
@@ -139,6 +142,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "Une clé partagée est utilisée.",
   "agentPanel.useOrganizationKey": "Utiliser la clé de l’organisation",
   "agentPanel.keyStatusUnavailable": "L’état de la clé est indisponible.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Autorisez les fenêtres pop-up pour ce site, puis réessayez.",
+  "agentPanel.chatgptSubscriptionTitle": "Abonnement ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Accès expérimental à Codex via votre abonnement ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "Utilisé",
+  "agentPanel.chatgptSubscriptionConnected": "Connecté",
+  "agentPanel.chatgptSubscriptionConnecting": "Connexion…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconnecter",
+  "agentPanel.chatgptSubscriptionConnect": "Connecter ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Utiliser dans le chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Déconnecter",
   "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
@@ -160,6 +175,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "Chargement...",
   "common.no": "Non",
   "common.retry": "Réessayer",
+  "common.chunkLoadFailed": "Impossible de charger. Veuillez réessayer.",
   "common.save": "Enregistrer",
   "agents.hostedAgent": "Agent hébergé",
   "agents.provider": "Fournisseur",
@@ -393,6 +409,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "Préparation de {{activity}}...",
   "status.writing": "Écriture de {{activity}}...",
   "status.stillGenerating": "Génération de {{activity}} toujours en cours",
+  "status.runningTool": "Exécution de {{activity}}",
   "tabs.allChats": "Tous les chats",
   "tabs.closeTab": "Fermer l’onglet",
   "tabs.main": "Principal",

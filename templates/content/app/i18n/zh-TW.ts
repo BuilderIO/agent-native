@@ -238,6 +238,9 @@ const overrides = {
     requestedPageUnavailable:
       "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
+    workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
+    workspaceWelcomeUnavailableDescription:
+      "您可以瀏覽此空間，但沒有建立歡迎頁面的權限。",
   },
   team: {
     metaTitle: "工作區存取 - Content",
@@ -1545,8 +1548,17 @@ const overrides = {
     sidebar: "側邊欄",
   },
   sidebar: {
+    contentSpace: "Content 空間",
     cannotReorderPages: "無法重新排序頁面",
     pinned: "已釘選",
+    recent: "最近瀏覽",
+    customizeSidebar: "自訂側邊欄",
+    noRecentVisits: "尚無最近瀏覽記錄",
+    noPinnedItems: "尚無已釘選項目",
+    showMore: "顯示更多",
+    showLess: "顯示更少",
+    seeAll: "查看全部…",
+    seeAllFiles: "查看所有檔案",
     loadingPinned: "正在載入已釘選項目…",
     dragToReorder: "拖曳以重新排序 {{label}}",
     moveUp: "上移",
@@ -1665,7 +1677,7 @@ const overrides = {
     page: "頁面",
     private: "私人",
     results: "結果",
-    search: "搜尋",
+    search: "搜尋...",
     searchPages: "搜尋頁面...",
     refreshConnection: "重新整理連線",
     restoreDatabase: "還原",

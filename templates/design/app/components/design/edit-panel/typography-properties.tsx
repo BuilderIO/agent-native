@@ -18,9 +18,10 @@ import {
   IconSquare,
   IconStrikethrough,
   IconTextSize,
+  IconUpload,
   IconUnderline,
 } from "@tabler/icons-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
@@ -45,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { uploadFont, type UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 
 import { ScrubInput } from "../inspector";
@@ -81,17 +83,13 @@ import {
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
   resolveLineHeightFieldValue,
+  sortFontFamilyOptions,
   textTruncationLineCount,
   textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
   type TextDecorationLineToken,
   type TextResizeMode,
 } from "./typography-helpers";
-
-const LATO_FONT_FAMILY_OPTION = {
-  value: "'Lato', sans-serif",
-  label: "Lato",
-} as const;
 
 function TextResizeControls({
   resizeMode,
@@ -385,20 +383,29 @@ export function TypographyProperties({
   element,
   onStyleChange,
   onStylesChange,
+  designId,
+  onFontUploaded,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  designId?: string;
+  onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
 }) {
   const t = useT();
+  const fontUploadInputRef = useRef<HTMLInputElement>(null);
+  const [fontUploading, setFontUploading] = useState(false);
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = [
+  const baseFontFamilyOptions = sortFontFamilyOptions([
     ...FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
-      label: t(`editPanel.fontFamilies.${option.key}`),
+      label:
+        option.label ??
+        (option.key
+          ? t(`editPanel.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
     })),
-    LATO_FONT_FAMILY_OPTION,
-  ];
+  ]);
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -479,18 +486,36 @@ export function TypographyProperties({
   // instead of a normal, clickable option that could commit the literal
   // string "Mixed" as a font-family value.
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
-  const fontFamilyOptions = fontFamilyIsMixed
-    ? baseFontFamilyOptions
-    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
-        displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+  const fontFamilyOptions = sortFontFamilyOptions(
+    fontFamilyIsMixed
       ? baseFontFamilyOptions
-      : [
-          {
-            value: fontFamily,
-            label: displayFontFamilyName(styles.fontFamily || fontFamily),
-          },
-          ...baseFontFamilyOptions,
-        ];
+      : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
+          displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+        ? baseFontFamilyOptions
+        : [
+            {
+              value: fontFamily,
+              label: displayFontFamilyName(styles.fontFamily || fontFamily),
+            },
+            ...baseFontFamilyOptions,
+          ],
+  );
+  const handleFontUpload = async (file: File) => {
+    if (!designId || !onFontUploaded) return;
+    setFontUploading(true);
+    try {
+      const uploaded = await uploadFont(file, designId);
+      await onFontUploaded(uploaded);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("promptDialog.failedToUploadFile"),
+      );
+    } finally {
+      setFontUploading(false);
+    }
+  };
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
@@ -622,20 +647,58 @@ export function TypographyProperties({
           dropdown instead). */}
       <InspectorGrid layout="field-action">
         <InspectorGridCell span={28} className="h-6 overflow-hidden">
-          <VisualFontFamilyPicker
-            label={t("editPanel.labels.font")}
-            value={fontFamily}
-            options={fontFamilyOptions}
-            mixed={fontFamilyIsMixed}
-            mixedLabel={MIXED_VALUE}
-            searchable
-            searchPlaceholder={t("root.commandSearch")}
-            contentProps={{
-              "data-design-chrome-region": "right-panel",
-            }}
-            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-            onChange={(value) => onStyleChange("fontFamily", value)}
-          />
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <VisualFontFamilyPicker
+                label={t("editPanel.labels.font")}
+                value={fontFamily}
+                options={fontFamilyOptions}
+                mixed={fontFamilyIsMixed}
+                mixedLabel={MIXED_VALUE}
+                searchable
+                searchPlaceholder={t("root.commandSearch")}
+                contentProps={{
+                  "data-design-chrome-region": "right-panel",
+                }}
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                onChange={(value) => onStyleChange("fontFamily", value)}
+              />
+            </div>
+            {designId && onFontUploaded ? (
+              <>
+                <input
+                  ref={fontUploadInputRef}
+                  type="file"
+                  accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+                  className="sr-only"
+                  aria-label={t("promptDialog.uploadFile")}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void handleFontUpload(file);
+                  }}
+                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={fontUploading}
+                      aria-label={t("promptDialog.uploadFile")}
+                      className="size-6 shrink-0"
+                      onClick={() => fontUploadInputRef.current?.click()}
+                    >
+                      <IconUpload className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("promptDialog.uploadFile")}
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
+          </div>
         </InspectorGridCell>
       </InspectorGrid>
 

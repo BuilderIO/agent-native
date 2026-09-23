@@ -11,6 +11,7 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "width",
   "height",
   "transform",
+  "scale",
   "lineHeight",
   "letterSpacing",
   "gridTemplateColumns",
@@ -36,11 +37,18 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "webkitLineClamp",
   "--agent-native-truncate-original-display",
   "--agent-native-truncate-original-overflow",
+  "--an-vector-start-point",
+  "--an-vector-end-point",
   "whiteSpace",
   "backgroundImage",
   "backgroundColor",
   "color",
   "fill",
+  "borderRadius",
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
 ] as const;
 
 /** Patch authored values onto an existing inline-style snapshot. A commit that

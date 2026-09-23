@@ -52,6 +52,57 @@ describe("applyKScaleStyleChanges", () => {
     expect(result.content).toContain("flex:1 1 0%");
   });
 
+  it("persists a grid-track batch without rewriting the grid template", () => {
+    const source = `<!doctype html><html><body>
+<div data-agent-native-node-id="grid" style="display:grid;grid-template-columns:100px 100px;grid-template-rows:80px 80px;gap:20px">
+  <div data-agent-native-node-id="span" style="grid-row:1;grid-column:1 / 3"></div>
+  <div data-agent-native-node-id="first" style="grid-row:2;grid-column:1"></div>
+  <div data-agent-native-node-id="second" style="grid-row:2;grid-column:2"></div>
+</div></body></html>`;
+    const result = applyKScaleStyleChanges(source, [
+      {
+        selector: '[data-agent-native-node-id="span"]',
+        sourceId: "span",
+        styles: { gridRow: "2 / 3" },
+      },
+      {
+        selector: '[data-agent-native-node-id="first"]',
+        sourceId: "first",
+        styles: { gridRow: "1 / 2" },
+      },
+      {
+        selector: '[data-agent-native-node-id="second"]',
+        sourceId: "second",
+        styles: { gridRow: "1 / 2" },
+      },
+    ]);
+
+    expect(result.status).toBe("applied");
+    if (result.status !== "applied") return;
+    expect(result.content).toContain("grid-template-rows:80px 80px");
+    expect(result.content).toContain(
+      'data-agent-native-node-id="span" style="grid-row: 2 / 3;grid-column:1 / 3',
+    );
+    expect(result.content).toContain(
+      'data-agent-native-node-id="first" style="grid-row: 1 / 2;grid-column:1',
+    );
+    expect(result.content).toContain(
+      'data-agent-native-node-id="second" style="grid-row: 1 / 2;grid-column:2',
+    );
+
+    const reloaded = buildCodeLayerProjection(result.content);
+    expect(
+      reloaded.nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "span",
+      )?.style["grid-row"],
+    ).toBe("2 / 3");
+    expect(
+      reloaded.nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "first",
+      )?.style["grid-row"],
+    ).toBe("1 / 2");
+  });
+
   it("matches the legacy writer for idless nested selectors and normalized duplicate properties", () => {
     const source = `<html><body><section class='outer' style='width: 200px; --note: "quoted"; color: red'><article class="child"><span>Keep me</span></article></section></body></html>`;
     const projection = buildCodeLayerProjection(source);
@@ -126,6 +177,21 @@ describe("applyKScaleStyleChanges", () => {
         },
       ]),
     ).toMatchObject({ status: "failed", selector: expect.any(String) });
+  });
+
+  it("rejects responsive vector endpoint writes before cleaning scoped source", () => {
+    const content =
+      '<html><head></head><body><svg data-agent-native-node-id="line-1" data-an-primitive="line"><path d="M 0 5 L 80 5"/></svg></body></html>';
+    const patch = applyScopedVisualStyleEdit({
+      content,
+      target: { nodeId: "line-1" },
+      property: "--an-vector-end-point",
+      value: "circle",
+      upperBoundPx: 809,
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
   });
 
   it("rejects conflicting writes to one target without returning partial content", () => {

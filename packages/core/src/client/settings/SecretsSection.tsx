@@ -43,7 +43,8 @@ const Button = React.forwardRef<
     ref={ref}
     variant="ghost"
     className={cn(
-      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
+      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
+      props.emphasis === "solid" ? null : "hover:text-inherit",
       className,
     )}
     {...props}
@@ -250,6 +251,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 const TILE_PRIORITY = [
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
+  "JEV_API_KEY",
   "OPENROUTER_API_KEY",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GITHUB_TOKEN",

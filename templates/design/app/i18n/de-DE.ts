@@ -4,6 +4,27 @@ const messages = {
   ...messagesByLocale["de-DE"],
   designEditor: {
     ...messagesByLocale["de-DE"].designEditor,
+    designNotFoundDescription:
+      "Dieses Design existiert nicht oder wurde gelöscht.",
+    requestAccessTitle: "Zugriff auf dieses Design anfordern",
+    requestAccessDescription:
+      "Dieses Design ist privat. Fordern Sie Zugriff beim Eigentümer an.",
+    requestAccess: "Zugriff anfordern",
+    accessRequested: "Zugriff angefordert",
+    accessRequestSentDescription:
+      "Ihre Anfrage wurde gespeichert. Nach der Freigabe können Sie dieses Design öffnen.",
+    signInToRequestAccessTitle: "Anmelden, um Zugriff anzufordern",
+    signInToRequestAccessDescription:
+      "Melden Sie sich an oder erstellen Sie ein Konto, um Zugriff beim Eigentümer anzufordern.",
+    signInOrSignUp: "Anmelden oder registrieren",
+    accessCheckFailed:
+      "Der Zugriff auf dieses Design konnte nicht geprüft werden.",
+    retryAccessCheck: "Erneut versuchen",
+    import: {
+      ...messagesByLocale["de-DE"].designEditor.import,
+      figUploadDescriptionShort:
+        "Lokaler Import — kein Figma-API-Kontingent. Unterstützte eingebettete Bilder werden eingeschlossen.",
+    },
     componentInstances: {
       ...messagesByLocale["de-DE"].designEditor.componentInstances,
       restore: "Komponente wiederherstellen",
@@ -143,6 +164,20 @@ const messages = {
       change: "Prüfstatus ändern",
       saveFailed: "Prüfstatus konnte nicht aktualisiert werden",
     },
+  },
+  designSystems: {
+    ...messagesByLocale["de-DE"].designSystems,
+    tierLimitTitle: "Limit für Designsysteme erreicht",
+    tierLimitDescription:
+      "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
+    tierLimitDescriptionWithCount:
+      "Du nutzt {{current}} von {{max}} Designsystemen in deinem Builder-Plan {{plan}}. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
+    tierLimitUpgrade: "Builder-Plan upgraden",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["de-DE"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
   },
 };
 

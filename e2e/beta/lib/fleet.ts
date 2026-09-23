@@ -39,6 +39,7 @@ const GOOGLE_ONLY_APPS = new Set(["mail", "calendar"]);
  */
 const CHAT_APPS = ["chat", "slides", "analytics", "content", "dispatch"];
 const AUTHENTICATED_ENTRY_PATHS: Record<string, string> = {
+  design: "/home",
   content: "/home",
   slides: "/home",
 };

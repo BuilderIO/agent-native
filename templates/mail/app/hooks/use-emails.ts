@@ -18,7 +18,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -37,12 +37,17 @@ import {
   settleInboxMutationIfObserved,
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
+  type InboxThreadRemovalSnapshot,
 } from "@/hooks/use-inbox-threads";
 import {
   gmailMutationQueue,
   type GmailMutationKind,
   type GmailMutationTarget,
 } from "@/lib/gmail-mutation-queue";
+import {
+  beginProviderSnapshot,
+  currentProviderSnapshotId,
+} from "@/lib/provider-snapshot";
 import { TAB_ID } from "@/lib/tab-id";
 import {
   useThreadCache,
@@ -432,17 +437,16 @@ type SuppressionRemoval = {
 type SuppressionEntry = {
   action: SuppressionAction;
   removed?: SuppressionRemoval;
-  timestamp: number;
 };
 
 // Keyed by thread, then by entry id: two mutations can hide the same thread at
 // once, and each must be able to drop its own claim without revealing a thread
 // the other still hides.
 const suppressedThreads = new Map<string, Map<number, SuppressionEntry>>();
+const settledSuppressionIds = new Map<string, Set<number>>();
 const suppressionListeners = new Set<() => void>();
 let suppressionVersion = 0;
 let nextSuppressionId = 1;
-const SUPPRESS_DURATION = 60_000; // 60s — covers Gmail's consistency window
 
 function notifySuppressionListeners() {
   suppressionVersion += 1;
@@ -465,24 +469,132 @@ export function suppressThread(
 ): number {
   const id = nextSuppressionId++;
   const entries = suppressedThreads.get(threadId) ?? new Map();
-  entries.set(id, { action, removed, timestamp: Date.now() });
+  entries.set(id, { action, removed });
   suppressedThreads.set(threadId, entries);
   notifySuppressionListeners();
   return id;
 }
 
-/** Drop one mutation's claim — used on mutation error rollback. */
-export function releaseSuppression(threadId: string, id: number | undefined) {
-  if (id === undefined) return;
+/** Drop one mutation's claim — used on mutation error rollback and undo. */
+export function releaseSuppression(
+  threadId: string,
+  id: number | undefined,
+): boolean {
+  if (id === undefined) return false;
   const entries = suppressedThreads.get(threadId);
-  if (!entries?.delete(id)) return;
-  if (entries.size === 0) suppressedThreads.delete(threadId);
+  const settled = settledSuppressionIds.get(threadId);
+  const removedSettled = settled?.delete(id) ?? false;
+  if (settled?.size === 0) settledSuppressionIds.delete(threadId);
+  if (!entries?.delete(id)) {
+    if (removedSettled) notifySuppressionListeners();
+    return false;
+  }
+  const isLastClaim = entries.size === 0;
+  if (isLastClaim) suppressedThreads.delete(threadId);
   notifySuppressionListeners();
+  return isLastClaim;
 }
 
-/** Clear every claim on a thread — used by undo, where the thread really is back. */
-export function unsuppressThread(threadId: string) {
-  if (suppressedThreads.delete(threadId)) notifySuppressionListeners();
+/** Release a claim after a fresh provider response confirms its outcome. */
+export function settleSuppression(threadId: string, id: number): boolean {
+  const entries = suppressedThreads.get(threadId);
+  if (!entries?.delete(id)) return false;
+  if (entries.size === 0) suppressedThreads.delete(threadId);
+  const settled = settledSuppressionIds.get(threadId) ?? new Set<number>();
+  settled.add(id);
+  settledSuppressionIds.set(threadId, settled);
+  notifySuppressionListeners();
+  return true;
+}
+
+/** Release only the supplied claims and report whether the thread is clear. */
+export function releaseSuppressionClaims(
+  threadId: string,
+  ids: readonly number[],
+): boolean {
+  if (ids.length === 0) return false;
+  const newestOwnId = Math.max(...ids);
+  const hasNewerSettledClaim = [
+    ...(settledSuppressionIds.get(threadId) ?? []),
+  ].some((id) => id > newestOwnId);
+  for (const id of ids) releaseSuppression(threadId, id);
+  // Keep token ids stable after provider evidence retires a claim: an Undo
+  // toast can outlive that evidence and still needs to send its inverse.
+  return !suppressedThreads.has(threadId) && !hasNewerSettledClaim;
+}
+
+export type SuppressionClaimToken = {
+  readonly ids: Map<string, number[]>;
+  readonly inboxMutationIds: Map<string, string[]>;
+};
+
+function recordSuppressionClaim(
+  token: SuppressionClaimToken | undefined,
+  threadId: string,
+  id: number,
+) {
+  if (!token) return;
+  const ids = token.ids.get(threadId) ?? [];
+  ids.push(id);
+  token.ids.set(threadId, ids);
+}
+
+export function forgetSuppressionClaim(
+  token: SuppressionClaimToken | undefined,
+  threadId: string,
+  id: number | undefined,
+) {
+  if (!token || id === undefined) return;
+  const ids = token.ids.get(threadId);
+  if (!ids) return;
+  const remaining = ids.filter((value) => value !== id);
+  if (remaining.length === 0) token.ids.delete(threadId);
+  else token.ids.set(threadId, remaining);
+}
+
+function recordInboxMutationClaim(
+  token: SuppressionClaimToken | undefined,
+  threadId: string,
+  id: string,
+) {
+  if (!token) return;
+  const ids = token.inboxMutationIds.get(threadId) ?? [];
+  ids.push(id);
+  token.inboxMutationIds.set(threadId, ids);
+}
+
+function getInboxMutationIds(
+  token: SuppressionClaimToken | undefined,
+  threadId: string,
+): readonly string[] {
+  return token?.inboxMutationIds.get(threadId) ?? [];
+}
+
+/** Release the undo action's inbox journal synchronously, even when a newer
+ * same-thread suppression means its provider inverse must not be sent. */
+export function releaseOwnedInboxRemoval(
+  qc: QueryClient,
+  threadId: string,
+  token: SuppressionClaimToken | undefined,
+): InboxThreadRemovalSnapshot {
+  const snapshot = clearInboxThreadRemoval(
+    qc,
+    threadId,
+    getInboxMutationIds(token, threadId),
+  );
+  token?.inboxMutationIds.delete(threadId);
+  return snapshot;
+}
+
+function useSuppressionClaims() {
+  return {
+    createSuppressionToken: (): SuppressionClaimToken => ({
+      ids: new Map(),
+      inboxMutationIds: new Map(),
+    }),
+    getSuppressionIds: (token: SuppressionClaimToken, threadId: string) =>
+      token.ids.get(threadId) ?? [],
+  };
 }
 
 function isSuppressedInView(
@@ -492,20 +604,14 @@ function isSuppressedInView(
 ): boolean {
   const entries = suppressedThreads.get(threadId);
   if (!entries) return false;
-  const now = Date.now();
   let newest: SuppressionEntry | undefined;
   let newestId = 0;
   for (const [id, entry] of entries) {
-    if (now - entry.timestamp > SUPPRESS_DURATION) {
-      entries.delete(id);
-      continue;
-    }
     if (id > newestId) {
       newestId = id;
       newest = entry;
     }
   }
-  if (entries.size === 0) suppressedThreads.delete(threadId);
   if (!newest) return false;
   // Only the newest claim says where the thread now lives: an archive claim
   // must stop hiding it from Trash once a later trash put it there. Older
@@ -519,6 +625,73 @@ function isSuppressedInView(
   // still carries keeps it.
   if (label) return removed.label === label;
   return removed.views?.includes(view) ?? false;
+}
+
+function suppressionAffectsView(
+  removed: SuppressionRemoval | undefined,
+  view: string,
+  label: string | undefined,
+): boolean {
+  if (!removed) return true;
+  // A final-location claim is only retired by evidence from that location.
+  // Absence from every other list is expected and says nothing about whether
+  // the destination list has caught up.
+  if (removed.onlyIn) return false;
+  return (
+    removed.views?.includes(view) === true ||
+    (label !== undefined && removed.label === label)
+  );
+}
+
+/** Release a claim only after the same list has observed the provider state. */
+function reconcileSuppressionEvidence(
+  pages: readonly EmailsPage[],
+  view: string,
+  label?: string,
+  search?: string,
+) {
+  // Search indexes have different consistency and pagination semantics from
+  // the canonical list. They must not retire a claim for that list.
+  if (search) return;
+  const present = new Set(
+    pages.flatMap((page) =>
+      page.emails.map((email) => email.threadId || email.id),
+    ),
+  );
+  // A missing row is not removal evidence until the loaded cursor reaches the
+  // end. A reorder can move a still-present thread onto an unloaded page.
+  const hasExhaustiveResult =
+    pages.length > 0 && pages[pages.length - 1]?.nextPageToken === undefined;
+  const releases: Array<[string, number]> = [];
+
+  for (const [threadId, entries] of suppressedThreads) {
+    const isPresent = present.has(threadId);
+    for (const [id, entry] of entries) {
+      // Every loaded page must come from a request that started after this
+      // claim. This excludes placeholder/local cache data and out-of-order
+      // responses while still allowing the first fresh response to settle a
+      // mutation that Gmail has already reflected.
+      if (
+        pages.some(
+          (page) =>
+            typeof page.suppressionFence !== "number" ||
+            page.suppressionFence < id,
+        )
+      ) {
+        continue;
+      }
+
+      const observedFinalLocation = entry.removed?.onlyIn === view && isPresent;
+      const observedRemoval =
+        hasExhaustiveResult &&
+        !isPresent &&
+        suppressionAffectsView(entry.removed, view, label);
+      if (observedFinalLocation || observedRemoval)
+        releases.push([threadId, id]);
+    }
+  }
+
+  for (const [threadId, id] of releases) settleSuppression(threadId, id);
 }
 
 export function filterSuppressedThreads(
@@ -535,13 +708,27 @@ export function filterSuppressedThreads(
 // ─── Optimistic property overrides ──────────────────────────────────────────
 // Gmail's eventual consistency means refetches can return stale read/star state,
 // overwriting optimistic updates. We track local overrides here and apply them
-// in the `select` transform so the UI never flickers back to stale state.
+// in the list projection so the UI never flickers back to stale state.
 
-const optimisticOverrides = new Map<
-  string,
-  { props: Partial<EmailMessage>; timestamp: number }
->();
-const OVERRIDE_DURATION = 60_000; // 60s — covers Gmail's consistency window
+type OptimisticProperty = "isRead" | "isStarred";
+type OptimisticOverride = {
+  props: Partial<EmailMessage>;
+  providerSnapshotFences: Partial<Record<OptimisticProperty, number>>;
+};
+
+const optimisticOverrides = new Map<string, OptimisticOverride>();
+const optimisticOverrideListeners = new Set<() => void>();
+let optimisticOverrideVersion = 0;
+
+function notifyOptimisticOverrideListeners() {
+  optimisticOverrideVersion += 1;
+  for (const listener of optimisticOverrideListeners) listener();
+}
+
+function subscribeToOptimisticOverrides(listener: () => void) {
+  optimisticOverrideListeners.add(listener);
+  return () => optimisticOverrideListeners.delete(listener);
+}
 
 type BooleanMutationState = {
   version: number;
@@ -549,6 +736,15 @@ type BooleanMutationState = {
   confirmedState: boolean | undefined;
   pending: Map<number, boolean>;
 };
+
+function optimisticBooleanState(
+  emailId: string,
+  field: "isRead" | "isStarred",
+  fallback: boolean | undefined,
+): boolean | undefined {
+  const value = optimisticOverrides.get(emailId)?.props[field];
+  return typeof value === "boolean" ? value : fallback;
+}
 
 const starMutations = new Map<string, BooleanMutationState>();
 
@@ -634,7 +830,7 @@ export function beginReadMutation(
   return beginBooleanMutation(
     readMutationVersions,
     emailId,
-    currentState,
+    optimisticBooleanState(emailId, "isRead", currentState),
     isRead,
   );
 }
@@ -659,7 +855,12 @@ function beginStarMutation(
   currentState: boolean | undefined,
   isStarred: boolean,
 ) {
-  return beginBooleanMutation(starMutations, emailId, currentState, isStarred);
+  return beginBooleanMutation(
+    starMutations,
+    emailId,
+    optimisticBooleanState(emailId, "isStarred", currentState),
+    isStarred,
+  );
 }
 
 function confirmStarMutation(
@@ -675,7 +876,6 @@ function rollbackStarMutation(emailId: string, version: number) {
 }
 
 function applyEmailBooleanMutationStates(
-  qc: QueryClient,
   states: Map<string, boolean | undefined | null>,
   field: "isRead" | "isStarred",
 ): Map<string, boolean> {
@@ -688,26 +888,14 @@ function applyEmailBooleanMutationStates(
       resolved.set(emailId, state);
     }
   }
-  if (resolved.size > 0) {
-    qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-      mapInfiniteEmails(old, (emails) =>
-        emails.map((email) =>
-          resolved.has(email.id)
-            ? { ...email, [field]: resolved.get(email.id)! }
-            : email,
-        ),
-      ),
-    );
-  }
   return resolved;
 }
 
 function applyReadMutationStates(
-  qc: QueryClient,
   states: Map<string, boolean | undefined | null>,
   threadId?: string,
 ) {
-  const resolved = applyEmailBooleanMutationStates(qc, states, "isRead");
+  const resolved = applyEmailBooleanMutationStates(states, "isRead");
   if (resolved.size === 0) return;
   if (!threadId) return;
   const thread = getCachedThread(threadId);
@@ -723,11 +911,10 @@ function applyReadMutationStates(
 }
 
 function applyStarMutationStates(
-  qc: QueryClient,
   states: Map<string, boolean | undefined | null>,
   threadIdsByEmailId?: Readonly<Record<string, string>> | string,
 ) {
-  const resolved = applyEmailBooleanMutationStates(qc, states, "isStarred");
+  const resolved = applyEmailBooleanMutationStates(states, "isStarred");
   if (resolved.size === 0 || !threadIdsByEmailId) return;
   const threadIds =
     typeof threadIdsByEmailId === "string"
@@ -765,17 +952,27 @@ function refreshThreadAfterMutations(thread: {
 export function setOptimisticOverride(
   emailId: string,
   props: Partial<EmailMessage>,
+  providerSnapshotFence = currentProviderSnapshotId(),
 ) {
   const existing = optimisticOverrides.get(emailId);
   optimisticOverrides.set(emailId, {
     props: { ...(existing?.props ?? {}), ...props },
-    timestamp: Date.now(),
+    providerSnapshotFences: {
+      ...(existing?.providerSnapshotFences ?? {}),
+      ...(typeof props.isRead === "boolean"
+        ? { isRead: providerSnapshotFence }
+        : {}),
+      ...(typeof props.isStarred === "boolean"
+        ? { isStarred: providerSnapshotFence }
+        : {}),
+    },
   });
+  notifyOptimisticOverrideListeners();
 }
 
 /** Clear optimistic overrides — used on mutation error rollback. */
 export function clearOptimisticOverride(emailId: string) {
-  optimisticOverrides.delete(emailId);
+  if (optimisticOverrides.delete(emailId)) notifyOptimisticOverrideListeners();
 }
 
 function clearOptimisticOverrideProperty(
@@ -785,22 +982,96 @@ function clearOptimisticOverrideProperty(
   const existing = optimisticOverrides.get(emailId);
   if (!existing) return;
   const props = { ...existing.props };
+  if (!(property in props)) return;
   delete props[property];
+  const providerSnapshotFences = { ...existing.providerSnapshotFences };
+  delete providerSnapshotFences[property as OptimisticProperty];
   if (Object.keys(props).length === 0) optimisticOverrides.delete(emailId);
-  else optimisticOverrides.set(emailId, { ...existing, props });
+  else optimisticOverrides.set(emailId, { props, providerSnapshotFences });
+  notifyOptimisticOverrideListeners();
+}
+
+export function hasFreshOptimisticOverrideEvidence(
+  observed: unknown,
+  desired: unknown,
+  observedProviderSnapshotId: number,
+  providerSnapshotFence: number,
+): boolean {
+  return (
+    observedProviderSnapshotId > providerSnapshotFence &&
+    Object.is(observed, desired)
+  );
+}
+
+export function reconcileOptimisticOverrides(
+  pages: ReadonlyArray<{
+    emails: EmailMessage[];
+    providerSnapshotId?: number;
+  }>,
+) {
+  if (optimisticOverrides.size === 0) return;
+  const byId = new Map<
+    string,
+    { email: EmailMessage; providerSnapshotId: number }
+  >();
+  for (const page of pages) {
+    const providerSnapshotId = page.providerSnapshotId ?? 0;
+    for (const email of page.emails) {
+      const existing = byId.get(email.id);
+      if (!existing || providerSnapshotId > existing.providerSnapshotId) {
+        byId.set(email.id, { email, providerSnapshotId });
+      }
+    }
+  }
+  let changed = false;
+
+  for (const [emailId, entry] of optimisticOverrides) {
+    const observed = byId.get(emailId);
+    if (!observed) continue;
+    const props = { ...entry.props };
+    for (const property of Object.keys(props) as Array<keyof EmailMessage>) {
+      if (
+        (property !== "isRead" && property !== "isStarred") ||
+        observed.providerSnapshotId <=
+          (entry.providerSnapshotFences[property] ?? -1)
+      ) {
+        continue;
+      }
+      if (
+        hasFreshOptimisticOverrideEvidence(
+          observed.email[property],
+          props[property],
+          observed.providerSnapshotId,
+          entry.providerSnapshotFences[property] ?? -1,
+        )
+      )
+        delete props[property];
+    }
+    if (Object.keys(props).length === 0) {
+      optimisticOverrides.delete(emailId);
+      changed = true;
+    } else if (Object.keys(props).length !== Object.keys(entry.props).length) {
+      const providerSnapshotFences = { ...entry.providerSnapshotFences };
+      for (const property of Object.keys(entry.props) as Array<
+        keyof EmailMessage
+      >) {
+        if (!(property in props))
+          delete providerSnapshotFences[property as OptimisticProperty];
+      }
+      optimisticOverrides.set(emailId, { props, providerSnapshotFences });
+      changed = true;
+    }
+  }
+
+  if (changed) notifyOptimisticOverrideListeners();
 }
 
 function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
   if (optimisticOverrides.size === 0) return emails;
-  const now = Date.now();
   let changed = false;
   const result = emails.map((e) => {
     const entry = optimisticOverrides.get(e.id);
     if (!entry) return e;
-    if (now - entry.timestamp > OVERRIDE_DURATION) {
-      optimisticOverrides.delete(e.id);
-      return e;
-    }
     changed = true;
     return { ...e, ...entry.props };
   });
@@ -902,6 +1173,10 @@ interface EmailsPage {
   totalEstimate?: number;
   /** Present when some (not all) connected accounts failed this fetch. */
   accountErrors?: AccountError[];
+  /** Client-only evidence that this page came from a provider request. */
+  providerSnapshotId?: number;
+  /** Highest suppression claim id that existed when the request started. */
+  suppressionFence?: number;
 }
 
 // Retryable: transient upstream trouble (gateway) and network errors with no
@@ -933,6 +1208,8 @@ function emailQueryOptions(
       pageParam: string | undefined;
       signal: AbortSignal;
     }) => {
+      const providerSnapshotId = beginProviderSnapshot();
+      const suppressionFence = nextSuppressionId - 1;
       const params = new URLSearchParams({ view });
       params.set("limit", String(EMAIL_PAGE_SIZE));
       if (search) params.set("q", search);
@@ -958,7 +1235,11 @@ function emailQueryOptions(
           );
         },
       });
-      return accountErrors ? { ...page, accountErrors } : page;
+      return {
+        ...(accountErrors ? { ...page, accountErrors } : page),
+        providerSnapshotId,
+        suppressionFence,
+      };
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
@@ -1038,25 +1319,57 @@ export function useEmails(
     () => suppressionVersion,
     () => suppressionVersion,
   );
+  const currentOptimisticOverrideVersion = useSyncExternalStore(
+    subscribeToOptimisticOverrides,
+    () => optimisticOverrideVersion,
+    () => optimisticOverrideVersion,
+  );
+  const lastProviderSnapshotId = useRef(0);
+  const providerSnapshotId =
+    q.data?.pages.reduce(
+      (latest, page: EmailsPage) =>
+        Math.max(latest, page.providerSnapshotId ?? 0),
+      0,
+    ) ?? 0;
+
+  useEffect(() => {
+    if (
+      !q.data ||
+      q.isPlaceholderData ||
+      providerSnapshotId === 0 ||
+      providerSnapshotId === lastProviderSnapshotId.current
+    )
+      return;
+    lastProviderSnapshotId.current = providerSnapshotId;
+    reconcileSuppressionEvidence(q.data.pages, view, label, search);
+    if (!search) reconcileOptimisticOverrides(q.data.pages);
+  }, [q.data, q.isPlaceholderData, view, search, label, providerSnapshotId]);
 
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
     const visible = applyOverrides(filterSuppressedThreads(all, view, label));
     return applyRecentSentEmails(visible, view, search, label);
-  }, [q.data, view, search, label, currentSuppressionVersion]);
+  }, [
+    q.data,
+    view,
+    search,
+    label,
+    currentSuppressionVersion,
+    currentOptimisticOverrideVersion,
+  ]);
 
   // Union account errors across every loaded page, de-duped by account — a
   // partial failure on page 2 must not get silently dropped just because
   // page 1 fetched clean.
   const accountErrors = useMemo(() => {
-    if (!q.data) return undefined;
+    if (!q.data || q.isPlaceholderData) return undefined;
     const byEmail = new Map<string, AccountError>();
     for (const page of q.data.pages as EmailsPage[]) {
       for (const err of page.accountErrors ?? []) byEmail.set(err.email, err);
     }
     return byEmail.size > 0 ? [...byEmail.values()] : undefined;
-  }, [q.data]);
+  }, [q.data, q.isPlaceholderData]);
 
   // Placeholder InfiniteData includes the previous query's page token. Keep
   // pagination disabled until the new query owns the pages.
@@ -1118,13 +1431,23 @@ export function useThreadMessages(threadId: string | undefined) {
     }
     return undefined;
   })();
-  const { messages, isFromCache, isLoading } = useThreadCache(
-    threadId,
-    placeholder,
-    placeholder?.[0]?.accountEmail,
+  const { messages, isFromCache, isLoading, providerSnapshotId } =
+    useThreadCache(threadId, placeholder, placeholder?.[0]?.accountEmail);
+  // Thread refreshes can return an older Gmail read/star value after the
+  // mutation has already completed. Subscribe here as well as in useEmails so
+  // the detail view applies the same durable override while that fetch catches
+  // up.
+  useSyncExternalStore(
+    subscribeToOptimisticOverrides,
+    () => optimisticOverrideVersion,
+    () => optimisticOverrideVersion,
   );
+  useEffect(() => {
+    if (!messages || !isFromCache || providerSnapshotId <= 0) return;
+    reconcileOptimisticOverrides([{ emails: messages, providerSnapshotId }]);
+  }, [isFromCache, messages, providerSnapshotId]);
   return {
-    data: messages,
+    data: messages ? applyOverrides(messages) : messages,
     isLoading: isLoading && !messages,
     isFetching: isLoading,
     isError: false,
@@ -1165,10 +1488,6 @@ export function useMarkRead() {
         flag: isRead,
       }),
     onMutate: async ({ id, isRead, accountEmail, threadId }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1183,28 +1502,26 @@ export function useMarkRead() {
       const previousThread = resolvedThreadId
         ? getCachedThread(resolvedThreadId)
         : undefined;
-      const previousReadState = previousThread?.find(
-        (message) => message.id === id,
-      )?.isRead;
+      const previousReadState =
+        previousThread?.find((message) => message.id === id)?.isRead ??
+        target?.isRead;
       const mutationVersion = beginReadMutation(
         id,
         previousReadState ?? target?.isRead,
         isRead,
       );
       setOptimisticOverride(id, { isRead });
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.map((e) => (e.id === id ? { ...e, isRead } : e)),
-        ),
-      );
       // Message-scoped: this only touches one message, so the row's unread
       // count must move by ±1, not snap the whole thread to read/unread —
       // see adjustInboxThreadUnreadOptimistic's doc.
-      const inboxMutationId = adjustInboxThreadUnreadOptimistic(
-        qc,
-        resolvedThreadId ?? id,
-        isRead ? -1 : 1,
-      );
+      const inboxMutationId =
+        previousReadState !== undefined && previousReadState !== isRead
+          ? adjustInboxThreadUnreadOptimistic(
+              qc,
+              resolvedThreadId ?? id,
+              isRead ? -1 : 1,
+            )
+          : undefined;
       const restartThread = resolvedThreadId
         ? supersedeCachedThreadFetch(resolvedThreadId)
         : false;
@@ -1218,6 +1535,10 @@ export function useMarkRead() {
           );
         }
       }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return {
         mutationVersion,
         threadId: resolvedThreadId,
@@ -1231,7 +1552,6 @@ export function useMarkRead() {
     onSuccess: (_data, { id, isRead }, context) => {
       if (!context) return;
       applyReadMutationStates(
-        qc,
         new Map([
           [id, confirmReadMutation(id, context.mutationVersion, isRead)],
         ]),
@@ -1243,7 +1563,6 @@ export function useMarkRead() {
         ? rollbackReadMutation(id, context.mutationVersion)
         : null;
       applyReadMutationStates(
-        qc,
         new Map([[id, confirmedState]]),
         context?.threadId,
       );
@@ -1280,10 +1599,6 @@ export function useMarkThreadRead() {
         assertActionSuccess,
       ),
     onMutate: async ({ threadId, accountEmail }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1312,20 +1627,16 @@ export function useMarkThreadRead() {
         new Set([threadId]),
         true,
       );
-      // Optimistic update
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.map((e) =>
-            (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
-          ),
-        ),
-      );
       if (previousThread) {
         setCachedThread(
           threadId,
           previousThread.map((message) => ({ ...message, isRead: true })),
         );
       }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return {
         mutations,
         inboxMutationId,
@@ -1349,7 +1660,7 @@ export function useMarkThreadRead() {
           confirmReadMutation(mutation.id, mutation.version, true),
         );
       }
-      applyReadMutationStates(qc, confirmed, threadId);
+      applyReadMutationStates(confirmed, threadId);
     },
     onError: (err, { threadId }, context) => {
       const rollback = new Map<string, boolean | undefined | null>();
@@ -1359,7 +1670,7 @@ export function useMarkThreadRead() {
           rollbackReadMutation(mutation.id, mutation.version),
         );
       }
-      applyReadMutationStates(qc, rollback, threadId);
+      applyReadMutationStates(rollback, threadId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1400,10 +1711,6 @@ export function useToggleStar() {
         flag: isStarred,
       }),
     onMutate: async ({ id, isStarred, threadId }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       const target = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
@@ -1422,11 +1729,6 @@ export function useToggleStar() {
         isStarred,
       );
       setOptimisticOverride(id, { isStarred });
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.map((e) => (e.id === id ? { ...e, isStarred } : e)),
-        ),
-      );
       const inboxSnapshot = snapshotInboxThreads(qc);
       const threadKey = resolvedThreadId ?? id;
       let inboxMutationId: string | undefined;
@@ -1473,6 +1775,10 @@ export function useToggleStar() {
           ),
         );
       }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return {
         previousThread,
         threadId: resolvedThreadId,
@@ -1484,7 +1790,6 @@ export function useToggleStar() {
     onSuccess: (_data, { id, isStarred }, context) => {
       if (!context) return;
       applyStarMutationStates(
-        qc,
         new Map([
           [id, confirmStarMutation(id, context.mutationVersion, isStarred)],
         ]),
@@ -1495,7 +1800,7 @@ export function useToggleStar() {
       const state = context
         ? rollbackStarMutation(id, context.mutationVersion)
         : null;
-      applyStarMutationStates(qc, new Map([[id, state]]), context?.threadId);
+      applyStarMutationStates(new Map([[id, state]]), context?.threadId);
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1511,21 +1816,25 @@ export function useToggleStar() {
   });
 }
 
+interface ArchiveEmailVars {
+  id: string;
+  accountEmail?: string;
+  removeLabel?: string;
+  threadId?: string;
+  suppressionToken?: SuppressionClaimToken;
+}
+
 export function useArchiveEmail() {
   const qc = useQueryClient();
   const t = useT();
-  return useMutation({
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
+  const mutation = useMutation({
     mutationFn: ({
       id,
       accountEmail,
       removeLabel,
       threadId,
-    }: {
-      id: string;
-      accountEmail?: string;
-      removeLabel?: string;
-      threadId?: string;
-    }) =>
+    }: ArchiveEmailVars) =>
       gmailMutationQueue.enqueue("archive", {
         id,
         accountEmail,
@@ -1536,16 +1845,8 @@ export function useArchiveEmail() {
       id,
       removeLabel,
       threadId: hintedThreadId,
-    }: {
-      id: string;
-      accountEmail?: string;
-      removeLabel?: string;
-      threadId?: string;
-    }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+      suppressionToken,
+    }: ArchiveEmailVars) => {
       const target = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
@@ -1559,16 +1860,28 @@ export function useArchiveEmail() {
         views: ["inbox", "unread"],
         label: removeLabel,
       });
+      recordSuppressionClaim(suppressionToken, threadId, suppressionId);
       invalidateCachedThread(threadId);
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
       );
+      recordInboxMutationClaim(suppressionToken, threadId, inboxMutationId);
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { threadId, suppressionId, inboxMutationId };
     },
-    onError: (err, _vars, context) => {
-      if (context?.threadId)
+    onError: (err, variables, context) => {
+      if (context?.threadId) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          context.threadId,
+          context.suppressionId,
+        );
         releaseSuppression(context.threadId, context.suppressionId);
+      }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1584,12 +1897,15 @@ export function useArchiveEmail() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 export interface EmailAccountRef {
   id: string;
   accountEmail?: string;
   threadId?: string;
+  suppressionToken?: SuppressionClaimToken;
+  inboxRemovalSnapshot?: InboxThreadRemovalSnapshot;
 }
 
 export function useUnarchiveEmail() {
@@ -1609,11 +1925,18 @@ export function useUnarchiveEmail() {
           );
         });
     },
-    onMutate: ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
+    onMutate: ({
+      id,
+      threadId: hintedThreadId,
+      suppressionToken,
+      inboxRemovalSnapshot: suppliedInboxRemovalSnapshot,
+    }: EmailAccountRef) => {
       const threadId = hintedThreadId || findInboxThreadIdByMessageId(qc, id);
-      const inboxRemovalSnapshot = threadId
-        ? clearInboxThreadRemoval(qc, threadId)
-        : [];
+      const inboxRemovalSnapshot =
+        suppliedInboxRemovalSnapshot ??
+        (threadId
+          ? releaseOwnedInboxRemoval(qc, threadId, suppressionToken)
+          : []);
       return { inboxRemovalSnapshot };
     },
     onError: (_error, _variables, context) => {
@@ -1641,11 +1964,18 @@ export function useUntrashEmail() {
           assertActionSuccess,
         );
       }),
-    onMutate: ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
+    onMutate: ({
+      id,
+      threadId: hintedThreadId,
+      suppressionToken,
+      inboxRemovalSnapshot: suppliedInboxRemovalSnapshot,
+    }: EmailAccountRef) => {
       const threadId = hintedThreadId || findInboxThreadIdByMessageId(qc, id);
-      const inboxRemovalSnapshot = threadId
-        ? clearInboxThreadRemoval(qc, threadId)
-        : [];
+      const inboxRemovalSnapshot =
+        suppliedInboxRemovalSnapshot ??
+        (threadId
+          ? releaseOwnedInboxRemoval(qc, threadId, suppressionToken)
+          : []);
       return { inboxRemovalSnapshot };
     },
     onError: (_error, _variables, context) => {
@@ -1663,14 +1993,15 @@ export function useUntrashEmail() {
 
 export function useTrashEmail() {
   const qc = useQueryClient();
-  return useMutation({
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
+  const mutation = useMutation({
     mutationFn: ({ id, accountEmail, threadId }: EmailAccountRef) =>
       gmailMutationQueue.enqueue("trash", { id, accountEmail, threadId }),
-    onMutate: async ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+    onMutate: async ({
+      id,
+      threadId: hintedThreadId,
+      suppressionToken,
+    }: EmailAccountRef) => {
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1686,15 +2017,27 @@ export function useTrashEmail() {
       const suppressionId = suppressThread(threadId, "trash", {
         onlyIn: "trash",
       });
+      recordSuppressionClaim(suppressionToken, threadId, suppressionId);
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
       );
+      recordInboxMutationClaim(suppressionToken, threadId, inboxMutationId);
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { threadId, suppressionId, inboxMutationId };
     },
-    onError: (err, _id, context) => {
-      if (context?.threadId)
+    onError: (err, variables, context) => {
+      if (context?.threadId) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          context.threadId,
+          context.suppressionId,
+        );
         releaseSuppression(context.threadId, context.suppressionId);
+      }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1708,6 +2051,7 @@ export function useTrashEmail() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 export interface BulkEmailTarget {
@@ -1793,6 +2137,7 @@ function reconcilePartialInboxMutation(
 interface BulkArchiveVars {
   targets: BulkEmailTarget[];
   removeLabel?: string;
+  suppressionToken?: SuppressionClaimToken;
 }
 
 /**
@@ -1803,17 +2148,18 @@ interface BulkArchiveVars {
 export function useBulkArchiveEmails() {
   const qc = useQueryClient();
   const t = useT();
-  return useMutation({
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
+  const mutation = useMutation({
     mutationFn: ({ targets, removeLabel }: BulkArchiveVars) =>
       enqueueBulkGmailMutation("archive", targets, (target) => ({
         ...target,
         removeLabel,
       })).then(() => `Queued archive for ${targets.length} email(s)`),
-    onMutate: async ({ targets, removeLabel }: BulkArchiveVars) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+    onMutate: async ({
+      targets,
+      removeLabel,
+      suppressionToken,
+    }: BulkArchiveVars) => {
       const allEmails = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data));
@@ -1835,9 +2181,21 @@ export function useBulkArchiveEmails() {
           views: ["inbox", "unread"],
           label: removeLabel,
         });
-        invalidateCachedThread(threadId);
+        recordSuppressionClaim(
+          suppressionToken,
+          threadId,
+          suppressionIds[threadId],
+        );
       }
+      for (const threadId of threadIdSet) invalidateCachedThread(threadId);
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
+      for (const threadId of threadIdSet) {
+        recordInboxMutationClaim(suppressionToken, threadId, inboxMutationId);
+      }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return {
         threadIds: [...threadIdSet],
         threadIdsByEmailId,
@@ -1845,7 +2203,7 @@ export function useBulkArchiveEmails() {
         inboxMutationId,
       };
     },
-    onError: (err, _vars, context) => {
+    onError: (err, variables, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
         const failedThreadIds = new Set(
           err.failedIds.map((id) => context.threadIdsByEmailId[id] || id),
@@ -1853,8 +2211,14 @@ export function useBulkArchiveEmails() {
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const threadId of failedThreadIds)
+        for (const threadId of failedThreadIds) {
+          forgetSuppressionClaim(
+            variables.suppressionToken,
+            threadId,
+            context.suppressionIds[threadId],
+          );
           releaseSuppression(threadId, context.suppressionIds[threadId]);
+        }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(
           archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
@@ -1862,6 +2226,11 @@ export function useBulkArchiveEmails() {
         return;
       }
       for (const threadId of context?.threadIds ?? []) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          threadId,
+          context?.suppressionIds[threadId],
+        );
         releaseSuppression(threadId, context?.suppressionIds[threadId]);
       }
       if (context?.inboxMutationId) {
@@ -1879,19 +2248,22 @@ export function useBulkArchiveEmails() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 /** Bulk trash: one action call with server-side bounded Gmail work. */
+interface BulkTrashVars {
+  targets: BulkEmailTarget[];
+  suppressionToken?: SuppressionClaimToken;
+}
+
 export function useBulkTrashEmails() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (targets: BulkEmailTarget[]) =>
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
+  const mutation = useMutation({
+    mutationFn: ({ targets }: BulkTrashVars) =>
       enqueueBulkGmailMutation("trash", targets, (target) => target),
-    onMutate: async (targets: BulkEmailTarget[]) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+    onMutate: async ({ targets, suppressionToken }: BulkTrashVars) => {
       const allEmails = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data));
@@ -1908,11 +2280,24 @@ export function useBulkTrashEmails() {
       });
       const threadIdSet = new Set(threadIds);
       const suppressionIds: Record<string, number> = {};
-      for (const threadId of threadIdSet)
+      for (const threadId of threadIdSet) {
         suppressionIds[threadId] = suppressThread(threadId, "trash", {
           onlyIn: "trash",
         });
+        recordSuppressionClaim(
+          suppressionToken,
+          threadId,
+          suppressionIds[threadId],
+        );
+      }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIdSet);
+      for (const threadId of threadIdSet) {
+        recordInboxMutationClaim(suppressionToken, threadId, inboxMutationId);
+      }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return {
         threadIds: [...threadIdSet],
         threadIdsByEmailId,
@@ -1920,7 +2305,7 @@ export function useBulkTrashEmails() {
         inboxMutationId,
       };
     },
-    onError: (err, _vars, context) => {
+    onError: (err, variables, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
         const failedThreadIds = new Set(
           err.failedIds.map((id) => context.threadIdsByEmailId[id] || id),
@@ -1928,13 +2313,24 @@ export function useBulkTrashEmails() {
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const threadId of failedThreadIds)
+        for (const threadId of failedThreadIds) {
+          forgetSuppressionClaim(
+            variables.suppressionToken,
+            threadId,
+            context.suppressionIds[threadId],
+          );
           releaseSuppression(threadId, context.suppressionIds[threadId]);
+        }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
       }
       for (const threadId of context?.threadIds ?? []) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          threadId,
+          context?.suppressionIds[threadId],
+        );
         releaseSuppression(threadId, context?.suppressionIds[threadId]);
       }
       if (context?.inboxMutationId) {
@@ -1950,6 +2346,7 @@ export function useBulkTrashEmails() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 /** Bulk star/unstar: queued + batched Gmail modify, one optimistic override. */
@@ -1968,10 +2365,6 @@ export function useBulkToggleStar() {
         flag: isStarred,
       })).then(() => `Queued star for ${targets.length} email(s)`),
     onMutate: async ({ targets, isStarred }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1989,16 +2382,15 @@ export function useBulkToggleStar() {
         );
         setOptimisticOverride(id, { isStarred });
       }
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.map((e) => (ids.has(e.id) ? { ...e, isStarred } : e)),
-        ),
-      );
       const inboxMutationId = toggleInboxThreadsStarOptimistic(
         qc,
         new Set(Object.values(threadIdsByEmailId)),
         isStarred,
       );
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { mutationVersions, threadIdsByEmailId, inboxMutationId };
     },
     onSuccess: (_data, vars, context) => {
@@ -2007,7 +2399,7 @@ export function useBulkToggleStar() {
       for (const [id, version] of Object.entries(context.mutationVersions)) {
         states.set(id, confirmStarMutation(id, version, vars.isStarred));
       }
-      applyStarMutationStates(qc, states, context.threadIdsByEmailId);
+      applyStarMutationStates(states, context.threadIdsByEmailId);
     },
     onError: (err, vars, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
@@ -2031,7 +2423,7 @@ export function useBulkToggleStar() {
             ),
           );
         }
-        applyStarMutationStates(qc, states, context.threadIdsByEmailId);
+        applyStarMutationStates(states, context.threadIdsByEmailId);
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
@@ -2041,7 +2433,7 @@ export function useBulkToggleStar() {
         for (const [id, version] of Object.entries(context.mutationVersions)) {
           states.set(id, rollbackStarMutation(id, version));
         }
-        applyStarMutationStates(qc, states, context.threadIdsByEmailId);
+        applyStarMutationStates(states, context.threadIdsByEmailId);
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -2074,10 +2466,6 @@ export function useBulkMarkRead() {
         flag: isRead,
       })).then(() => `Queued mark-read for ${targets.length} email(s)`),
     onMutate: async ({ targets, isRead }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -2095,16 +2483,15 @@ export function useBulkMarkRead() {
         );
         setOptimisticOverride(id, { isRead });
       }
-      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
-        mapInfiniteEmails(old, (emails) =>
-          emails.map((e) => (ids.has(e.id) ? { ...e, isRead } : e)),
-        ),
-      );
       const inboxMutationId = markInboxThreadReadOptimistic(
         qc,
         new Set(Object.values(threadIdsByEmailId)),
         isRead,
       );
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { mutationVersions, threadIdsByEmailId, inboxMutationId };
     },
     onSuccess: (_data, vars, context) => {
@@ -2113,7 +2500,7 @@ export function useBulkMarkRead() {
       for (const [id, version] of Object.entries(context.mutationVersions)) {
         states.set(id, confirmReadMutation(id, version, vars.isRead));
       }
-      applyReadMutationStates(qc, states);
+      applyReadMutationStates(states);
     },
     onError: (err, vars, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
@@ -2133,7 +2520,7 @@ export function useBulkMarkRead() {
             confirmReadMutation(id, context.mutationVersions[id], vars.isRead),
           );
         }
-        applyReadMutationStates(qc, states);
+        applyReadMutationStates(states);
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
@@ -2143,7 +2530,7 @@ export function useBulkMarkRead() {
         for (const [id, version] of Object.entries(context.mutationVersions)) {
           states.set(id, rollbackReadMutation(id, version));
         }
-        applyReadMutationStates(qc, states);
+        applyReadMutationStates(states);
       }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
@@ -2160,9 +2547,21 @@ export function useBulkMarkRead() {
   });
 }
 
+interface MoveEmailVars {
+  id: string;
+  label: string;
+  removeLabel?: string;
+  accountEmail?: string;
+  accountEmails?: string;
+  threadId?: string;
+  threadIds?: string;
+  suppressionToken?: SuppressionClaimToken;
+}
+
 export function useMoveEmail() {
   const qc = useQueryClient();
-  return useMutation({
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
+  const mutation = useMutation({
     mutationFn: async ({
       id,
       label,
@@ -2171,15 +2570,7 @@ export function useMoveEmail() {
       accountEmails,
       threadId,
       threadIds,
-    }: {
-      id: string;
-      label: string;
-      removeLabel?: string;
-      accountEmail?: string;
-      accountEmails?: string;
-      threadId?: string;
-      threadIds?: string;
-    }) => {
+    }: MoveEmailVars) => {
       const result = await callAction("move-email", {
         id,
         label,
@@ -2193,11 +2584,7 @@ export function useMoveEmail() {
         throw new MoveEmailPartialFailure(result);
       return result;
     },
-    onMutate: async ({ id, removeLabel }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
+    onMutate: async ({ id, removeLabel, suppressionToken }: MoveEmailVars) => {
       const cached = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -2229,8 +2616,20 @@ export function useMoveEmail() {
           views: ["inbox", "unread"],
           label: removeLabel,
         });
+        recordSuppressionClaim(
+          suppressionToken,
+          threadId,
+          suppressionIds[threadId],
+        );
       }
       const inboxMutationId = removeInboxThreadsOptimistic(qc, threadIds);
+      for (const threadId of threadIds) {
+        recordInboxMutationClaim(suppressionToken, threadId, inboxMutationId);
+      }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return {
         threadIds: [...threadIds],
         threadIdsByEmailId,
@@ -2238,7 +2637,7 @@ export function useMoveEmail() {
         inboxMutationId,
       };
     },
-    onError: (error, _vars, context) => {
+    onError: (error, variables, context) => {
       if (!context) return;
       if (error instanceof MoveEmailPartialFailure) {
         const succeededThreadIds = new Set(
@@ -2247,14 +2646,26 @@ export function useMoveEmail() {
           ),
         );
         for (const threadId of context.threadIds) {
-          if (!succeededThreadIds.has(threadId))
+          if (!succeededThreadIds.has(threadId)) {
+            forgetSuppressionClaim(
+              variables.suppressionToken,
+              threadId,
+              context.suppressionIds[threadId],
+            );
             releaseSuppression(threadId, context.suppressionIds[threadId]);
+          }
         }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         return;
       }
-      for (const threadId of context.threadIds)
+      for (const threadId of context.threadIds) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          threadId,
+          context.suppressionIds[threadId],
+        );
         releaseSuppression(threadId, context.suppressionIds[threadId]);
+      }
       if (context.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -2267,6 +2678,7 @@ export function useMoveEmail() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 export class MoveEmailPartialFailure extends Error {
@@ -2507,14 +2919,12 @@ export function useReportSpam() {
         body: JSON.stringify({ accountEmail, threadId }),
       }),
     onMutate: async ({ threadId }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       // Suppression hides the thread in the legacy list and the journal hides
       // it in the synced inbox, so rollback drops this thread's own entries.
       // Restoring a whole cache snapshot here would revert a concurrent
       // mutation that landed after this one started.
+      // Suppression must be visible before awaiting cancellation so an undo
+      // cannot miss a newer triage mutation that is already in flight.
       const suppressionId = suppressThread(threadId, "spam", {
         onlyIn: "spam",
       });
@@ -2522,6 +2932,10 @@ export function useReportSpam() {
         qc,
         new Set([threadId]),
       );
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { threadId, suppressionId, inboxMutationId };
     },
     onError: (_err, _vars, context) => {
@@ -2560,10 +2974,6 @@ export function useBlockSender() {
         body: JSON.stringify({ senderEmail, accountEmail }),
       }),
     onMutate: async ({ threadId }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       const suppressionId = suppressThread(threadId, "block", {
         onlyIn: "spam",
       });
@@ -2571,6 +2981,10 @@ export function useBlockSender() {
         qc,
         new Set([threadId]),
       );
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { threadId, suppressionId, inboxMutationId };
     },
     onError: (_err, _vars, context) => {
@@ -2610,12 +3024,10 @@ export function useMuteThread() {
       threadId: string;
       accountEmail?: string;
     }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       // Muting only drops the thread out of the inbox; All Mail and every
       // label it carries still list it.
+      // Record the claim synchronously; undo of an older removal can run
+      // while query cancellation for this mutation is still pending.
       const suppressionId = suppressThread(threadId, "mute", {
         views: ["inbox", "unread"],
       });
@@ -2623,6 +3035,10 @@ export function useMuteThread() {
         qc,
         new Set([threadId]),
       );
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       return { threadId, suppressionId, inboxMutationId };
     },
     onError: (_err, _id, context) => {
@@ -2688,12 +3104,13 @@ export function useLabels(accountEmails?: readonly string[]) {
       staleTime: 60_000,
     },
   );
-  const accountErrors: AccountError[] | undefined = query.data?.errors.length
-    ? query.data.errors.map(({ accountEmail, error }) => ({
-        email: accountEmail,
-        error,
-      }))
-    : undefined;
+  const accountErrors: AccountError[] | undefined =
+    !query.isPlaceholderData && query.data?.errors.length
+      ? query.data.errors.map(({ accountEmail, error }) => ({
+          email: accountEmail,
+          error,
+        }))
+      : undefined;
   return { ...query, data: query.data?.labels, accountErrors };
 }
 

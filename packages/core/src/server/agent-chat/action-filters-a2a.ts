@@ -54,7 +54,9 @@ export function filterAgentTools(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) => entry.agentTool !== false),
+    Object.entries(actions).filter(
+      ([, entry]) => entry.agentTool !== false && entry.uiOnly !== true,
+    ),
   );
 }
 
@@ -74,7 +76,10 @@ export function filterMcpOnlyActions(
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
     Object.entries(actions).filter(
-      ([, entry]) => entry.agentTool === false && entry.mcpTool === true,
+      ([, entry]) =>
+        entry.agentTool === false &&
+        entry.mcpTool === true &&
+        entry.uiOnly !== true,
     ),
   );
 }

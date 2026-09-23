@@ -115,6 +115,7 @@ vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
 }));
 vi.mock("../server/lib/localhost-connection.js", () => ({
+  fetchLocalhostSnapshot: vi.fn(),
   localhostBridgeRequestError: (operation: string) =>
     new Error(`bridge ${operation} failed`),
   resolveLocalhostConnectionScope: mocks.resolveLocalhostConnectionScope,

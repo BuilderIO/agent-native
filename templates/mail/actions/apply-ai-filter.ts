@@ -243,15 +243,16 @@ export default defineAction({
               labelCache,
             );
             const threadId = target.threadId ?? message.threadId ?? target.id;
-            await gmailModifyThread(
+            const updated = (await gmailModifyThread(
               account.accessToken,
               threadId,
               action === "filter" ? [labelId] : ["INBOX"],
               action === "filter" ? ["INBOX"] : [labelId],
-            );
+            )) as { historyId?: string } | undefined;
             await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
               add: action === "filter" ? [labelId] : ["INBOX"],
               remove: action === "filter" ? ["INBOX"] : [labelId],
+              providerHistoryId: updated?.historyId,
             });
             succeededTargets.push({
               ...target,

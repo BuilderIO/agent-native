@@ -24,6 +24,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  Link,
   useLoaderData,
   useLocation,
   useRouteLoaderData,
@@ -44,7 +45,11 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { isStandalonePublicPath } from "@/lib/public-ssr-paths";
+import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
+import {
+  isLegacyRecordingPath,
+  isStandalonePublicPath,
+} from "@/lib/public-ssr-paths";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
@@ -117,6 +122,47 @@ const DEFAULT_LOADER_DATA: RootLoaderData = {
   dir: "ltr",
   messages: i18nCatalog.messages,
 };
+
+const PRIVATE_SHELL_NAVIGATION = [
+  ["/library", "library"],
+  ["/shared", "sharedWithMe"],
+  ["/spaces", "spaces"],
+  ["/meetings", "meetings"],
+  ["/dictate", "dictate"],
+  ["/archive", "archive"],
+  ["/trash", "trash"],
+] as const;
+
+function ClipsPrivateShellFallback({ messages }: { messages: LocaleMessages }) {
+  const navigation = messages.navigation as Record<string, string> | undefined;
+  const brand = navigation?.brand ?? "Clips";
+
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      <aside className="w-64 shrink-0 border-e border-border bg-sidebar p-4">
+        <Link
+          to="/library"
+          className="text-sm font-semibold text-primary"
+          aria-label={brand}
+        >
+          {brand}
+        </Link>
+        <nav aria-label={brand} className="mt-6 flex flex-col gap-1">
+          {PRIVATE_SHELL_NAVIGATION.map(([to, key]) => (
+            <Link
+              key={to}
+              to={to}
+              className="rounded px-2 py-1.5 text-sm text-primary hover:bg-accent"
+            >
+              {navigation?.[key] ?? key}
+            </Link>
+          ))}
+        </nav>
+      </aside>
+      <main className="min-w-0 flex-1" aria-busy="true" />
+    </div>
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const loaderData =
@@ -212,6 +258,16 @@ function ClipsExtensionAuthBridge() {
     const targetExtensionId = extensionId;
 
     let cancelled = false;
+    let removeBridgeListener: (() => void) | null = null;
+
+    const completeExtensionSignIn = () => {
+      if (cancelled) return;
+      const cleaned = new URL(window.location.href);
+      cleaned.searchParams.delete("clipsExtensionAuth");
+      cleaned.searchParams.delete("clipsExtensionId");
+      window.history.replaceState(window.history.state, "", cleaned);
+      setShowAuthSuccess(true);
+    };
 
     async function sendSessionToExtension() {
       const runtime = (
@@ -219,7 +275,6 @@ function ClipsExtensionAuthBridge() {
           chrome?: { runtime?: ExternalChromeRuntime };
         }
       ).chrome?.runtime;
-      if (!runtime?.sendMessage) return;
 
       const response = await fetch(appPath("/_agent-native/auth/session"), {
         credentials: "include",
@@ -233,21 +288,63 @@ function ClipsExtensionAuthBridge() {
         return;
       }
 
+      const message = {
+        source: "clips-auth-bridge",
+        kind: "session",
+        token: session.token,
+        email: session.email,
+        clipsBaseUrl: buildClipsExtensionBaseUrl(
+          window.location.origin,
+          appPath("/"),
+        ),
+      } as const;
+      const sendViaPageBridge = () => {
+        const onMessage = (event: MessageEvent) => {
+          if (
+            event.source !== window ||
+            event.origin !== window.location.origin
+          ) {
+            return;
+          }
+          const data = event.data as
+            | { source?: unknown; kind?: unknown; ok?: unknown }
+            | undefined;
+          if (
+            data?.source !== "clips-auth-bridge" ||
+            data.kind !== "session-result"
+          ) {
+            return;
+          }
+          removeBridgeListener?.();
+          removeBridgeListener = null;
+          if (data.ok === true) completeExtensionSignIn();
+        };
+        removeBridgeListener = () =>
+          window.removeEventListener("message", onMessage);
+        window.addEventListener("message", onMessage);
+        window.postMessage(message, window.location.origin);
+      };
+
+      if (!runtime?.sendMessage) {
+        sendViaPageBridge();
+        return;
+      }
+
       runtime.sendMessage(
         targetExtensionId,
         {
           type: "CLIPS_AUTH_SESSION",
-          token: session.token,
-          email: session.email,
-          clipsBaseUrl: window.location.origin,
+          token: message.token,
+          email: message.email,
+          clipsBaseUrl: message.clipsBaseUrl,
         },
         (extensionResponse) => {
-          if (cancelled || runtime.lastError || !extensionResponse?.ok) return;
-          const cleaned = new URL(window.location.href);
-          cleaned.searchParams.delete("clipsExtensionAuth");
-          cleaned.searchParams.delete("clipsExtensionId");
-          window.history.replaceState(window.history.state, "", cleaned);
-          setShowAuthSuccess(true);
+          if (cancelled) return;
+          if (!runtime.lastError && extensionResponse?.ok) {
+            completeExtensionSignIn();
+            return;
+          }
+          sendViaPageBridge();
         },
       );
     }
@@ -255,6 +352,7 @@ function ClipsExtensionAuthBridge() {
     void sendSessionToExtension();
     return () => {
       cancelled = true;
+      removeBridgeListener?.();
     };
   }, [location.search]);
 
@@ -318,12 +416,17 @@ export default function Root() {
   const isMarketingHome = location.pathname === "/";
   const isPublicPath =
     isMarketingHome || isStandalonePublicPath(location.pathname);
+  const legacyRecordingPath = isLegacyRecordingPath(location.pathname);
   const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        clientOnlyFallback={
+          <ClipsPrivateShellFallback messages={loaderData.messages} />
+        }
         isPublicPath={isPublicPath}
+        sessionBypass={legacyRecordingPath}
         showEnvironmentBadge={isPublicPath && !publicSharePath}
         toaster={
           <Toaster

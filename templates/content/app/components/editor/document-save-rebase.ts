@@ -1,6 +1,6 @@
 import { planDocReconcile } from "@agent-native/toolkit/editor";
 import type { Document } from "@shared/api";
-import { nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { getSchema } from "@tiptap/core";
 
 import { isDocumentUpdateConflict } from "@/hooks/use-documents";
@@ -15,6 +15,8 @@ export type DocumentContentBase = {
 };
 export type RebasedDocumentSaveResult =
   | { status: "saved"; document: Document; content: string }
+  | { status: "displaced"; document: Document; localDraft: string }
+  | { status: "superseded"; document: Document }
   | { status: "conflict"; localDraft: string };
 
 let contentSchema: ReturnType<typeof getSchema> | undefined;
@@ -38,17 +40,20 @@ export async function saveDocumentWithRebase({
   owner?: {
     version: number;
     current: () => { version: number; content: string };
+    canPreferLive: (winner: Document) => boolean;
     confirm: (content: string) => void;
   };
 }): Promise<RebasedDocumentSaveResult> {
   let attemptedBase = base;
-  const draft = content;
+  let candidate = content;
   const conflict = (): RebasedDocumentSaveResult => {
     const current = owner?.current();
     return {
       status: "conflict",
       localDraft:
-        current && current.version !== owner!.version ? current.content : draft,
+        current && current.version !== owner!.version
+          ? current.content
+          : candidate,
     };
   };
   const confirmed = (document: Document): RebasedDocumentSaveResult => {
@@ -57,12 +62,12 @@ export async function saveDocumentWithRebase({
     return { status: "saved", document, content: document.content };
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
-    const saved = await persist(draft, attemptedBase);
+    const saved = await persist(candidate, attemptedBase);
     if (!isDocumentUpdateConflict(saved)) {
       return confirmed(saved);
     }
     const winner = saved.document;
-    if (winner.content === draft && confirmsWrite(winner)) {
+    if (winner.content === candidate && confirmsWrite(winner)) {
       return confirmed(winner);
     }
     if (
@@ -75,16 +80,35 @@ export async function saveDocumentWithRebase({
     }
     try {
       contentSchema ??= getSchema(createVisualEditorExtensions());
-      const localDoc = contentSchema.nodeFromJSON(nfmToDoc(draft));
-      const plan = planDocReconcile(
+      const localDoc = contentSchema.nodeFromJSON(nfmToDoc(candidate));
+      let plan = planDocReconcile(
         localDoc,
         contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
         contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
       );
-      // Only advance the CAS base when the editor already contains the winner.
-      // A server-only change must reach the live Y.Doc through its elected
-      // reconciler before later keystrokes can safely include that change.
-      if (plan.status !== "noop") {
+      if (
+        plan.status === "conflict" &&
+        owner &&
+        owner.current().version === owner.version &&
+        owner.canPreferLive(winner)
+      ) {
+        plan = planDocReconcile(
+          localDoc,
+          contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
+          contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
+          { overlapPolicy: "prefer-live" },
+        );
+      } else if (plan.status === "conflict" && owner) {
+        if (owner.current().version !== owner.version) {
+          return { status: "superseded", document: winner };
+        }
+        // This queued operation was not authored from the winning revision.
+        // Preserve it as displaced work before adopting the canonical winner.
+        return { status: "displaced", document: winner, localDraft: candidate };
+      }
+      if (plan.status === "applied") {
+        candidate = docToNfm(plan.mergedDoc.toJSON());
+      } else if (plan.status !== "noop") {
         return conflict();
       }
       attemptedBase = {

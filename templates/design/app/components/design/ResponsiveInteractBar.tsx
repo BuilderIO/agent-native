@@ -1,7 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAspectRatio,
-  IconChevronDown,
   IconDeviceLaptop,
   IconDeviceMobile,
   IconDeviceTablet,
@@ -9,15 +8,9 @@ import {
   IconTransformPoint,
   IconX,
 } from "@tabler/icons-react";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -25,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
@@ -33,23 +25,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
-  clampZoom,
-  getNextZoomStepDown,
-  getNextZoomStepUp,
-} from "@/pages/design-editor/overview-camera";
-import {
   findInteractDevicePreset,
-  formatInteractZoom,
   INTERACT_DEVICE_PRESETS,
   type InteractDeviceCategory,
 } from "@/pages/design-editor/responsive-interact";
-
-/** Reference-bar zoom range (matches builder-internal's ResponsiveEditingMode
- * clamp(zoom, 10, 200)) — deliberately narrower than the general canvas zoom
- * range, since this scales a literal device box rather than a free canvas. */
-const INTERACT_ZOOM_MIN = 10;
-const INTERACT_ZOOM_MAX = 200;
-const ZOOM_PRESET_BUTTONS = [50, 75, 100] as const;
 
 /** Same labels/icons as the bottom toolbar's mode tabs, which this bar stands
  * in for while Interact owns the surface. */
@@ -120,11 +99,9 @@ export interface ResponsiveInteractBarProps {
   deviceName: string;
   width: number;
   height: number;
-  zoom: number;
   onDeviceChange: (name: string) => void;
   onWidthChange: (width: number) => void;
   onHeightChange: (height: number) => void;
-  onZoomChange: (zoom: number) => void;
   /**
    * Leave Interact for a canvas mode. The bottom toolbar (which owns the mode
    * tabs) is hidden while Interact owns the surface, so without this the only
@@ -137,15 +114,12 @@ export interface ResponsiveInteractBarProps {
   canAnnotate: boolean;
   onClose: () => void;
   /**
-   * The docked (non-floating) bar sits in the canvas column, which is
-   * inset by the left rail's width via `paddingLeft`. A wide rail (e.g. the
-   * Code panel) plus a narrow window can squeeze that column so far that
-   * Close — the one control a stuck user is looking for — gets clipped by
-   * the column's `overflow-hidden` instead of just losing the device/zoom
-   * controls it sits next to. The caller renders `ResponsiveInteractExitButton`
-   * pinned outside that squeeze instead and sets this to `false` for the
-   * docked bar. The floating (minimal-UI) bar has no docked rail competing
-   * for width, so it keeps Close inline.
+   * The docked (non-floating) bar sits in the canvas column, which is inset by
+   * the left rail's width via `paddingLeft`. A wide rail plus a narrow window
+   * can squeeze that column so far that Close gets clipped by the column's
+   * `overflow-hidden`. The caller renders `ResponsiveInteractExitButton`
+   * pinned outside that squeeze for the docked bar; the floating bar keeps it
+   * inline.
    */
   showClose?: boolean;
   className?: string;
@@ -184,18 +158,16 @@ export function ResponsiveInteractExitButton({
 /**
  * Responsive Interact mode's top chrome bar: device preset + editable W/H
  * (typing switches the preset to "Custom", same as builder-internal's
- * ResponsiveEditingMode) and a zoom popover. Ported to this app's shadcn
- * primitives — see templates/design's frontend rules for why this isn't MUI.
+ * ResponsiveEditingMode). Interact intentionally has no canvas zoom controls;
+ * the device preview fits itself to the available canvas.
  */
 export function ResponsiveInteractBar({
   deviceName,
   width,
   height,
-  zoom,
   onDeviceChange,
   onWidthChange,
   onHeightChange,
-  onZoomChange,
   onModeChange,
   canAnnotate,
   onClose,
@@ -203,19 +175,7 @@ export function ResponsiveInteractBar({
   className,
 }: ResponsiveInteractBarProps) {
   const t = useT();
-  const [zoomOpen, setZoomOpen] = useState(false);
-  const [zoomDraft, setZoomDraft] = useState(formatInteractZoom(zoom));
   const selectedDevice = findInteractDevicePreset(deviceName);
-  const formattedZoom = formatInteractZoom(zoom);
-
-  const commitZoomDraft = () => {
-    const parsed = Number.parseFloat(zoomDraft);
-    if (Number.isFinite(parsed)) {
-      onZoomChange(clampZoom(parsed, INTERACT_ZOOM_MIN, INTERACT_ZOOM_MAX));
-    } else {
-      setZoomDraft(formattedZoom);
-    }
-  };
 
   return (
     <div
@@ -302,109 +262,29 @@ export function ResponsiveInteractBar({
               </Tooltip>
             ),
           )}
-          <Separator orientation="vertical" className="mx-1 !h-5" />
-
-          <Popover
-            open={zoomOpen}
-            onOpenChange={(open) => {
-              setZoomOpen(open);
-              if (open) setZoomDraft(formattedZoom);
-            }}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 cursor-pointer gap-0.5 rounded-md px-2 !text-[12px] tabular-nums text-muted-foreground hover:text-foreground"
-              >
-                {formattedZoom}%
-                <IconChevronDown className="size-3 opacity-60" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              className="z-[100030] w-44 space-y-1.5 p-2"
-            >
-              <Input
-                autoFocus
-                type="number"
-                value={zoomDraft}
-                onChange={(event) => setZoomDraft(event.target.value)}
-                onFocus={(event) => event.currentTarget.select()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commitZoomDraft();
-                  } else if (event.key === "Escape") {
-                    event.preventDefault();
-                    setZoomDraft(formattedZoom);
-                  }
-                }}
-                onBlur={commitZoomDraft}
-                aria-label={t("designEditor.responsiveInteract.zoom")}
-                className="h-7 !text-[12px] tabular-nums"
-              />
-              <Separator />
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={zoom >= INTERACT_ZOOM_MAX}
-                onClick={() => {
-                  onZoomChange(
-                    getNextZoomStepUp(zoom, {
-                      min: INTERACT_ZOOM_MIN,
-                      max: INTERACT_ZOOM_MAX,
-                    }),
-                  );
-                  setZoomOpen(false);
-                }}
-                className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
-              >
-                {t("designEditor.responsiveInteract.zoomIn")}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={zoom <= INTERACT_ZOOM_MIN}
-                onClick={() => {
-                  onZoomChange(
-                    getNextZoomStepDown(zoom, {
-                      min: INTERACT_ZOOM_MIN,
-                      max: INTERACT_ZOOM_MAX,
-                    }),
-                  );
-                  setZoomOpen(false);
-                }}
-                className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
-              >
-                {t("designEditor.responsiveInteract.zoomOut")}
-              </Button>
-              <Separator />
-              {ZOOM_PRESET_BUTTONS.map((preset) => (
-                <Button
-                  key={preset}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    onZoomChange(preset);
-                    setZoomOpen(false);
-                  }}
-                  className="h-7 w-full cursor-pointer justify-start rounded-md px-2 !text-[12px]"
-                >
-                  {t("designEditor.responsiveInteract.zoomToPreset", {
-                    percent: preset,
-                  })}
-                </Button>
-              ))}
-            </PopoverContent>
-          </Popover>
         </div>
       </div>
       {showClose ? (
         <div className="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1">
           <ResponsiveInteractExitButton onClose={onClose} />
         </div>
-      ) : null}
+      ) : (
+        <div
+          aria-hidden="true"
+          className="invisible flex shrink-0 items-center pl-1"
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            tabIndex={-1}
+            className="h-7 shrink-0 gap-1.5 rounded-md px-2 !text-[12px]"
+          >
+            <IconX className="size-4" />
+            {t("designEditor.responsiveInteract.exit")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

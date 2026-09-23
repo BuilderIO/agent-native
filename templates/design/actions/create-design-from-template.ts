@@ -17,12 +17,17 @@ import {
   remapTemplateFileIds,
   templateFileDimensions,
 } from "../server/lib/design-template-data.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import getDesignSystem from "./get-design-system.js";
+
+type DesignTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 interface TemplateFile {
   id: string;
@@ -168,39 +173,6 @@ export default defineAction({
     let targetExistingData: Record<string, unknown> = {};
     if (targetDesignId) {
       await assertAccess("design", targetDesignId, "editor");
-      // The editor creates the board row on mount, so a design with nothing
-      // drawn in it already has one file. Screens are what count as content.
-      const [existingDesign] = await db
-        .select({ data: schema.designs.data })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, targetDesignId))
-        .limit(1);
-      if (typeof existingDesign?.data === "string") {
-        try {
-          const parsed = JSON.parse(existingDesign.data);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            targetExistingData = parsed as Record<string, unknown>;
-          }
-        } catch {
-          // coercion-ok: unreadable prior data is replaced wholesale below,
-          // which is the same outcome as the create path.
-        }
-      }
-      const [existing] = await db
-        .select({ id: schema.designFiles.id })
-        .from(schema.designFiles)
-        .where(
-          and(
-            eq(schema.designFiles.designId, targetDesignId),
-            ne(schema.designFiles.filename, BOARD_FILENAME),
-          ),
-        )
-        .limit(1);
-      if (existing) {
-        throw new Error(
-          "Target design already has files. Templates only fill an empty design.",
-        );
-      }
     }
     const designId = targetDesignId ?? nanoid();
     const now = new Date().toISOString();
@@ -244,8 +216,45 @@ export default defineAction({
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
 
-    await db.transaction(async (tx) => {
+    const persist = async (tx: DesignTransaction) => {
       if (targetDesignId) {
+        // The editor creates the board row on mount, so a design with nothing
+        // drawn in it already has one file. Screens are what count as content.
+        const [existingDesign] = await tx
+          .select({ data: schema.designs.data })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, targetDesignId))
+          .limit(1);
+        if (typeof existingDesign?.data === "string") {
+          try {
+            const parsed = JSON.parse(existingDesign.data);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              targetExistingData = parsed as Record<string, unknown>;
+            }
+          } catch {
+            // coercion-ok: unreadable prior data is replaced wholesale below,
+            // which is the same outcome as the create path.
+          }
+        }
+        const [existing] = await tx
+          .select({ id: schema.designFiles.id })
+          .from(schema.designFiles)
+          .where(
+            and(
+              eq(schema.designFiles.designId, targetDesignId),
+              ne(schema.designFiles.filename, BOARD_FILENAME),
+            ),
+          )
+          .limit(1);
+        if (existing) {
+          throw new Error(
+            "Target design already has files. Templates only fill an empty design.",
+          );
+        }
         await tx
           .update(schema.designs)
           .set({
@@ -285,7 +294,13 @@ export default defineAction({
           updatedAt: now,
         })),
       );
-    });
+    };
+
+    if (targetDesignId) {
+      await withDesignSourceMutationTransaction(targetDesignId, persist);
+    } else {
+      await db.transaction(persist);
+    }
 
     return {
       id: designId,

@@ -707,13 +707,32 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
     expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
   });
 
-  it("keeps the package root (Node default) entry free of the React client barrel", () => {
+  it("keeps the package root server-safe without dropping server exports", () => {
     // Importing `defineAction` (or anything else) from the bare
     // "@agent-native/core" specifier must stay server-safe: the Node `default`
     // entry must not statically re-export "./client/index.js", which would drag
     // react / react-router / @tanstack/react-query into a headless load graph.
     const rootEntry = fs.readFileSync(ROOT_ENTRY_SRC, "utf-8");
     expect(rootEntry).not.toMatch(/from\s+["']\.\/client\/index(\.js)?["']/);
+    // Keep documented root server imports working for existing apps while
+    // deferring the React-bearing server modules until those APIs are used.
+    expect(rootEntry).toContain('from "./root-server-compat.js"');
+    expect(rootEntry).not.toContain('from "./server/index.js"');
+    const compatibilitySource = fs.readFileSync(
+      path.join(CORE_ROOT, "src", "root-server-compat.ts"),
+      "utf-8",
+    );
+    expect(compatibilitySource).not.toMatch(
+      /^import (?!type).*from\s+["']\.\/server\/(agent-chat-plugin|embedded|auth)\.js["']/m,
+    );
+    expect(compatibilitySource).toContain(
+      'import("./server/agent-chat-plugin.js")',
+    );
+    expect(compatibilitySource).toContain('import("./server/auth.js")');
+    expect(compatibilitySource).toContain("trackPluginInit");
+    expect(compatibilitySource).toContain(
+      'markDefaultPluginProvided(nitroApp, "agent-chat")',
+    );
     // Sanity: the server/action primitives headless apps need are still here.
     expect(rootEntry).toMatch(/\bdefineAction\b/);
     expect(rootEntry).toMatch(/from\s+["']\.\/action\.js["']/);

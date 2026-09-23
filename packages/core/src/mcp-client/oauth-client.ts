@@ -24,6 +24,7 @@ import {
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 
+import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
@@ -218,10 +219,41 @@ function startGoogleMcpOAuthAuthorization(
 async function readOAuthResponseJson(
   response: Response,
 ): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (Buffer.byteLength(text) > MAX_OAUTH_RESPONSE_BYTES) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_OAUTH_RESPONSE_BYTES
+  ) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error("MCP OAuth response exceeded the size limit.");
   }
+  if (!response.body) {
+    throw new Error("MCP OAuth response had no body.");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_OAUTH_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("MCP OAuth response exceeded the size limit.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -554,6 +586,32 @@ function applicationTypeForRedirect(redirectUrl: string): "native" | "web" {
   return "web";
 }
 
+function brandedOAuthClientMetadata(): Pick<
+  OAuthClientMetadata,
+  "client_name" | "client_uri" | "logo_uri"
+> {
+  const app = getAppConfig().app;
+  const metadata: Pick<
+    OAuthClientMetadata,
+    "client_name" | "client_uri" | "logo_uri"
+  > = {
+    client_name: app.name?.trim() || "Agent-Native MCP connector",
+  };
+
+  if (app.logoUrl) {
+    try {
+      const logoUrl = new URL(app.logoUrl);
+      if (logoUrl.protocol === "https:") {
+        metadata.logo_uri = logoUrl.href;
+        metadata.client_uri = logoUrl.origin;
+      }
+    } catch {
+      // coercion-ok: an invalid optional logo is omitted from OAuth metadata.
+    }
+  }
+  return metadata;
+}
+
 /**
  * A small adapter around the MCP SDK's OAuth provider interface. The route
  * stores the adapter's state in an encrypted, short-lived browser cookie; the
@@ -600,12 +658,12 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
     }
     this.metadata = {
+      ...brandedOAuthClientMetadata(),
       redirect_uris: [options.redirectUrl],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
-      client_name: "Agent-Native MCP connector",
     };
   }
 
@@ -738,6 +796,48 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
     this.issuer = details.issuer;
     this.authorizationServerUrl = details.authorizationServerUrl;
   }
+}
+
+/**
+ * Accept either an authorization-server URL or a URL to its discovery document.
+ * The SDK needs the issuer, while the document may live at an arbitrary path.
+ */
+export async function resolveMcpOAuthAuthorizationServerUrl(
+  value: string,
+): Promise<string> {
+  return (await resolveMcpOAuthAuthorizationServerDiscovery(value))
+    .authorizationServerUrl;
+}
+
+export async function resolveMcpOAuthAuthorizationServerDiscovery(
+  value: string,
+): Promise<McpOAuthDiscoveryState> {
+  const candidate = checkedRemoteUrl(value, "authorization server metadata");
+  const response = await guardedOAuthFetch()(candidate, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return { authorizationServerUrl: candidate.toString() };
+  }
+  const contentType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+  if (!contentType.includes("json")) {
+    await response.body?.cancel().catch(() => undefined);
+    return { authorizationServerUrl: candidate.toString() };
+  }
+  const metadata = await readOAuthResponseJson(response);
+  const issuer = typeof metadata.issuer === "string" ? metadata.issuer : null;
+  const state: McpOAuthDiscoveryState = {
+    authorizationServerUrl: issuer
+      ? checkedRemoteUrl(issuer, "authorization server").toString()
+      : candidate.toString(),
+    ...(issuer
+      ? { authorizationServerMetadata: metadata as AuthorizationServerMetadata }
+      : {}),
+  };
+  validateDiscoveryUrls(state);
+  return state;
 }
 
 /**

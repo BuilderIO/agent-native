@@ -40,6 +40,8 @@ import {
   useMemo,
   forwardRef,
   Fragment,
+  lazy,
+  Suspense,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -68,9 +70,13 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
-  unsuppressThread,
+  releaseOwnedInboxRemoval,
+  releaseSuppressionClaims,
 } from "@/hooks/use-emails";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  isMailSearchActive,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import {
@@ -94,11 +100,50 @@ import {
 } from "@/lib/utils";
 
 import { buildEmailIframeDocument } from "./email-iframe-document";
-import {
-  InlineReplyComposer,
-  type InlineReplyHandle,
-} from "./InlineReplyComposer";
+import type { InlineReplyHandle } from "./InlineReplyComposer";
 import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
+
+let inlineReplyComposerModule:
+  | Promise<typeof import("./InlineReplyComposer")>
+  | undefined;
+
+function preloadInlineReplyComposer() {
+  inlineReplyComposerModule ??= import("./InlineReplyComposer");
+  return inlineReplyComposerModule;
+}
+
+const LazyInlineReplyComposer = lazy(async () => {
+  const { InlineReplyComposer } = await preloadInlineReplyComposer();
+  return { default: InlineReplyComposer };
+});
+
+function InlineReplyComposerSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden animate-pulse"
+      data-mail-inline-reply-skeleton="true"
+    >
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-6 w-6 rounded" />
+      </div>
+      <div className="flex items-center border-b border-border/30 px-4 pb-2">
+        <Skeleton className="h-3 w-8" />
+        <Skeleton className="ms-2 h-8 flex-1 rounded" />
+      </div>
+      <Skeleton className="mx-4 my-3 h-24 rounded" />
+      <div className="flex items-center justify-between border-t border-border/30 px-4 py-2">
+        <div className="flex gap-2">
+          <Skeleton className="h-7 w-7 rounded" />
+          <Skeleton className="h-7 w-7 rounded" />
+          <Skeleton className="h-7 w-7 rounded" />
+        </div>
+        <Skeleton className="h-8 w-16 rounded" />
+      </div>
+    </div>
+  );
+}
 
 export function EmailThread({
   activeThreadId,
@@ -147,6 +192,24 @@ export function EmailThread({
     : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!threadId) return;
+
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const preload = () => void preloadInlineReplyComposer();
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(preload, { timeout: 1000 });
+    } else {
+      timeoutId = setTimeout(preload, 250);
+    }
+
+    return () => {
+      if (idleId !== undefined) cancelIdleCallback(idleId);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [threadId]);
 
   // Pull any messages we already have from the list cache (instant, no fetch).
   // The emails query uses useInfiniteQuery so cached data is InfiniteData<{ emails: EmailMessage[] }>,
@@ -709,14 +772,40 @@ export function EmailThread({
 
     for (const t of targets) onArchived?.(t.id);
 
+    const suppressionToken = archiveEmail.createSuppressionToken();
+    const restorableThreadIds = new Set<string>();
+    const inboxRemovalSnapshots = new Map<
+      string,
+      ReturnType<typeof releaseOwnedInboxRemoval>
+    >();
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets)
-        unarchiveEmail.mutate({
-          id: t.id,
-          accountEmail: t.accountEmail,
-          threadId: t.threadId || t.id,
-        });
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          key,
+          suppressionToken,
+        );
+        if (
+          releaseSuppressionClaims(
+            key,
+            archiveEmail.getSuppressionIds(suppressionToken, key),
+          )
+        ) {
+          restorableThreadIds.add(key);
+          inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+        }
+      }
+      for (const t of targets) {
+        if (restorableThreadIds.has(t.threadId || t.id))
+          unarchiveEmail.mutate({
+            id: t.id,
+            accountEmail: t.accountEmail,
+            threadId: t.threadId || t.id,
+            suppressionToken,
+            inboxRemovalSnapshot: inboxRemovalSnapshots.get(t.threadId || t.id),
+          });
+      }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     const consumeUndo = setUndoAction(undo);
@@ -738,6 +827,7 @@ export function EmailThread({
         accountEmail: t.accountEmail,
         removeLabel: labelParam || undefined,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     }
     setSelectedIds?.(new Set());
@@ -772,14 +862,40 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
+    const suppressionToken = trashEmail.createSuppressionToken();
+    const restorableThreadIds = new Set<string>();
+    const inboxRemovalSnapshots = new Map<
+      string,
+      ReturnType<typeof releaseOwnedInboxRemoval>
+    >();
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets)
-        untrashEmail.mutate({
-          id: t.id,
-          accountEmail: t.accountEmail,
-          threadId: t.threadId || t.id,
-        });
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          key,
+          suppressionToken,
+        );
+        if (
+          releaseSuppressionClaims(
+            key,
+            trashEmail.getSuppressionIds(suppressionToken, key),
+          )
+        ) {
+          restorableThreadIds.add(key);
+          inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+        }
+      }
+      for (const t of targets) {
+        if (restorableThreadIds.has(t.threadId || t.id))
+          untrashEmail.mutate({
+            id: t.id,
+            accountEmail: t.accountEmail,
+            threadId: t.threadId || t.id,
+            suppressionToken,
+            inboxRemovalSnapshot: inboxRemovalSnapshots.get(t.threadId || t.id),
+          });
+      }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     const consumeUndo = setUndoAction(undo);
@@ -799,6 +915,7 @@ export function EmailThread({
         id: t.id,
         accountEmail: t.accountEmail,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     setSelectedIds?.(new Set());
   }, [
@@ -839,6 +956,7 @@ export function EmailThread({
 
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
+      void preloadInlineReplyComposer();
       // If inline draft exists and no specific message, just focus it
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
@@ -859,6 +977,7 @@ export function EmailThread({
 
   const handleReplyAll = useCallback(
     (msg?: EmailMessage) => {
+      void preloadInlineReplyComposer();
       // If inline draft exists and no specific message, just focus it
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
@@ -880,6 +999,7 @@ export function EmailThread({
 
   const handleForwardMsg = useCallback(
     (msg: EmailMessage) => {
+      void preloadInlineReplyComposer();
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
       );
@@ -899,6 +1019,7 @@ export function EmailThread({
     [
       {
         key: "Escape",
+        shouldHandle: () => !isMailSearchActive(),
         handler: () => {
           // If a multi-selection is active, first Escape clears it; second
           // Escape goes back to the list. Matches Gmail / Superhuman feel.
@@ -1513,19 +1634,21 @@ export function EmailThread({
                 )}
                 {showComposerAfter && (
                   <div className="mt-3">
-                    <InlineReplyComposer
-                      ref={inlineReplyRef}
-                      draft={inlineDraft}
-                      messages={messages}
-                      onUpdate={compose.update}
-                      onDiscard={compose.discard}
-                      onClose={handleCloseInlineDraft}
-                      onPopOut={(id) => compose.update(id, { inline: false })}
-                      onFlush={compose.flush}
-                      onReopen={(state) =>
-                        compose.open({ ...state, inline: true })
-                      }
-                    />
+                    <Suspense fallback={<InlineReplyComposerSkeleton />}>
+                      <LazyInlineReplyComposer
+                        ref={inlineReplyRef}
+                        draft={inlineDraft}
+                        messages={messages}
+                        onUpdate={compose.update}
+                        onDiscard={compose.discard}
+                        onClose={handleCloseInlineDraft}
+                        onPopOut={(id) => compose.update(id, { inline: false })}
+                        onFlush={compose.flush}
+                        onReopen={(state) =>
+                          compose.open({ ...state, inline: true })
+                        }
+                      />
+                    </Suspense>
                   </div>
                 )}
               </Fragment>
@@ -1536,17 +1659,21 @@ export function EmailThread({
           {inlineDraft &&
             !messages.some((m) => m.id === inlineDraft.replyToId) && (
               <div className="mt-3">
-                <InlineReplyComposer
-                  ref={inlineReplyRef}
-                  draft={inlineDraft}
-                  messages={messages}
-                  onUpdate={compose.update}
-                  onDiscard={compose.discard}
-                  onClose={handleCloseInlineDraft}
-                  onPopOut={(id) => compose.update(id, { inline: false })}
-                  onFlush={compose.flush}
-                  onReopen={(state) => compose.open({ ...state, inline: true })}
-                />
+                <Suspense fallback={<InlineReplyComposerSkeleton />}>
+                  <LazyInlineReplyComposer
+                    ref={inlineReplyRef}
+                    draft={inlineDraft}
+                    messages={messages}
+                    onUpdate={compose.update}
+                    onDiscard={compose.discard}
+                    onClose={handleCloseInlineDraft}
+                    onPopOut={(id) => compose.update(id, { inline: false })}
+                    onFlush={compose.flush}
+                    onReopen={(state) =>
+                      compose.open({ ...state, inline: true })
+                    }
+                  />
+                </Suspense>
               </div>
             )}
 
@@ -1934,6 +2061,8 @@ const ExpandedMessageCard = forwardRef<
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  onMouseEnter={() => void preloadInlineReplyComposer()}
+                  onFocus={() => void preloadInlineReplyComposer()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onReply();
@@ -1950,6 +2079,8 @@ const ExpandedMessageCard = forwardRef<
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  onMouseEnter={() => void preloadInlineReplyComposer()}
+                  onFocus={() => void preloadInlineReplyComposer()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onReplyAll();
@@ -1968,6 +2099,8 @@ const ExpandedMessageCard = forwardRef<
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  onMouseEnter={() => void preloadInlineReplyComposer()}
+                  onFocus={() => void preloadInlineReplyComposer()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onForward();

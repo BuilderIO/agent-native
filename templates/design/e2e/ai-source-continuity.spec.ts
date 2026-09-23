@@ -12,6 +12,7 @@ import {
   expandAllLayers,
   gotoEditor,
   installBridge,
+  selectByText,
   waitForBridge,
 } from "./helpers";
 
@@ -19,7 +20,7 @@ const AI_SOURCE = readFileSync(
   new URL("./fixtures/luna-orbit-after-ai.html", import.meta.url),
   "utf8",
 );
-const PRIMARY_DECLARATION = "--primary:#0F766E;";
+const PRIMARY_DECLARATION = "--primary: #0f766e;";
 
 const AI_BRIDGE_SOURCE = `<!doctype html>
 <html lang="en">
@@ -403,12 +404,12 @@ test("duplicate authored IDs are repaired before Layers-first edits and persist 
   const sourceWithoutEditorIds = stripEditorOnlyAttributes(AI_SOURCE);
   const duplicatedSource = sourceWithoutEditorIds
     .replace(
-      '<div class="task-name" contenteditable="true">Refine onboarding flow</div>',
-      `<div class="task-name" contenteditable="true" data-agent-native-node-id="${duplicateId}">Refine onboarding flow</div>`,
+      /(<div\s+class="task-name"[^>]*)(>\s*Refine onboarding flow\s*<\/div>)/,
+      `$1 data-agent-native-node-id="${duplicateId}"$2`,
     )
     .replace(
-      '<div class="task-name" contenteditable="true">Prepare launch brief</div>',
-      `<div class="task-name" contenteditable="true" data-agent-native-node-id="${duplicateId}">Prepare launch brief</div>`,
+      /(<div\s+class="task-name"[^>]*)(>\s*Prepare launch brief\s*<\/div>)/,
+      `$1 data-agent-native-node-id="${duplicateId}"$2`,
     );
   expect(duplicatedSource).not.toBe(sourceWithoutEditorIds);
 
@@ -523,14 +524,7 @@ test("stylesheet-backed Fill stays editable after Layers reselection and undo", 
     await page.evaluate(() => {
       (window as Window & { __bridge?: unknown[] }).__bridge = [];
     });
-    const bounds = await primary.boundingBox();
-    if (!bounds) throw new Error("Orbit primary button has no canvas bounds");
-    await page.mouse.click(
-      bounds.x + bounds.width / 2,
-      bounds.y + bounds.height / 2,
-    );
-    const selectionMessage = await waitForBridge(page, "element-select");
-    const canvasSelection = selectionMessage?.payload ?? selectionMessage;
+    const canvasSelection = await selectByText(page, "＋ Add task");
     expect(canvasSelection.tagName).toBe("button");
     expect(canvasSelection.sourceId).toBe(initial.nodeId);
     expect(canvasSelection.computedStyles?.backgroundColor).toBe(
@@ -542,6 +536,7 @@ test("stylesheet-backed Fill stays editable after Layers reselection and undo", 
     await expect(selected).toBeVisible();
     const fillHeading = page.getByRole("heading", { name: /^Fill$/i });
     const fill = page.locator("section").filter({ has: fillHeading }).first();
+    await expect(fill).toContainText("0F766E");
     await fill.getByRole("button", { name: "Open color picker" }).click();
     const hex = page.getByRole("textbox", { name: "Hex", exact: true });
     await expect(hex).toHaveValue("0F766E");
@@ -663,7 +658,7 @@ test("edit-design rejects malformed AI CSS without changing the styled canvas", 
         },
         {
           search: PRIMARY_DECLARATION,
-          replace: "--primary:#0F766D;",
+          replace: "--primary: #0f766d;",
         },
         {
           search: "</style>",
@@ -674,7 +669,7 @@ test("edit-design rejects malformed AI CSS without changing the styled canvas", 
     expect(repaired.status()).toBe(200);
     await expect
       .poll(() => readSource(page, designId))
-      .toContain("--primary:#0F766D;");
+      .toContain("--primary: #0f766d;");
     const repairedSource = await readSource(page, designId);
     expect(repairedSource).toContain("<style><!--");
     expect(repairedSource).toContain("--></style>");

@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Sincronizando bandeja...",
     },
+    sort: {
+      label: "Ordenar bandeja",
+      newest: "Más recientes",
+      priority: "Prioridad",
+      priorityFailed: "No se pudo ordenar la bandeja.",
+    },
     toolbar: {
       toggleMenu: "Alternar menú",
       menu: "Menu",
@@ -40,6 +46,7 @@ const messages = {
       unpinSidebar: "Desfijar barra lateral",
       closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
+      aiSettings: "Etiquetas y spam con IA",
     },
     search: {
       label: "Buscar",
@@ -449,6 +456,8 @@ const messages = {
     aiFilter: {
       title: "Filtro de IA",
       subtitle: "Una etiqueta reversible que aprende de tus decisiones.",
+      rulesTitle: "Reglas",
+      newRule: "Nueva regla",
       lunaBadge: "Luna cuando esté disponible",
       toggle: "Activar filtro de IA",
       autoFilterTitle: "Filtrar automáticamente con alta confianza",
@@ -501,6 +510,43 @@ const messages = {
       actionFailed: "No se pudo actualizar el filtro de IA.",
       settingsFailed: "No se pudieron guardar los ajustes del filtro de IA.",
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
+      spamMode: "Spam",
+      tagMode: "Etiqueta",
+      importantMode: "Importante",
+      importantLabel: "Importante con IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "p. ej., mensajes que necesitan respuesta o tienen una fecha límite",
+      ruleAdded: "Regla de IA añadida.",
+      instructionHelp: "Usa lenguaje natural",
+      tagNamePlaceholder: "Nombre de etiqueta",
+      spamLabelHint:
+        "Las coincidencias se etiquetan y se mueven fuera de Recibidos.",
+      spamPlaceholder:
+        "p. ej., mensajes claramente promocionales o no deseados",
+      tagPlaceholder:
+        "p. ej., recibos y confirmaciones de pedidos de tiendas online",
+      addShortcut: "Pulsa ⌘ Enter para añadir",
+      previewTitle: "Vista previa del correo reciente",
+      previewDescription:
+        "Revisa los últimos 20 mensajes de Recibidos antes de activar una regla nueva. El correo archivado o archivado automáticamente nunca se envía a evaluación.",
+      previewScope: "Solo Recibidos · correo archivado excluido",
+      previewButton: "Ejecutar vista previa",
+      previewRunning: "Comprobando el correo reciente de Recibidos…",
+      jevBadge: "Jev",
+      feedbackLabel: "Marca las coincidencias que no deberían incluirse",
+      notSpamShort: "No es spam",
+      notMatchShort: "No coincide",
+      noMatch: "Sin coincidencia",
+      feedbackPlaceholder:
+        "Opcional: explica qué entendió mal la IA o qué debería buscar en su lugar",
+      refineButton: "Actualizar regla y repetir",
+      instructionsUpdated: "Regla actualizada y vista previa repetida.",
+      noRecentMail: "No hay correo reciente en Recibidos para revisar.",
+      addRuleToPreview:
+        "Añade una regla de IA para previsualizar el correo reciente.",
+      previewEmpty: "Ejecuta una vista previa para ver posibles coincidencias.",
+      previewFailed: "No se pudo previsualizar el correo reciente.",
     },
     draftQueue: {
       title: "Cola de borradores",

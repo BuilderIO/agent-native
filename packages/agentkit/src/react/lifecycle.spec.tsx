@@ -1424,6 +1424,91 @@ describe("AgentChat lifecycle", () => {
     ).not.toBe(0);
   });
 
+  it("collapses terminal work even when its item completion events were omitted", async () => {
+    const threadId = "thread-terminal-work";
+    const runId = "run-terminal-work";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events: [
+        {
+          id: "event-activity-started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-08-31T00:00:00.000Z",
+          type: "activity.started" as const,
+          activity: {
+            id: "activity-1",
+            kind: "tool",
+            label: "Inspect workspace",
+            status: "running" as const,
+          },
+        },
+        {
+          id: "event-tool-started",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-08-31T00:00:01.000Z",
+          type: "tool.started" as const,
+          toolCall: {
+            id: "tool-1",
+            name: "Inspect workspace",
+            status: "running" as const,
+          },
+        },
+      ],
+      activities: {
+        "activity-1": {
+          id: "activity-1",
+          kind: "tool" as const,
+          label: "Inspect workspace",
+          status: "completed" as const,
+        },
+      },
+      tools: {
+        "tool-1": {
+          id: "tool-1",
+          name: "Inspect workspace",
+          status: "completed" as const,
+        },
+      },
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 3,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:02.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(work?.open).toBe(false);
+    expect(work?.hasAttribute("data-running")).toBe(false);
+    expect(
+      work?.querySelector(".agentkit-activities-summary")?.textContent,
+    ).toBe("Worked for 2s");
+    expect(work?.querySelector('[data-status="running"]')).toBeNull();
+  });
+
   it("is SSR-safe and rejects ambiguous ownership at runtime", () => {
     const fetcher = vi.fn(() => {
       throw new Error("SSR must not start network work");
@@ -1823,7 +1908,7 @@ describe("AgentKit subscriptions and recovery", () => {
   it("copies both message roles and completes a fork with visible state", async () => {
     const snapshot: AgentKitSnapshot = {
       connection: "connected",
-      capabilities: { threadForking: true },
+      capabilities: { feedback: true, threadForking: true },
       capabilitiesStatus: "ready",
       threads: {},
       revision: 0,
@@ -1873,6 +1958,26 @@ describe("AgentKit subscriptions and recovery", () => {
           />
         </AgentKitProvider>,
       );
+      const assistantActions = tree.container.querySelectorAll(
+        ".agentkit-message-actions",
+      )[1];
+      expect(
+        Array.from(
+          assistantActions?.querySelectorAll(
+            ".agentkit-message-action-group--default button",
+          ) ?? [],
+        ).map((button) => button.getAttribute("aria-label")),
+      ).toEqual(["Copy message", "Helpful", "Not helpful"]);
+      expect(
+        assistantActions?.querySelector(
+          '.agentkit-message-action-group--request-id button[aria-label="Fork conversation"]',
+        ),
+      ).toBeTruthy();
+      expect(
+        assistantActions
+          ?.querySelector('button[aria-label="Message actions"]')
+          ?.getAttribute("aria-expanded"),
+      ).toBe("false");
       const copyButtons = tree.container.querySelectorAll(
         'button[aria-label="Copy message"]',
       );
@@ -1891,8 +1996,15 @@ describe("AgentKit subscriptions and recovery", () => {
         tree.container.querySelectorAll('button[aria-label="Copied"]'),
       ).toHaveLength(2);
 
-      const fork = tree.container.querySelector(
-        'button[aria-label="Fork conversation"]',
+      const more = assistantActions?.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      await act(async () => {
+        more?.click();
+        await Promise.resolve();
+      });
+      const fork = assistantActions?.querySelector(
+        '.agentkit-message-action-group--request-id button[aria-label="Fork conversation"]',
       );
       await act(async () => {
         (fork as HTMLButtonElement | null)?.click();
@@ -1906,6 +2018,108 @@ describe("AgentKit subscriptions and recovery", () => {
       } else {
         Reflect.deleteProperty(navigator, "clipboard");
       }
+    }
+  });
+
+  it("copies the assistant request ID from the inline message actions", async () => {
+    const thread = createAgentThreadState("thread-request-id");
+    thread.messages = [
+      {
+        id: "assistant-request-id",
+        role: "assistant",
+        parts: [{ type: "text", text: "Ready." }],
+        metadata: { runId: "server-run-id" },
+      },
+    ];
+    const snapshot: AgentKitSnapshot = {
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    };
+    const store = observableController(snapshot);
+    const writeText = vi.fn(async () => undefined);
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId="thread-request-id"
+        >
+          <AgentMessageActions
+            threadId="thread-request-id"
+            value={thread.messages[0]!}
+          />
+        </AgentKitProvider>,
+      );
+      const trigger = tree.container.querySelector(
+        'button[aria-label="Message actions"]',
+      );
+      expect(trigger).toBeTruthy();
+      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => {
+        trigger?.click();
+        await Promise.resolve();
+      });
+      const actionPanel = tree.container.querySelector(
+        ".agentkit-message-action-swap",
+      );
+      expect(
+        tree.container
+          .querySelector(".agentkit-message-actions")
+          ?.getAttribute("data-action-mode"),
+      ).toBe("expanded");
+      expect(
+        actionPanel
+          ?.querySelector(".agentkit-message-action-group--default")
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
+      const requestIdButton = tree.container.querySelector(
+        'button[aria-label="Copy request ID"]',
+      );
+      expect(requestIdButton).toBeTruthy();
+      await act(async () => {
+        requestIdButton?.click();
+        await Promise.resolve();
+      });
+
+      expect(writeText).toHaveBeenCalledWith("server-run-id");
+      expect(
+        tree.container.querySelector('button[aria-label="Message actions"]'),
+      ).toBeTruthy();
+      expect(
+        tree.container.querySelector(
+          '.agentkit-message-action-group--request-id button[aria-label="Copied"]',
+        ),
+      ).toBeTruthy();
+      expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => {
+        trigger?.click();
+        await Promise.resolve();
+      });
+      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      expect(
+        actionPanel
+          ?.querySelector(".agentkit-message-action-group--request-id")
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
+    } finally {
+      if (clipboardDescriptor) {
+        Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+      await tree.unmount();
     }
   });
 
