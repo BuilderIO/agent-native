@@ -33,9 +33,7 @@ describe("document sidebar layout", () => {
       'aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}',
     );
     expect(plusMenu).toContain("handleCreatePageInSpace(selectedSpace)");
-    expect(plusMenu).toContain(
-      "handleCreateDatabase(undefined, selectedSpace.id)",
-    );
+    expect(plusMenu).toContain("handleCreateDatabaseInSpace(selectedSpace)");
     expect(plusMenu).toContain('{t("sidebar.page")}');
     expect(plusMenu).toContain('{t("sidebar.collection")}');
     expect(plusMenu).not.toContain("WorkspaceSourceMenu");
@@ -291,6 +289,11 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("selectedSpace?.id");
     expect(sidebar).toContain("spaceId: parentId ? undefined : rootSpaceId");
     expect(sidebar).toContain("const handleCreatePageInSpace = useCallback");
+    expect(sidebar).toContain(
+      "const handleCreateDatabaseInSpace = useCallback",
+    );
+    expect(sidebar).toContain("selectSpaceForCreation(space);");
+    expect(sidebar).toContain("selectSpaceForCreation(nextSpace);");
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
     expect(sidebar).toContain('t("sidebar.new")');
     expect(sidebar).not.toContain(

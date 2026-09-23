@@ -1781,15 +1781,30 @@ export function DocumentSidebar({
     ],
   );
 
-  const handleCreatePageInSpace = useCallback(
-    async (space: ContentSpaceSummary) => {
-      const id = nanoid();
+  const selectSpaceForCreation = useCallback(
+    (space: ContentSpaceSummary) => {
       if (selectedSpace?.id !== space.id) {
         void handleSelectContentSpace(space, null);
       }
+    },
+    [handleSelectContentSpace, selectedSpace?.id],
+  );
+
+  const handleCreatePageInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      const id = nanoid();
+      selectSpaceForCreation(space);
       await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
     },
-    [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
+    [handleCreatePage, selectSpaceForCreation],
+  );
+
+  const handleCreateDatabaseInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      selectSpaceForCreation(space);
+      await handleCreateDatabase(undefined, space.id);
+    },
+    [handleCreateDatabase, selectSpaceForCreation],
   );
 
   const handleDelete = useCallback(
@@ -2069,9 +2084,7 @@ export function DocumentSidebar({
             {t("sidebar.page")}
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() =>
-              void handleCreateDatabase(undefined, selectedSpace.id)
-            }
+            onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
           >
             <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
@@ -2212,9 +2225,7 @@ export function DocumentSidebar({
             {t("sidebar.page")}
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() =>
-              void handleCreateDatabase(undefined, selectedSpace.id)
-            }
+            onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
           >
             <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
@@ -2295,19 +2306,21 @@ export function DocumentSidebar({
         void handleCreatePageInSpace(nextSpace)
       }
       onCreateDatabaseInSpace={(nextSpace) =>
-        void handleCreateDatabase(undefined, nextSpace.id)
+        void handleCreateDatabaseInSpace(nextSpace)
       }
-      onCreateChildPage={(nextSpace, item) =>
+      onCreateChildPage={(nextSpace, item) => {
+        selectSpaceForCreation(nextSpace);
         void handleCreatePage(
           item.document.id,
           nextSpace.id,
           undefined,
           nextSpace.filesDatabaseId,
-        )
-      }
-      onCreateChildDatabase={(nextSpace, item) =>
-        void handleCreateDatabase(item.document.id, nextSpace.id)
-      }
+        );
+      }}
+      onCreateChildDatabase={(nextSpace, item) => {
+        selectSpaceForCreation(nextSpace);
+        void handleCreateDatabase(item.document.id, nextSpace.id);
+      }}
       onDeleteItem={(item) =>
         requestDelete(
           item.document.id,
