@@ -562,10 +562,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message: "Hold {{modifier}} and click to select an inner layer.",
-      dismiss: "Dismiss layer selection tip",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Suggest auto layout…",
       title: "Suggest auto layout",

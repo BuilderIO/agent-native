@@ -234,7 +234,6 @@ import {
 } from "@/components/design/CanvasContextMenu";
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
-import { DeepSelectGuidance } from "@/components/design/DeepSelectGuidance";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
 import type {
   IframeContextMenuPayload,
@@ -1048,7 +1047,6 @@ import {
   sameStringIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
-  shouldShowDeepSelectGuidance,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
   shouldUseOverviewRuntimeReplacement,
@@ -1531,53 +1529,6 @@ function DesignEditor() {
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
-  const [deepSelectGuidanceKey, setDeepSelectGuidanceKey] = useState<
-    string | null
-  >(null);
-  const deepSelectGuidanceCountsRef = useRef(new Map<string, number>());
-  const deepSelectGuidanceKeyRef = useRef<string | null>(null);
-  const deepSelectGuidanceDesignIdRef = useRef(id);
-  useEffect(() => {
-    if (deepSelectGuidanceDesignIdRef.current === id) return;
-    // React Router can reuse this editor instance across design routes; the
-    // visible hint belongs to the old design and must not cross that boundary.
-    deepSelectGuidanceDesignIdRef.current = id;
-    deepSelectGuidanceKeyRef.current = null;
-    setDeepSelectGuidanceKey(null);
-  }, [id]);
-  const maybeShowDeepSelectGuidance = useCallback(
-    (
-      screenId: string,
-      info: ElementInfo | null | undefined,
-      intent?: ElementSelectionIntent,
-    ) => {
-      if (!shouldShowDeepSelectGuidance(info, intent)) return;
-      if (deepSelectGuidanceKeyRef.current !== null) return;
-      const key = `design-deep-select-guidance:${id ?? "shell"}:${screenId}`;
-      let count = deepSelectGuidanceCountsRef.current.get(key);
-      if (count === undefined) {
-        const stored = window.localStorage.getItem(key);
-        const parsed = stored === null ? 0 : Number.parseInt(stored, 10);
-        count = Number.isFinite(parsed) ? parsed : 0;
-      }
-      if (count >= 2) return;
-      const nextCount = count + 1;
-      deepSelectGuidanceCountsRef.current.set(key, nextCount);
-      window.localStorage.setItem(key, String(nextCount));
-      deepSelectGuidanceKeyRef.current = key;
-      setDeepSelectGuidanceKey(key);
-    },
-    [id],
-  );
-  const dismissDeepSelectGuidance = useCallback(() => {
-    const key = deepSelectGuidanceKeyRef.current;
-    if (key) {
-      deepSelectGuidanceCountsRef.current.set(key, 2);
-      window.localStorage.setItem(key, "2");
-    }
-    deepSelectGuidanceKeyRef.current = null;
-    setDeepSelectGuidanceKey(null);
-  }, []);
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -12278,7 +12229,7 @@ function DesignEditor() {
       } = {},
     ) => {
       const run = () => {
-        const selectionAccepted = runScreenElementSelect(
+        runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
             applyFileContentUpdate,
@@ -12313,9 +12264,6 @@ function DesignEditor() {
           options,
         );
         rehydrateRenderedInfoAfterPreview();
-        if (selectionAccepted) {
-          maybeShowDeepSelectGuidance(screenId, info, intent);
-        }
       };
       // Only a genuine user pick is a selection-only undo step. The
       // selection command may also persist an infrastructure node id, but
@@ -12338,7 +12286,6 @@ function DesignEditor() {
       handleBreakpointBarSelect,
       id,
       liveScreenIds,
-      maybeShowDeepSelectGuidance,
       rehydrateRenderedInfoAfterPreview,
       selectedLayerIdsState,
       t,
@@ -24245,11 +24192,8 @@ function DesignEditor() {
       // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
       // comment); every other caller of this handler is a single, complete
       // selection change. Route on the marquee-only `intent.final` field.
-      const acceptedPrimary: {
-        current: { screenId: string; info: ElementInfo } | null;
-      } = { current: null };
       recordMarqueeSelectionHistoryAroundChange(() => {
-        acceptedPrimary.current = runLayerMarqueeSelectionChange(
+        runLayerMarqueeSelectionChange(
           {
             clearPendingOverviewLayerSelectionTimer,
             focusDesignInspectorForSelection,
@@ -24273,19 +24217,11 @@ function DesignEditor() {
           intent,
         );
       }, intent);
-      if (selection.length === 1 && acceptedPrimary.current) {
-        maybeShowDeepSelectGuidance(
-          acceptedPrimary.current.screenId,
-          acceptedPrimary.current.info,
-          intent,
-        );
-      }
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
-      maybeShowDeepSelectGuidance,
       recordMarqueeSelectionHistoryAroundChange,
     ],
   );
@@ -27798,9 +27734,6 @@ function DesignEditor() {
                         )}
                       </div>
                     </div>
-                  ) : null}
-                  {deepSelectGuidanceKey !== null ? (
-                    <DeepSelectGuidance onDismiss={dismissDeepSelectGuidance} />
                   ) : null}
                   {viewMode === "overview" ? (
                     <>

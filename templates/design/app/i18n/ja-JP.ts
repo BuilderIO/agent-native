@@ -567,11 +567,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "{{modifier}}を押しながらクリックすると、内側のレイヤーを選択できます。",
-      dismiss: "レイヤー選択のヒントを閉じる",
-    },
     autoLayoutSuggestion: {
       menuLabel: "オートレイアウトを提案…",
       title: "オートレイアウトを提案",

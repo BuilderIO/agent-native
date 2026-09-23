@@ -557,10 +557,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message: "اضغط باستمرار على {{modifier}} وانقر لتحديد طبقة داخلية.",
-      dismiss: "إغلاق تلميح تحديد الطبقات",
-    },
     autoLayoutSuggestion: {
       menuLabel: "اقتراح تخطيط تلقائي…",
       title: "اقتراح تخطيط تلقائي",
