@@ -101,6 +101,62 @@ describe("selection handle hit geometry", () => {
       await browser.close();
     }
   });
+
+  it("recomputes stale scaled handles before moving a resized runtime node", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1400, height: 1000 },
+      });
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(ZOOM_FACTOR),
+      });
+
+      const el = page.locator('[data-agent-native-node-id="wordmark"]');
+      const initialBox = (await el.boundingBox())!;
+      await page.mouse.click(
+        initialBox.x + initialBox.width / 2,
+        initialBox.y + initialBox.height / 2,
+      );
+      await page.waitForTimeout(300);
+
+      // A runtime insert can be selected at its source size and settle into a
+      // shorter destination layout before ResizeObserver gets a chance to
+      // repaint the singleton selection handles. Keep the old geometry stale
+      // on purpose, then drag from the node's center.
+      await el.evaluate((node) => {
+        (node as HTMLElement).style.height = "28px";
+      });
+      const settledBox = (await el.boundingBox())!;
+      const before = await el.getAttribute("style");
+      await page.mouse.move(
+        settledBox.x + settledBox.width / 2,
+        settledBox.y + settledBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        settledBox.x + settledBox.width / 2 + 60,
+        settledBox.y + settledBox.height / 2,
+        { steps: 10 },
+      );
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+
+      const after = (await el.getAttribute("style")) ?? "";
+      const leftOf = (style: string) =>
+        Number(/left:\s*([\d.]+)px/.exec(style)?.[1] ?? NaN);
+      const heightOf = (style: string) =>
+        Number(/height:\s*([\d.]+)px/.exec(style)?.[1] ?? NaN);
+      expect(
+        leftOf(after),
+        `center drag of a settled runtime node must move it (before ${before}, after ${after})`,
+      ).toBeGreaterThan(leftOf(before ?? ""));
+      expect(heightOf(after)).toBeCloseTo(28, 2);
+    } finally {
+      await browser.close();
+    }
+  });
 });
 
 /**

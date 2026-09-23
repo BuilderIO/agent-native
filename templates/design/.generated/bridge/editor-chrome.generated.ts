@@ -16289,10 +16289,60 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
     }
+    var selectionHandleMoveRerouted = false;
+    function rerouteStaleSelectionHandleHitToMove(e) {
+      if (readOnly || !selectedEl || !document.documentElement.contains(selectedEl) || !e || e.button !== 0) {
+        return false;
+      }
+      var target = e.target;
+      var isResizeHandle = Boolean(
+        target && target.getAttribute && (target.getAttribute("data-agent-native-edit-handle") || target.getAttribute("data-agent-native-edge-handle"))
+      );
+      if (!isResizeHandle) return false;
+      applySelectionHandleHitGeometry(selectedEl);
+      var refreshedTarget = document.elementFromPoint(e.clientX, e.clientY);
+      var resizeHandlePosition = (target.getAttribute("data-agent-native-edit-handle") || target.getAttribute("data-agent-native-edge-handle") || "").toLowerCase();
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var selectedTransform = window.getComputedStyle(selectedEl).transform;
+      var isAxisAligned = !selectedTransform || selectedTransform === "none" || selectedTransform === "matrix(1, 0, 0, 1, 0, 0)";
+      var isClearlyInsideMoveBand = false;
+      if (isAxisAligned && e.clientX >= selectedRect.left && e.clientX <= selectedRect.right && e.clientY >= selectedRect.top && e.clientY <= selectedRect.bottom) {
+        var moveBandX = selectedRect.width * HANDLE_MAX_INWARD_FRACTION;
+        var moveBandY = selectedRect.height * HANDLE_MAX_INWARD_FRACTION;
+        var awayFromTop = e.clientY > selectedRect.top + moveBandY;
+        var awayFromBottom = e.clientY < selectedRect.bottom - moveBandY;
+        var awayFromLeft = e.clientX > selectedRect.left + moveBandX;
+        var awayFromRight = e.clientX < selectedRect.right - moveBandX;
+        var onTop = resizeHandlePosition.indexOf("n") !== -1;
+        var onBottom = resizeHandlePosition.indexOf("s") !== -1;
+        var onLeft = resizeHandlePosition.indexOf("w") !== -1;
+        var onRight = resizeHandlePosition.indexOf("e") !== -1;
+        isClearlyInsideMoveBand = (!onTop || awayFromTop) && (!onBottom || awayFromBottom) && (!onLeft || awayFromLeft) && (!onRight || awayFromRight);
+      }
+      var refreshedResizeHandle = Boolean(
+        refreshedTarget && refreshedTarget.getAttribute && (refreshedTarget.getAttribute("data-agent-native-edit-handle") || refreshedTarget.getAttribute("data-agent-native-edge-handle"))
+      );
+      if (isClearlyInsideMoveBand) {
+        selectionHandleMoveRerouted = true;
+        window.setTimeout(function() {
+          selectionHandleMoveRerouted = false;
+        }, 0);
+        beginPotentialShieldDrag(e);
+        return true;
+      }
+      if (refreshedResizeHandle) return false;
+      selectionHandleMoveRerouted = true;
+      window.setTimeout(function() {
+        selectionHandleMoveRerouted = false;
+      }, 0);
+      beginPotentialShieldDrag(e);
+      return true;
+    }
     selectionOverlay.addEventListener(
       "pointerdown",
       function(e) {
         if (readOnly || e.button !== 0) return;
+        if (rerouteStaleSelectionHandleHitToMove(e)) return;
         if (e.pointerId !== void 0 && selectionOverlay.setPointerCapture) {
           selectionOverlay.setPointerCapture(e.pointerId);
         }
@@ -16303,6 +16353,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       "mousedown",
       function(e) {
         if (readOnly) return;
+        if (selectionHandleMoveRerouted) {
+          selectionHandleMoveRerouted = false;
+          return;
+        }
         var spacingKey = e.target && e.target.getAttribute && e.target.getAttribute("data-spacing-key");
         if (spacingKey) {
           startSpacingDrag(spacingKey, e);
