@@ -567,8 +567,8 @@ export function ReviewThreadPanel({
       status === "open"
         ? onThreadReopened?.(thread)
         : onThreadResolved?.(thread);
-    } catch {
-      // The mutation hook rolls back the optimistic thread projection.
+    } catch (error) {
+      console.error("Failed to update review thread status", error);
     } finally {
       setResolvingThreadIds((current) => {
         const next = new Set(current);
