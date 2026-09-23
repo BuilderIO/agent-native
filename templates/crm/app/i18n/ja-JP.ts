@@ -609,10 +609,12 @@ const messages = {
     reviewDuplicates: "重複を確認",
     duplicateReviewTitle: "重複の可能性があるレコード",
     duplicateReviewDescription:
-      "このレコードをアクセス可能な候補と比較します。Jev を実行すると、最大 5 件の候補名と一致情報が TypeSafe に送信されます。確率は参考情報であり、統合には別途確認が必要です。",
+      "このレコードをアクセス可能な候補と比較します。Jev を実行すると、レコード名、種類、最大 5 件の候補の一致情報が TypeSafe に送信されます。確率は参考情報であり、統合には別途確認が必要です。",
     duplicateReviewRun: "重複を調べる",
     duplicateReviewLoading: "確認中…",
     duplicateReviewFailed: "重複の確認を完了できませんでした。",
+    duplicateReviewUnavailable:
+      "Jev で確認できませんでした。ルールによる候補は引き続き表示されます。",
     duplicateReviewEmpty: "重複の可能性があるレコードはありません。",
     duplicateRuleConfidence: "ルールによる一致度: {{percent}}%",
     duplicateJevProbability: "Jev による同一エンティティの確率: {{percent}}%",

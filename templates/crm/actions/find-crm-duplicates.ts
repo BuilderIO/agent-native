@@ -16,7 +16,7 @@ const MAX_JEV_PAIRS = 5;
 
 export default defineAction({
   description:
-    "Find likely duplicate CRM records and say WHY each pair matched. Checks exact email, company domain, shared email root domain, and normalized name plus location, using indexed sub-field columns. Returns scored candidates with a match reason and confidence per candidate; it never merges anything and never changes a record. Pass recordIds to check specific records, or omit them to check the most recently updated records of an object type. For one explicit recordId, set semanticReview=true to ask Jev for a review-only same-entity probability on up to five ambiguous candidates; this sends their names and match signals to TypeSafe and never merges or replaces deterministic confidence.",
+    "Find likely duplicate CRM records and say WHY each pair matched. Checks exact email, company domain, shared email root domain, and normalized name plus location, using indexed sub-field columns. Returns scored candidates with a match reason and confidence per candidate; it never merges anything and never changes a record. Pass recordIds to check specific records, or omit them to check the most recently updated records of an object type. For one explicit recordId, set semanticReview=true to ask Jev for a review-only same-entity probability on up to five ambiguous candidates; this sends their names and match signals to TypeSafe and never merges or replaces deterministic confidence. If Jev is unavailable, semanticReviewUnavailable is true and deterministic candidates remain visible.",
   schema: z.object({
     recordIds: z
       .array(z.string().trim().min(1).max(128))
@@ -77,6 +77,7 @@ export default defineAction({
       minConfidence: args.minConfidence,
     });
 
+    let semanticReviewUnavailable = false;
     if (args.semanticReview && seeds.length) {
       const seed = seeds[0];
       const candidates = seed.candidates
@@ -86,70 +87,83 @@ export default defineAction({
         .slice(0, MAX_JEV_PAIRS);
       if (candidates.length) {
         const owner = requireCrmScope(ctx);
-        const apiKey = await getOwnerJevApiKey(owner.ownerEmail);
-        if (!apiKey) throw new Error("Jev is not configured for this user.");
+        try {
+          const apiKey = await getOwnerJevApiKey(owner.ownerEmail);
+          if (!apiKey) throw new Error("Jev is not configured for this user.");
 
-        const response = await fetch("https://api.typesafe.ai/v1/systemone", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "jev-latest",
-            state: {
-              record: {
-                name: seed.displayName.slice(0, 200),
-                objectType: seed.objectType,
-                kind: seed.kind,
-              },
-              candidates: candidates.map((candidate) => ({
-                name: candidate.displayName.slice(0, 200),
-                objectType: candidate.objectType,
-                kind: candidate.kind,
-                signals: candidate.signals.map(({ reason, value }) => ({
-                  reason,
-                  value: value.slice(0, 200),
-                })),
-              })),
+          const response = await fetch("https://api.typesafe.ai/v1/systemone", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
             },
-            questions: Object.fromEntries(
-              candidates.map((_, index) => [
-                `candidate_${index}`,
-                {
-                  type: "noul",
-                  instructions: `Do record and candidates[${index}] describe the same real-world entity? A shared company or email domain alone is weak evidence. Judge only from the provided names and match signals.`,
-                  criteria: {
-                    true: "The two records likely describe the same entity.",
-                    false:
-                      "They describe different entities, or the evidence is insufficient to infer a duplicate.",
-                  },
+            body: JSON.stringify({
+              model: "jev-latest",
+              state: {
+                record: {
+                  name: seed.displayName.slice(0, 200),
+                  objectType: seed.objectType,
+                  kind: seed.kind,
                 },
-              ]),
-            ),
-          }),
-          signal: AbortSignal.timeout(12_000),
-        });
-        if (!response.ok) {
-          throw new Error(`Jev review failed (${response.status}).`);
+                candidates: candidates.map((candidate) => ({
+                  name: candidate.displayName.slice(0, 200),
+                  objectType: candidate.objectType,
+                  kind: candidate.kind,
+                  signals: candidate.signals.map(({ reason, value }) => ({
+                    reason,
+                    value: value.slice(0, 200),
+                  })),
+                })),
+              },
+              questions: Object.fromEntries(
+                candidates.map((_, index) => [
+                  `candidate_${index}`,
+                  {
+                    type: "noul",
+                    instructions: `Do record and candidates[${index}] describe the same real-world entity? A shared company or email domain alone is weak evidence. Judge only from the provided names and match signals.`,
+                    criteria: {
+                      true: "The two records likely describe the same entity.",
+                      false:
+                        "They describe different entities, or the evidence is insufficient to infer a duplicate.",
+                    },
+                  },
+                ]),
+              ),
+            }),
+            signal: AbortSignal.timeout(12_000),
+          });
+          if (!response.ok) {
+            throw new Error(`Jev review failed (${response.status}).`);
+          }
+          const result = z
+            .object({
+              answers: z.record(
+                z.string(),
+                z.object({
+                  type: z.literal("noul"),
+                  noul: z.number().min(0).max(1),
+                }),
+              ),
+            })
+            .parse(await response.json());
+          const probabilities = candidates.map((_, index) => {
+            const answer = result.answers[`candidate_${index}`];
+            if (!answer)
+              throw new Error("Jev review returned incomplete answers.");
+            return answer.noul;
+          });
+          candidates.forEach((candidate, index) => {
+            candidate.semanticReview = {
+              sameEntityProbability: probabilities[index]!,
+            };
+          });
+        } catch (error) {
+          semanticReviewUnavailable = true;
+          console.warn(
+            "[crm] Jev duplicate review unavailable:",
+            error instanceof Error ? error.message : "unknown error",
+          );
         }
-        const result = z
-          .object({
-            answers: z.record(
-              z.string(),
-              z.object({
-                type: z.literal("noul"),
-                noul: z.number().min(0).max(1),
-              }),
-            ),
-          })
-          .parse(await response.json());
-        candidates.forEach((candidate, index) => {
-          const answer = result.answers[`candidate_${index}`];
-          if (!answer)
-            throw new Error("Jev review returned incomplete answers.");
-          candidate.semanticReview = { sameEntityProbability: answer.noul };
-        });
       }
     }
 
@@ -163,6 +177,7 @@ export default defineAction({
       checked: seeds.length,
       matchReasons: [...CRM_DUPLICATE_MATCH_REASONS],
       unreadableRecordIds,
+      semanticReviewUnavailable,
       records: seeds.filter((seed) => seed.candidates.length > 0),
       cleanRecordIds: seeds
         .filter((seed) => seed.candidates.length === 0)

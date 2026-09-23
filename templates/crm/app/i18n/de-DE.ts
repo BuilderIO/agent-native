@@ -617,11 +617,13 @@ const messages = {
     reviewDuplicates: "Duplikate prüfen",
     duplicateReviewTitle: "Mögliche doppelte Datensätze",
     duplicateReviewDescription:
-      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Jev sendet Namen und Treffermerkmale von höchstens fünf Kandidaten an TypeSafe. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
+      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Jev sendet Namen, Datensatztypen und Treffermerkmale von höchstens fünf Kandidaten an TypeSafe. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
     duplicateReviewRun: "Duplikate suchen",
     duplicateReviewLoading: "Prüfung läuft…",
     duplicateReviewFailed:
       "Die Duplikatprüfung konnte nicht abgeschlossen werden.",
+    duplicateReviewUnavailable:
+      "Jev konnte diese Datensätze nicht prüfen. Regelbasierte Kandidaten bleiben sichtbar.",
     duplicateReviewEmpty: "Keine wahrscheinlichen Duplikate gefunden.",
     duplicateRuleConfidence: "Regelbasierte Übereinstimmung: {{percent}} %",
     duplicateJevProbability:

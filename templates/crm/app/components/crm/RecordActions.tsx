@@ -52,6 +52,7 @@ export function RecordActions({ record }: { record: CrmRecordDetail }) {
 
 interface DuplicateReviewResult {
   unreadableRecordIds: string[];
+  semanticReviewUnavailable: boolean;
   records: Array<{
     candidates: Array<{
       recordId: string;
@@ -102,6 +103,10 @@ function DuplicateReviewDialog({ recordId }: { recordId: string }) {
         {query.error || query.data?.unreadableRecordIds.length ? (
           <p className="text-sm text-destructive">
             {t("recordActions.duplicateReviewFailed")}
+          </p>
+        ) : query.data?.semanticReviewUnavailable ? (
+          <p role="status" className="text-sm text-content-secondary">
+            {t("recordActions.duplicateReviewUnavailable")}
           </p>
         ) : query.isFetched && !query.isFetching && !candidates.length ? (
           <p className="text-sm text-muted-foreground">

@@ -614,10 +614,12 @@ const messages = {
     reviewDuplicates: "Revisar duplicatas",
     duplicateReviewTitle: "Possíveis registros duplicados",
     duplicateReviewDescription:
-      "Compara este registro com candidatos acessíveis. O Jev envia à TypeSafe nomes e sinais de até cinco candidatos. A probabilidade é apenas uma sugestão; a mesclagem exige revisão separada.",
+      "Compara este registro com candidatos acessíveis. O Jev envia à TypeSafe nomes, tipos de registro e sinais de até cinco candidatos. A probabilidade é apenas uma sugestão; a mesclagem exige revisão separada.",
     duplicateReviewRun: "Verificar duplicatas",
     duplicateReviewLoading: "Verificando…",
     duplicateReviewFailed: "Não foi possível concluir a revisão de duplicatas.",
+    duplicateReviewUnavailable:
+      "O Jev não pôde revisar esses registros. Os candidatos encontrados por regras continuam visíveis.",
     duplicateReviewEmpty: "Nenhuma duplicata provável encontrada.",
     duplicateRuleConfidence: "Correspondência por regras: {{percent}}%",
     duplicateJevProbability:

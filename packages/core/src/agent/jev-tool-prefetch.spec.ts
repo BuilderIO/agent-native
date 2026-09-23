@@ -465,4 +465,36 @@ describe("preloadJevTools", () => {
       }),
     ).resolves.toEqual([]);
   });
+
+  it.each([2, -0.2])(
+    "rejects out-of-range candidate probability %s",
+    async (invalidProbability) => {
+      systemOne.mockResolvedValue({
+        answers: {
+          best_context: {
+            choice: "context-1",
+            probabilities: {
+              "context-1": invalidProbability,
+              "context-0": 0.1,
+              __no_match__: 0.2,
+            },
+          },
+        },
+      });
+
+      await expect(
+        rankJevCandidates({
+          apiKey: "jev-test-key",
+          request: "draft a launch email",
+          candidates: [
+            { id: "context-0", description: "Brand guidelines" },
+            { id: "context-1", description: "Launch messaging skill" },
+          ],
+          candidateStateKey: "candidate_context",
+          answerKey: "best_context",
+          question: "Which context applies?",
+        }),
+      ).resolves.toEqual([]);
+    },
+  );
 });

@@ -609,10 +609,12 @@ const messages = {
     reviewDuplicates: "Review duplicates",
     duplicateReviewTitle: "Possible duplicate records",
     duplicateReviewDescription:
-      "Check this record against accessible candidates. Running Jev sends up to five candidate names and match signals to TypeSafe. Its probability is a suggestion; merging always requires a separate review.",
+      "Check this record against accessible candidates. Running Jev sends record names, types, and match signals for up to five candidates to TypeSafe. Its probability is a suggestion; merging always requires a separate review.",
     duplicateReviewRun: "Check duplicates",
     duplicateReviewLoading: "Checking…",
     duplicateReviewFailed: "Duplicate review could not be completed.",
+    duplicateReviewUnavailable:
+      "Jev could not review these records. Rule-based candidates remain visible.",
     duplicateReviewEmpty: "No likely duplicates found.",
     duplicateRuleConfidence: "Rule-based match: {{percent}}%",
     duplicateJevProbability: "Jev same-entity probability: {{percent}}%",

@@ -117,11 +117,22 @@ export async function rankJevCandidates(
     ) {
       return [];
     }
+    for (const candidate of candidates) {
+      const probability = probabilities[candidate.id];
+      if (
+        probability !== undefined &&
+        (typeof probability !== "number" ||
+          !Number.isFinite(probability) ||
+          probability < 0 ||
+          probability > 1)
+      ) {
+        return [];
+      }
+    }
     return candidates
       .filter(
         (candidate) =>
           typeof probabilities[candidate.id] === "number" &&
-          Number.isFinite(probabilities[candidate.id]) &&
           (probabilities[candidate.id] as number) > noMatchProbability,
       )
       .map((candidate) => ({

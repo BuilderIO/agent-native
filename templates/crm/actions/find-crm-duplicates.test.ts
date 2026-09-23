@@ -86,6 +86,7 @@ describe("find-crm-duplicates Jev review", () => {
       sameEntityProbability: 0.12,
     });
     expect(result.records[0].candidates[1].confidence).toBe(0.7);
+    expect(result.semanticReviewUnavailable).toBe(false);
   });
 
   it("reports no candidates without contacting Jev", async () => {
@@ -151,16 +152,37 @@ describe("find-crm-duplicates Jev review", () => {
     expect(result.records[0].candidates[5].semanticReview).toBeUndefined();
   });
 
-  it("rejects automatic scans and incomplete Jev answers", async () => {
+  it("rejects automatic scans but preserves candidates on incomplete Jev answers", async () => {
     await expect(action.run({ semanticReview: true }, ctx)).rejects.toThrow(
       "exactly one explicit recordId",
     );
     const fetch = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(Response.json({ answers: {} }));
-    await expect(
-      action.run({ recordIds: ["seed"], semanticReview: true }, ctx),
-    ).rejects.toThrow("incomplete answers");
+    const result = await action.run(
+      { recordIds: ["seed"], semanticReview: true },
+      ctx,
+    );
+    expect(result.semanticReviewUnavailable).toBe(true);
+    expect(result.records[0].candidates).toHaveLength(2);
+    expect(result.records[0].candidates[1].semanticReview).toBeUndefined();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves deterministic candidates when the Jev request fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("timeout"));
+
+    const result = await action.run(
+      { recordIds: ["seed"], semanticReview: true },
+      ctx,
+    );
+
+    expect(result.semanticReviewUnavailable).toBe(true);
+    expect(result.records[0].candidates).toHaveLength(2);
+    expect(
+      result.records[0].candidates.every(
+        (candidate) => !candidate.semanticReview,
+      ),
+    ).toBe(true);
   });
 });
