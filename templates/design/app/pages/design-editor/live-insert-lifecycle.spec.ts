@@ -507,6 +507,20 @@ describe("live insert lifecycle", () => {
             }),
           ]),
         );
+        // The host receives the applied notification before it has decided
+        // whether the edit will be applied or undone. The bridge must retain
+        // its insert origin until that later ack, otherwise Cmd+Z only clears
+        // the host ledger and leaves the clone in the running DOM.
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "visual-structure-ack", requestId: "101", applied: false },
+            "*",
+          );
+        });
+        expect(
+          await page.locator('[data-source-file="src/Card.tsx"]').count(),
+        ).toBe(1);
+        expect(await page.locator("#email").count()).toBe(1);
       } finally {
         await browser.close();
       }

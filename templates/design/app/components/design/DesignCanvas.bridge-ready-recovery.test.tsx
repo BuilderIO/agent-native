@@ -363,11 +363,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
       );
     });
 
-    expect(posted).toContainEqual({
-      type: "visual-structure-ack",
-      requestId: "1",
-      applied: true,
-    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "visual-structure-ack",
+      ),
+    ).toEqual([]);
   });
 
   /**

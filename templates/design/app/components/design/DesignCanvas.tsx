@@ -4121,20 +4121,11 @@ export function DesignCanvas({
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
           applied: e.data.applied !== false,
         });
-        // Runtime inserts have their own transaction acknowledgement. The
-        // bridge also emits an optimistic visual-structure-change so the
-        // normal drag path can retain provenance, but that echo is not the
-        // authority for an insert. Ack it only after the runtime insert has
-        // reported success so a stale/false visual callback cannot remove a
-        // node that was inserted into the target DOM successfully.
-        iframeRef.current?.contentWindow?.postMessage(
-          {
-            type: "visual-structure-ack",
-            requestId,
-            applied: e.data.applied !== false,
-          },
-          "*",
-        );
+        // Keep the bridge's optimistic insert record alive. The host records
+        // this as a pending live edit, and Apply or Undo owns the eventual
+        // visual-structure-ack. Sending an applied:true ack here would discard
+        // the bridge's rollback record before Cmd+Z can remove the inserted
+        // node from the running DOM.
         return;
       }
       if (e.data.type === "runtime-element-deleted") {
