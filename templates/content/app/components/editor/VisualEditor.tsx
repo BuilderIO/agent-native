@@ -72,7 +72,14 @@ import {
 } from "@tiptap/react";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { useCallback, useEffect, useRef, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -1345,6 +1352,7 @@ function writeContentSelectionState(value: unknown) {
 interface VisualEditorProps {
   documentId?: string;
   content: string;
+  contentResetKey?: string | null;
   /**
    * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
    * edit (agent / Notion / peer-via-SQL) apart from a stale autosave echo or a
@@ -2859,6 +2867,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 export function VisualEditor({
   documentId,
   content,
+  contentResetKey = null,
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
@@ -3418,6 +3427,21 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const appliedContentResetKeyRef = useRef(contentResetKey);
+  useLayoutEffect(() => {
+    if (!editor || appliedContentResetKeyRef.current === contentResetKey)
+      return;
+    appliedContentResetKeyRef.current = contentResetKey;
+    if (ydoc || docToNfm(editor.getJSON() as any) === content) return;
+    editor
+      .chain()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .setContent(nfmToDoc(content), { emitUpdate: false })
+      .run();
+  }, [content, contentResetKey, editor, ydoc]);
   useEffect(() => {
     if (!editor) return;
     const capture = ({ transaction }: { transaction: Transaction }) => {
