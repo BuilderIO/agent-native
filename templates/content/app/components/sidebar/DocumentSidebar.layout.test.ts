@@ -292,8 +292,13 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "const handleCreateDatabaseInSpace = useCallback",
     );
-    expect(sidebar).toContain("selectSpaceForCreation(space);");
-    expect(sidebar).toContain("selectSpaceForCreation(nextSpace);");
+    expect(sidebar).toContain("return handleSelectContentSpace(space, null);");
+    expect(sidebar).toContain(
+      "if (!(await selectSpaceForCreation(space))) return;",
+    );
+    expect(sidebar).toContain(
+      "if (!(await selectSpaceForCreation(nextSpace))) return;",
+    );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
     expect(sidebar).toContain('t("sidebar.new")');
     expect(sidebar).not.toContain(
@@ -362,7 +367,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`",
     );
-    expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
+    expect(sidebar).toContain("return handleSelectContentSpace(space, null)");
     expect(sidebar).toContain(
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );

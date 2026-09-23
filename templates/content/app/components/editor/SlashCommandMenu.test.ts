@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildHeadingCommands,
+  cleanupFailedSlashCreation,
   CommandButton,
   CONTENT_HEADING_LEVELS,
   equationNodeContent,
@@ -36,6 +37,20 @@ import {
   setCodeBlockFromSlashCommand,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
+
+describe("failed slash creation cleanup", () => {
+  it("trashes the new resource even if removing its editor reference fails", async () => {
+    const removeError = new Error("editor is unavailable");
+    const trash = vi.fn().mockResolvedValue(undefined);
+
+    const errors = await cleanupFailedSlashCreation(() => {
+      throw removeError;
+    }, trash);
+
+    expect(errors).toEqual([removeError]);
+    expect(trash).toHaveBeenCalledOnce();
+  });
+});
 
 function TestIcon() {
   return createElement("svg");

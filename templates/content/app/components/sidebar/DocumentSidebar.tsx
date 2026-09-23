@@ -1782,10 +1782,11 @@ export function DocumentSidebar({
   );
 
   const selectSpaceForCreation = useCallback(
-    (space: ContentSpaceSummary) => {
+    async (space: ContentSpaceSummary) => {
       if (selectedSpace?.id !== space.id) {
-        void handleSelectContentSpace(space, null);
+        return handleSelectContentSpace(space, null);
       }
+      return true;
     },
     [handleSelectContentSpace, selectedSpace?.id],
   );
@@ -1793,7 +1794,7 @@ export function DocumentSidebar({
   const handleCreatePageInSpace = useCallback(
     async (space: ContentSpaceSummary) => {
       const id = nanoid();
-      selectSpaceForCreation(space);
+      if (!(await selectSpaceForCreation(space))) return;
       await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
     },
     [handleCreatePage, selectSpaceForCreation],
@@ -1801,7 +1802,7 @@ export function DocumentSidebar({
 
   const handleCreateDatabaseInSpace = useCallback(
     async (space: ContentSpaceSummary) => {
-      selectSpaceForCreation(space);
+      if (!(await selectSpaceForCreation(space))) return;
       await handleCreateDatabase(undefined, space.id);
     },
     [handleCreateDatabase, selectSpaceForCreation],
@@ -2308,18 +2309,18 @@ export function DocumentSidebar({
       onCreateDatabaseInSpace={(nextSpace) =>
         void handleCreateDatabaseInSpace(nextSpace)
       }
-      onCreateChildPage={(nextSpace, item) => {
-        selectSpaceForCreation(nextSpace);
-        void handleCreatePage(
+      onCreateChildPage={async (nextSpace, item) => {
+        if (!(await selectSpaceForCreation(nextSpace))) return;
+        await handleCreatePage(
           item.document.id,
           nextSpace.id,
           undefined,
           nextSpace.filesDatabaseId,
         );
       }}
-      onCreateChildDatabase={(nextSpace, item) => {
-        selectSpaceForCreation(nextSpace);
-        void handleCreateDatabase(item.document.id, nextSpace.id);
+      onCreateChildDatabase={async (nextSpace, item) => {
+        if (!(await selectSpaceForCreation(nextSpace))) return;
+        await handleCreateDatabase(item.document.id, nextSpace.id);
       }}
       onDeleteItem={(item) =>
         requestDelete(
