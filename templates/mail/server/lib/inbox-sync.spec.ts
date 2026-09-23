@@ -295,6 +295,12 @@ describe("syncInboxAccount — incremental sync", () => {
     expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
       ACCOUNT,
     );
+    expect(
+      mocks.invalidateHistoryCacheForAccount.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.releaseSyncAccount.mock.invocationCallOrder[0]);
+    expect(
+      mocks.invalidateListCacheForOwner.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.releaseSyncAccount.mock.invocationCallOrder[0]);
     const upserted = mocks.upsertInboxThreadRows.mock.calls[0][0];
     expect(upserted).toHaveLength(1);
     expect(upserted[0].inInbox).toBe(false);

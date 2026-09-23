@@ -645,9 +645,9 @@ export async function syncInboxAccount(
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"
         ? accountStatus.state
         : "idle";
-    await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
     if (syncResult.changed) invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
+    await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
     return accountStatus;
   } catch (err) {
     if (err instanceof SyncClaimLostError) {
