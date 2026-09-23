@@ -27,7 +27,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
-import { ContentIcon } from "@/components/icons/ContentIcon";
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import { SidebarNavigationRow } from "@/components/sidebar/SidebarNavigationRow";
 import { Button } from "@/components/ui/button";

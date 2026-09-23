@@ -89,7 +89,6 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
@@ -1010,7 +1009,6 @@ function HiddenPropertiesMenu({
         container={popoverContainer}
       >
         {properties.map((property) => {
-          const Icon = TYPE_ICONS[property.definition.type];
           return (
             <DropdownMenuItem
               key={property.definition.id}
