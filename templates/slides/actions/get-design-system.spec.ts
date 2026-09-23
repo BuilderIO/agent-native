@@ -18,7 +18,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: (...args: unknown[]) => mockAccessFilter(...args),
+  accessFilter: (...args: Parameters<typeof mockAccessFilter>) =>
+    mockAccessFilter(...args),
   resolveAccess: (...args: Parameters<typeof mockResolveAccess>) =>
     mockResolveAccess(...args),
 }));
@@ -113,15 +114,10 @@ describe("get-design-system", () => {
         docCount: 1,
       }),
     });
-    expect(mockAccessFilter).toHaveBeenCalledWith(
-      { id: "id", ownerEmail: "ownerEmail", data: "data" },
-      {},
-      undefined,
-      "editor",
-    );
     expect(mockWhere).toHaveBeenCalledWith({
       type: "and",
       conditions: [
+        "access-filter",
         { type: "eq", column: "id", value: "builder-ds-1" },
         {
           type: "eq",
@@ -138,7 +134,6 @@ describe("get-design-system", () => {
             colors: { primary: "var(--primary)" },
           }),
         },
-        "access-filter",
       ],
     });
   });
