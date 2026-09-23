@@ -731,8 +731,13 @@ function collectLegacyBulletRows(
       row.style.paddingLeft = `${basePadding + depth * 24}px`;
     }
     rows.push(row);
-    if (nestedList)
+    // A sub-list switched to numbered keeps its <ol> instead of glyph rows.
+    if (nestedList?.tagName === "OL") {
+      stripLegacyListStyles(nestedList);
+      rows.push(nestedList);
+    } else if (nestedList) {
       collectLegacyBulletRows(templates, nestedList, depth + 1, rows);
+    }
   }
 }
 

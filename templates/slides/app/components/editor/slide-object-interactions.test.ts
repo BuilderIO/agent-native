@@ -367,6 +367,31 @@ describe("slide object interactions", () => {
     box.remove();
   });
 
+  it("keeps a descendant stretched between both insets the same size", () => {
+    const box = document.createElement("div");
+    const band = document.createElement("div");
+    band.setAttribute("style", "position:absolute;left:10px;right:10px");
+    box.append(band);
+    document.body.append(box);
+    let boxPositioned = false;
+    band.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 150 : 100,
+        y: 50,
+        width: boxPositioned ? 260 : 200,
+        height: 20,
+      });
+
+    keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(band.style.left).toBe("-40px");
+    expect(band.style.right).toBe("120px");
+    box.remove();
+  });
+
   it("detects insets anchored by a slide stylesheet rule", () => {
     const sheet = document.createElement("style");
     sheet.textContent =

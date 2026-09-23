@@ -768,16 +768,16 @@ function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
       element.style.setProperty(side, `${Math.round(value + delta)}px`);
     }
   };
-  const dx = (after.left - before.left) / scale.x;
-  const dy = (after.top - before.top) / scale.y;
-  if (dx) {
-    if (anchors.left || !anchors.right) shift("left", -dx);
-    if (anchors.right) shift("right", dx);
-  }
-  if (dy) {
-    if (anchors.top || !anchors.bottom) shift("top", -dy);
-    if (anchors.bottom) shift("bottom", dy);
-  }
+  // Each edge moves by its own amount: an object stretched between both
+  // insets also changes size when its containing block does.
+  const dLeft = (after.left - before.left) / scale.x;
+  const dRight = (after.right - before.right) / scale.x;
+  const dTop = (after.top - before.top) / scale.y;
+  const dBottom = (after.bottom - before.bottom) / scale.y;
+  if ((anchors.left || !anchors.right) && dLeft) shift("left", -dLeft);
+  if (anchors.right && dRight) shift("right", dRight);
+  if ((anchors.top || !anchors.bottom) && dTop) shift("top", -dTop);
+  if (anchors.bottom && dBottom) shift("bottom", dBottom);
 }
 
 /**

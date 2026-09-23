@@ -271,6 +271,23 @@ describe("slide rich text normalization", () => {
     expect(element.textContent).not.toContain("•");
   });
 
+  it("keeps a numbered sub-list under an AI bullet as an ordered list", () => {
+    const element = document.createElement("div");
+    const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul style="--slide-legacy-list:1"><li style="--slide-legacy-marker-content:&quot;•&quot;"><p>First</p><ol style="--slide-legacy-list:1;list-style:none"><li><p>Sub</p></li></ol></li><li><p>Second</p></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector("ul")).toBeNull();
+    expect(element.querySelector("ol > li")?.textContent).toBe("Sub");
+    expect(element.innerHTML).not.toContain("--slide-legacy");
+    expect(element.textContent).toBe("•FirstSub•Second");
+  });
+
   it("strips editor-only legacy marker styling from a numbered list", () => {
     const element = document.createElement("div");
     const source = '<span style="color:#5ec8e5">•</span><span>Point</span>';
