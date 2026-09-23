@@ -115,15 +115,19 @@ describe("Inbox navigation commands", () => {
     );
   });
 
-  it("falls back from Priority sort when Jev availability cannot be checked", () => {
+  it("preserves Priority sort when Jev availability cannot be checked", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      'navCommand.sort === "priority" &&\n      jevAvailability.isLoading',
+      'if (!jevAvailability.isSuccess) return;\n    if (!jevConfigured && sortMode === "priority")',
     );
     expect(source).toContain(
-      'setSortMode(jevConfigured ? "priority" : "newest")',
+      'if (navCommand.sort === "priority" && jevAvailability.isLoading) {',
     );
+    expect(source).toContain(
+      'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
+    );
+    expect(source).not.toContain("refetchOnWindowFocus: false");
   });
 
   it("normalizes hidden combined-inbox triage routes", () => {

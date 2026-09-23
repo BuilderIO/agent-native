@@ -3,7 +3,11 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getJevContextCredentials,
+  isJevEnabled,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 
 export interface AutomationModelSettings {
@@ -64,6 +68,34 @@ async function resolveEngineDefaultModel(
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
+  const jevAvailability = await runWithRequestContext(
+    { userEmail: ownerEmail },
+    async () => {
+      try {
+        return {
+          status: "checked" as const,
+          enabled: await isJevEnabled(
+            await getJevContextCredentials(ownerEmail),
+          ),
+        };
+      } catch (error) {
+        return { status: "error" as const, error };
+      }
+    },
+  );
+  if (jevAvailability.status === "error") {
+    console.warn(
+      "[automation-model] Jev availability check failed; using the configured model.",
+      jevAvailability.error,
+    );
+  }
+  if (jevAvailability.status === "checked" && jevAvailability.enabled) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+
   for (const candidate of CHEAP_MODEL_CANDIDATES) {
     if (
       candidate.engine &&
@@ -127,6 +159,8 @@ export async function resolveAutomationModelSettings(
   ownerEmail: string,
   settings: AutomationModelSettings | null | undefined,
 ): Promise<AutomationModelSettings> {
+  if (settings?.engine && settings.model) return settings;
+
   const defaults = await resolveDefaultAutomationModel(ownerEmail);
   if (!settings?.engine && !settings?.model) return defaults;
 

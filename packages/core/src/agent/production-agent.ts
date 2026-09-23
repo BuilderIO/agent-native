@@ -744,22 +744,29 @@ export interface JevContextCredentials {
   personalApiKey: string | undefined;
   builderAuth: BuilderGatewayAuth | null;
   apiKeyLookupFailed?: boolean;
+  builderAuthLookupFailed?: boolean;
 }
 
 export async function getJevContextCredentials(
   ownerEmail: string | null | undefined,
 ): Promise<JevContextCredentials> {
-  const [lookup, builderAuth] = await Promise.all([
+  const [lookup, builderAuthLookup] = await Promise.all([
     getOwnerJevApiKeyCredential(ownerEmail),
-    resolveBuilderGatewayAuth().catch(() => null),
+    resolveBuilderGatewayAuth().then(
+      (builderAuth) => ({ builderAuth, lookupFailed: false }),
+      () => ({ builderAuth: null, lookupFailed: true }),
+    ),
   ]);
   const credential = lookup.credential;
   return {
     apiKey: credential?.apiKey,
     personalApiKey:
       credential?.source === "user" ? credential.apiKey : undefined,
-    builderAuth,
+    builderAuth: builderAuthLookup.builderAuth,
     ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
+    ...(builderAuthLookup.lookupFailed
+      ? { builderAuthLookupFailed: true }
+      : {}),
   };
 }
 

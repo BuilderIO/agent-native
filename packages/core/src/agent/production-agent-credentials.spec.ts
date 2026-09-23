@@ -188,6 +188,27 @@ describe("getOwnerApiKey", () => {
       apiKey: undefined,
       personalApiKey: undefined,
       builderAuth: null,
+      builderAuthLookupFailed: true,
+    });
+  });
+
+  it("keeps a saved Jev key when Builder credentials cannot be resolved", async () => {
+    mockReadAppSecret.mockResolvedValueOnce({
+      value: "user-jev-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+    mockResolveBuilderGatewayAuth.mockRejectedValueOnce(
+      new Error("OAuth token store unavailable"),
+    );
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "user-jev-key",
+      personalApiKey: "user-jev-key",
+      builderAuth: null,
+      builderAuthLookupFailed: true,
     });
   });
 

@@ -358,10 +358,10 @@ export function InboxPage() {
       enabled: view === "inbox" || navState.command.data?.sort === "priority",
       staleTime: 60_000,
       retry: 2,
-      refetchOnWindowFocus: false,
     },
   );
-  const jevConfigured = jevAvailability.data?.configured === true;
+  const jevConfigured =
+    jevAvailability.isSuccess && jevAvailability.data?.configured === true;
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -455,9 +455,9 @@ export function InboxPage() {
   // for a plain /inbox with no `q`.
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
-    if (jevAvailability.isLoading) return;
+    if (!jevAvailability.isSuccess) return;
     if (!jevConfigured && sortMode === "priority") setSortMode("newest");
-  }, [jevAvailability.isLoading, jevConfigured, sortMode]);
+  }, [jevAvailability.isSuccess, jevConfigured, sortMode]);
   useEffect(() => {
     if (!isInboxView || activeLabel || searchQuery) setSortMode("newest");
   }, [activeLabel, isInboxView, searchQuery]);
@@ -884,7 +884,9 @@ export function InboxPage() {
     if (navCommand.sort === "newest") {
       setSortMode("newest");
     } else if (navCommand.sort === "priority") {
-      setSortMode(jevConfigured ? "priority" : "newest");
+      setSortMode(
+        jevAvailability.isError || jevConfigured ? "priority" : "newest",
+      );
     }
 
     if (navCommand.composeDraftId && !targetThread) {

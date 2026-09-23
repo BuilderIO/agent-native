@@ -492,7 +492,33 @@ describe("preloadJevTools", () => {
         builderAuth: null,
         apiKeyLookupFailed: true,
       }),
-    ).rejects.toThrow("Could not check saved Jev credentials.");
+    ).rejects.toThrow(
+      "Could not check Jev credentials or Builder entitlement.",
+    );
+  });
+
+  it("does not report Jev disabled when Builder entitlement lookup failed", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: undefined,
+        personalApiKey: undefined,
+        builderAuth: null,
+        builderAuthLookupFailed: true,
+      }),
+    ).rejects.toThrow(
+      "Could not check Jev credentials or Builder entitlement.",
+    );
+  });
+
+  it("uses a saved personal key when Builder entitlement lookup failed", async () => {
+    await expect(
+      isJevEnabled({
+        apiKey: "personal-jev-key",
+        personalApiKey: "personal-jev-key",
+        builderAuth: null,
+        builderAuthLookupFailed: true,
+      }),
+    ).resolves.toBe(true);
   });
 
   it("ranks context candidates from metadata without sending their bodies", async () => {

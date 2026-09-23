@@ -418,8 +418,8 @@ export async function isJevEnabled(
     const enabled = await isBuilderJevEnabled(credentials.builderAuth);
     if (enabled || !credentials.apiKeyLookupFailed) return enabled;
   }
-  if (credentials.apiKeyLookupFailed) {
-    throw new Error("Could not check saved Jev credentials.");
+  if (credentials.apiKeyLookupFailed || credentials.builderAuthLookupFailed) {
+    throw new Error("Could not check Jev credentials or Builder entitlement.");
   }
   return false;
 }
