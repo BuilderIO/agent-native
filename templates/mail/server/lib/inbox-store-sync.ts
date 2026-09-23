@@ -10,7 +10,10 @@
  * and the next `ensureInboxFresh` / push notification reconciles it — this
  * is an optimistic local patch, not the source of truth.
  */
-import { invalidateListCacheForOwner } from "./google-auth.js";
+import {
+  invalidateHistoryCacheForAccount,
+  invalidateListCacheForOwner,
+} from "./google-auth.js";
 import {
   applyLocalLabelDelta,
   findThreadIdsByMessageIds,
@@ -25,6 +28,8 @@ export async function syncInboxLabelDelta(
 ): Promise<void> {
   const ids = threadIds.filter(Boolean);
   if (ids.length === 0) return;
+  invalidateHistoryCacheForAccount(accountEmail);
+  invalidateListCacheForOwner(ownerEmail);
   try {
     await applyLocalLabelDelta(ownerEmail, accountEmail, ids, delta);
   } catch (error) {
@@ -41,7 +46,6 @@ export async function syncInboxLabelDelta(
       error,
     });
   }
-  invalidateListCacheForOwner(ownerEmail);
 }
 
 /**
@@ -87,6 +91,11 @@ export async function syncInboxLabelDeltaForTargets(
       for (const item of items) {
         const threadId = item.threadId ?? resolved.get(item.id);
         if (threadId) threadIds.add(threadId);
+      }
+      if (threadIds.size === 0) {
+        invalidateHistoryCacheForAccount(accountEmail);
+        invalidateListCacheForOwner(ownerEmail);
+        return;
       }
       await syncInboxLabelDelta(ownerEmail, accountEmail, [...threadIds], {
         ...delta,

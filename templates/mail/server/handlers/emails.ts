@@ -72,6 +72,7 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
   getAccountDisplayName,
+  invalidateHistoryCacheForAccount,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
 import { syncInboxLabelDelta } from "../lib/inbox-store-sync.js";
@@ -539,6 +540,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       // Fetch label name mapping from all accounts (cached)
       const { tokens: accountTokens, errors: tokenErrors } =
         await getAccountTokens(email);
+      if (forceRefresh) {
+        for (const account of accountTokens)
+          invalidateHistoryCacheForAccount(account.email);
+      }
       const labelMap = await getCachedLabelMap(accountTokens);
       const isPlainInboxRequest = view === "inbox" && !q && !label;
       const settings = isPlainInboxRequest

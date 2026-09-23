@@ -19,6 +19,7 @@ import {
   getClientForConnectedAccount,
   getConnectedAccountsWithErrors,
   getHeader,
+  invalidateHistoryCacheForAccount,
   invalidateListCacheForOwner,
   isPermanentRefreshError,
   parseAddressList,
@@ -619,6 +620,7 @@ export async function syncInboxAccount(
         ? accountStatus.state
         : "idle";
     await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
+    invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
     return accountStatus;
   } catch (err) {

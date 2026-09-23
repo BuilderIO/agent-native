@@ -850,6 +850,7 @@ type ListOptions = {
 const LIST_CACHE_TTL = 45_000;
 const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
 const listInflight = new Map<string, Promise<ListResult>>();
+const listInvalidationGenerations = new Map<string, number>();
 const THREAD_CANDIDATE_PAGE_TTL = 5 * 60 * 1000;
 const THREAD_CANDIDATE_PAGE_MAX = 25;
 const THREAD_CANDIDATE_PAGE_PREFIX = "__an_thread_candidates__:";
@@ -1154,7 +1155,10 @@ export async function listGmailMessages(
   const inflight = listInflight.get(key);
   if (inflight) return inflight;
 
-  const promise = (async (): Promise<ListResult> => {
+  const ownerKey = forEmail?.toLowerCase() ?? "";
+  const generation = listInvalidationGenerations.get(ownerKey) ?? 0;
+  let promise: Promise<ListResult>;
+  promise = (async (): Promise<ListResult> => {
     const result = await listGmailMessagesUncached(
       query,
       maxResults,
@@ -1164,7 +1168,11 @@ export async function listGmailMessages(
     );
     // Only cache successful responses. A full-failure result (empty + all
     // accounts errored) would lock the user out of retrying during the TTL.
-    if (result.messages.length > 0 || result.errors.length === 0) {
+    const currentGeneration = listInvalidationGenerations.get(ownerKey) ?? 0;
+    if (
+      currentGeneration === generation &&
+      (result.messages.length > 0 || result.errors.length === 0)
+    ) {
       listCache.set(key, {
         result,
         expiresAt: Date.now() + LIST_CACHE_TTL,
@@ -1172,7 +1180,7 @@ export async function listGmailMessages(
     }
     return result;
   })().finally(() => {
-    listInflight.delete(key);
+    if (listInflight.get(key) === promise) listInflight.delete(key);
   });
 
   listInflight.set(key, promise);
@@ -1183,10 +1191,18 @@ export async function listGmailMessages(
 // accounts. Called by the Pub/Sub push handler to surface changes to the UI
 // faster than the 20s listCache TTL.
 export function invalidateListCacheForOwner(ownerEmail: string): void {
+  const ownerKey = ownerEmail.toLowerCase();
+  listInvalidationGenerations.set(
+    ownerKey,
+    (listInvalidationGenerations.get(ownerKey) ?? 0) + 1,
+  );
   // listCache keys are formatted as `${forEmail}::...` — delete matches.
-  const prefix = `${ownerEmail}::`;
+  const prefix = `${ownerKey}::`;
   for (const key of listCache.keys()) {
-    if (key.startsWith(prefix)) listCache.delete(key);
+    if (key.toLowerCase().startsWith(prefix)) listCache.delete(key);
+  }
+  for (const key of listInflight.keys()) {
+    if (key.toLowerCase().startsWith(prefix)) listInflight.delete(key);
   }
 }
 
@@ -1209,26 +1225,12 @@ type HistoryEntry = {
 
 const historyCache = new Map<string, HistoryEntry>();
 
-// Bump historyCache watermark for an account so the next list call sees a
-// fresh delta. Also triggers a re-hydrate if the account isn't cached yet.
-// historyId is optional — if absent, the next delta call just uses the
-// existing watermark; if present, we replace the watermark so the delta is
-// bounded to "since Gmail told us something changed".
+// A push history id is the mailbox's current watermark, not the previous
+// watermark needed to replay the event. Advancing a cached window to it would
+// make the next delta skip the push entirely, so discard the window.
 export function bumpHistoryWatermark(email: string, historyId?: string): void {
-  if (!historyId) return;
-  // Update every cached entry for this email (across different maxResults).
-  const prefix = `${email}::`;
-  for (const [key, entry] of historyCache.entries()) {
-    if (!key.startsWith(prefix)) continue;
-    // Only advance if the new historyId is strictly greater — don't regress.
-    try {
-      if (BigInt(historyId) > BigInt(entry.historyId)) {
-        entry.historyId = historyId;
-      }
-    } catch {
-      // Non-numeric historyIds — skip; delta will still work with stale.
-    }
-  }
+  void historyId;
+  invalidateHistoryCacheForAccount(email);
 }
 
 // Per-key in-flight dedupe. Concurrent requests for the same
@@ -1246,6 +1248,22 @@ const historyInflight = new Map<
 // active inboxes stay warm while abandoned ones fall out.
 const HISTORY_CACHE_TTL_MS = 60 * 60 * 1000;
 const HISTORY_CACHE_MAX = 200;
+const historyInvalidationGenerations = new Map<string, number>();
+
+export function invalidateHistoryCacheForAccount(email: string): void {
+  const accountKey = email.toLowerCase();
+  historyInvalidationGenerations.set(
+    accountKey,
+    (historyInvalidationGenerations.get(accountKey) ?? 0) + 1,
+  );
+  const prefix = `${accountKey}::`;
+  for (const key of historyCache.keys()) {
+    if (key.toLowerCase().startsWith(prefix)) historyCache.delete(key);
+  }
+  for (const key of historyInflight.keys()) {
+    if (key.toLowerCase().startsWith(prefix)) historyInflight.delete(key);
+  }
+}
 
 function evictStaleHistoryCache(): void {
   const now = Date.now();
@@ -1542,12 +1560,15 @@ async function fetchAccountWithHistory(
   maxResults: number,
 ): Promise<{ messages: any[]; nextPageToken?: string }> {
   const cacheKey = historyCacheKey(email, labelId, maxResults);
+  const accountKey = email.toLowerCase();
 
   // Dedupe concurrent callers on the same key so the cache isn't raced.
   const pending = historyInflight.get(cacheKey);
   if (pending) return pending;
 
-  const promise = (async () => {
+  const generation = historyInvalidationGenerations.get(accountKey) ?? 0;
+  let promise: Promise<{ messages: any[]; nextPageToken?: string }>;
+  promise = (async () => {
     evictStaleHistoryCache();
     const cached = historyCache.get(cacheKey);
 
@@ -1560,15 +1581,19 @@ async function fetchAccountWithHistory(
         maxResults,
       );
       if (delta) {
-        historyCache.set(cacheKey, {
-          historyId: delta.historyId,
-          messages: delta.messages,
-          // Preserve the original page token — deltas don't produce one,
-          // and page tokens referencing earlier `list` calls remain valid
-          // for Gmail's history-backed pagination window.
-          nextPageToken: cached.nextPageToken,
-          updatedAt: Date.now(),
-        });
+        if (
+          (historyInvalidationGenerations.get(accountKey) ?? 0) === generation
+        ) {
+          historyCache.set(cacheKey, {
+            historyId: delta.historyId,
+            messages: delta.messages,
+            // Preserve the original page token — deltas don't produce one,
+            // and page tokens referencing earlier `list` calls remain valid
+            // for Gmail's history-backed pagination window.
+            nextPageToken: cached.nextPageToken,
+            updatedAt: Date.now(),
+          });
+        }
         evictStaleHistoryCache();
         return {
           messages: delta.messages,
@@ -1585,7 +1610,10 @@ async function fetchAccountWithHistory(
       query,
       maxResults,
     );
-    if (init.historyId) {
+    if (
+      init.historyId &&
+      (historyInvalidationGenerations.get(accountKey) ?? 0) === generation
+    ) {
       historyCache.set(cacheKey, {
         historyId: init.historyId,
         messages: init.messages,
@@ -1596,7 +1624,8 @@ async function fetchAccountWithHistory(
     }
     return { messages: init.messages, nextPageToken: init.nextPageToken };
   })().finally(() => {
-    historyInflight.delete(cacheKey);
+    if (historyInflight.get(cacheKey) === promise)
+      historyInflight.delete(cacheKey);
   });
 
   historyInflight.set(cacheKey, promise);
@@ -2333,10 +2362,11 @@ export async function markAllUnreadReadForAccount(input: {
     undefined,
     ["UNREAD"],
   );
+  invalidateHistoryCacheForAccount(accountEmail);
+  invalidateListCacheForOwner(ownerEmail);
   for (const threadId of new Set(selected.map((message) => message.threadId))) {
     invalidateThreadCache(ownerEmail, threadId);
   }
-  invalidateListCacheForOwner(ownerEmail);
 
   let remaining: GmailMessageReference[];
   try {

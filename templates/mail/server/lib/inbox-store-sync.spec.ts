@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   applyLocalLabelDelta: vi.fn(),
   findThreadIdsByMessageIds: vi.fn(),
+  invalidateHistoryCacheForAccount: vi.fn(),
   invalidateListCacheForOwner: vi.fn(),
 }));
 
 vi.mock("./google-auth.js", () => ({
+  invalidateHistoryCacheForAccount: mocks.invalidateHistoryCacheForAccount,
   invalidateListCacheForOwner: mocks.invalidateListCacheForOwner,
 }));
 
@@ -28,6 +30,7 @@ describe("syncInboxLabelDelta", () => {
       add: ["STARRED"],
     });
     expect(mocks.applyLocalLabelDelta).not.toHaveBeenCalled();
+    expect(mocks.invalidateHistoryCacheForAccount).not.toHaveBeenCalled();
     expect(mocks.invalidateListCacheForOwner).not.toHaveBeenCalled();
   });
 
@@ -43,6 +46,9 @@ describe("syncInboxLabelDelta", () => {
     );
     expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(
       "owner@example.com",
+    );
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      "acct@example.com",
     );
   });
 
@@ -68,6 +74,9 @@ describe("syncInboxLabelDelta", () => {
     );
     expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(
       "owner@example.com",
+    );
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      "acct@example.com",
     );
     consoleError.mockRestore();
   });
@@ -142,6 +151,12 @@ describe("syncInboxLabelDeltaForTargets", () => {
     );
 
     expect(mocks.applyLocalLabelDelta).not.toHaveBeenCalled();
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      "a@example.com",
+    );
+    expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
   });
 
   it("resolves the other targets in the same call even when one has no accountEmail", async () => {

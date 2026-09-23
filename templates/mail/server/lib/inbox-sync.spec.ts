@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     gmailListLabels: vi.fn(),
     gmailBatchGetThreads: vi.fn(),
     getClientForConnectedAccount: vi.fn(),
+    invalidateHistoryCacheForAccount: vi.fn(),
     invalidateListCacheForOwner: vi.fn(),
     ensureSyncAccountRow: vi.fn(),
     claimSyncAccount: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("./google-auth.js", async (importOriginal) => {
     ...actual,
     getClientForConnectedAccount: mocks.getClientForConnectedAccount,
     getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
+    invalidateHistoryCacheForAccount: mocks.invalidateHistoryCacheForAccount,
     invalidateListCacheForOwner: mocks.invalidateListCacheForOwner,
   };
 });
