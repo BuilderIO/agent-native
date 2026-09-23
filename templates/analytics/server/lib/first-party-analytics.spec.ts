@@ -644,6 +644,15 @@ describe("normalizeAnalyticsTimestamp", () => {
       ),
     ).toBe("2026-06-30T12:00:00.000Z");
   });
+
+  it("clamps timestamps outside BigQuery's streaming date range to server receive time", () => {
+    expect(
+      normalizeAnalyticsTimestamp(
+        "1978-09-22T20:14:12.587Z",
+        "2026-09-22T20:14:13.110Z",
+      ),
+    ).toBe("2026-09-22T20:14:13.110Z");
+  });
 });
 
 describe("scopedAnalyticsSql", () => {
