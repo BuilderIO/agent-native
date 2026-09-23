@@ -917,65 +917,6 @@ async function requestJevDirect(
   throw new Error("TypeSafe Jev request failed.");
 }
 
-async function evaluatePriorityWithTextModel(
-  emails: EmailSummary[],
-  instruction: string,
-  ownerEmail: string,
-  modelSettings: AutomationModelSettings,
-  signal?: AbortSignal,
-): Promise<Map<string, PriorityScore>> {
-  const results = new Map<string, PriorityScore>();
-  const batchSize = 25;
-  for (let i = 0; i < emails.length; i += batchSize) {
-    signal?.throwIfAborted();
-    const batch = emails.slice(i, i + batchSize);
-    const emailsText = batch
-      .map(
-        (email) =>
-          `--- Email (id: ${email.id}) ---\nFrom: ${email.from}\nTo: ${email.to}\nSubject: ${email.subject}\nSnippet: ${email.snippet}\nLabels: [${email.labelIds.join(", ")}]\nDate: ${email.date}`,
-      )
-      .join("\n\n");
-    const prompt = `Rank these emails for inbox priority using this user guidance: "${instruction}".
-
-Emails:
-${emailsText}
-
-Respond with ONLY a JSON array in this format:
-[{"emailId":"<id>","score":0.0,"reason":"short explanation"}]
-
-Use a score from 0 to 1. Give higher scores to emails that deserve attention sooner. Do not use the age of the email alone as the reason.`;
-    const text = await callModel(prompt, ownerEmail, modelSettings, signal);
-    const jsonStr = text
-      .replace(/```json?\n?/g, "")
-      .replace(/```/g, "")
-      .trim();
-    const parsed = JSON.parse(jsonStr) as Array<{
-      emailId: string;
-      score: number;
-      reason?: string;
-    }>;
-    if (!Array.isArray(parsed)) {
-      throw new Error("Priority model returned a non-array result.");
-    }
-    for (const result of parsed) {
-      if (
-        typeof result?.emailId !== "string" ||
-        typeof result.score !== "number" ||
-        !Number.isFinite(result.score)
-      ) {
-        continue;
-      }
-      results.set(result.emailId, {
-        score: Math.min(1, Math.max(0, result.score)),
-        ...(typeof result.reason === "string"
-          ? { reason: result.reason.slice(0, 500) }
-          : {}),
-      });
-    }
-  }
-  return results;
-}
-
 export async function previewAutomationPriority(
   emails: AiPriorityEmail[],
   ownerEmail: string,

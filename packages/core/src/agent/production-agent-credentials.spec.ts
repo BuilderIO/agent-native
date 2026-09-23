@@ -4,6 +4,7 @@ const mockReadAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockGetRequestContext = vi.fn();
+const mockResolveBuilderGatewayAuth = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -22,7 +23,7 @@ vi.mock("../server/credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/credential-provider.js")
   >()),
-  resolveBuilderGatewayAuth: async () => null,
+  resolveBuilderGatewayAuth: () => mockResolveBuilderGatewayAuth(),
 }));
 
 import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
@@ -38,6 +39,8 @@ beforeEach(() => {
   mockGetSetting.mockResolvedValue(undefined);
   mockGetRequestContext.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockResolveBuilderGatewayAuth.mockReset();
+  mockResolveBuilderGatewayAuth.mockResolvedValue(null);
   resetOptionalKeyCache();
 });
 
@@ -171,6 +174,18 @@ describe("getOwnerApiKey", () => {
       getJevContextCredentials("owner@example.com"),
     ).resolves.toEqual({
       apiKey: "deployment-jev-key",
+      personalApiKey: undefined,
+      builderAuth: null,
+    });
+  });
+
+  it("keeps agent requests usable when Builder credentials cannot be resolved", async () => {
+    mockResolveBuilderGatewayAuth.mockRejectedValueOnce(
+      new Error("OAuth token store unavailable"),
+    );
+
+    await expect(getJevContextCredentials(null)).resolves.toEqual({
+      apiKey: undefined,
       personalApiKey: undefined,
       builderAuth: null,
     });

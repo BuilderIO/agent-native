@@ -751,7 +751,7 @@ export async function getJevContextCredentials(
 ): Promise<JevContextCredentials> {
   const [lookup, builderAuth] = await Promise.all([
     getOwnerJevApiKeyCredential(ownerEmail),
-    resolveBuilderGatewayAuth(),
+    resolveBuilderGatewayAuth().catch(() => null),
   ]);
   const credential = lookup.credential;
   return {
