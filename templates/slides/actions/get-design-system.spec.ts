@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn(() => "access-filter");
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
@@ -17,6 +18,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: (...args: Parameters<typeof mockAccessFilter>) =>
+    mockAccessFilter(...args),
   resolveAccess: (...args: Parameters<typeof mockResolveAccess>) =>
     mockResolveAccess(...args),
 }));
@@ -25,6 +28,7 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
   schema: {
     designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
+    designSystemShares: {},
   },
 }));
 

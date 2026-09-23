@@ -3,7 +3,7 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -68,6 +68,7 @@ async function persistBuilderDocCount(
     .set({ data: JSON.stringify({ ...parsed, docCount }) })
     .where(
       and(
+        accessFilter(schema.designSystems, schema.designSystemShares),
         eq(schema.designSystems.id, row.id),
         eq(schema.designSystems.ownerEmail, row.ownerEmail),
         eq(schema.designSystems.data, row.data),
