@@ -92,6 +92,7 @@ describe("visual-edit pending handoff", () => {
       requiresAuth: false,
       title: "Pull visual edits from Design",
     });
+    expect(getPendingAction.capabilityScopes).toEqual(["visual-edit"]);
     expect(publishPendingAction).toMatchObject({
       agentTool: false,
       mcpTool: false,

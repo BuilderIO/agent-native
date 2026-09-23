@@ -21,6 +21,7 @@ export default defineAction({
   }),
   readOnly: true,
   requiresAuth: false,
+  capabilityScopes: ["visual-edit"],
   publicAgent: {
     expose: true,
     readOnly: true,
