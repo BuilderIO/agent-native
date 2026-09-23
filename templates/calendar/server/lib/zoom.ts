@@ -225,10 +225,12 @@ async function resolveAccessToken(credentialId: string): Promise<string> {
   const stillFresh =
     typeof expiresAt === "number" && expiresAt > Date.now() + 60_000;
   if (stillFresh) return record.accessToken;
-  if (!record.refreshToken) return record.accessToken;
+  if (!record.refreshToken) {
+    throw new Error("Expired Zoom credential cannot be refreshed");
+  }
 
   const creds = getZoomCreds();
-  if (!creds) return record.accessToken;
+  if (!creds) throw new Error("Zoom OAuth is not configured");
   const basic = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString(
     "base64",
   );
@@ -244,7 +246,7 @@ async function resolveAccessToken(credentialId: string): Promise<string> {
     },
     body,
   });
-  if (!res.ok) return record.accessToken;
+  if (!res.ok) throw new Error(`Zoom token refresh failed: ${res.status}`);
   const next = (await res.json()) as {
     access_token: string;
     refresh_token?: string;

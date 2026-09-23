@@ -41,7 +41,7 @@ questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
 If this workflow earlier added `👀` to an out-of-scope item, release that claim
-with `:no_entry_sign:` when reactions are available. Do not investigate it as a
+with `:done:` when reactions are available. Do not investigate it as a
 compensating question, or post a new reply. If this workflow already posted a
 mistaken reply, delete that reply when safe; otherwise edit it to one brief
 `Skipped` disposition. If the connector cannot add the release marker, record
@@ -49,8 +49,8 @@ the exact parent for manual cleanup and leave the thread otherwise untouched.
 New messages must pass the clear-bug gate before any external write.
 
 Use the disposition-specific release contract from `review-latest-feedback`:
-`✅` is only for **Fixed**, **Shipped**, or **Live verified** after all four
-bars; other terminal states use `:no_entry_sign:`. On reopen or re-claim,
+`✅` is only for verified **Fixed**, **Shipped**, or **Live verified**; `:done:`
+means triage complete, not fixed. On reopen or re-claim,
 remove this workflow's stale marker before adding `👀`. If removal is
 unavailable, use full reaction-aware enumeration, do not place `👀` beside the
 stale marker, and claim only after cleanup.
@@ -141,7 +141,7 @@ retain the workflow's eye. Terminal dispositions: **Fixed**, **Shipped**,
 **Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
 **Clustered**, and **Abandoned - no answer in 4 days**, each with required
 evidence and a release marker. An already-eyed out-of-scope item gets a
-`:no_entry_sign:` release marker and no new
+`:done:` release marker and no new
 reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the issue after a verified
@@ -155,7 +155,7 @@ must revisit **In progress** and resolve it to **Fixed**, **Clarification
 needed**, or evidence-backed **Open - no reply** when no safe fix or
 reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. **Open - no
-reply** is terminal only after releasing the eye with `:no_entry_sign:`. If a reply
+reply** is terminal only after releasing the eye with `:done:`. If a reply
 does not say the fix is complete, acknowledge concrete existing ownership, or
 ask what is needed to fix it, do not post it. These are ledger states, not
 mandatory headings: keep the reporter-facing wording natural instead of
@@ -173,7 +173,7 @@ before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
 That obligation expires after four days, standalone runs included: release the
-`👀` with `:no_entry_sign:`, post nothing, and record the terminal **Abandoned - no answer in
+`👀` with `:done:`, post nothing, and record the terminal **Abandoned - no answer in
 4 days**. An expired thread keeps no open eye and owes no reply. Carry the underlying bug
 forward with no reporter dependency.
 
@@ -266,7 +266,7 @@ non-repeating question only if one specific required detail still blocks it.
    invoking-user reply timestamp, disposition, and eye state. Use the states in
    the contract above, with a reason; silent terminal states have no timestamp.
    Record **Owned elsewhere** for a foreign eye without mutating it. Record
-   out-of-scope and non-owning **Clustered** rows with a `:no_entry_sign:` release marker and
+   out-of-scope and non-owning **Clustered** rows with a `:done:` release marker and
    no reply. Do not create questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
@@ -335,7 +335,7 @@ identity:
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
   a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock the work, release the `👀` with `:no_entry_sign:`, record
+  reporter detail would unblock the work, release the `👀` with `:done:`, record
   **Open - no reply**, and post nothing.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
