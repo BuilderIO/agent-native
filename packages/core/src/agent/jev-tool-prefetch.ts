@@ -296,7 +296,7 @@ async function requestJev(options: {
     timeout: JEV_TIMEOUT_MS,
     retry: { maxRetries: 0 },
   });
-  const systemOne = client.systemOne as unknown as (
+  const systemOne = client.systemOne.bind(client) as unknown as (
     request: unknown,
   ) => Promise<unknown>;
   return (await systemOne({

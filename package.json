@@ -64,6 +64,7 @@
     "actions:audit": "node scripts/audit-template-actions.mjs",
     "audit:prod-env-coverage": "tsx scripts/audit-prod-env-coverage.ts",
     "test:mcp:e2e": "tsx scripts/e2e-mcp-test.ts",
+    "eval:jev-tool-selection": "tsx scripts/jev-tool-selection-eval.ts",
     "lint": "pnpm fmt:check && pnpm oxlint && pnpm typecheck",
     "oxlint": "oxlint --config .oxlintrc.json .",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
