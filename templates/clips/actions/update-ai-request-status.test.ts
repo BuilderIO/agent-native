@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn(async () => true));
 const mockReadAppState = vi.hoisted(() => vi.fn(async () => null));
 const mockAssertAccess = vi.hoisted(() => vi.fn(async () => undefined));
 
@@ -8,8 +8,8 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: mockCompareAndSetAppState,
   readAppState: mockReadAppState,
-  writeAppState: mockWriteAppState,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mockAssertAccess,
@@ -21,6 +21,7 @@ describe("update-ai-request-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReadAppState.mockResolvedValue(null);
+    mockCompareAndSetAppState.mockResolvedValue(true);
   });
 
   it("writes a scoped completion status for queued silence removal", async () => {
@@ -46,8 +47,9 @@ describe("update-ai-request-status", () => {
       "rec_123",
       "editor",
     );
-    expect(mockWriteAppState).toHaveBeenCalledWith(
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "clips-ai-request-status-rec_123",
+      expect.objectContaining({ status: "working" }),
       expect.objectContaining({
         kind: "remove-silences",
         status: "completed",
@@ -71,8 +73,9 @@ describe("update-ai-request-status", () => {
 
     await action.run(args);
 
-    expect(mockWriteAppState).toHaveBeenCalledWith(
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "clips-ai-request-status-rec_123",
+      expect.objectContaining({ status: "queued" }),
       expect.objectContaining({
         kind: "remove-filler-words",
         status: "working",
@@ -100,8 +103,9 @@ describe("update-ai-request-status", () => {
       status: "cancelled",
       cancelled: true,
     });
-    expect(mockWriteAppState).toHaveBeenCalledWith(
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "clips-ai-request-status-rec_123",
+      expect.objectContaining({ status: "working" }),
       expect.objectContaining({ status: "cancelled" }),
     );
   });
@@ -123,7 +127,7 @@ describe("update-ai-request-status", () => {
       status: "completed",
       cancelled: false,
     });
-    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("rejects a stale update for a different active request", async () => {
@@ -142,7 +146,7 @@ describe("update-ai-request-status", () => {
     await expect(action.run(args)).rejects.toThrow(
       "remove-silences is the active request",
     );
-    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("rejects an update from an older run of the same request kind", async () => {
@@ -159,7 +163,37 @@ describe("update-ai-request-status", () => {
     });
 
     await expect(action.run(args)).rejects.toThrow("stale");
-    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not let a cancellation overwrite a concurrent completion", async () => {
+    const working = {
+      kind: "regenerate-chapters",
+      status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      updatedAt: "2026-09-04T12:00:01.000Z",
+    };
+    mockReadAppState
+      .mockResolvedValueOnce(working)
+      .mockResolvedValueOnce({ ...working, status: "completed" });
+    mockCompareAndSetAppState.mockResolvedValue(false);
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "regenerate-chapters",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      status: "cancelled",
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      status: "completed",
+      cancelled: false,
+    });
+    expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(1);
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "clips-ai-request-status-rec_123",
+      working,
+      expect.objectContaining({ status: "cancelled" }),
+    );
   });
 
   it("does not regress a terminal request back to working", async () => {
@@ -176,6 +210,6 @@ describe("update-ai-request-status", () => {
     });
 
     await expect(action.run(args)).rejects.toThrow("already completed");
-    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
   });
 });

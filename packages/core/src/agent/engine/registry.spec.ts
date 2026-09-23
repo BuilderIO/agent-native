@@ -3051,6 +3051,43 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("replaces caller-supplied fetch for a configured provider endpoint", async () => {
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const customFetch = vi.fn();
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await resolveEngine({
+        engineOption: {
+          name: "ai-sdk:openai",
+          config: {
+            baseUrl: "https://93.184.216.34/v1",
+            requestFetch: customFetch,
+          },
+        },
+      });
+
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      expect(requestFetch).not.toBe(customFetch);
+      await expect(
+        requestFetch("https://other.example/v1/chat/completions"),
+      ).rejects.toThrow(/escaped its configured origin/);
+      expect(customFetch).not.toHaveBeenCalled();
+    });
+
     it("allows an operator-provided private OpenAI-compatible endpoint", async () => {
       process.env.OPENAI_API_KEY = "sk-operator-test"; // guard:allow-env-credential — verifies operator-owned endpoint classification
       process.env.OPENAI_BASE_URL = "http://127.0.0.1:43123/v1"; // guard:allow-env-credential — loopback proves the private-endpoint allowance stays deploy-scoped

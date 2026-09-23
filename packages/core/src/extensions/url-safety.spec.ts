@@ -16,6 +16,73 @@ describe("createSsrfSafeDispatcher", () => {
     });
   });
 
+  it("blocks a public hostname that resolves privately at connect time", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      response.end("unexpected request");
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+
+    const preflightLookup = vi
+      .fn()
+      .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+    const connectLookup = vi.fn(
+      (
+        _hostname: string,
+        _options: unknown,
+        callback: (
+          error: NodeJS.ErrnoException | null,
+          addresses: { address: string; family: number }[],
+        ) => void,
+      ) => callback(null, [{ address: "127.0.0.1", family: 4 }]),
+    );
+    vi.doMock("node:dns", () => ({ lookup: connectLookup }));
+    vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
+    vi.resetModules();
+
+    try {
+      const mod = await import("./url-safety.js");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Test server did not expose a TCP port.");
+      }
+
+      const error = await mod
+        .ssrfSafeFetch(
+          `http://rebind.example.com:${address.port}/secret`,
+          {},
+          { requireDispatcher: true },
+        )
+        .then(
+          () => null,
+          (cause: unknown) => cause,
+        );
+
+      const messages: string[] = [];
+      for (let cause = error; cause instanceof Error; cause = cause.cause) {
+        messages.push(cause.message);
+      }
+      expect(messages.join("\n")).toContain(
+        "rebind.example.com resolved to private address 127.0.0.1",
+      );
+      expect(preflightLookup).toHaveBeenCalledTimes(1);
+      expect(connectLookup).toHaveBeenCalledTimes(1);
+      expect(requestCount).toBe(0);
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.doUnmock("node:dns/promises");
+      vi.resetModules();
+      await new Promise<void>((resolve, reject) =>
+        server.close((closeError) =>
+          closeError ? reject(closeError) : resolve(),
+        ),
+      );
+    }
+  });
+
   it("preserves optional dispatcher behavior when Node DNS is unavailable", async () => {
     vi.doMock("node:dns", () => {
       throw new Error("node:dns unavailable");

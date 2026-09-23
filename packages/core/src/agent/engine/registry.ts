@@ -1140,16 +1140,11 @@ async function engineCreateConfigForEntry(
         (allowLocalOllama && isLoopbackOllamaEndpoint(validatedBaseUrl)
           ? new URL(validatedBaseUrl).origin
           : undefined);
-      if (typeof safeExtra.requestFetch !== "function") {
-        safeExtra.requestFetch = createProviderEndpointFetch(
-          validatedBaseUrl,
-          allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
-        );
-      }
-    } else if (
-      aiSdkProvider === "ollama" &&
-      typeof safeExtra.requestFetch !== "function"
-    ) {
+      safeExtra.requestFetch = createProviderEndpointFetch(
+        validatedBaseUrl,
+        allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
+      );
+    } else if (aiSdkProvider === "ollama") {
       const allowedPrivateOrigins =
         resolveDeployEnvironment() === "local"
           ? [new URL(OLLAMA_DEFAULT_BASE_URL).origin]

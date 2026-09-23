@@ -24,6 +24,7 @@ import {
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
+import { isNodeRuntime } from "../../shared/runtime.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -291,7 +292,7 @@ export function createProviderEndpointFetch(
         }
       },
       followRedirects: false,
-      requireDispatcher: true,
+      requireDispatcher: isNodeRuntime(),
     });
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel().catch(() => {});

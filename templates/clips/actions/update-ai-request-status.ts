@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
+  compareAndSetAppState,
   readAppState,
-  writeAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -59,11 +59,8 @@ export default defineAction({
         statusCode: 409,
       });
     }
-    if (
-      current.status === "completed" ||
-      current.status === "failed" ||
-      current.status === "cancelled"
-    ) {
+    const terminalStatuses = ["completed", "failed", "cancelled"];
+    if (terminalStatuses.includes(String(current.status))) {
       if (args.status === "cancelled") {
         return {
           recordingId: args.recordingId,
@@ -79,13 +76,40 @@ export default defineAction({
       });
     }
 
-    await writeAppState(statusKey, {
+    const next = {
       kind: args.kind,
       status: args.status,
       message: args.message || null,
       requestedAt: args.requestedAt,
       updatedAt: new Date().toISOString(),
-    });
+    };
+    if (!(await compareAndSetAppState(statusKey, current, next))) {
+      const latest = await readAppState(statusKey);
+      if (
+        latest &&
+        latest.kind === args.kind &&
+        latest.requestedAt === args.requestedAt &&
+        terminalStatuses.includes(String(latest.status))
+      ) {
+        if (args.status === "cancelled") {
+          return {
+            recordingId: args.recordingId,
+            kind: args.kind,
+            requestedAt: args.requestedAt,
+            status: latest.status,
+            cancelled: false,
+          };
+        }
+        fail(`The ${args.kind} request is already ${latest.status}.`, {
+          errorCode: "request_finished",
+          statusCode: 409,
+        });
+      }
+      fail(`The ${args.kind} request changed before the update was saved.`, {
+        errorCode: "request_conflict",
+        statusCode: 409,
+      });
+    }
     return {
       recordingId: args.recordingId,
       kind: args.kind,

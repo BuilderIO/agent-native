@@ -130,26 +130,23 @@ export function useAutoTitleBridge(): void {
   useEffect(() => {
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (
-        detail?.isRunning !== false ||
-        (detail.reason !== "stopped" && detail.reason !== "failed") ||
-        typeof detail.tabId !== "string"
-      )
+      if (detail?.isRunning !== false || typeof detail.tabId !== "string")
         return;
+
+      if (detail.reason !== "stopped" && detail.reason !== "failed") return;
 
       const aiRequest = parseAiRequestTabId(detail.tabId);
       if (aiRequest) {
-        if (detail.reason === "stopped") {
-          void callAction(
-            "update-ai-request-status" as any,
-            { ...aiRequest, status: "cancelled" } as any,
-          ).catch((error) => {
-            console.error(
-              "[clips] failed to persist stopped AI request cancellation",
-              { ...aiRequest, error },
-            );
-          });
-        }
+        const status = detail.reason === "stopped" ? "cancelled" : "failed";
+        void callAction(
+          "update-ai-request-status" as any,
+          { ...aiRequest, status } as any,
+        ).catch((error) => {
+          console.error(
+            `[clips] failed to persist ${detail.reason} AI request status`,
+            { ...aiRequest, error },
+          );
+        });
         return;
       }
 

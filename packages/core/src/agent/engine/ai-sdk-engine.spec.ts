@@ -678,6 +678,43 @@ describe("AISDKEngine OpenAI model selection", () => {
     }
   });
 
+  it("keeps configured provider requests available in edge runtimes", async () => {
+    const ssrfSafeFetch = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.doMock("../../extensions/url-safety.js", () => ({ ssrfSafeFetch }));
+    vi.doMock("../../shared/runtime.js", () => ({
+      isNodeRuntime: () => false,
+    }));
+    try {
+      mockAiSdk();
+      const { createOpenAI } = mockOpenAIProvider();
+      const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+      await drain(
+        createAISDKEngine("openai", {
+          apiKey: "sk-test",
+          baseUrl: "https://gateway.example/v1",
+        }).stream(BASE_STREAM_OPTIONS),
+      );
+
+      const requestFetch = createOpenAI.mock.calls[0][0].fetch as typeof fetch;
+      await requestFetch("https://gateway.example/v1/chat/completions", {
+        method: "POST",
+      });
+
+      expect(ssrfSafeFetch).toHaveBeenCalledWith(
+        "https://gateway.example/v1/chat/completions",
+        { method: "POST" },
+        expect.objectContaining({
+          followRedirects: false,
+          requireDispatcher: false,
+        }),
+      );
+    } finally {
+      vi.doUnmock("../../extensions/url-safety.js");
+      vi.doUnmock("../../shared/runtime.js");
+      vi.resetModules();
+    }
+  });
+
   it("keeps arbitrary local Ollama model ids", async () => {
     const { createAISDKEngine } = await import("./ai-sdk-engine.js");
     const engine = createAISDKEngine("ollama", {
