@@ -89,7 +89,7 @@ jobs:
             --site "$NETLIFY_SITE_ID" \
             --filter "@agent-native/community-templates" \
             --dir community-templates/dist \
-            --functions community-templates/.netlify/functions-internal \
+            --functions .netlify/functions-internal \
             --no-build \
             --prod \
             --message "App workspace bundle ${GITHUB_SHA}"
