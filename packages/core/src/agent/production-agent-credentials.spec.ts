@@ -23,7 +23,8 @@ vi.mock("../server/credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/credential-provider.js")
   >()),
-  resolveBuilderGatewayAuth: () => mockResolveBuilderGatewayAuth(),
+  resolveBuilderGatewayAuth: (...args: unknown[]) =>
+    mockResolveBuilderGatewayAuth(...args),
 }));
 
 import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
@@ -209,6 +210,29 @@ describe("getOwnerApiKey", () => {
       personalApiKey: "user-jev-key",
       builderAuth: null,
       builderAuthLookupFailed: true,
+    });
+  });
+
+  it("uses the owner's org for Builder auth in background automation", async () => {
+    mockGetRequestOrgId.mockReturnValue(undefined);
+
+    await getJevContextCredentials("owner@example.com");
+
+    expect(mockResolveBuilderGatewayAuth).toHaveBeenCalledWith({
+      userEmail: "owner@example.com",
+      orgId: undefined,
+    });
+  });
+
+  it("keeps Builder auth personal when Personal scope is explicit", async () => {
+    mockGetRequestContext.mockReturnValue({ orgScope: "personal" });
+    mockGetRequestOrgId.mockReturnValue(undefined);
+
+    await getJevContextCredentials("owner@example.com");
+
+    expect(mockResolveBuilderGatewayAuth).toHaveBeenCalledWith({
+      userEmail: "owner@example.com",
+      orgId: null,
     });
   });
 

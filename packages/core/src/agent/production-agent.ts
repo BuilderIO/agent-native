@@ -750,9 +750,13 @@ export interface JevContextCredentials {
 export async function getJevContextCredentials(
   ownerEmail: string | null | undefined,
 ): Promise<JevContextCredentials> {
+  const requestContext = getRequestContext();
   const [lookup, builderAuthLookup] = await Promise.all([
     getOwnerJevApiKeyCredential(ownerEmail),
-    resolveBuilderGatewayAuth().then(
+    resolveBuilderGatewayAuth({
+      userEmail: ownerEmail,
+      orgId: requestContext?.orgScope === "personal" ? null : getRequestOrgId(),
+    }).then(
       (builderAuth) => ({ builderAuth, lookupFailed: false }),
       () => ({ builderAuth: null, lookupFailed: true }),
     ),
