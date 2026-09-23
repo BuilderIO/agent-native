@@ -197,6 +197,7 @@ import {
   resolveSlideClipboardElement,
   restoreSlideObjectStyle,
   restoreSlideObjectDomSnapshot,
+  keepAbsoluteDescendantsInPlace,
   releaseSlideObjectFromLeftBoxes,
   setSlideObjectDimension,
   setSlideObjectRotation,
@@ -2439,7 +2440,11 @@ export default function SlideEditor({
   const freezeElementForFreeformSelection = useCallback(
     (
       element: HTMLElement,
-    ): { element: HTMLElement; restoreMarkdownTree?: () => void } | null => {
+    ): {
+      element: HTMLElement;
+      restoreMarkdownTree?: () => void;
+      restoreDescendants?: () => void;
+    } | null => {
       if (window.getComputedStyle(element).position === "absolute") {
         ensureSlideObjectId(element);
         return { element };
@@ -2536,41 +2541,43 @@ export default function SlideEditor({
       );
       const scaleX = containingBlock.offsetWidth / layerRect.width;
       const scaleY = containingBlock.offsetHeight / layerRect.height;
-      freezeSlideElementForFreeform(
-        element,
-        {
-          x,
-          y,
-          width: Math.round(elementRect.width * scaleX),
-          height: Math.round(elementRect.height * scaleY),
-        },
-        {
-          display: originalComputed.display,
-          flexGrow: originalComputed.flexGrow,
-          flexShrink: originalComputed.flexShrink,
-          flexBasis: originalComputed.flexBasis,
-          alignSelf: originalComputed.alignSelf,
-        },
-        changesParent
-          ? {
-              color: originalComputed.color,
-              direction: originalComputed.direction,
-              fontFamily: originalComputed.fontFamily,
-              fontSize: originalComputed.fontSize,
-              fontStyle: originalComputed.fontStyle,
-              fontWeight: originalComputed.fontWeight,
-              letterSpacing: originalComputed.letterSpacing,
-              lineHeight: originalComputed.lineHeight,
-              textAlign: originalComputed.textAlign,
-              textDecoration: originalComputed.textDecoration,
-              textShadow: originalComputed.textShadow,
-              textTransform: originalComputed.textTransform,
-              whiteSpace: originalComputed.whiteSpace,
-              wordSpacing: originalComputed.wordSpacing,
-            }
-          : undefined,
+      const restoreDescendants = keepAbsoluteDescendantsInPlace(element, () =>
+        freezeSlideElementForFreeform(
+          element,
+          {
+            x,
+            y,
+            width: Math.round(elementRect.width * scaleX),
+            height: Math.round(elementRect.height * scaleY),
+          },
+          {
+            display: originalComputed.display,
+            flexGrow: originalComputed.flexGrow,
+            flexShrink: originalComputed.flexShrink,
+            flexBasis: originalComputed.flexBasis,
+            alignSelf: originalComputed.alignSelf,
+          },
+          changesParent
+            ? {
+                color: originalComputed.color,
+                direction: originalComputed.direction,
+                fontFamily: originalComputed.fontFamily,
+                fontSize: originalComputed.fontSize,
+                fontStyle: originalComputed.fontStyle,
+                fontWeight: originalComputed.fontWeight,
+                letterSpacing: originalComputed.letterSpacing,
+                lineHeight: originalComputed.lineHeight,
+                textAlign: originalComputed.textAlign,
+                textDecoration: originalComputed.textDecoration,
+                textShadow: originalComputed.textShadow,
+                textTransform: originalComputed.textTransform,
+                whiteSpace: originalComputed.whiteSpace,
+                wordSpacing: originalComputed.wordSpacing,
+              }
+            : undefined,
+        ),
       );
-      return { element, restoreMarkdownTree };
+      return { element, restoreMarkdownTree, restoreDescendants };
     },
     [],
   );
@@ -5766,6 +5773,7 @@ export default function SlideEditor({
       let activeElement = element;
       let clone: HTMLElement | null = null;
       let restoreMarkdownTree: (() => void) | undefined;
+      let restoreDescendants: (() => void) | undefined;
       let promotedToFreeform = false;
 
       const initialSelector = getBuilderSelector(element);
@@ -5780,6 +5788,7 @@ export default function SlideEditor({
           return false;
         }
         restoreMarkdownTree = frozen.restoreMarkdownTree;
+        restoreDescendants = frozen.restoreDescendants;
         if (getComputedStyle(element).position !== "absolute") {
           restoreMarkdownTree?.();
           restoreMarkdownTree = undefined;
@@ -5812,6 +5821,7 @@ export default function SlideEditor({
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
         removeFreeformLayoutSpacer();
+        restoreDescendants?.();
         const restoreTree = restoreMarkdownTree;
         restoreMarkdownTree = undefined;
         restoreTree?.();
@@ -6080,6 +6090,7 @@ export default function SlideEditor({
         getComputedStyle(element).position === "absolute";
       let origin = initiallyAbsolute ? getObjectGeometry(element) : null;
       let restoreMarkdownTree: (() => void) | undefined;
+      let restoreDescendants: (() => void) | undefined;
       let promotedToFreeform = false;
 
       const removeFreeformLayoutSpacer = () => {
@@ -6101,6 +6112,7 @@ export default function SlideEditor({
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
         removeFreeformLayoutSpacer();
+        restoreDescendants?.();
         const restoreTree = restoreMarkdownTree;
         restoreMarkdownTree = undefined;
         restoreTree?.();
@@ -6133,6 +6145,7 @@ export default function SlideEditor({
           return;
         }
         restoreMarkdownTree = frozen.restoreMarkdownTree;
+        restoreDescendants = frozen.restoreDescendants;
         promotedToFreeform = true;
         origin = getObjectGeometry(element);
       }
@@ -6601,6 +6614,7 @@ export default function SlideEditor({
         originalContentEditable: string | null;
         originalEditingBlock: string | null;
         restoreMarkdownTree?: () => void;
+        restoreDescendants?: () => void;
       }> = [];
       let members: ReturnType<typeof collectMovableSlideObjects> = [];
       let prepared = false;
@@ -6669,6 +6683,7 @@ export default function SlideEditor({
           } else {
             element.removeAttribute("data-slide-object-id");
           }
+          promotion.restoreDescendants?.();
         }
       };
 
@@ -6697,6 +6712,7 @@ export default function SlideEditor({
             originalContentEditable,
             originalEditingBlock,
             restoreMarkdownTree: frozen.restoreMarkdownTree,
+            restoreDescendants: frozen.restoreDescendants,
           });
         }
 
@@ -6812,6 +6828,12 @@ export default function SlideEditor({
           // the persisted HTML must retain the canvas and absolute geometry.
           for (const promotion of promotions) {
             preserveSlideObjectLayoutSpacer(promotion.element);
+          }
+          if (!promotions.some((promotion) => promotion.restoreMarkdownTree)) {
+            for (const member of members) {
+              const layer = resolveSlidePositioningLayer(member.element);
+              if (layer) releaseSlideObjectFromLeftBoxes(member.element, layer);
+            }
           }
           const html = readCurrentSlideContentHtml();
           for (const promotion of promotions) {
@@ -7187,6 +7209,7 @@ export default function SlideEditor({
           originalContentEditable: string | null;
           originalEditingBlock: string | null;
           restoreMarkdownTree?: () => void;
+          restoreDescendants?: () => void;
         }> = [];
         let promotionsRestored = false;
         const removeFreeformLayoutSpacer = (element: HTMLElement) => {
@@ -7228,6 +7251,7 @@ export default function SlideEditor({
               contentEditable: promotion.originalContentEditable,
               editingBlock: promotion.originalEditingBlock,
             });
+            promotion.restoreDescendants?.();
           }
         };
         for (const element of roots) {
@@ -7251,6 +7275,7 @@ export default function SlideEditor({
             originalContentEditable,
             originalEditingBlock,
             restoreMarkdownTree: frozen.restoreMarkdownTree,
+            restoreDescendants: frozen.restoreDescendants,
           });
           if (!isPersistedFreeformObject(frozen.element)) {
             restorePromotions();

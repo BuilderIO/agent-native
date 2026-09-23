@@ -727,32 +727,52 @@ function viewportScale(element: Element | null): { x: number; y: number } {
   };
 }
 
-/** Undo a viewport shift of an absolute object by moving its left/top back. */
+function isInsetSet(element: HTMLElement, side: string): boolean {
+  const value = element.style.getPropertyValue(side);
+  return value !== "" && value !== "auto";
+}
+
+/**
+ * Undo a viewport shift of an absolute object on the sides it is anchored to.
+ * Generated badges often pin `right`/`bottom`; rewriting only `left` would
+ * over-constrain them and stretch or jump the box instead.
+ */
 function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
   const after = element.getBoundingClientRect();
   const scale = viewportScale(element.offsetParent);
   const style = window.getComputedStyle(element);
-  const left = Number.parseFloat(style.left);
-  const top = Number.parseFloat(style.top);
+  const shift = (side: "left" | "top" | "right" | "bottom", delta: number) => {
+    const value = Number.parseFloat(style.getPropertyValue(side));
+    if (Number.isFinite(value)) {
+      element.style.setProperty(side, `${Math.round(value + delta)}px`);
+    }
+  };
   const dx = (after.left - before.left) / scale.x;
   const dy = (after.top - before.top) / scale.y;
-  if (dx && Number.isFinite(left)) {
-    element.style.left = `${Math.round(left - dx)}px`;
+  if (dx) {
+    if (isInsetSet(element, "left") || !isInsetSet(element, "right")) {
+      shift("left", -dx);
+    }
+    if (isInsetSet(element, "right")) shift("right", dx);
   }
-  if (dy && Number.isFinite(top)) {
-    element.style.top = `${Math.round(top - dy)}px`;
+  if (dy) {
+    if (isInsetSet(element, "top") || !isInsetSet(element, "bottom")) {
+      shift("top", -dy);
+    }
+    if (isInsetSet(element, "bottom")) shift("bottom", dy);
   }
 }
 
 /**
  * Positioning `element` makes it the containing block of absolute descendants
  * that resolved past it, so an object freed from a box earlier would jump by
- * the box's offset the moment the box itself is dragged.
+ * the box's offset the moment the box itself is dragged. Returns the undo for a
+ * cancelled promotion, which restores the element but not its descendants.
  */
 export function keepAbsoluteDescendantsInPlace(
   element: HTMLElement,
   position: () => void,
-): void {
+): () => void {
   const descendants = Array.from(
     element.querySelectorAll<HTMLElement>("*"),
   ).filter((descendant) => {
@@ -762,6 +782,9 @@ export function keepAbsoluteDescendantsInPlace(
     const containingBlock = descendant.offsetParent;
     return !containingBlock || !element.contains(containingBlock);
   });
+  const styles = descendants.map((descendant) =>
+    descendant.getAttribute("style"),
+  );
   const before = descendants.map((descendant) =>
     descendant.getBoundingClientRect(),
   );
@@ -769,6 +792,10 @@ export function keepAbsoluteDescendantsInPlace(
   descendants.forEach((descendant, index) =>
     restoreViewportPosition(descendant, before[index]!),
   );
+  return () =>
+    descendants.forEach((descendant, index) =>
+      restoreSlideObjectStyle(descendant, styles[index]!),
+    );
 }
 
 /**
@@ -875,19 +902,17 @@ export function freezeSlideElementForFreeform(
   spacer.style.display =
     layout.display === "inline" ? "inline-block" : layout.display;
 
+  element.before(spacer);
   element.classList.add("fmd-freeform-object");
-  keepAbsoluteDescendantsInPlace(element, () => {
-    element.before(spacer);
-    element.style.position = "absolute";
-    element.style.left = `${geometry.x}px`;
-    element.style.top = `${geometry.y}px`;
-    element.style.width = `${geometry.width}px`;
-    element.style.height = `${geometry.height}px`;
-    element.style.boxSizing = "border-box";
-    // left/top describe the visible border box. Leaving flow margins on the
-    // absolute element would offset it from the measured pre-freeze rect.
-    element.style.margin = "0";
-  });
+  element.style.position = "absolute";
+  element.style.left = `${geometry.x}px`;
+  element.style.top = `${geometry.y}px`;
+  element.style.width = `${geometry.width}px`;
+  element.style.height = `${geometry.height}px`;
+  element.style.boxSizing = "border-box";
+  // left/top describe the visible border box. Leaving flow margins on the
+  // absolute element would offset it from the measured pre-freeze rect.
+  element.style.margin = "0";
   if (textPresentation) {
     const properties: Array<
       [keyof SlideObjectTextPresentationSnapshot, string]

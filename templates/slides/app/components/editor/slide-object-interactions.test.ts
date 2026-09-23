@@ -337,6 +337,36 @@ describe("slide object interactions", () => {
     box.remove();
   });
 
+  it("shifts right/bottom-anchored descendants on their own sides and undoes on cancel", () => {
+    const box = document.createElement("div");
+    const badge = document.createElement("div");
+    const originalStyle = "position:absolute;right:24px;bottom:16px;width:40px";
+    badge.setAttribute("style", originalStyle);
+    box.append(badge);
+    document.body.append(box);
+    let boxPositioned = false;
+    badge.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 580 : 500,
+        y: boxPositioned ? 330 : 300,
+        width: 40,
+        height: 20,
+      });
+
+    const undo = keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(badge.style.right).toBe("104px");
+    expect(badge.style.bottom).toBe("46px");
+    expect(badge.style.left).toBe("");
+    expect(badge.style.top).toBe("");
+    undo();
+    expect(badge.getAttribute("style")).toBe(originalStyle);
+    box.remove();
+  });
+
   it("re-homes an object dropped outside its box and closes the box's slot", () => {
     const layer = document.createElement("div");
     layer.innerHTML = `
