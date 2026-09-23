@@ -273,6 +273,14 @@ const overrides = {
     labCreativeContext: "創意上下文",
     labCreativeContextDescription:
       "在 Content 中連接並重複使用受管治的參考上下文。",
+    labSlashAdvancedCode: "進階程式碼區塊",
+    labSlashAdvancedCodeDescription: "在斜線選單中加入程式碼和程式碼分頁區塊。",
+    labSlashLayouts: "版面配置區塊",
+    labSlashLayoutsDescription: "在斜線選單中加入自訂 HTML 和分頁區塊。",
+    labSlashVisuals: "視覺化區塊",
+    labSlashVisualsDescription: "在斜線選單中加入圖表、Mermaid 和線框圖區塊。",
+    labSlashDeveloperDocs: "開發者文件區塊",
+    labSlashDeveloperDocsDescription: "在斜線選單中加入 API 和開發者文件區塊。",
   },
   chat: {
     publicEmptyState: "向我詢問有關此檔案的任何問題",

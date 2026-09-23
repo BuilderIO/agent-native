@@ -1221,6 +1221,18 @@ const overrides = {
     labCreativeContext: "クリエイティブコンテキスト",
     labCreativeContextDescription:
       "Content 内で管理された参照コンテキストを接続して再利用します。",
+    labSlashAdvancedCode: "高度なコードブロック",
+    labSlashAdvancedCodeDescription:
+      "スラッシュメニューにコードとコードタブのブロックを追加します。",
+    labSlashLayouts: "レイアウトブロック",
+    labSlashLayoutsDescription:
+      "スラッシュメニューにカスタム HTML とタブのブロックを追加します。",
+    labSlashVisuals: "ビジュアルブロック",
+    labSlashVisualsDescription:
+      "スラッシュメニューに図、Mermaid、ワイヤーフレームのブロックを追加します。",
+    labSlashDeveloperDocs: "開発者向けドキュメントブロック",
+    labSlashDeveloperDocsDescription:
+      "スラッシュメニューに API と開発者向けドキュメントのブロックを追加します。",
   },
   chat: {
     publicEmptyState: "このドキュメントについて何でも聞いてください",

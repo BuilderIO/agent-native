@@ -1204,6 +1204,18 @@ const overrides = {
     labCreativeContext: "السياق الإبداعي",
     labCreativeContextDescription:
       "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
+    labSlashAdvancedCode: "كتل التعليمات البرمجية المتقدمة",
+    labSlashAdvancedCodeDescription:
+      "أضف كتل التعليمات البرمجية وعلامات تبويبها إلى قائمة الشرطة المائلة.",
+    labSlashLayouts: "كتل التخطيط",
+    labSlashLayoutsDescription:
+      "أضف كتل HTML المخصصة وعلامات التبويب إلى قائمة الشرطة المائلة.",
+    labSlashVisuals: "الكتل المرئية",
+    labSlashVisualsDescription:
+      "أضف المخططات وMermaid والإطارات الهيكلية إلى قائمة الشرطة المائلة.",
+    labSlashDeveloperDocs: "كتل وثائق المطورين",
+    labSlashDeveloperDocsDescription:
+      "أضف كتل API ووثائق المطورين إلى قائمة الشرطة المائلة.",
   },
   chat: {
     publicEmptyState: "اسألني أي شيء عن هذا المستند",
