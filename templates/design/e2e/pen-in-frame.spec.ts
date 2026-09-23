@@ -364,7 +364,7 @@ test("a new Pen path previews every pointer step in the selected frame and close
       expect(preview.pathData).toMatch(/[CQ]/);
       expect(Math.abs(preview.anchors[1]!.x - points[1]!.x)).toBeLessThan(3);
       expect(Math.abs(preview.anchors[1]!.y - points[1]!.y)).toBeLessThan(3);
-      const draggedHandle = preview.handles.at(-1)!;
+      const draggedHandle = preview.handles[preview.handles.length - 1]!;
       expect(Math.abs(draggedHandle.x - pointer.x)).toBeLessThan(3);
       expect(Math.abs(draggedHandle.y - pointer.y)).toBeLessThan(3);
     }
