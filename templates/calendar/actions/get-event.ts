@@ -103,7 +103,20 @@ export default defineAction({
       );
     }
 
-    const clients = await googleCalendar.getClients(email);
+    const { clients, errors } = accountEvent
+      ? await googleCalendar.getClientsWithErrors(email)
+      : { clients: await googleCalendar.getClients(email), errors: [] };
+    const accountError = accountEvent
+      ? errors.find(
+          ({ email: accountEmail }) =>
+            accountEmail.trim().toLowerCase() === accountEvent.accountEmail,
+        )
+      : undefined;
+    if (accountError) {
+      throw new Error(
+        `Google Calendar connection for ${accountEvent!.accountEmail} failed: ${accountError.error}`,
+      );
+    }
     if (clients.length === 0) {
       return {
         error: "Google Calendar not connected. Connect via Settings first.",
@@ -116,6 +129,11 @@ export default defineAction({
             accountEmail.trim().toLowerCase() === accountEvent.accountEmail,
         )
       : clients;
+    if (accountEvent && selectedClients.length === 0) {
+      throw new Error(
+        `Google Calendar account is not connected: ${accountEvent.accountEmail}`,
+      );
+    }
     for (const { email: acctEmail, accessToken } of selectedClients) {
       try {
         const evt = await calendarGetEvent(accessToken, calendarId, rawId);

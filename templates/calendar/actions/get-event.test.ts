@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getEventMock = vi.hoisted(() => vi.fn());
 const getClientsMock = vi.hoisted(() => vi.fn());
+const getClientsWithErrorsMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
@@ -15,6 +16,7 @@ vi.mock("../server/lib/google-api.js", () => ({
 
 vi.mock("../server/lib/google-calendar.js", () => ({
   getClients: getClientsMock,
+  getClientsWithErrors: getClientsWithErrorsMock,
   getEvent: getEventMock,
 }));
 
@@ -28,6 +30,7 @@ describe("get-event shared calendar reads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getEventMock.mockResolvedValue({ id: "google-shared-event" });
+    getClientsWithErrorsMock.mockResolvedValue({ clients: [], errors: [] });
   });
 
   it("passes an opaque source through the owner-scoped read path", async () => {
@@ -91,10 +94,13 @@ describe("get-event shared calendar reads", () => {
   });
 
   it("routes a multi-account event identity to its encoded account", async () => {
-    getClientsMock.mockResolvedValue([
-      { email: "alpha@example.com", accessToken: "alpha-token" },
-      { email: "zulu@example.com", accessToken: "zulu-token" },
-    ]);
+    getClientsWithErrorsMock.mockResolvedValue({
+      clients: [
+        { email: "alpha@example.com", accessToken: "alpha-token" },
+        { email: "zulu@example.com", accessToken: "zulu-token" },
+      ],
+      errors: [],
+    });
     calendarGetEventMock.mockResolvedValue({
       id: "same-provider-id",
       summary: "Z account event",
@@ -121,9 +127,10 @@ describe("get-event shared calendar reads", () => {
   });
 
   it("preserves a provider failure for an account-scoped lookup", async () => {
-    getClientsMock.mockResolvedValue([
-      { email: "zulu@example.com", accessToken: "zulu-token" },
-    ]);
+    getClientsWithErrorsMock.mockResolvedValue({
+      clients: [{ email: "zulu@example.com", accessToken: "zulu-token" }],
+      errors: [],
+    });
     calendarGetEventMock.mockRejectedValue(
       new Error("Google rate limited the request"),
     );
@@ -135,5 +142,21 @@ describe("get-event shared calendar reads", () => {
     await expect(action.run({ id, calendarId: "primary" }, {})).rejects.toThrow(
       "Google rate limited the request",
     );
+  });
+
+  it("preserves a token refresh failure for an account-scoped lookup", async () => {
+    getClientsWithErrorsMock.mockResolvedValue({
+      clients: [{ email: "alpha@example.com", accessToken: "alpha-token" }],
+      errors: [{ email: "zulu@example.com", error: "Refresh token revoked" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "zulu@example.com",
+      googleEventId: "event-id",
+    });
+
+    await expect(action.run({ id, calendarId: "primary" }, {})).rejects.toThrow(
+      "Refresh token revoked",
+    );
+    expect(calendarGetEventMock).not.toHaveBeenCalled();
   });
 });

@@ -658,6 +658,22 @@ describe("calendar event listing", () => {
         error: expect.stringContaining("provider unavailable"),
       }),
     );
+    calendarGetEventMock.mockResolvedValue({
+      id: "friends-event",
+      start: { dateTime: "2026-07-06T16:00:00Z" },
+      end: { dateTime: "2026-07-06T16:30:00Z" },
+    });
+    const reopened = await getEvent(
+      "friends-event",
+      { ownerEmail: "owner@example.com", accountEmail: "zulu@example.com" },
+      { calendarSourceKey: fallbackSourceKey },
+    );
+    expect(reopened).toMatchObject({
+      id: result.events[0].id,
+      calendarSourceKey: fallbackSourceKey,
+      accountEmail: "zulu@example.com",
+      calendarReadOnly: true,
+    });
   });
 
   it("keeps equal provider ids from distinct primary accounts separate", async () => {

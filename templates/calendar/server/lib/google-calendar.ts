@@ -1118,9 +1118,17 @@ export async function resolveGoogleCalendarSource(
   sourceKey: string,
 ): Promise<GoogleCalendarSource> {
   const discovered = await listGoogleCalendars(ownerEmail);
-  const source = discovered.calendars.find(
-    (candidate) => candidate.sourceKey === sourceKey,
-  );
+  const source = discovered.calendars
+    .flatMap((candidate) =>
+      (candidate.sourcePaths ?? [candidate]).map((path) => ({
+        ...candidate,
+        ...path,
+        readOnly:
+          path.primary !== true ||
+          (path.accessRole !== "owner" && path.accessRole !== "writer"),
+      })),
+    )
+    .find((candidate) => candidate.sourceKey === sourceKey);
   if (!source) {
     throw new Error(
       "Google Calendar source is not connected or no longer available",
