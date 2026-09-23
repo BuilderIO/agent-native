@@ -270,6 +270,7 @@ interface OptimisticOperation {
   pending: boolean;
   transform: OptimisticTransform;
   onSuccess?: (result: unknown) => OptimisticTransform;
+  successReplacesOptimistic?: boolean;
 }
 
 interface OptimisticQueryState {
@@ -285,6 +286,7 @@ export interface ReviewOptimisticMutation {
   resource: ReviewResource;
   transform: OptimisticTransform;
   onSuccess?: (result: unknown) => OptimisticTransform;
+  successReplacesOptimistic?: boolean;
 }
 
 export interface ReviewOptimisticMutationContext {
@@ -343,6 +345,7 @@ export class ReviewOptimisticCache {
         pending: true,
         transform: mutation.transform,
         onSuccess: mutation.onSuccess,
+        successReplacesOptimistic: mutation.successReplacesOptimistic,
       });
       this.queries.set(query.queryHash, state);
       this.render(state);
@@ -370,8 +373,10 @@ export class ReviewOptimisticCache {
       if (operation.onSuccess) {
         const optimisticTransform = operation.transform;
         const successTransform = operation.onSuccess(result);
-        operation.transform = (data, params) =>
-          successTransform(optimisticTransform(data, params), params);
+        operation.transform = operation.successReplacesOptimistic
+          ? successTransform
+          : (data, params) =>
+              successTransform(optimisticTransform(data, params), params);
       }
       this.render(state);
     }
@@ -603,7 +608,7 @@ function replaceComment(
   );
 }
 
-function insertOptimisticComment(
+export function insertOptimisticComment(
   comments: ReviewComment[],
   comment: ReviewComment,
   params: unknown,
@@ -616,7 +621,19 @@ function insertOptimisticComment(
   if (!query?.newestFirst && roots.length >= limit) return comments;
   const next = [...comments, comment];
   if (!query?.newestFirst || roots.length < limit) return next;
-  const oldestThreadId = roots[0]?.threadId;
+  const activity = new Map<string, string>();
+  for (const item of comments) {
+    const latest = activity.get(item.threadId);
+    if (!latest || item.createdAt > latest) {
+      activity.set(item.threadId, item.createdAt);
+    }
+  }
+  const oldestThreadId = roots.reduce((oldest, root) => {
+    if (!oldest) return root.threadId;
+    const rootActivity = activity.get(root.threadId) ?? root.createdAt;
+    const oldestActivity = activity.get(oldest) ?? "";
+    return rootActivity < oldestActivity ? root.threadId : oldest;
+  }, "");
   return next.filter((item) => item.threadId !== oldestThreadId);
 }
 
@@ -891,9 +908,16 @@ export function useUpdateReviewComment() {
               : comment,
           ),
         ),
+      successReplacesOptimistic: true,
       onSuccess: (result) => (data) =>
         updateComments(data, (comments) =>
-          replaceComment(comments, input.commentId, result as ReviewComment),
+          comments.map((comment) => {
+            const saved = result as ReviewComment;
+            return comment.id === input.commentId &&
+              comment.updatedAt <= saved.updatedAt
+              ? saved
+              : comment;
+          }),
         ),
     }),
   );

@@ -1540,7 +1540,11 @@ it("keeps decided suggestion history readable and replies only to pending thread
       (button) => button.getAttribute("aria-label") === "comments.submit",
     );
     expect(submit).toBeDefined();
-    await act(async () => submit?.click());
+    await act(async () => {
+      submit?.click();
+      submit?.click();
+    });
+    expect(replyMutate).toHaveBeenCalledTimes(1);
     expect(replyMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         commentId: "root-pending-suggestion",

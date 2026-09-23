@@ -254,6 +254,7 @@ export function CommentEntry({
         mentions: JSON.stringify(comment.mentions),
       });
       setCheckedUnresolvedOperationId(null);
+      onCreatedCommentConfirmed?.(operationId);
     } catch (error) {
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,

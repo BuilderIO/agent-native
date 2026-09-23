@@ -5,6 +5,7 @@ import type { ResourceSuggestion } from "../../review/suggestions/types.js";
 import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
+  insertOptimisticComment,
   replaceOptimisticSuggestion,
   type ListReviewCommentsResult,
 } from "./use-review.js";
@@ -85,6 +86,31 @@ function suggestion(id: string, summary: string): ResourceSuggestion {
 }
 
 describe("ReviewOptimisticCache", () => {
+  it("evicts the least recently active thread from a full newest-first page", () => {
+    const olderRoot = comment("older-root", "Older root");
+    const newerRoot = {
+      ...comment("newer-root", "Newer root"),
+      createdAt: "2026-09-22T11:00:00.000Z",
+    };
+    const recentReply = {
+      ...comment("reply", "Recent activity"),
+      threadId: olderRoot.id,
+      parentCommentId: olderRoot.id,
+      createdAt: "2026-09-22T12:00:00.000Z",
+    };
+    const incoming = {
+      ...comment("incoming", "New thread"),
+      createdAt: "2026-09-22T13:00:00.000Z",
+    };
+    expect(
+      insertOptimisticComment([olderRoot, newerRoot, recentReply], incoming, {
+        ...resource,
+        newestFirst: true,
+        limit: 2,
+      }).map((item) => item.id),
+    ).toEqual(["older-root", "reply", "incoming"]);
+  });
+
   it("removes the optimistic suggestion when refetch already returned its server record", () => {
     const optimistic = suggestion("optimistic-1", "Proposal");
     const saved = suggestion("saved-1", "Proposal");
@@ -203,6 +229,38 @@ describe("ReviewOptimisticCache", () => {
     ]);
   });
 
+  it("keeps a newer refetched edit when an older edit response succeeds", () => {
+    const queryClient = createQueryClient();
+    const queryKey = ["action", "list-review-comments", resource] as const;
+    queryClient.setQueryData(
+      queryKey,
+      commentsResult([comment("comment-1", "Old")]),
+    );
+    const cache = new ReviewOptimisticCache(queryClient);
+    const context = cache.begin({
+      action: "list-review-comments",
+      resource,
+      transform: (data) => replaceCommentBody(data, "Pending"),
+      successReplacesOptimistic: true,
+      onSuccess: () => (data) => {
+        const current = data as ListReviewCommentsResult;
+        return current.comments[0]!.updatedAt > "2026-09-22T11:00:00.000Z"
+          ? data
+          : replaceCommentBody(data, "Saved older edit");
+      },
+    });
+    const newer = {
+      ...comment("comment-1", "Newer server edit"),
+      updatedAt: "2026-09-22T12:00:00.000Z",
+    };
+    queryClient.setQueryData(queryKey, commentsResult([newer]));
+    cache.succeed(context, undefined);
+    cache.settle(context);
+    expect(
+      queryClient.getQueryData<ListReviewCommentsResult>(queryKey)?.comments[0],
+    ).toEqual(newer);
+  });
+
   it("preserves a newer suggestion decision when an older decision fails late", () => {
     const queryClient = createQueryClient();
     const queryKey = ["action", "list-resource-suggestions", resource] as const;
@@ -231,6 +289,35 @@ describe("ReviewOptimisticCache", () => {
       queryClient.getQueryData<{ suggestions: ResourceSuggestion[] }>(queryKey)
         ?.suggestions[0],
     ).toMatchObject({ status: "pending", summary: "Revised" });
+  });
+
+  it("preserves a newer suggestion decision when an older response succeeds late", () => {
+    const queryClient = createQueryClient();
+    const queryKey = ["action", "list-resource-suggestions", resource] as const;
+    queryClient.setQueryData(queryKey, {
+      suggestions: [suggestion("suggestion-1", "Original")],
+    });
+    const cache = new ReviewOptimisticCache(queryClient);
+    const older = cache.begin({
+      action: "list-resource-suggestions",
+      resource,
+      transform: (data) => updateSuggestion(data, { status: "accepted" }),
+      onSuccess: () => (data) => updateSuggestion(data, { status: "accepted" }),
+    });
+    const newer = cache.begin({
+      action: "list-resource-suggestions",
+      resource,
+      transform: (data) => updateSuggestion(data, { status: "rejected" }),
+      onSuccess: () => (data) => updateSuggestion(data, { status: "rejected" }),
+    });
+    cache.succeed(newer, undefined);
+    cache.settle(newer);
+    cache.succeed(older, undefined);
+    cache.settle(older);
+    expect(
+      queryClient.getQueryData<{ suggestions: ResourceSuggestion[] }>(queryKey)
+        ?.suggestions[0]?.status,
+    ).toBe("rejected");
   });
 
   it("invalidates only the affected resource after its operation settles", () => {

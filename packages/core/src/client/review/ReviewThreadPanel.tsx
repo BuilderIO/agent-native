@@ -395,10 +395,10 @@ export function ReviewThreadPanel({
         : allCommentsLabel;
 
   const submitDraft = async (resolutionTarget: ReviewResolutionTarget) => {
-    const body = draft.trim();
+    const submittedDraft = draftRef.current;
+    const body = submittedDraft.trim();
     if (!body) return;
-    const submittedDraft = draft;
-    const submittedMentions = [...draftMentions];
+    const submittedMentions = [...draftMentionsRef.current];
     const retryKey = JSON.stringify({
       body,
       mentions: submittedMentions,

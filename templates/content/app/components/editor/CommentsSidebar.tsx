@@ -1076,6 +1076,7 @@ export function CommentsSidebar({
       !pendingComment ||
       !pendingText.trim() ||
       pendingSubmitting ||
+      draftStore.isSubmittingDraft("pending") ||
       !pendingTargetValid ||
       ambiguousCreate()
     )
@@ -2271,7 +2272,14 @@ function SuggestionThreadView({
         }
         onHeightChange={onHeightChange}
         onSubmitReply={() => {
-          if (!canReply || !root || !draft.trim() || reply.isPending) return;
+          if (
+            !canReply ||
+            !root ||
+            !draft.trim() ||
+            reply.isPending ||
+            replyDrafts.isSubmitting(suggestion.threadId)
+          )
+            return;
           const replyMentions = mentions
             .filter((mention) => draft.includes(`@${mention.name}`))
             .map((mention) => ({

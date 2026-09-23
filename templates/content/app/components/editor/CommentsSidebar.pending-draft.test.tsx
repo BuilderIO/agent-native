@@ -389,7 +389,21 @@ describe("new comment responsive draft", () => {
     expect(input().value).toBe("Pending comment");
   });
 
-  it("hands the root composer to its optimistic thread while the save is deferred", async () => {
+  it("submits a root comment once when clicked twice before rendering", async () => {
+    await show(390);
+    await open();
+    await type("One comment");
+    const button = [...container.querySelectorAll("button")].find(
+      (node) => node.textContent === "comments.submit",
+    )!;
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(createComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes an optimistic root handoff after an unresolved save is retried", async () => {
     let setThreads!: Dispatch<SetStateAction<CommentThread[]>>;
     function HandoffOwner() {
       const [threads, updateThreads] = useState<CommentThread[]>([]);
@@ -486,11 +500,31 @@ describe("new comment responsive draft", () => {
         })),
       );
     });
-    reconcile.mockResolvedValueOnce("confirmed");
+    reconcile.mockResolvedValueOnce("unresolved");
     await act(async () =>
       [...container.querySelectorAll("button")]
         .find((button) => button.textContent === "comments.checkSaved")!
         .click(),
+    );
+    expect(owner.pendingComment).not.toBeNull();
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "comments.retry")!
+        .click(),
+    );
+    expect(createComment).toHaveBeenCalledTimes(2);
+    expect(createComment.mock.calls[1]![0]).toMatchObject({
+      clientOperationId: (
+        createComment.mock.calls[0]![0] as {
+          clientOperationId: string;
+        }
+      ).clientOperationId,
+    });
+    await act(async () =>
+      createComment.mock.calls[1]![1].onSuccess({
+        id: "saved-root",
+        threadId: "saved-root",
+      }),
     );
     expect(owner.pendingComment).toBeNull();
   });
