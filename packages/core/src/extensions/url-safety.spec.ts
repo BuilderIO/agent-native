@@ -16,6 +16,33 @@ describe("createSsrfSafeDispatcher", () => {
     });
   });
 
+  it("reuses private-origin dispatchers for each configured destination origin", async () => {
+    const origin = "http://127.0.0.1:43123";
+    const otherOrigin = "http://127.0.0.1:43124";
+    const first = await createSsrfSafeDispatcher([origin], `${origin}/first`, {
+      required: true,
+    });
+    const sameDestination = await createSsrfSafeDispatcher(
+      [origin, otherOrigin],
+      `${origin}/second`,
+      { required: true },
+    );
+    const otherDestination = await createSsrfSafeDispatcher(
+      [origin, otherOrigin],
+      `${otherOrigin}/third`,
+      { required: true },
+    );
+    const publicDestination = await createSsrfSafeDispatcher(
+      [origin, otherOrigin],
+      "https://provider.example.invalid/fourth",
+      { required: true },
+    );
+
+    expect(sameDestination).toBe(first);
+    expect(otherDestination).not.toBe(first);
+    expect(publicDestination).not.toBe(first);
+  });
+
   it("reuses one dispatcher for required requests without private-origin exceptions", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
     vi.stubGlobal("fetch", fetchMock);
