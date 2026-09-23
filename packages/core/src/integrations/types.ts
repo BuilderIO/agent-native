@@ -442,6 +442,13 @@ export function assertPlatformCapability(
 export interface IntegrationsPluginOptions {
   /** App identifier used by call-agent to prevent self-calls (e.g. "dispatch"). */
   appId?: string;
+  /**
+   * Register `call-agent` for messaging turns. Default `true`. Set `false`
+   * when the deployment has no A2A peer: `call-agent` is in
+   * `DEFAULT_INITIAL_TOOL_NAMES`, so it is on every first request whatever
+   * `initialToolNames` says, and each call would answer 401.
+   */
+  callAgent?: boolean;
   /** Full adapter set to enable. Default: all built-in adapters. */
   adapters?: PlatformAdapter[];
   /** Replace built-in adapters by platform without removing the other defaults. */
