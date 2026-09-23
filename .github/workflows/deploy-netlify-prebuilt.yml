@@ -472,6 +472,9 @@ jobs:
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
+          SENTRY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.SENTRY_AUTH_TOKEN || '' }}
+          SENTRY_ORG: bridge-tm
+          SENTRY_PROJECT: agent-native-browser
         run: |
           set -euo pipefail
           if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then
