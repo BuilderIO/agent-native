@@ -66,7 +66,7 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller.",
     status: "action-backed",
     actions: [
       "create-document",
@@ -78,6 +78,7 @@ export const parityMatrix: ParityRow[] = [
       "move-document",
       "permanently-delete-document",
       "restore-document",
+      "rollback-created-slash-document",
       "search-documents",
       "update-document",
     ],
@@ -91,6 +92,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/rollback-created-slash-document.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
