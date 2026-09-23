@@ -554,7 +554,7 @@ describe("design connect bridge endpoints", () => {
 
     await expect(
       startDesignConnectBridge(manifest, {
-        bridgeToken: "localhost_R3kGp25wAT-syMEt",
+        bridgeToken: "localhost_0000000000000000",
       }),
     ).rejects.toThrow(/connection ID, not a bridge token/);
   });

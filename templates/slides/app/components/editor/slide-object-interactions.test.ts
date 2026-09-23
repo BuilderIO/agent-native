@@ -57,6 +57,8 @@ import {
   resolveSlideObjectRotationDelta,
   rotateSlideObjectMembers,
   setSlideObjectRotation,
+  keepAbsoluteDescendantsInPlace,
+  releaseSlideObjectFromLeftBoxes,
   setSlideObjectDimension,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -290,6 +292,184 @@ describe("slide object interactions", () => {
     await expect(first).resolves.toBe("rich");
     await expect(second).resolves.toBe("rich");
     expect(htmlWrites).toHaveLength(2);
+  });
+
+  it("lets an explicit size override a generated text cap", () => {
+    const heading = document.createElement("h2");
+    heading.style.maxWidth = "420px";
+    const plain = document.createElement("p");
+    document.body.append(heading, plain);
+
+    setSlideObjectDimension(heading, "width", "634px");
+    setSlideObjectDimension(plain, "width", "200px");
+
+    expect(heading.style.width).toBe("634px");
+    expect(heading.style.maxWidth).toBe("none");
+    expect(plain.style.maxWidth).toBe("");
+    heading.remove();
+    plain.remove();
+  });
+
+  it("keeps freed descendants in place when their old box becomes positioned", () => {
+    const box = document.createElement("div");
+    const freed = document.createElement("div");
+    freed.style.position = "absolute";
+    freed.style.left = "300px";
+    freed.style.top = "200px";
+    box.append(freed);
+    document.body.append(box);
+    let boxPositioned = false;
+    freed.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 380 : 300,
+        y: boxPositioned ? 260 : 200,
+        width: 100,
+        height: 20,
+      });
+
+    keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(freed.style.left).toBe("220px");
+    expect(freed.style.top).toBe("140px");
+    box.remove();
+  });
+
+  it("shifts right/bottom-anchored descendants on their own sides and undoes on cancel", () => {
+    const box = document.createElement("div");
+    const badge = document.createElement("div");
+    const originalStyle = "position:absolute;right:24px;bottom:16px;width:40px";
+    badge.setAttribute("style", originalStyle);
+    box.append(badge);
+    document.body.append(box);
+    let boxPositioned = false;
+    badge.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 580 : 500,
+        y: boxPositioned ? 330 : 300,
+        width: 40,
+        height: 20,
+      });
+
+    const undo = keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(badge.style.right).toBe("104px");
+    expect(badge.style.bottom).toBe("46px");
+    expect(badge.style.left).toBe("");
+    expect(badge.style.top).toBe("");
+    undo();
+    expect(badge.getAttribute("style")).toBe(originalStyle);
+    box.remove();
+  });
+
+  it("keeps a descendant stretched between both insets the same size", () => {
+    const box = document.createElement("div");
+    const band = document.createElement("div");
+    band.setAttribute("style", "position:absolute;left:10px;right:10px");
+    box.append(band);
+    document.body.append(box);
+    let boxPositioned = false;
+    band.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 150 : 100,
+        y: 50,
+        width: boxPositioned ? 260 : 200,
+        height: 20,
+      });
+
+    keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(band.style.left).toBe("-40px");
+    expect(band.style.right).toBe("120px");
+    box.remove();
+  });
+
+  it("detects insets anchored by a slide stylesheet rule", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent =
+      ".corner-badge { position: absolute; right: 24px; bottom: 16px; }";
+    document.head.append(sheet);
+    const box = document.createElement("div");
+    const badge = document.createElement("div");
+    badge.className = "corner-badge";
+    box.append(badge);
+    document.body.append(box);
+    let boxPositioned = false;
+    badge.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: boxPositioned ? 580 : 500,
+        y: boxPositioned ? 330 : 300,
+        width: 40,
+        height: 20,
+      });
+
+    keepAbsoluteDescendantsInPlace(box, () => {
+      box.style.position = "absolute";
+      boxPositioned = true;
+    });
+
+    expect(badge.style.right).toBe("104px");
+    expect(badge.style.bottom).toBe("46px");
+    expect(badge.style.left).toBe("");
+    expect(badge.style.position).toBe("");
+    box.remove();
+    sheet.remove();
+  });
+
+  it("re-homes an object dropped outside its box and closes the box's slot", () => {
+    const layer = document.createElement("div");
+    layer.innerHTML = `
+      <div id="card">
+        <div class="fmd-layout-spacer" data-slide-layout-spacer-for="text-id"></div>
+        <div id="text" data-slide-object-id="text-id" style="position:absolute;left:40px;top:300px">Text</div>
+      </div>
+    `;
+    document.body.append(layer);
+    const card = layer.querySelector<HTMLElement>("#card")!;
+    const text = layer.querySelector<HTMLElement>("#text")!;
+    layer.getBoundingClientRect = () =>
+      DOMRect.fromRect({ width: 960, height: 540 });
+    card.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 40, y: 100, width: 800, height: 80 });
+    text.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 40, y: 300, width: 200, height: 20 });
+
+    expect(releaseSlideObjectFromLeftBoxes(text, layer)).toBe(true);
+    expect(text.parentElement).toBe(layer);
+    expect(layer.querySelector(".fmd-layout-spacer")).toBeNull();
+    expect(text.style.left).toBe("40px");
+    expect(text.style.top).toBe("300px");
+    layer.remove();
+  });
+
+  it("keeps an object dropped inside its box as the box's child", () => {
+    const layer = document.createElement("div");
+    layer.innerHTML = `
+      <div id="card">
+        <div class="fmd-layout-spacer" data-slide-layout-spacer-for="text-id"></div>
+        <div id="text" data-slide-object-id="text-id" style="position:absolute">Text</div>
+      </div>
+    `;
+    document.body.append(layer);
+    const card = layer.querySelector<HTMLElement>("#card")!;
+    const text = layer.querySelector<HTMLElement>("#text")!;
+    card.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 40, y: 100, width: 800, height: 80 });
+    text.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 60, y: 120, width: 200, height: 20 });
+
+    expect(releaseSlideObjectFromLeftBoxes(text, layer)).toBe(false);
+    expect(text.parentElement).toBe(card);
+    expect(layer.querySelector(".fmd-layout-spacer")).not.toBeNull();
+    layer.remove();
   });
 
   it("lets explicit image sizing override image size caps", () => {

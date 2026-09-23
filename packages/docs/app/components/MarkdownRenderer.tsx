@@ -315,12 +315,28 @@ marked.use(kbdExtension);
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer(locale: DocsLocale) {
   const renderer = new marked.Renderer();
+  let legacyAnchorOpen = false;
 
   renderer.html = function ({ text }: Tokens.HTML) {
     // Strip HTML comments entirely (used by the docs build for screenshot
     // metadata, e.g. `<!-- screenshot: url=... -->` — should never render).
     // Escape everything else for safety.
     if (/^\s*<!--[\s\S]*?-->\s*$/.test(text)) return "";
+    const legacyAnchor = text.match(
+      /^\s*<a id="([A-Za-z][A-Za-z0-9_-]*)"><\/a>\s*$/,
+    );
+    if (legacyAnchor) return `<span id="${legacyAnchor[1]}"></span>`;
+    const legacyAnchorStart = text.match(
+      /^\s*<a id="([A-Za-z][A-Za-z0-9_-]*)">\s*$/,
+    );
+    if (legacyAnchorStart) {
+      legacyAnchorOpen = true;
+      return `<span id="${legacyAnchorStart[1]}"></span>`;
+    }
+    if (legacyAnchorOpen && /^\s*<\/a>\s*$/.test(text)) {
+      legacyAnchorOpen = false;
+      return "";
+    }
     return escapeHtml(text);
   };
 

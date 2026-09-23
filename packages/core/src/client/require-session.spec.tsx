@@ -97,7 +97,9 @@ describe("RequireSession", () => {
       </RequireSession>,
     );
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
-    expect(container.querySelector('[aria-label="Loading"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-agent-native-app-skeleton="true"]'),
+    ).not.toBeNull();
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
@@ -271,7 +273,9 @@ describe("RequireSession", () => {
       </RequireSession>,
     );
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
-    expect(container.querySelector('[aria-label="Loading"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-agent-native-app-skeleton="true"]'),
+    ).not.toBeNull();
     expect(replaceMock).not.toHaveBeenCalled();
   });
 

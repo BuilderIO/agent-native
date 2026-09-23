@@ -134,6 +134,17 @@ export interface PendingVisualStyleEdit {
   };
 }
 
+let lastPendingLiveEditTimestamp = 0;
+
+/** Keep mixed pending edits strictly ordered even when several land in one millisecond. */
+export function nextPendingLiveEditTimestamp(now = Date.now()): number {
+  lastPendingLiveEditTimestamp = Math.max(
+    lastPendingLiveEditTimestamp + 1,
+    now,
+  );
+  return lastPendingLiveEditTimestamp;
+}
+
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
   return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
@@ -411,6 +422,7 @@ export interface PendingLiveStructureEdit {
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  remintCollidingNodeIds?: boolean;
   /** The inserted markup replaced `selector` instead of landing beside it. */
   replaced?: true;
   /** Runtime identity of the optimistic replacement used for verification. */
@@ -703,14 +715,19 @@ export type PendingLiveNonStyleUndoEntry =
   | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
-/** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
- * per event. The first revert is kept so one undo still restores the pre-gesture value. */
+/** Coalesce only explicit multi-target gesture ticks. A missing gesture id is
+ * one committed change, so it must stay an independent undo step. */
 export function appendPendingVisualStyleUndoEntry(
   stack: PendingVisualStyleUndoEntry[],
   entry: PendingVisualStyleUndoEntry,
 ): void {
   const last = stack[stack.length - 1];
-  if (entry.gestureId && last?.gestureId === entry.gestureId) {
+  if (
+    entry.gestureId &&
+    last?.gestureId === entry.gestureId &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
+  ) {
     const targets = pendingVisualStyleUndoTargets(last);
     const index = targets.findIndex(
       (target) =>
@@ -747,24 +764,6 @@ export function appendPendingVisualStyleUndoEntry(
     last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
     return;
   }
-  if (
-    !entry.gestureId &&
-    !last?.gestureId &&
-    last &&
-    pendingVisualStyleEditKey(last.edit) ===
-      pendingVisualStyleEditKey(entry.edit)
-  ) {
-    last.edit = {
-      ...entry.edit,
-      styles: { ...last.edit.styles, ...entry.edit.styles },
-      originalStyles: {
-        ...entry.edit.originalStyles,
-        ...last.edit.originalStyles,
-      },
-    };
-    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
-    return;
-  }
   stack.push(entry);
 }
 
@@ -788,9 +787,11 @@ export function pendingVisualStyleEditsFromUndoStack(
 export function appendPendingLiveNonStyleUndoEntry(
   stack: PendingLiveNonStyleUndoEntry[],
   entry: PendingLiveNonStyleUndoEntry,
+  coalesceAdjacent = true,
 ): void {
   const last = stack[stack.length - 1];
   if (
+    coalesceAdjacent &&
     last?.kind === "text" &&
     entry.kind === "text" &&
     pendingLiveEditSubjectKey(last.edit) ===
@@ -813,6 +814,7 @@ export function appendPendingLiveNonStyleUndoEntry(
     return;
   }
   if (
+    coalesceAdjacent &&
     last?.kind === "layer-name" &&
     entry.kind === "layer-name" &&
     pendingLiveEditSubjectKey(last.edit) ===
@@ -828,6 +830,18 @@ export function pendingLiveStructureEditsFromUndoEntry(
   entry: PendingLiveStructureUndoEntry,
 ): PendingLiveStructureEdit[] {
   return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
+}
+
+/**
+ * Redo receives the final member as `entry.edit`, while a coalesced live move
+ * keeps the full transaction on the undo entry. Reattach those members before
+ * choosing the replay command so cross-screen insert/delete pairs stay atomic.
+ */
+export function pendingLiveStructureRedoSourceEdit(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit {
+  const edits = pendingLiveStructureEditsFromUndoEntry(entry);
+  return edits.length > 1 ? { ...entry.edit, groupedEdits: edits } : entry.edit;
 }
 
 export function pendingLiveStructureEditsFromEdit(
@@ -878,7 +892,12 @@ export function pendingStructureEditSourcePaths(
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string; replaceAnchor?: boolean }
+  | {
+      kind: "insert";
+      html: string;
+      replaceAnchor?: boolean;
+      remintCollidingNodeIds?: boolean;
+    }
   | { kind: "move" };
 
 /**
@@ -890,12 +909,18 @@ export type PendingStructureRedoCommand =
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
-  if (edit.removed) return { kind: "delete" };
-  return edit.insertedHtml
+  const insertedEdit = [edit, ...(edit.groupedEdits ?? [])].find(
+    (candidate) => candidate.insertedHtml,
+  );
+  if (!insertedEdit && edit.removed) return { kind: "delete" };
+  return insertedEdit?.insertedHtml
     ? {
         kind: "insert",
-        html: edit.insertedHtml,
-        ...(edit.replaced ? { replaceAnchor: true } : {}),
+        html: insertedEdit.insertedHtml,
+        ...(insertedEdit.replaced ? { replaceAnchor: true } : {}),
+        ...(insertedEdit.remintCollidingNodeIds
+          ? { remintCollidingNodeIds: true }
+          : {}),
       }
     : { kind: "move" };
 }
@@ -926,6 +951,10 @@ function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
+}
+
+function pendingVisualStylePropertyKey(edit: PendingVisualStyleEdit): string {
+  return Object.keys(edit.styles).sort().join("::");
 }
 
 export function mergePendingVisualStyleEdit(
@@ -1048,6 +1077,7 @@ export type PendingVisualStyleRuntimePatch = {
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   styles: Record<string, string>;
+  interactionState?: InteractionState;
 };
 
 function nodeIdSelector(nodeId: string): string {
@@ -1096,8 +1126,17 @@ export type SendPendingVisualStyleRuntimeProperty = (
   options: {
     selectorCandidates: string[];
     nodeId?: string | null;
+    routePath?: string;
+    interactionState?: InteractionState;
   },
 ) => boolean;
+
+export function pendingVisualStyleRouteMatches(
+  patch: Pick<PendingVisualStyleRuntimePatch, "routePath">,
+  currentRoutePath: string | null | undefined,
+): boolean {
+  return !patch.routePath || patch.routePath === currentRoutePath;
+}
 
 /**
  * Forward, undo, and redo all use this exact per-property runtime channel.
@@ -1121,6 +1160,10 @@ export function replayPendingVisualStyleRuntimePatch(
     sendProperty(patch.screenId, target.selector, property, value, {
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
+      ...(patch.routePath ? { routePath: patch.routePath } : {}),
+      ...(patch.interactionState
+        ? { interactionState: patch.interactionState }
+        : {}),
     }),
   );
 }

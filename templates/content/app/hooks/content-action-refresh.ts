@@ -22,6 +22,8 @@ const DOCUMENT_MUTATIONS = new Set([
   "delete-document",
   "delete-document-property",
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
@@ -85,7 +87,10 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "restore-content-database",
+  "restore-document",
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
@@ -95,6 +100,7 @@ const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-documents",
   "list-trashed-content-databases",
   "list-trashed-documents",
+  "list-content-trash",
 ]);
 
 const CONTENT_MUTATIONS = new Set([
@@ -226,6 +232,19 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   );
 }
 
+function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (
+    query.queryKey[1] === "get-content-recent" ||
+    query.queryKey[1] === "get-content-navigation-context"
+  )
+    return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
+}
+
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
   return (
     query.queryKey[0] === "action" &&
@@ -260,6 +279,14 @@ export function contentActionInvalidatePredicate(
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    if (
+      queryTargetsActiveNavigationOrRecent(query) &&
+      events.some(
+        (event) => event.source === "action" && event.key === "update-document",
+      )
+    ) {
+      return true;
+    }
     const args = query.queryKey[2];
     const targetId =
       args && typeof args === "object"

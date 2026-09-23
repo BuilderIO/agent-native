@@ -14,7 +14,7 @@ import { writeClipboardText } from "./clipboard.js";
 import { requestDesktopLocalCodeChange } from "./desktop-local-code-change.js";
 import { getCallbackOrigin } from "./frame.js";
 import { useT } from "./i18n.js";
-import { BuilderConnectPopover } from "./settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { cn } from "./utils.js";
 
@@ -564,7 +564,7 @@ export function ConnectBuilderCard({
                       : "Do locally"}
                   </button>
                 )}
-                <BuilderConnectPopover flow={flow}>
+                <DeferredBuilderConnectPopover flow={flow}>
                   <button
                     type="button"
                     disabled={connecting}
@@ -582,7 +582,7 @@ export function ConnectBuilderCard({
                       "Connect Builder"
                     )}
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               </div>
             ) : showDesktopLocalHandoff ? (
               <button

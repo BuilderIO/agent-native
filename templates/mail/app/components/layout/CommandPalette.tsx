@@ -25,14 +25,12 @@ import {
   IconCheck,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { getNextTheme, getResolvedTheme } from "@/lib/theme";
-
-import changelog from "../../../CHANGELOG.md?raw";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -130,7 +128,17 @@ export function CommandPalette({
   const imagePolicy = settings?.imagePolicy ?? "show";
   const autocompleteEnabled = settings?.autocompleteEnabled ?? false;
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [changelog, setChangelog] = useState<string>();
   const keepPaletteOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!open || changelog !== undefined) return;
+    void import("../../../CHANGELOG.md?raw")
+      .then(({ default: markdown }) => {
+        setChangelog(markdown);
+      })
+      .catch(() => undefined);
+  }, [open, changelog]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && keepPaletteOpenRef.current) {

@@ -117,6 +117,14 @@ targets (skills, instructions, memories, data dictionaries, certified
 dashboards, or creative context), and shows before/after diffs. Allow feedback
 and regeneration before explicit approval; never auto-apply.
 
+The shipped single-app human review surface is the `Human review` tab in the
+shared observability dashboard. It lists the persisted ask and answer for each
+run, records thumbs/text feedback through the existing feedback endpoint, and
+saves explicit instruction changes as `draft` rows through the
+`save-observability-instruction-update` action. Drafts are reviewable artifacts;
+they never update agent behavior automatically. Agents can read the same table
+through `list-observability-reviews`.
+
 ### 3. Evals
 
 Three layers, configured via `evalSampleRate` in the observability config:

@@ -3,6 +3,97 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Canvas saves are faster because version checkpoints are taken at most every few minutes while you edit.
+- Large Figma files with hundreds of frames now import in seconds without freezing the editor, keep their Figma canvas layout, and render component slots and instance overrides much more faithfully.
+
+### Fixed
+
+- Blocks can be selected with one click inside screens
+- Canvas edits on large designs now save even when version history can't be stored, with a one-time notice instead of a lost change.
+- Opening Design signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.
+- Live resize handles keep working at overview zoom
+- Live visual edits can now move layers onto an empty canvas and keep them editable.
+
+## 2026-09-21
+
+### Added
+
+- Design includes more Google Fonts and supports custom font uploads
+
+### Fixed
+
+- Large Figma imports keep the Design editor responsive while unchanged screens are prepared
+- Keep guided design choices readable in narrow panels
+- Live visual-edit screens stay selectable and editable while running
+- Live visual-edit screens support direct hover, selection, movement, resizing, and safe undo/redo.
+- Show the generation loader as soon as design questions are submitted
+
+## 2026-09-20
+
+### Improved
+
+- Public visual-edit links make localhost screens selectable and editable in the browser.
+
+### Fixed
+
+- Deleted Design screens can be recovered with Undo and History after reload
+- Design cross-screen moves now retain undo history after persisted saves
+- Design cross-screen moves preserve undo history after retryable and conflicting saves
+- Design layer drags now preview Figma-style hierarchy changes and preserve cancel and undo behavior
+- Grouped Design drops stay atomic through Apply, undo, and reload
+- Show a precise insertion line when dragging into an occupied grid cell
+
+## 2026-09-19
+
+### Improved
+
+- Drag and drop keeps placements and ordering across screens and freeform layouts
+- URL-based React editing keeps focused changes visible through hot reload
+
+### Fixed
+
+- Component variant overrides persist when the main component changes
+- Grouped grid layers preview their final cells and move as one undoable change
+
+## 2026-09-18
+
+### Added
+
+- Auto Layout inspectors now show F, H, and A keyboard shortcuts
+- Lines and arrows support independent endpoint styles in the inspector
+
+### Improved
+
+- Canvas panning avoids unnecessary redraws, and zoomed-out board previews use less rendering memory
+- Design system lists load faster
+- Private design links now offer access requests and sign-in or sign-up CTAs.
+- Start visual editing with the /visual-edit skill install command
+- Visual edit opens signed-out local previews in hosted Design and keeps live edits connected
+
+### Fixed
+
+- Auto-layout drops preserve Screen-root flow, responsive sizing, and grid track order.
+- Cross-screen moves recover cleanly when a save conflict interrupts either file
+- Design auto-layout drag and drop keeps wrapped rows and grid placement previews aligned
+- Design auto-layout drag previews preserve wrapped rows and grid cells
+- Design imports large Figma files with hundreds of frames
+- Design keeps URL-backed auto-layout moves through source handoff and reload
+- Editor panels stay visible while panning zoomed-out designs with background blur, and frame labels keep a consistent size when changing zoom.
+- Fix Selection colors scanning and matching-layer targeting
+- Imported screens stay separated from their responsive previews on the canvas
+- Keep large imported canvases stable while fitting, panning, and selecting.
+- Large Design canvases stay stable while panning and zooming
+- Large imported frames keep panning and zooming stable without dropping the canvas UI.
+- Responsive interaction mode now exits without leaving stale canvas state
+- Signed-out visual editing can read and write local source from hosted Design
+- Signed-out visual editing loads localhost screens reliably
+- The breakpoint add control sits closer to the last frame
+
 ## 2026-09-17
 
 ### Added
@@ -11,16 +102,33 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design explains how to select inner layers with Cmd/Ctrl-click
+- Design preserves reusable component identity and props across inline and React screens
+- Signed-out users can open and visually edit a local Design canvas
+- Visual edit opens local apps from a signed-out Design tab
 - Design loads faster and large .fig imports can target selected frames
 
 ### Fixed
 
+- Canvas zoom now paints large previews without rerendering the iframe on every gesture frame.
+- Cross-screen dragging now preserves element placement between screens and the board.
+- Cross-screen drags preserve their target and persist correctly
+- Design arrange shortcuts reliably move layers forward, backward, to front, and to back
+- Cross-screen dragging reliably moves elements and rolls back refused saves.
+- Design drag-and-drop keeps auto-layout ordering and Cmd/Ctrl free placement
+- Design drag-and-drop keeps duplicates, cross-screen moves, and undo history in sync.
+- Design keeps component source and live edits consistent during indexing and updates
+- Design preserves animated styles when copying or moving layers
+- Open vector paths no longer show fills, and Interact dimensions stay clear of the exit control.
+- Option-drag duplication keeps board objects and root screens addressable at every zoom.
+- Screen deletion is immediate and undoable, with history that survives reloads.
 - Large .fig files import directly in the browser without the old upload ceiling
 
 ## 2026-09-16
 
 ### Improved
 
+- Design components retain linked identities when edited and duplicated
 - Design files avoid cold-start scans and open faster after idle periods
 - Design marquee selections stay responsive on large screens
 - Design editor agent chat uses shared conversation tabs and stays usable at narrow widths
@@ -28,6 +136,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fix Design nested layer dragging and screen duplication parity
 - Design comments keep keyboard mentions and selected recipients through drafts and replies
 - Design Fill editing uses the visible background paint on text-bearing controls
 - Design inspector controls match compact Figma spacing

@@ -12,7 +12,9 @@ import {
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
   mergePendingLiveNonStyleEdit,
+  nextPendingLiveEditTimestamp,
   pendingLiveLayerNameUndoRevertValue,
+  pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
 } from "./pending-edits";
@@ -105,7 +107,13 @@ describe("resolveOverviewScreenSourceType", () => {
 });
 
 describe("appendPendingVisualStyleUndoEntry", () => {
-  it("coalesces consecutive ticks on the same target and keeps the first revert", () => {
+  it("keeps timestamps strictly ordered within one clock tick", () => {
+    const first = nextPendingLiveEditTimestamp(10_000);
+    const second = nextPendingLiveEditTimestamp(10_000);
+    expect(second).toBeGreaterThan(first);
+  });
+
+  it("coalesces explicit gesture ticks and keeps the first revert", () => {
     const stack: Array<{
       edit: PendingVisualStyleEdit;
       revertStyles: Record<string, string>;
@@ -113,17 +121,48 @@ describe("appendPendingVisualStyleUndoEntry", () => {
     appendPendingVisualStyleUndoEntry(stack, {
       edit: styleEdit("h1", { color: "blue" }),
       revertStyles: { color: "red" },
+      gestureId: "gesture-1",
     });
     appendPendingVisualStyleUndoEntry(stack, {
       edit: styleEdit("h1", { color: "green" }),
       revertStyles: { color: "blue" },
+      gestureId: "gesture-1",
     });
     expect(stack).toHaveLength(1);
     expect(stack[0]?.edit.styles).toEqual({ color: "green" });
     expect(stack[0]?.revertStyles).toEqual({ color: "red" });
   });
 
-  it("merges later properties into the same-target entry instead of replacing it", () => {
+  it("keeps separate committed ticks for the same target and property", () => {
+    const stack: Array<{
+      edit: PendingVisualStyleEdit;
+      revertStyles: Record<string, string>;
+    }> = [];
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "24px" }),
+      revertStyles: { borderRadius: "0px" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "48px" }),
+      revertStyles: { borderRadius: "24px" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { backgroundColor: "blue" }),
+      revertStyles: { backgroundColor: "white" },
+    });
+    expect(stack.map((entry) => entry.edit.styles)).toEqual([
+      { borderRadius: "24px" },
+      { borderRadius: "48px" },
+      { backgroundColor: "blue" },
+    ]);
+    expect(stack.map((entry) => entry.revertStyles)).toEqual([
+      { borderRadius: "0px" },
+      { borderRadius: "24px" },
+      { backgroundColor: "white" },
+    ]);
+  });
+
+  it("keeps adjacent property changes as separate undo steps", () => {
     const stack: Array<{
       edit: PendingVisualStyleEdit;
       revertStyles: Record<string, string>;
@@ -136,9 +175,63 @@ describe("appendPendingVisualStyleUndoEntry", () => {
       edit: styleEdit("h1", { opacity: "0.5" }),
       revertStyles: { opacity: "1" },
     });
-    expect(stack).toHaveLength(1);
-    expect(stack[0]?.edit.styles).toEqual({ color: "blue", opacity: "0.5" });
-    expect(stack[0]?.revertStyles).toEqual({ color: "red", opacity: "1" });
+    expect(stack).toHaveLength(2);
+    expect(stack[0]?.edit.styles).toEqual({ color: "blue" });
+    expect(stack[0]?.revertStyles).toEqual({ color: "red" });
+    expect(stack[1]?.edit.styles).toEqual({ opacity: "0.5" });
+    expect(stack[1]?.revertStyles).toEqual({ opacity: "1" });
+  });
+
+  it("does not merge different properties that share a gesture id", () => {
+    const stack: Array<{
+      edit: PendingVisualStyleEdit;
+      revertStyles: Record<string, string>;
+      gestureId?: string;
+    }> = [];
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "24px" }),
+      revertStyles: { borderRadius: "0px" },
+      gestureId: "gesture-1",
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { backgroundColor: "blue" }),
+      revertStyles: { backgroundColor: "white" },
+      gestureId: "gesture-1",
+    });
+    expect(stack).toHaveLength(2);
+    expect(stack.map((entry) => entry.edit.styles)).toEqual([
+      { borderRadius: "24px" },
+      { backgroundColor: "blue" },
+    ]);
+  });
+
+  it("keeps interleaved style edits in strict reverse order", () => {
+    const stack: Array<{
+      edit: PendingVisualStyleEdit;
+      revertStyles: Record<string, string>;
+    }> = [];
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "24px" }),
+      revertStyles: { borderRadius: "0px" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { backgroundColor: "blue" }),
+      revertStyles: { backgroundColor: "white" },
+    });
+    appendPendingVisualStyleUndoEntry(stack, {
+      edit: styleEdit("h1", { borderRadius: "48px" }),
+      revertStyles: { borderRadius: "24px" },
+    });
+    expect(stack.map((entry) => entry.edit.styles)).toEqual([
+      { borderRadius: "24px" },
+      { backgroundColor: "blue" },
+      { borderRadius: "48px" },
+    ]);
+    expect(stack.map((entry) => entry.revertStyles)).toEqual([
+      { borderRadius: "0px" },
+      { backgroundColor: "white" },
+      { borderRadius: "24px" },
+    ]);
   });
 
   it("keeps distinct selectors as separate undo steps", () => {
@@ -186,6 +279,18 @@ describe("appendPendingVisualStyleUndoEntry", () => {
   });
 });
 
+describe("pendingVisualStyleRouteMatches", () => {
+  it("does not replay a history patch into a different or unknown live route", () => {
+    expect(
+      pendingVisualStyleRouteMatches({ routePath: "/library" }, "/record"),
+    ).toBe(false);
+    expect(
+      pendingVisualStyleRouteMatches({ routePath: "/library" }, null),
+    ).toBe(false);
+    expect(pendingVisualStyleRouteMatches({}, "/record")).toBe(true);
+  });
+});
+
 describe("appendPendingLiveNonStyleUndoEntry", () => {
   it("coalesces consecutive text edits on the same node", () => {
     const stack: Array<{
@@ -206,6 +311,30 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
     expect(stack).toHaveLength(1);
     expect(stack[0]?.edit.value).toBe("Help");
     expect(stack[0]?.revertValue).toBe("Hello");
+  });
+
+  it("keeps a text edit after an interleaved global history entry", () => {
+    const stack: Array<{
+      kind: "text";
+      edit: PendingLiveTextEdit;
+      revertValue: string;
+    }> = [];
+    appendPendingLiveNonStyleUndoEntry(stack, {
+      kind: "text",
+      edit: textEdit("Hel"),
+      revertValue: "Hello",
+    });
+    appendPendingLiveNonStyleUndoEntry(
+      stack,
+      {
+        kind: "text",
+        edit: textEdit("Help"),
+        revertValue: "Hel",
+      },
+      false,
+    );
+    expect(stack).toHaveLength(2);
+    expect(stack.map((entry) => entry.edit.value)).toEqual(["Hel", "Help"]);
   });
 
   it("coalesces live layer renames and removes the edit when reverted", () => {

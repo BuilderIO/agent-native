@@ -153,7 +153,7 @@ export interface LayersPanelSelectionIntent {
   source: "keyboard" | "pointer";
 }
 
-export interface LayersPanelMoveIntent {
+interface LayersPanelMoveIntent {
   draggedIds: string[];
   targetId: string;
   placement: "before" | "after" | "inside";
@@ -318,6 +318,22 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 // per spec; the source row stores the drag payload here on dragstart instead.
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
+
+function canUseActiveDragStateForDrop(
+  dragState: { sourceId: string; draggedIds: string[] } | null,
+  dropIntent: LayersPanelMoveIntent | null,
+  targetId: string,
+): boolean {
+  return Boolean(
+    dragState &&
+    dragState.sourceId !== targetId &&
+    dragState.draggedIds.includes(dragState.sourceId) &&
+    dropIntent?.targetId === targetId,
+  );
+}
+
+export { canUseActiveDragStateForDrop };
+export type { LayersPanelMoveIntent };
 
 // Module-level continuous-toggle-drag state for the eye/lock icon
 // "click-drag across a run of rows" gesture (Figma parity, unique-paths.md
@@ -2296,6 +2312,12 @@ const LayerRow = memo(function LayerRow({
       }
     } catch {
       // Ignore malformed drag payloads and fall back to the primary id.
+    }
+    if (
+      !draggedIds.some(Boolean) &&
+      canUseActiveDragStateForDrop(activeDragState, activeDropIntent, node.id)
+    ) {
+      draggedIds = activeDragState!.draggedIds;
     }
     const cleanedIds = draggedIds.filter(
       (id) => id && id !== node.id && !id.startsWith("__"),

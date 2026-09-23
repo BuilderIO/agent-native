@@ -393,6 +393,17 @@ const PATTERNS = [
       ".agents/skills/configuration + packages/core/src/app-config (2026-08-13)",
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
   },
+  {
+    // Added 2026-09-22 after a Builder Code agent "made a teammate admin" by
+    // adding a hardcoded databaseHooks.user.create email check: it ran before
+    // the lazily-created default org existed, never fired again for an
+    // account that had already signed up, and wrote a role system nothing
+    // gated on — so the teammate still wasn't admin after logging in.
+    key: "admin-grant-hack",
+    label: "Had to fix a hardcoded-email admin grant",
+    fixedBy: ".agents/skills/sharing (make-me-admin recipe, 2026-09-22)",
+    re: /\bmake me (?:an )?admin\b|\bmade me (?:an )?admin\b|\bhardcoded (?:my |the )?email\b|\bstill (?:not|no) admin\b/i,
+  },
 ];
 
 /**

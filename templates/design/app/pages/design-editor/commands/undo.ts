@@ -657,11 +657,37 @@ export function runUndo({
   const pendingNonStyleUndoStack = pendingLiveNonStyleUndoStackRef.current;
   const pendingNonStyleUndo =
     pendingNonStyleUndoStack[pendingNonStyleUndoStack.length - 1];
+  const pendingHistoryKind =
+    historyOrderRef.current[historyOrderRef.current.length - 1];
+  const pendingUndoKind =
+    pendingHistoryKind === "pending-style" ||
+    pendingHistoryKind === "pending-live"
+      ? pendingHistoryKind
+      : undefined;
   if (!canEditDesign && !pendingStyleUndo && !pendingNonStyleUndo) return;
   if (
+    (pendingUndoKind === "pending-style" && !pendingStyleUndo) ||
+    (pendingUndoKind === "pending-live" && !pendingNonStyleUndo)
+  ) {
+    return;
+  }
+  const consumePendingUndoOrder = (kind: "pending-style" | "pending-live") => {
+    if (historyOrderRef.current[historyOrderRef.current.length - 1] !== kind) {
+      return;
+    }
+    historyOrderRef.current = historyOrderRef.current.slice(0, -1);
+    redoOrderRef.current = [
+      ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      kind,
+    ];
+  };
+  if (
     pendingNonStyleUndo &&
-    (!pendingStyleUndo ||
-      pendingNonStyleUndo.edit.updatedAt > pendingStyleUndo.edit.updatedAt)
+    (pendingUndoKind === "pending-live" ||
+      (pendingHistoryKind === undefined &&
+        (!pendingStyleUndo ||
+          pendingNonStyleUndo.edit.updatedAt >
+            pendingStyleUndo.edit.updatedAt)))
   ) {
     const nextUndoStack = pendingNonStyleUndoStack.slice(0, -1);
     pendingLiveNonStyleUndoStackRef.current = nextUndoStack;
@@ -733,10 +759,14 @@ export function runUndo({
         };
       });
     }
+    consumePendingUndoOrder("pending-live");
     syncUndoRedoState();
     return;
   }
-  if (pendingStyleUndo) {
+  if (
+    pendingStyleUndo &&
+    (pendingUndoKind === "pending-style" || pendingHistoryKind === undefined)
+  ) {
     const nextUndoStack = pendingStyleUndoStack.slice(0, -1);
     pendingVisualStyleUndoStackRef.current = nextUndoStack;
     const nextPending = mergePendingVisualStyleEdits(
@@ -791,6 +821,7 @@ export function runUndo({
         },
       };
     });
+    consumePendingUndoOrder("pending-style");
     syncUndoRedoState();
     return;
   }

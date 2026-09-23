@@ -164,6 +164,20 @@ const messages = {
       saveFailed: "Impossible de mettre à jour le statut de révision",
     },
   },
+  designSystems: {
+    ...messagesByLocale["fr-FR"].designSystems,
+    tierLimitTitle: "Limite de systèmes de design atteinte",
+    tierLimitDescription:
+      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
+    tierLimitDescriptionWithCount:
+      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
+    tierLimitUpgrade: "Changer de forfait Builder",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["fr-FR"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
+  },
 };
 
 export default messages;

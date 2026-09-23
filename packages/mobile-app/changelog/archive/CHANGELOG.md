@@ -1,3 +1,24 @@
+## 0.1.42
+
+### Patch Changes
+
+- Updated dependencies [f790010]
+  - @agent-native/core@0.164.3
+
+## 0.1.41
+
+### Patch Changes
+
+- Updated dependencies [330cf77]
+  - @agent-native/core@0.164.2
+
+## 0.1.40
+
+### Patch Changes
+
+- Updated dependencies [5a05b04]
+  - @agent-native/core@0.164.1
+
 ## 0.1.39
 
 ### Patch Changes

@@ -1,7 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconLink, IconUpload } from "@tabler/icons-react";
-import { Link } from "react-router";
+import { useState } from "react";
 
+import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,6 +25,9 @@ export interface ImportMenuProps {
   uploadHref?: string;
   onUpload?: () => void;
   importLoomHref?: string;
+  spaceId?: string | null;
+  folderId?: string | null;
+  recordHref?: string;
   className?: string;
   disabled?: boolean;
   iconOnly?: boolean;
@@ -38,6 +42,9 @@ export function ImportMenu({
   uploadHref,
   onUpload,
   importLoomHref,
+  spaceId,
+  folderId,
+  recordHref,
   className,
   disabled,
   iconOnly = false,
@@ -49,6 +56,7 @@ export function ImportMenu({
 }: ImportMenuProps) {
   const t = useT();
   const { input, openUploadPicker } = useUploadVideoPicker();
+  const [loomDialogOpen, setLoomDialogOpen] = useState(false);
 
   if (!uploadHref && !onUpload && !importLoomHref) return null;
 
@@ -72,46 +80,60 @@ export function ImportMenu({
   );
 
   return (
-    <DropdownMenu>
-      {iconOnly ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side={menuSide ?? "right"}>
-            {t("preRecord.import")}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      )}
-      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
-        {uploadHref ? (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              openUploadPicker(uploadHref);
-            }}
-          >
-            <IconUpload />
-            {t("preRecord.uploadVideo")}
-          </DropdownMenuItem>
-        ) : onUpload ? (
-          <DropdownMenuItem onSelect={onUpload}>
-            <IconUpload />
-            {t("preRecord.uploadVideo")}
-          </DropdownMenuItem>
+    <>
+      <DropdownMenu>
+        {iconOnly ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side={menuSide ?? "right"}>
+              {t("preRecord.import")}
+            </TooltipContent>
+          </Tooltip>
         ) : null}
-        {importLoomHref ? (
-          <DropdownMenuItem asChild>
-            <Link to={importLoomHref}>
+        {!iconOnly ? (
+          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        ) : null}
+        <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
+          {uploadHref ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                openUploadPicker(uploadHref);
+              }}
+            >
+              <IconUpload />
+              {t("preRecord.uploadVideo")}
+            </DropdownMenuItem>
+          ) : onUpload ? (
+            <DropdownMenuItem onSelect={onUpload}>
+              <IconUpload />
+              {t("preRecord.uploadVideo")}
+            </DropdownMenuItem>
+          ) : null}
+          {importLoomHref ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                setTimeout(() => setLoomDialogOpen(true), 0);
+              }}
+            >
               <IconLink />
               {t("preRecord.importLoom")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-      {input}
-    </DropdownMenu>
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+        {input}
+      </DropdownMenu>
+      {importLoomHref ? (
+        <ImportLoomDialog
+          open={loomDialogOpen}
+          onOpenChange={setLoomDialogOpen}
+          spaceId={spaceId}
+          folderId={folderId}
+          recordHref={recordHref}
+        />
+      ) : null}
+    </>
   );
 }

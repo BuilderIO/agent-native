@@ -82,6 +82,7 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | `condition`   | `string?`                      | Natural-language condition evaluated before dispatch   |
 | `mode`        | `"agentic"`                    | Full agent loop (only supported mode; `"deterministic"` was removed — never implemented, rejected at define time) |
 | `model`       | `string?`                      | Override the model for this trigger's agent loop       |
+| `reasoningEffort` | `string?`                   | Override reasoning effort for this trigger's model; omitted uses the model's default |
 | `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)             |
 | `createdBy`   | `string?`                      | Creator email; required for organization event automations |
 | `orgId`       | `string?`                      | Organization scope                                     |
@@ -108,10 +109,10 @@ All automation operations are accessed through a single `manage-automations` too
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
 
 `manage-automations` accepts personal or organization scope and supports
-`model` and `mcpTools` on define/update. An MCP allowlist is enforced, not
-advisory: every named tool must resolve in the creator's request context or the
-run fails clearly, and the runner never widens access beyond the configured
-names.
+`model`, `reasoning_effort`, and `mcpTools` on define/update. An MCP allowlist
+is enforced, not advisory: every named tool must resolve in the creator's
+request context or the run fails clearly, and the runner never widens access
+beyond the configured names.
 
 ## Organization Event Automations
 

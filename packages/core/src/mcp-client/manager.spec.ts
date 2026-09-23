@@ -78,6 +78,9 @@ class FakeClient {
   }
   async connect(transport: FakeTransport) {
     this.transport = transport;
+    if (transport instanceof FakeHttp) {
+      transport.sessionId = `session-${fakeClients.indexOf(this)}`;
+    }
   }
   getTransport() {
     return this.transport;
@@ -122,6 +125,7 @@ class FakeStdio {
 
 class FakeHttp {
   key: string;
+  sessionId?: string;
   onerror?: (error: unknown) => void;
   requestInit?: Record<string, unknown>;
   fetchImpl?: (input: unknown, init?: unknown) => Promise<unknown>;
@@ -392,6 +396,115 @@ describe("McpClientManager", () => {
     ]);
   });
 
+  it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
+    let calls = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        calls += 1;
+        if (calls <= 2) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { content: [{ type: "text", text: "pong" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    const results = await Promise.all([
+      mgr.callTool("mcp__remote__ping", {}),
+      mgr.callTool("mcp__remote__ping", {}),
+    ]);
+
+    expect(results).toEqual([
+      { content: [{ type: "text", text: "pong" }] },
+      { content: [{ type: "text", text: "pong" }] },
+    ]);
+    expect(calls).toBe(4);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
+  it("waits for pending HTTP calls before closing an expired transport", async () => {
+    let calls = 0;
+    let releaseSecond!: () => void;
+    let secondStarted!: () => void;
+    const secondCallStarted = new Promise<void>((resolve) => {
+      secondStarted = resolve;
+    });
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        if (calls === 2) {
+          await new Promise<void>((resolve) => {
+            releaseSecond = resolve;
+            secondStarted();
+          });
+          if ((fakeClients[0]?.getTransport() as FakeHttp).closed) {
+            throw new Error("request aborted by stale transport close");
+          }
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { content: [{ type: "text", text: "pong" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    const first = mgr.callTool("mcp__remote__ping", {});
+    const second = mgr.callTool("mcp__remote__ping", {});
+    await secondCallStarted;
+    releaseSecond();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { content: [{ type: "text", text: "pong" }] },
+      { content: [{ type: "text", text: "pong" }] },
+    ]);
+    expect(calls).toBe(4);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
+  it("reconnects and replays ui resources after an HTTP session expires", async () => {
+    let reads = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "show" }],
+      callImpl: () => ({ content: [] }),
+      readResourceImpl: (uri) => {
+        reads += 1;
+        if (reads === 1) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { contents: [{ uri, text: "<p>hi</p>" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    await expect(
+      mgr.readResource("remote", "ui://remote/show"),
+    ).resolves.toEqual({
+      contents: [{ uri: "ui://remote/show", text: "<p>hi</p>" }],
+    });
+
+    expect(reads).toBe(2);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
   it(
     "injects per-request identity only for trusted org-scoped first-party HTTP servers",
     async () => {
@@ -583,6 +696,72 @@ describe("McpClientManager", () => {
       "mcp__late__late_tool",
     ]);
     expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it("does not replay an expired request onto a reconfigured server", async () => {
+    serverFixtures["http https://old.example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        throw Object.assign(new Error("session expired"), { status: 404 });
+      },
+    };
+    serverFixtures["http https://new.example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => ({ content: [{ type: "text", text: "new" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        remote: { type: "http", url: "https://old.example.com/mcp" },
+      },
+    });
+    await mgr.start();
+
+    const request = mgr.callTool("mcp__remote__ping", {});
+    await mgr.reconfigure({
+      servers: {
+        remote: { type: "http", url: "https://new.example.com/mcp" },
+      },
+    });
+
+    await expect(request).rejects.toMatchObject({ status: 404 });
+    expect(fakeClients).toHaveLength(2);
+    expect(mgr.connectedServers).toEqual(["remote"]);
+  });
+
+  it("does not resurrect a manager when stop races session reconnect", async () => {
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        throw Object.assign(new Error("session expired"), { status: 404 });
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+    let releaseClose!: () => void;
+    let closeStarted!: () => void;
+    const closeStartedPromise = new Promise<void>((resolve) => {
+      closeStarted = resolve;
+    });
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    staleTransport.close = async () => {
+      staleTransport.closed = true;
+      closeStarted();
+      await closeGate;
+    };
+
+    const request = mgr.callTool("mcp__remote__ping", {});
+    await closeStartedPromise;
+    const stop = mgr.stop();
+    releaseClose();
+
+    await Promise.all([stop, request.catch(() => undefined)]);
+    expect(mgr.connectedServers).toEqual([]);
+    expect(mgr.getTools()).toEqual([]);
   });
 
   it("retries unchanged servers left in an error state on reconfigure", async () => {

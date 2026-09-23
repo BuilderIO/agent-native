@@ -290,6 +290,17 @@ describe("isMarketingWebsiteSessionEvent", () => {
     ).toBe(true);
   });
 
+  it("keeps canonical session-status aliases out of signed-in session cohorts", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session_status",
+        hostname: "www.agent-native.com",
+        app: "www",
+        template: "www",
+      }),
+    ).toBe(true);
+  });
+
   it("keeps legacy host-derived www events out when hostname was omitted", () => {
     expect(
       isMarketingWebsiteSessionEvent({
@@ -632,6 +643,15 @@ describe("normalizeAnalyticsTimestamp", () => {
         "2026-07-01T13:00:00.000Z",
       ),
     ).toBe("2026-06-30T12:00:00.000Z");
+  });
+
+  it("clamps timestamps outside BigQuery's streaming date range to server receive time", () => {
+    expect(
+      normalizeAnalyticsTimestamp(
+        "1978-09-22T20:14:12.587Z",
+        "2026-09-22T20:14:13.110Z",
+      ),
+    ).toBe("2026-09-22T20:14:13.110Z");
   });
 });
 

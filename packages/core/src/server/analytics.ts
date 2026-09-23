@@ -16,8 +16,9 @@ import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
  * tag injection because their loaders must be `<script>` elements.
  *
  * When GTM is set, its head bootstrap is injected before `</head>` and its
- * noscript fallback immediately after `<body>`. GTM takes precedence over GA
- * so pageviews are not double-counted; configure the GA tag inside GTM.
+ * noscript fallback immediately after `<body>`. GTM owns pageviews so they are
+ * not double-counted; when a GA id is also configured, an isolated gtag
+ * channel sends app events directly with automatic pageviews disabled.
  * When only GA is set, the corresponding script tags are injected before
  * `</head>`.
  * When not set, the stream passes through untouched (zero overhead).
@@ -109,23 +110,40 @@ export function getAgentNativeAnalyticsConfigScript(): string | null {
  * synthetic browser never initializes Google's analytics runtime.
  * Returns `null` when GA is not configured.
  */
-export function getGaInlineConfigScriptBody(): string | null {
+export function getGaInlineConfigScriptBody(options?: {
+  dataLayerName?: string;
+  sendPageView?: boolean;
+}): string | null {
   const id = getGaMeasurementId();
   if (!id) return null;
-  const jsId = JSON.stringify(id);
+  const dataLayerName = options?.dataLayerName ?? "dataLayer";
+  const dataLayer = `window[${JSON.stringify(dataLayerName)}]`;
+  const dataLayerQuery =
+    dataLayerName === "dataLayer"
+      ? ""
+      : `&l=${encodeURIComponent(dataLayerName)}`;
+  const gtagCall = dataLayerName === "dataLayer" ? "gtag" : "agentNativeGtag";
+  const gtagBootstrap =
+    dataLayerName === "dataLayer"
+      ? `window.gtag=window.gtag||function(){${dataLayer}.push(arguments);};`
+      : `var agentNativeGtag=function(){${dataLayer}.push(arguments);};window.__AGENT_NATIVE_GA_GTAG__=agentNativeGtag;`;
+  const config =
+    options?.sendPageView === false
+      ? `${gtagCall}('config',${JSON.stringify(id)},{send_page_view:false});`
+      : `${gtagCall}('config',${JSON.stringify(id)});`;
   const src = JSON.stringify(
-    `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`,
+    `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}${dataLayerQuery}`,
   );
   const guard = getSyntheticTrafficBrowserGuard();
   return (
     `if(${guard}){` +
-    `window.dataLayer=window.dataLayer||[];` +
-    `function gtag(){dataLayer.push(arguments);}` +
-    `gtag('js',new Date());` +
-    `gtag('config',${jsId});` +
+    `${dataLayer}=${dataLayer}||[];` +
+    gtagBootstrap +
+    `${gtagCall}('js',new Date());` +
+    config +
     `if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('__an_signin')){` +
     `sessionStorage.removeItem('__an_signin');` +
-    `gtag('event','sign_in');` +
+    `${gtagCall}('event','sign_in');` +
     `}` +
     `var agentNativeGtagScript=document.createElement('script');` +
     `agentNativeGtagScript.async=true;` +
@@ -140,6 +158,14 @@ function getGaScript(): string | null {
   if (!id) return null;
   const inlineBody = getGaInlineConfigScriptBody();
   return `<script>${inlineBody}</script>`;
+}
+
+function getGtmGaFallbackScript(): string | null {
+  const inlineBody = getGaInlineConfigScriptBody({
+    dataLayerName: "__AGENT_NATIVE_GA_DATA_LAYER__",
+    sendPageView: false,
+  });
+  return inlineBody ? `<script>${inlineBody}</script>` : null;
 }
 
 function getGtmHeadScript(containerId: string): string {
@@ -162,7 +188,11 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
   const containerId = getGtmContainerId();
   if (containerId) {
     return {
-      head: [agentNativeAnalytics, getGtmHeadScript(containerId)]
+      head: [
+        agentNativeAnalytics,
+        getGtmHeadScript(containerId),
+        getGtmGaFallbackScript(),
+      ]
         .filter(Boolean)
         .join(""),
       body: getGtmBodyFallback(containerId),

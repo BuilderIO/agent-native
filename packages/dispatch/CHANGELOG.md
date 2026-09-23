@@ -1,5 +1,39 @@
 # @agent-native/dispatch
 
+## 0.38.5
+
+### Patch Changes
+
+- 5ed3eb0: Report a taken workspace app id as a typed `app-id-taken` result instead of an unhandled 500. `startWorkspaceAppCreation` checked for an id collision in two places — a cross-member guard and the reservation itself — and neither was inside a `try`, so the message each one built (naming the conflict and, for an in-flight creation, its owner) was replaced by a generic "Internal server error" in the create-app UI and in chat. Both collision paths now throw `WorkspaceAppIdTakenError`, the caller converts only that error into `{ mode: "app-id-taken", conflict, owner, message }`, and registry/storage failures keep propagating. `workspace-template-card` previously fell through to a success toast for any mode it did not recognize and now reports this one as an error.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [2427195]
+- Updated dependencies [d43305d]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.7
+
+## 0.38.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [e973e00]
+  - @agent-native/toolkit@0.20.6
+
+## 0.38.3
+
+### Patch Changes
+
+- a6d554d: Add the searchable app directory and mounted standalone app support to the workspace.
+- 8057255: Isolate Dispatch "All apps" workspace resources per organization so one organization's edits no longer overwrite what another organization's agents read.
+- 6c59bb1: Fix Slack integration runs so deployment bot credentials are selected safely, verified Slack identities retain their user context, local app delegation reaches sibling apps, structured Content intake cannot silently drop supplied fields, and progress streams complete without leaving threads stuck as working.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [58b0779]
+- Updated dependencies [3ecc476]
+- Updated dependencies
+- Updated dependencies [15ec2fb]
+  - @agent-native/toolkit@0.20.5
+
 ## 0.38.2
 
 ### Patch Changes
@@ -986,31 +1020,5 @@
 - 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
 - Updated dependencies [061896a]
   - @agent-native/toolkit@0.13.7
-
-## 0.21.0
-
-### Minor Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-### Patch Changes
-
-- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
-- Updated dependencies [cf16fae]
-  - @agent-native/toolkit@0.13.6
-
-## 0.20.4
-
-### Patch Changes
-
-- e959709: Export `runDispatchMigrations` so a consuming app can own dispatch schema in a release-time migration step instead of at server startup.
-- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
-
-## 0.20.3
-
-### Patch Changes
-
-- Updated dependencies [a107169]
-  - @agent-native/toolkit@0.13.5
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

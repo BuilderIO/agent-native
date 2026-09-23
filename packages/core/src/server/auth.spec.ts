@@ -1183,7 +1183,7 @@ describe("server/auth", () => {
       );
     });
 
-    it("does not set first-run onboarding for an unauthenticated callback", async () => {
+    it("sets first-run onboarding when the new-user callback has no resolved session", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       vi.doMock("./better-auth-instance.js", () => ({
@@ -1225,7 +1225,7 @@ describe("server/auth", () => {
 
       expect(response.status).toBe(302);
       expect(response.headers.get("location")).toBe("/welcome");
-      expect(response.headers.get("set-cookie") ?? "").not.toContain(
+      expect(response.headers.get("set-cookie") ?? "").toContain(
         "agent-native-first-run=1",
       );
     });
@@ -5792,6 +5792,190 @@ describe("server/auth", () => {
       expect(getRequestContext()).toBeUndefined();
     });
 
+    // Regression for a Builder Code cloud dev container: the app runs behind
+    // an https proxy with no APP_URL/BETTER_AUTH_URL configured, so
+    // `getAppProductionUrl()` falls back to `http://localhost:3000` at
+    // `betterAuth()` construction and Better Auth ships its session cookie as
+    // plain `SameSite=Lax`. Rendered inside Builder's cross-site editor
+    // iframe, the browser drops that cookie, and the freshly-signed-up user
+    // bounces straight back to sign-in.
+    it("upgrades Better Auth's signup Set-Cookie to SameSite=None/Secure/Partitioned behind a forwarded https proxy", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.APP_URL;
+      delete process.env.BETTER_AUTH_URL;
+
+      const plainCookieHandler = vi.fn(async () => {
+        const headers = new Headers({ "content-type": "application/json" });
+        headers.append(
+          "set-cookie",
+          "an.session_token=plain-session-token; Path=/; HttpOnly; SameSite=Lax",
+        );
+        return new Response(JSON.stringify({ ok: true }), { headers });
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: plainCookieHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = (await baHandler(
+        createJsonPostEvent(
+          "/_agent-native/auth/ba/sign-up/email",
+          { email: "new@example.com", password: "secret-password" },
+          { "x-forwarded-proto": "https" },
+          "http://cloud-branch.example.com",
+        ),
+      )) as Response;
+
+      expect(response.status).toBe(200);
+      const setCookie = response.headers.getSetCookie().join("\n");
+      expect(setCookie).toContain("an.session_token=plain-session-token");
+      expect(setCookie).toContain("SameSite=None");
+      expect(setCookie).toContain("Secure");
+      expect(setCookie).toContain("Partitioned");
+      expect(setCookie).not.toContain("SameSite=Lax");
+    });
+
+    it("deletes both partitions of a Better Auth cookie behind a forwarded https proxy", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.APP_URL;
+      delete process.env.BETTER_AUTH_URL;
+
+      const deletingHandler = vi.fn(async () => {
+        const headers = new Headers({ "content-type": "application/json" });
+        headers.append(
+          "set-cookie",
+          "an.session_data=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
+        );
+        return new Response(JSON.stringify({ ok: true }), { headers });
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: deletingHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      const response = (await baHandler(
+        createJsonPostEvent(
+          "/_agent-native/auth/ba/update-user",
+          {},
+          { "x-forwarded-proto": "https" },
+          "http://cloud-branch.example.com",
+        ),
+      )) as Response;
+
+      const deletes = response.headers
+        .getSetCookie()
+        .filter((cookie) => cookie.startsWith("an.session_data=;"));
+      expect(deletes).toHaveLength(2);
+      expect(deletes.some((cookie) => /Partitioned/.test(cookie))).toBe(true);
+      expect(deletes.some((cookie) => !/Partitioned/.test(cookie))).toBe(true);
+    });
+
+    it("keeps Better Auth's signup Set-Cookie as SameSite=Lax on plain-HTTP localhost dev", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.APP_URL;
+      delete process.env.BETTER_AUTH_URL;
+
+      const plainCookieHandler = vi.fn(async () => {
+        const headers = new Headers({ "content-type": "application/json" });
+        headers.append(
+          "set-cookie",
+          "an.session_token=plain-session-token; Path=/; HttpOnly; SameSite=Lax",
+        );
+        return new Response(JSON.stringify({ ok: true }), { headers });
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: plainCookieHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = (await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "new@example.com",
+          password: "secret-password",
+        }),
+      )) as Response;
+
+      expect(response.status).toBe(200);
+      const setCookie = response.headers.getSetCookie().join("\n");
+      expect(setCookie).toContain("an.session_token=plain-session-token");
+      expect(setCookie).toContain("SameSite=Lax");
+      expect(setCookie).not.toContain("SameSite=None");
+      expect(setCookie).not.toContain("Partitioned");
+    });
+
     it("sanitizes raw Better Auth JSON errors on direct auth routes", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -8724,6 +8908,34 @@ describe("server/auth", () => {
       expect(html).toContain("token=token-1");
       expect(html).toContain("state=state-1");
       expect(html).not.toContain("return to Mail");
+    });
+
+    it("uses the Nightly deep link for Nightly desktop exchange completion", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Electron/41.2.2 AgentNativeDesktop/0.1.7 AgentNativeDesktopNightly/0.1.7",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            desktop: true,
+            flowId: "flow-1",
+            sessionToken: "token-1",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative-nightly://oauth-complete");
+      expect(html).toContain("token=token-1");
+      expect(html).toContain("state=state-1");
+      expect(html).not.toContain("agentnative://oauth-complete");
     });
 
     it("returns a staged session cookie to a bound native WebView", async () => {

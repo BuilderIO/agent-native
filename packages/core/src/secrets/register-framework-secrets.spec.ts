@@ -75,7 +75,7 @@ describe("framework secret registrations", () => {
 
     const jev = getRequiredSecret("JEV_API_KEY");
     expect(jev).toMatchObject({
-      label: "System one model (Jev)",
+      label: "Decision model (Jev)",
       scope: "user",
       kind: "api-key",
       required: false,

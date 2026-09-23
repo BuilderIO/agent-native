@@ -207,6 +207,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
@@ -337,6 +338,7 @@ import {
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
 import {
   designPreviewWindows,
   designPreviewWindowsForScreen,
@@ -400,6 +402,7 @@ import {
   DesignAccessState,
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -525,6 +528,7 @@ import {
   type LiveFigmaSvgSnapshot,
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
+import type { UploadedFont } from "@/lib/font-upload";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -597,6 +601,7 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
   resolveSelectedCodeLayerNode,
+  ensureUploadedFontFaceInHtml,
   type SelectedLayerTarget,
 } from "./design-editor/code-layer-state";
 import type {
@@ -775,7 +780,12 @@ import {
   type PendingDesignDataOperations,
 } from "./design-editor/data-operations";
 import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
-import { deriveOverviewScreens } from "./design-editor/derive/overview-screens";
+import { buildNeededLayerModels } from "./design-editor/derive/layer-model-coverage";
+import {
+  deriveOverviewScreens,
+  reuseUnchangedOverviewScreens,
+  type OverviewScreen,
+} from "./design-editor/derive/overview-screens";
 import {
   cloneCanvasFrameGeometry,
   frameHeightChangedIds,
@@ -903,6 +913,7 @@ import {
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
+import { runInIdleSlices } from "./design-editor/idle-slices";
 import {
   allIntakeTopicsCovered,
   loadIntakeContextFromAppState,
@@ -972,6 +983,7 @@ import {
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveLayerNameUndoRevertValue,
+  nextPendingLiveEditTimestamp,
   pendingVisualStyleGestureIdForPhase,
   projectRelativeSourcePath,
   reactSourceAnchorForPendingEdit,
@@ -1041,7 +1053,9 @@ import {
 } from "./design-editor/selection-state";
 import {
   resolveSourceBaseForPublication,
+  designFileCodeLayerSource,
   prepareCanonicalSourceContent,
+  preparedSourceProjection,
 } from "./design-editor/source-publication";
 import {
   endedTextEditClosesActiveSession,
@@ -1103,6 +1117,13 @@ type RequestDesignAccessResult = {
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+
+// Stable empties for per-screen DesignCanvas props. A fresh [] each render
+// re-runs every live canvas's replay effect, which reposts the whole editor
+// state into its iframe.
+const NO_SELECTORS: string[] = [];
+const NO_SELECTOR_GROUPS: string[][] = [];
+const NO_MOTION_TRACKS: MotionTrackWire[] = [];
 
 function previewUrlAtLiveRoute(
   previewUrl: string | undefined,
@@ -1166,6 +1187,7 @@ function readRenderedLayerInfo(
         ? preview.getComputedStyle(parent)
         : undefined;
       const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
       return {
         ...base,
         sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
@@ -1391,6 +1413,9 @@ function DesignEditor() {
   // ── Tool, mode, zoom, camera, and view state ───────────────────────────────
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
+  const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
+    string | null
+  >(null);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
   // Drawing drops activeTool back to move (Figma parity), so the shape group
   // button cannot read its own identity off it.
@@ -1470,6 +1495,11 @@ function DesignEditor() {
   });
   const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
+  useEffect(() => {
+    if (viewMode !== "overview" || mode !== "edit") {
+      setOverviewInteractScreenId(null);
+    }
+  }, [mode, viewMode]);
   const viewModeRef = useRef<"single" | "overview">("overview");
   // Trusted parent origin captured from the first validated inbound message.
   // Used to restrict outgoing postMessage calls that carry user data so they
@@ -1654,10 +1684,62 @@ function DesignEditor() {
   const [runtimeStructureMoveRequest, setRuntimeStructureMoveRequest] =
     useState<(RuntimeStructureMoveRequest & { screenId: string }) | null>(null);
   const runtimeStructureMoveRevisionRef = useRef(0);
-  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequest] =
+  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequestState] =
     useState<(RuntimeStructureInsertRequest & { screenId: string }) | null>(
       null,
     );
+  const runtimeStructurePendingTransactionRef = useRef<string | null>(null);
+  const setRuntimeStructureInsertRequest = useCallback<
+    Dispatch<
+      SetStateAction<
+        (RuntimeStructureInsertRequest & { screenId: string }) | null
+      >
+    >
+  >((next) => {
+    // Cross-screen moves reserve this shared request slot until their
+    // acknowledgement. Most competing commands use a direct request value,
+    // so reject those before React queues state rather than making the caller
+    // appear successful while its iframe operation is silently dropped.
+    if (typeof next !== "function" && next) {
+      const pendingTransactionId =
+        runtimeStructurePendingTransactionRef.current;
+      if (pendingTransactionId && next.transactionId !== pendingTransactionId) {
+        if (DESIGN_EDITOR_DEBUG_LOGS) {
+          console.warn("[design] runtime structure insert admission refused", {
+            pendingTransactionId,
+            requestTransactionId: next.transactionId ?? null,
+          });
+        }
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+    }
+    setRuntimeStructureInsertRequestState((current) => {
+      const resolved = typeof next === "function" ? next(current) : next;
+      if (resolved === current) return current;
+      const pendingTransactionId =
+        runtimeStructurePendingTransactionRef.current;
+      if (
+        resolved &&
+        pendingTransactionId &&
+        resolved.transactionId !== pendingTransactionId
+      ) {
+        if (DESIGN_EDITOR_DEBUG_LOGS) {
+          console.warn("[design] runtime structure insert admission refused", {
+            pendingTransactionId,
+            requestTransactionId: resolved.transactionId ?? null,
+          });
+        }
+        return current;
+      }
+      if (resolved?.transactionId) {
+        runtimeStructurePendingTransactionRef.current = resolved.transactionId;
+      }
+      return resolved;
+    });
+  }, []);
   const [runtimeStructureDeleteRequest, setRuntimeStructureDeleteRequest] =
     useState<(RuntimeStructureDeleteRequest & { screenId: string }) | null>(
       null,
@@ -1811,6 +1893,50 @@ function DesignEditor() {
     },
     [],
   );
+  const replayPendingVisualStyleRuntime = useCallback(
+    (edits: readonly PendingVisualStyleEdit[]) => {
+      const patches = edits
+        .map((edit) => ({
+          screenId: edit.screenId,
+          selector: edit.selector,
+          sourceId: edit.sourceId,
+          ...(edit.runtimeSelector
+            ? { runtimeSelector: edit.runtimeSelector }
+            : {}),
+          ...(edit.runtimeSourceId
+            ? { runtimeSourceId: edit.runtimeSourceId }
+            : {}),
+          routePath: edit.routePath,
+          styles: edit.styles,
+          ...(edit.interactionState
+            ? { interactionState: edit.interactionState }
+            : {}),
+        }))
+        .filter((patch) => Object.keys(patch.styles).length > 0);
+      if (patches.length === 0) return undefined;
+      const requestId = Date.now() + Math.random();
+      const sendStyleForScreen = (window as any)
+        .__designCanvasSendStyleForScreen;
+      const fallbackPatches =
+        typeof sendStyleForScreen === "function"
+          ? patches.filter(
+              (patch) =>
+                !replayPendingVisualStyleRuntimePatch(
+                  patch,
+                  sendStyleForScreen,
+                ),
+            )
+          : patches;
+      if (fallbackPatches.length > 0) {
+        setPendingVisualStyleRevertRequest({
+          requestId,
+          patches: fallbackPatches,
+        });
+      }
+      return requestId;
+    },
+    [],
+  );
   const requestPendingLiveNonStyleRevert = useCallback(
     (edits: readonly PendingLiveNonStyleEdit[]) => {
       const requestId = Date.now() + Math.random();
@@ -1907,6 +2033,12 @@ function DesignEditor() {
     pendingVisualStyleRedoStackRef.current = [];
     pendingLiveNonStyleUndoStackRef.current = [];
     pendingLiveNonStyleRedoStackRef.current = [];
+    historyOrderRef.current = historyOrderRef.current.filter(
+      (kind) => kind !== "pending-style" && kind !== "pending-live",
+    );
+    redoOrderRef.current = redoOrderRef.current.filter(
+      (kind) => kind !== "pending-style" && kind !== "pending-live",
+    );
     pendingStructureRedoReplayRef.current = undefined;
     if (pendingStructureRedoReplayTimerRef.current !== undefined) {
       window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
@@ -2795,6 +2927,22 @@ function DesignEditor() {
     redoOrderRef.current = [];
     undoManagerRef.current?.clear(false, true);
   }, []);
+  const recordPendingHistoryEntry = useCallback(
+    (kind: "pending-style" | "pending-live", replayedRedo = false) => {
+      if (replayedRedo) {
+        if (redoOrderRef.current[redoOrderRef.current.length - 1] === kind) {
+          redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+        }
+      } else {
+        clearRedoStacks();
+      }
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        kind,
+      ];
+    },
+    [clearRedoStacks],
+  );
   const clearPendingHistoryDirections = useCallback(() => {
     pendingHistoryDirectionsRef.current = [];
     pendingHistoryDrainScheduledRef.current = false;
@@ -4191,7 +4339,17 @@ function DesignEditor() {
   }, [id, hasPendingGeneration, markGenerationStale]);
 
   // ── Action mutations ───────────────────────────────────────────────────────
-  const updateFileMutation = useActionMutation("update-file");
+  const updateFileMutation = useActionMutation("update-file", {
+    // runSaveFileContent owns get-design: it writes the persisted bytes into
+    // the cache and refetches all file content only when it has to.
+    skipActionQueryInvalidation: true,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["action"],
+        predicate: (query) => query.queryKey[1] !== "get-design",
+      });
+    },
+  });
   const renameScreenMutation = useActionMutation("rename-screen");
   const updateScreenSourceMutation = useActionMutation("update-screen-source");
   const createFileMutation = useActionMutation("create-file", {
@@ -4201,6 +4359,12 @@ function DesignEditor() {
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const updateDesignAsync = updateDesignMutation.mutateAsync;
+  // Every enqueued data save has already written its result into the
+  // get-design cache. The default invalidation would refetch every file's
+  // content after each frame move; failures still invalidate explicitly.
+  const saveDesignDataAsync = useActionMutation("update-design", {
+    skipActionQueryInvalidation: true,
+  }).mutateAsync;
   const applyTweaksMutation = useActionMutation("apply-tweaks");
   const applyTweaksAsync = applyTweaksMutation.mutateAsync;
   const duplicateDesignMutation = useActionMutation("duplicate-design");
@@ -4782,6 +4946,10 @@ function DesignEditor() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems(isSignedIn && showPrompt);
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -5052,14 +5220,16 @@ function DesignEditor() {
         const prepared = prepareCanonicalSourceContent(sourceContent, {
           fileId: file.id,
           fileType: file.fileType,
+          source: designFileCodeLayerSource(id, file.id, file.filename),
         });
         return prepared.content === file.content
           ? file
           : { ...file, content: prepared.content };
       }),
-    [pendingLocalFileContentsSnapshot, serverFiles],
+    [id, pendingLocalFileContentsSnapshot, serverFiles],
   );
-  const componentExpectedFiles = useMemo(
+  // Hashing every screen is only needed when a linked component edit is sent.
+  const getComponentExpectedFiles = useCallback(
     () =>
       files
         .filter((file) => file.fileType === "html")
@@ -5075,20 +5245,24 @@ function DesignEditor() {
     (
       screenId: string,
       kind: "design-file" | "inline-html" = "design-file",
-    ): CodeLayerSource => {
-      const filename = files.find((file) => file.id === screenId)?.filename;
-      return {
+    ): CodeLayerSource =>
+      designFileCodeLayerSource(
+        id,
+        screenId,
+        files.find((file) => file.id === screenId)?.filename,
         kind,
-        ...(id ? { designId: id } : {}),
-        fileId: screenId,
-        ...(filename ? { filename } : {}),
-      };
-    },
+      ),
     [files, id],
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
-  const proposalFileIds = useMemo(() => files.map((file) => file.id), [files]);
+  // Keyed on the id list, not `files`: every save and refetch replaces `files`,
+  // and the effect below reads app state for every screen.
+  const proposalFileIdsKey = files.map((file) => file.id).join("\u0000");
+  const proposalFileIds = useMemo(
+    () => (proposalFileIdsKey ? proposalFileIdsKey.split("\u0000") : []),
+    [proposalFileIdsKey],
+  );
   useEffect(() => {
     if (!id || proposalFileIds.length === 0) {
       setPendingNodeRewriteProposals([]);
@@ -5431,17 +5605,25 @@ function DesignEditor() {
     shellMode,
   ]);
 
+  const overviewScreensRef = useRef<
+    (OverviewScreen & { codeLayerSource: CodeLayerSource })[]
+  >([]);
   const overviewScreens = useMemo(() => {
-    return deriveOverviewScreens({
-      designDataJson,
-      files,
-      activeBreakpointWidthState,
-      breakpointFramesHidden,
-      locallyPinnedHeightIds: locallyPinnedHeightIdsRef.current,
-    }).map((screen) => ({
-      ...screen,
-      codeLayerSource: codeLayerSourceForScreen(screen.id),
-    }));
+    const next = reuseUnchangedOverviewScreens(
+      overviewScreensRef.current,
+      deriveOverviewScreens({
+        designDataJson,
+        files,
+        activeBreakpointWidthState,
+        breakpointFramesHidden,
+        locallyPinnedHeightIds: locallyPinnedHeightIdsRef.current,
+      }).map((screen) => ({
+        ...screen,
+        codeLayerSource: codeLayerSourceForScreen(screen.id),
+      })),
+    );
+    overviewScreensRef.current = next;
+    return next;
   }, [
     designDataJson,
     files,
@@ -5594,7 +5776,7 @@ function DesignEditor() {
         .then(async () => {
           try {
             await journalOutboxEntry(outboxEntry);
-            await updateDesignAsync(outboxEntry.payload as any);
+            await saveDesignDataAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
               clearAcknowledgedDesignDataOperationsThroughRevision(
                 pendingFrameGeometryOperationsForUnloadRef.current,
@@ -5622,7 +5804,7 @@ function DesignEditor() {
       id,
       journalOutboxEntry,
       queryClient,
-      updateDesignAsync,
+      saveDesignDataAsync,
       warnChangesWillRetry,
     ],
   );
@@ -8203,12 +8385,18 @@ function DesignEditor() {
       : (activeFile?.content ?? ""));
   const rawActiveContent =
     typeof activeContentSource === "string" ? activeContentSource : "";
-  const activeContent = activeFile?.id
-    ? prepareCanonicalSourceContent(rawActiveContent, {
-        fileId: activeFile.id,
-        fileType: activeFile.fileType,
-      }).content
-    : rawActiveContent;
+  const canonicalFileId = activeFile?.id;
+  const canonicalFileType = activeFile?.fileType;
+  const activeContent = useMemo(
+    () =>
+      canonicalFileId
+        ? prepareCanonicalSourceContent(rawActiveContent, {
+            fileId: canonicalFileId,
+            fileType: canonicalFileType,
+          }).content
+        : rawActiveContent,
+    [canonicalFileId, canonicalFileType, rawActiveContent],
+  );
   useLayoutEffect(() => {
     if (activeFile?.id && rawActiveContent !== activeContent)
       publishCanonicalContent(
@@ -8299,13 +8487,19 @@ function DesignEditor() {
     },
     [getUnprojectedScreenContent, id],
   );
+  // Projects every screen, so it runs only while the dialog is open. The last
+  // count stays put for the dialog's close animation.
+  const lastDurableLockedLayerCountRef = useRef(0);
   const durableLockedLayerCount = useMemo(
     () =>
-      countLockedLayersAcrossFiles(
-        files.map((file) => ({ content: getScreenContent(file.id) })),
-      ),
-    [files, getScreenContent],
+      saveTemplateOpen
+        ? countLockedLayersAcrossFiles(
+            files.map((file) => ({ content: getScreenContent(file.id) })),
+          )
+        : lastDurableLockedLayerCountRef.current,
+    [files, getScreenContent, saveTemplateOpen],
   );
+  lastDurableLockedLayerCountRef.current = durableLockedLayerCount;
 
   const canApplyContentEdit = useCallback(
     (fileId: string) => {
@@ -8570,9 +8764,15 @@ function DesignEditor() {
           pendingVisualStyleEditsRef,
           pendingVisualStyleRedoStackRef,
           pendingVisualStyleUndoStackRef,
+          recordPendingHistoryEntry,
           responsiveEditScopeRef,
           runtimeLayerSnapshotsById,
           selectedElement,
+          onNoRenderedBox: () =>
+            toast.error(t("designEditor.patchProof.noRenderedBox"), {
+              id: "design-no-rendered-box",
+              duration: 4000,
+            }),
           setPatchProof,
           setPendingVisualStyleEdits,
           setSelectedElement,
@@ -8593,6 +8793,7 @@ function DesignEditor() {
       files,
       getProjectionContentForScreen,
       overviewScreens,
+      recordPendingHistoryEntry,
       runtimeLayerSnapshotsById,
       selectedElement?.computedStyles,
       selectedElement?.inlineStyles,
@@ -8628,6 +8829,10 @@ function DesignEditor() {
           pendingStructureRedoReplayRef,
           pendingStructureRedoReplayTimerRef,
           pendingVisualStyleRedoStackRef,
+          recordPendingHistoryEntry,
+          canCoalescePendingLiveEdit: () =>
+            historyOrderRef.current[historyOrderRef.current.length - 1] ===
+            "pending-live",
           runtimeLayerSnapshotsById,
           selectedElement,
           setPendingLiveNonStyleEdits,
@@ -8644,6 +8849,7 @@ function DesignEditor() {
       cancelPendingStructureVerification,
       files,
       overviewScreens,
+      recordPendingHistoryEntry,
       runtimeLayerSnapshotsById,
       selectedElement?.htmlContent,
       selectedElement?.sourceId,
@@ -8672,6 +8878,7 @@ function DesignEditor() {
           pendingLiveNonStyleRedoStackRef,
           pendingLiveNonStyleUndoStackRef,
           pendingVisualStyleRedoStackRef,
+          recordPendingHistoryEntry,
           runtimeLayerSnapshotsById,
           setPendingLiveNonStyleEdits,
         },
@@ -8688,6 +8895,7 @@ function DesignEditor() {
       cancelPendingStructureVerification,
       files,
       overviewScreens,
+      recordPendingHistoryEntry,
       runtimeLayerSnapshotsById,
     ],
   );
@@ -8729,6 +8937,7 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        remintCollidingNodeIds?: boolean;
         /** The inserted markup replaced this subject as one live gesture. */
         replaced?: true;
         replacementSelector?: string;
@@ -8754,6 +8963,7 @@ function DesignEditor() {
           pendingStructureRedoReplayTimerRef,
           pendingStructureRedoPreparedEditsRef,
           pendingVisualStyleRedoStackRef,
+          recordPendingHistoryEntry,
           runtimeLayerSnapshotsById,
           setPendingLiveNonStyleEdits,
         },
@@ -8770,6 +8980,7 @@ function DesignEditor() {
       cancelPendingStructureVerification,
       files,
       overviewScreens,
+      recordPendingHistoryEntry,
       runtimeLayerSnapshotsById,
     ],
   );
@@ -8831,7 +9042,7 @@ function DesignEditor() {
           originalName ??
           owner.node.dataAttributes["data-agent-native-layer-name"] ??
           "",
-        updatedAt: Date.now(),
+        updatedAt: nextPendingLiveEditTimestamp(),
       };
       const revertName = pendingLiveLayerNameUndoRevertValue(
         pendingLiveNonStyleEditsRef.current,
@@ -8841,10 +9052,16 @@ function DesignEditor() {
       pendingLiveNonStyleRedoStackRef.current = [];
       pendingVisualStyleRedoStackRef.current = [];
       clipboardPasteRedoStackRef.current = [];
+      const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
       appendPendingLiveNonStyleUndoEntry(
         pendingLiveNonStyleUndoStackRef.current,
         { kind: "layer-name", edit: nextEdit, revertName },
+        historyOrderRef.current[historyOrderRef.current.length - 1] ===
+          "pending-live",
       );
+      if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+        recordPendingHistoryEntry("pending-live");
+      }
       const nextPending = mergePendingLiveNonStyleEdit(
         pendingLiveNonStyleEditsRef.current,
         nextEdit,
@@ -8857,6 +9074,7 @@ function DesignEditor() {
       cancelPendingStructureVerification,
       files,
       overviewScreens,
+      recordPendingHistoryEntry,
       runtimeLayerSnapshotsById,
     ],
   );
@@ -9050,11 +9268,26 @@ function DesignEditor() {
     return { hasTimeline: true, keyframedProperties };
   }, [motionTracks, selectedMotionTargetNodeId]);
   const selectedCanvasSelectorCandidates = useMemo(() => {
+    const runtimeSelector = selectedElement?.runtimeSelector?.trim();
+    const runtimeCandidates = runtimeSelector ? [runtimeSelector] : [];
     if (selectedCodeLayerNode) {
-      return codeLayerSelectorAliases(selectedCodeLayerNode);
+      return Array.from(
+        new Set([
+          ...runtimeCandidates,
+          ...codeLayerSelectorAliases(selectedCodeLayerNode),
+        ]),
+      );
     }
-    return selectedElement?.selector ? [selectedElement.selector] : [];
-  }, [selectedCodeLayerNode, selectedElement?.selector]);
+    return runtimeCandidates.concat(
+      selectedElement?.selector && selectedElement.selector !== runtimeSelector
+        ? [selectedElement.selector]
+        : [],
+    );
+  }, [
+    selectedCodeLayerNode,
+    selectedElement?.runtimeSelector,
+    selectedElement?.selector,
+  ]);
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
 
   const handleDesignStateSelect = useCallback(
@@ -9127,7 +9360,10 @@ function DesignEditor() {
     [designSourceType, overviewScreens],
   );
   canEditLiveScreenIdsRef.current = canEditLiveScreens
-    ? liveScreenIds
+    ? new Set([
+        ...liveScreenIds,
+        ...(publicVisualEdit && boardFileId ? [boardFileId] : []),
+      ])
     : new Set();
   const canEditLiveScreen = useCallback(
     (screenId: string | null | undefined) =>
@@ -9454,7 +9690,13 @@ function DesignEditor() {
       path: selectedComponentLocalSourceAnchor?.path ?? "",
     },
     {
-      enabled: Boolean(id && selectedComponentLocalSourceAnchor),
+      // read-local-file is editor-only (assertAccess('design', id, 'editor')
+      // server-side) and reads through the owner's local bridge. Anonymous
+      // public viewers on /visual-edit/:id never have editor access, so
+      // without this gate every component selection fired a guaranteed 401.
+      enabled: Boolean(
+        id && selectedComponentLocalSourceAnchor && canEditDesign,
+      ),
       refetchOnMount: "always",
     },
   );
@@ -9838,11 +10080,22 @@ function DesignEditor() {
     );
   }, [activeCodeLayerProjection, hoveredElement]);
   const hoveredCanvasSelectorCandidates = useMemo(() => {
+    const runtimeSelector = hoveredElement?.runtimeSelector?.trim();
+    const runtimeCandidates = runtimeSelector ? [runtimeSelector] : [];
     if (isScreenRootElementInfo(hoveredElement)) return [];
     if (hoveredCodeLayerNode) {
-      return codeLayerSelectorAliases(hoveredCodeLayerNode);
+      return Array.from(
+        new Set([
+          ...runtimeCandidates,
+          ...codeLayerSelectorAliases(hoveredCodeLayerNode),
+        ]),
+      );
     }
-    return hoveredElement?.selector ? [hoveredElement.selector] : [];
+    return runtimeCandidates.concat(
+      hoveredElement?.selector && hoveredElement.selector !== runtimeSelector
+        ? [hoveredElement.selector]
+        : [],
+    );
   }, [hoveredCodeLayerNode, hoveredElement]);
   const hoveredCanvasSelector = hoveredCanvasSelectorCandidates[0] ?? null;
   const hoveredElementIsScreenRoot = isScreenRootElementInfo(hoveredElement);
@@ -9882,10 +10135,12 @@ function DesignEditor() {
       }
       const cached = cache.get(screenId);
       if (cached && cached.contentRef === content) return cached.projection;
-      recordDesignPerformance("buildCodeLayerProjection");
-      const projection = buildCodeLayerProjection(content, {
-        source: codeLayerSourceForScreen(screenId),
-      });
+      const source = codeLayerSourceForScreen(screenId);
+      let projection = preparedSourceProjection(screenId, content, source);
+      if (!projection) {
+        recordDesignPerformance("buildCodeLayerProjection");
+        projection = buildCodeLayerProjection(content, { source });
+      }
       cache.set(screenId, { contentRef: content, projection });
       return projection;
     },
@@ -12587,6 +12842,11 @@ function DesignEditor() {
           lastLocalContentRef,
           latestActiveContentRef,
           liveScreenSnapshotsById,
+          onNoRenderedBox: () =>
+            toast.error(t("designEditor.patchProof.noRenderedBox"), {
+              id: "design-no-rendered-box",
+              duration: 4000,
+            }),
           queueFileContentSave,
           recordContentHistoryEntry,
           recordLocalContentHistoryChangeFallback,
@@ -12893,10 +13153,29 @@ function DesignEditor() {
   const previewInteractionStateStyles = useCallback(
     (state: InteractionState, styles: Record<string, string>) => {
       if (!selectedElement) return;
+      const screenId = activeFile?.id;
+      const routePath = screenId
+        ? liveRoutePathsByScreenIdRef.current[screenId]
+        : undefined;
+      if (
+        screenId &&
+        sendLinkedScreenPreviewInteractionStateStyle(screenId, {
+          routePath,
+          selector: selectedCanvasSelector ?? selectedElement.selector ?? "",
+          selectorCandidates: selectedCanvasSelectorCandidates,
+          nodeId: selectedElement.sourceId ?? "",
+          state,
+          styles,
+        })
+      ) {
+        return;
+      }
       const sendPreview = (window as any)
         .__designCanvasSendInteractionStatePreviewStyle;
       if (typeof sendPreview !== "function") return;
       sendPreview({
+        screenId,
+        routePath,
         selector: selectedCanvasSelector ?? selectedElement.selector ?? "",
         selectorCandidates: selectedCanvasSelectorCandidates,
         nodeId: selectedElement.sourceId ?? "",
@@ -12904,7 +13183,12 @@ function DesignEditor() {
         styles,
       });
     },
-    [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
+    [
+      activeFile?.id,
+      selectedCanvasSelector,
+      selectedCanvasSelectorCandidates,
+      selectedElement,
+    ],
   );
 
   const commitInteractionStateStyles = useCallback(
@@ -13184,6 +13468,37 @@ function DesignEditor() {
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
+    ],
+  );
+
+  const handleFontUploaded = useCallback(
+    async (font: UploadedFont) => {
+      if (!activeFile?.id || activeCanvasSourceType !== "inline") {
+        throw new Error(t("common.genericError"));
+      }
+      const currentContent = getFreshActiveContent();
+      const nextContent = ensureUploadedFontFaceInHtml(currentContent, font);
+      const result = applyFileContentUpdate(activeFile.id, nextContent, {
+        forcePreviewFullDocument: true,
+        refreshPreview: false,
+        recordHistory: false,
+      });
+      if (result.status !== "accepted") {
+        throw new Error(t("common.genericError"));
+      }
+      handleStyleChange(
+        "fontFamily",
+        `${JSON.stringify(font.family)}, sans-serif`,
+      );
+    },
+    [
+      activeCanvasSourceType,
+      activeFile?.id,
+      applyFileContentUpdate,
+      ensureUploadedFontFaceInHtml,
+      getFreshActiveContent,
+      handleStyleChange,
+      t,
     ],
   );
 
@@ -13816,6 +14131,7 @@ function DesignEditor() {
             pendingStructureRedoReplayRef,
             pendingStructureRedoReplayTimerRef,
             pendingVisualStyleRedoStackRef,
+            recordPendingHistoryEntry,
             setPendingLiveNonStyleEdits,
           },
           edits,
@@ -15995,6 +16311,7 @@ function DesignEditor() {
           boardFileId,
           canEditDesign,
           canEditLiveScreen,
+          canEditLiveBoard: canEditDesign || publicVisualEdit,
           clearPendingOverviewLayerSelectionTimer,
           codeLayerOwnerByNodeIdRef,
           clearPendingHistory: clearPendingHistoryDirections,
@@ -16062,6 +16379,7 @@ function DesignEditor() {
           recordContentHistoryEntry,
           syncUndoRedoState,
           runtimeStructureInsertRevisionRef,
+          runtimeStructurePendingTransactionRef,
           sendRuntimeLayerMoveSemanticHandoff,
           setActiveFileId,
           setCreatedOverviewLayerSelection,
@@ -16081,6 +16399,7 @@ function DesignEditor() {
       boardFileId,
       canEditDesign,
       canEditLiveScreen,
+      publicVisualEdit,
       clearPendingHistoryDirections,
       clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
@@ -16098,9 +16417,15 @@ function DesignEditor() {
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
+        if (
+          transactionId &&
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         cancelPendingStructureVerification("conflict");
         toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
-        return;
+        return false;
       }
       // Never swallow this: a rejected insert leaves nothing on screen and
       // nothing in the pending list, so a silent return is indistinguishable
@@ -16108,7 +16433,44 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
+      const isBoardTimeout = reason === "board-drop-timeout";
+      let rollbackScheduled = false;
+      if (
+        isBoardTimeout &&
+        transactionId &&
+        runtimeStructureInsertRequest?.transactionId === transactionId
+      ) {
+        const insertedNodeId = runtimeStructureInsertRequest.html.match(
+          /\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/i,
+        )?.[1];
+        if (insertedNodeId) {
+          runtimeStructureRollbackRevisionRef.current += 1;
+          setRuntimeStructureRollbackRequest({
+            screenId: runtimeStructureInsertRequest.screenId,
+            requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
+            transactionId,
+            selector: "",
+            sourceId: insertedNodeId,
+          });
+          rollbackScheduled = true;
+        } else if (
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          // There is no stable target to reconcile. Release the admission
+          // lock so a later runtime edit cannot be blocked forever.
+          runtimeStructurePendingTransactionRef.current = null;
+        }
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+      }
       if (transactionId) {
+        if (
+          !isBoardTimeout &&
+          runtimeStructurePendingTransactionRef.current === transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
@@ -16117,8 +16479,15 @@ function DesignEditor() {
         );
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return rollbackScheduled;
     },
-    [cancelPendingStructureVerification, t],
+    [
+      cancelPendingStructureVerification,
+      runtimeStructurePendingTransactionRef,
+      runtimeStructureInsertRequest,
+      setRuntimeStructureRollbackRequest,
+      t,
+    ],
   );
 
   const handleRuntimeStructureInsertApplied = useCallback(
@@ -16128,6 +16497,7 @@ function DesignEditor() {
       routePath?: string;
       selector: string;
       sourceId?: string;
+      applied?: boolean;
     }) => {
       const request = runtimeStructureInsertRequest;
       if (!request || !details.selector) return;
@@ -16136,6 +16506,28 @@ function DesignEditor() {
         : Number.isFinite(Number(details.requestId)) &&
           Math.floor(Number(details.requestId)) === request.requestId;
       if (!requestMatches) return;
+      if (details.applied === false) {
+        // A same-slot runtime reorder changed no DOM. Do not turn its
+        // acknowledgement into an inserted pending edit whose undo would
+        // delete the pre-existing element.
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === request.transactionId ? null : current,
+        );
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === request.transactionId &&
+          current?.requestId === request.requestId
+            ? null
+            : current,
+        );
+        if (
+          request.transactionId &&
+          runtimeStructurePendingTransactionRef.current ===
+            request.transactionId
+        ) {
+          runtimeStructurePendingTransactionRef.current = null;
+        }
+        return;
+      }
       recordPendingLiveStructureEdit(
         request.screenId,
         details.selector,
@@ -16147,6 +16539,7 @@ function DesignEditor() {
           anchorSourceId: request.anchor.sourceId ?? undefined,
           routePath: details.routePath,
           insertedHtml: request.html,
+          remintCollidingNodeIds: request.remintCollidingNodeIds,
           requestId: details.requestId,
           transactionId: request.transactionId,
         },
@@ -16169,8 +16562,21 @@ function DesignEditor() {
           ? null
           : current,
       );
+      if (
+        request.transactionId &&
+        runtimeStructureDeleteRequest?.transactionId !==
+          request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
     },
-    [recordPendingLiveStructureEdit, runtimeStructureInsertRequest],
+    [
+      recordPendingLiveStructureEdit,
+      runtimeStructureDeleteRequest,
+      runtimeStructureInsertRequest,
+      runtimeStructurePendingTransactionRef,
+    ],
   );
 
   const handleRuntimeStructureDeleteApplied = useCallback(
@@ -16206,9 +16612,19 @@ function DesignEditor() {
           removed: true,
         },
       );
+      if (
+        request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureDeleteRequest(null);
     },
-    [recordPendingLiveStructureEdit, runtimeStructureDeleteRequest],
+    [
+      recordPendingLiveStructureEdit,
+      runtimeStructureDeleteRequest,
+      runtimeStructurePendingTransactionRef,
+    ],
   );
   const handleRuntimeStructureDeleteRejected = useCallback(
     (details: {
@@ -16240,13 +16656,19 @@ function DesignEditor() {
           sourceId: request.rollbackSourceId,
         });
       }
+      if (
+        request.transactionId &&
+        runtimeStructurePendingTransactionRef.current === request.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureDeleteRequest(null);
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [runtimeStructureDeleteRequest, t],
+    [runtimeStructureDeleteRequest, runtimeStructurePendingTransactionRef, t],
   );
   const discardPendingLiveStructureTransaction = useCallback(
     (transactionId: string) => {
@@ -16294,6 +16716,13 @@ function DesignEditor() {
           runtimeStructureRollbackRequest.transactionId,
         );
       }
+      if (
+        runtimeStructureRollbackRequest?.transactionId &&
+        runtimeStructurePendingTransactionRef.current ===
+          runtimeStructureRollbackRequest.transactionId
+      ) {
+        runtimeStructurePendingTransactionRef.current = null;
+      }
       setRuntimeStructureRollbackRequest(null);
       if (!details.applied) {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -16304,6 +16733,7 @@ function DesignEditor() {
     [
       discardPendingLiveStructureTransaction,
       runtimeStructureRollbackRequest,
+      runtimeStructurePendingTransactionRef,
       t,
     ],
   );
@@ -16900,6 +17330,7 @@ function DesignEditor() {
           selectedElement,
           selectedLayerIdsState,
           selectedLayerTargetsRef,
+          renderedElementInfoByLayerKeyRef,
           setSelectedElement,
           setSelectedLayerIdsState,
           viewModeRef,
@@ -17172,6 +17603,7 @@ function DesignEditor() {
         pendingVisualStyleEditsRef,
         pendingVisualStyleRedoStackRef,
         pendingVisualStyleUndoStackRef,
+        replayPendingVisualStyleRuntime,
         performDeleteFiles,
         publishAuthoritativeClipboardMutation,
         queryClient,
@@ -17191,7 +17623,9 @@ function DesignEditor() {
         setPendingLiveNonStyleEdits,
         setPendingTextRevertRequest,
         setPendingVisualStyleEdits,
+        setPendingVisualStyleBaselineResetRequest,
         setPendingVisualStyleRevertRequest,
+        setRuntimeStructureDeleteRequest,
         setRuntimeStructureInsertRequest,
         setRuntimeStructureMoveRequest,
         setOverviewSelectedScreenIds,
@@ -17238,7 +17672,9 @@ function DesignEditor() {
       recordLocalContentHistoryChangeFallback,
       replacePreviewContent,
       resetGeometryCommitCoalescing,
+      replayPendingVisualStyleRuntime,
       restoreSelectionSnapshot,
+      setPendingVisualStyleBaselineResetRequest,
       syncLiveScreenSnapshotPreview,
       syncUndoRedoState,
       t,
@@ -17702,12 +18138,11 @@ function DesignEditor() {
       files,
     ],
   );
-  const handleOverviewFrameAction = useCallback(
-    (screenId: string) => {
-      handleModeChange("interact", { targetFileId: screenId });
-    },
-    [handleModeChange],
-  );
+  const handleOverviewFrameAction = useCallback((screenId: string) => {
+    setOverviewInteractScreenId((current) =>
+      current === screenId ? null : screenId,
+    );
+  }, []);
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
@@ -19979,25 +20414,111 @@ function DesignEditor() {
     new Map(),
   );
   const codeLayerModelsArrayRef = useRef<CodeLayerFileModel[]>([]);
+  // Until the idle fill below has projected a screen, it gets a Layers model
+  // only once something needs it: active or board file, projected on demand
+  // (hover, click), lock/hide state the canvas must honor, an expanded or
+  // previewed Layers row, a runtime snapshot, or a search across every
+  // screen. Coverage is per file, so a batch imported into the open design
+  // takes the same path as a cold open. See buildNeededLayerModels.
+  const [coveredLayerModelFileIds, setCoveredLayerModelFileIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const layerModelsCoverAll = files.every((file) =>
+    coveredLayerModelFileIds.has(file.id),
+  );
+  // Null once every screen is covered: selection, expansion and search then
+  // no longer change which models exist, so they must not rerun the
+  // all-screens loop below.
+  const layerModelDemand = useMemo(
+    () =>
+      layerModelsCoverAll
+        ? null
+        : {
+            searching: layersSearchQuery.trim() !== "",
+            boardFileId,
+            expandedIds: new Set(expandedLayerIds),
+            lockedLayerIds,
+            hiddenLayerIds,
+            routeSelectionFileId:
+              initialRouteSelectionId && initialRouteScreenTarget
+                ? findDesignFileByScreenTarget(files, initialRouteScreenTarget)
+                    ?.id
+                : undefined,
+            selectedLayerIds: [
+              ...selectedLayerIdsState,
+              createdOverviewLayerSelection?.layerId,
+              initialRouteSelectionId,
+            ],
+            activeStoredContent: activeFile?.content ?? "",
+          },
+    [
+      activeFile?.content,
+      boardFileId,
+      createdOverviewLayerSelection?.layerId,
+      expandedLayerIds,
+      files,
+      hiddenLayerIds,
+      initialRouteScreenTarget,
+      initialRouteSelectionId,
+      layerModelsCoverAll,
+      layersSearchQuery,
+      lockedLayerIds,
+      selectedLayerIdsState,
+    ],
+  );
+  const sourceLayerStateByFileIdRef = useRef(
+    new Map<string, { content: string; present: boolean }>(),
+  );
   const codeLayerModelsByFile = useMemo(() => {
     const cache = codeLayerModelCacheRef.current;
     const liveFileIds = new Set(files.map((file) => file.id));
-    const models = files.map((file): CodeLayerFileModel => {
+    const demand = layerModelDemand;
+    const sourceLayerStates = sourceLayerStateByFileIdRef.current;
+    const hasSourceLayerState = (fileId: string) => {
+      const content = getProjectionContentForScreen(fileId);
+      const known = sourceLayerStates.get(fileId);
+      if (known?.content === content) return known.present;
+      const present =
+        content.includes("data-agent-native-locked") ||
+        content.includes("data-agent-native-hidden");
+      sourceLayerStates.set(fileId, { content, present });
+      return present;
+    };
+    const isNeeded = (fileId: string) =>
+      !demand ||
+      demand.searching ||
+      cache.has(fileId) ||
+      fileId === activeFile?.id ||
+      fileId === demand.boardFileId ||
+      fileId === demand.routeSelectionFileId ||
+      demand.lockedLayerIds.has(fileId) ||
+      demand.hiddenLayerIds.has(fileId) ||
+      demand.expandedIds.has(fileId) ||
+      Boolean(layerStructurePreviewByFileId[fileId]) ||
+      Boolean(runtimeLayerSnapshotsById[fileId]) ||
+      nonActiveProjectionCacheRef.current.has(fileId) ||
+      hasSourceLayerState(fileId);
+    const buildModel = (file: (typeof files)[number]): CodeLayerFileModel => {
       const sourceContent = getScreenContent(file.id);
       const cached = cache.get(file.id);
       const structurePreview = layerStructurePreviewByFileId[file.id];
       const structurePreviewKey = structurePreview
         ? `${structurePreview.sourceId}:${structurePreview.anchorId}:${structurePreview.placement}:${structurePreview.insert}`
         : "";
+      const projectionContent = getProjectionContentForScreen(file.id);
+      const sourceProjection =
+        getCodeLayerProjectionForScreen(file.id) ??
+        buildCodeLayerProjection(projectionContent, {
+          source: codeLayerSourceForScreen(file.id),
+        });
       const sourceNodeIdAttrs =
         cached?.sourceContent === sourceContent
           ? cached.sourceNodeIdAttrs
-          : codeLayerSourceNodeIdAttrs(sourceContent);
-      const sourceProjection =
-        getCodeLayerProjectionForScreen(file.id) ??
-        buildCodeLayerProjection(getProjectionContentForScreen(file.id), {
-          source: codeLayerSourceForScreen(file.id),
-        });
+          : codeLayerSourceNodeIdAttrs(
+              projectionContent === sourceContent
+                ? sourceProjection
+                : sourceContent,
+            );
       const runtimeSnapshot = runtimeLayerSnapshotsById[file.id];
       const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
         screen: overviewScreenById.get(file.id),
@@ -20067,9 +20588,44 @@ function DesignEditor() {
       };
       cache.set(file.id, model);
       return model;
+    };
+    const models = buildNeededLayerModels({
+      files,
+      isNeeded,
+      contentLength: (fileId) => getProjectionContentForScreen(fileId).length,
+      buildModel,
+      namesUnbuiltLayer: (built) => {
+        // The render that switches the active file still projects the
+        // previous file's fresh content for it, so its stored bytes answer
+        // for it too.
+        let activeStoredNodeIds: Set<string> | undefined;
+        const ownedByActiveFile = (layerId: string) => {
+          const activeId = activeFile?.id;
+          if (!activeId) return false;
+          activeStoredNodeIds ??= new Set(
+            buildCodeLayerProjection(demand?.activeStoredContent ?? "", {
+              source: codeLayerSourceForScreen(activeId),
+            }).nodes.map((node) => node.id),
+          );
+          return activeStoredNodeIds.has(layerId);
+        };
+        return [
+          ...(demand?.selectedLayerIds ?? []),
+          pendingOverviewLayerSelectionRef.current,
+        ].some(
+          (layerId) =>
+            layerId &&
+            !liveFileIds.has(layerId) &&
+            !built.some((model) => model.nodeById.has(layerId)) &&
+            !ownedByActiveFile(layerId),
+        );
+      },
     });
     for (const fileId of cache.keys()) {
       if (!liveFileIds.has(fileId)) cache.delete(fileId);
+    }
+    for (const fileId of sourceLayerStates.keys()) {
+      if (!liveFileIds.has(fileId)) sourceLayerStates.delete(fileId);
     }
     for (const fileId of runtimeProjectionCacheRef.current.keys()) {
       if (!liveFileIds.has(fileId)) {
@@ -20100,10 +20656,39 @@ function DesignEditor() {
     getProjectionContentForScreen,
     getRuntimeCodeLayerProjection,
     getScreenContent,
+    layerModelDemand,
     overviewScreenById,
     runtimeLayerSnapshotsById,
     layerStructurePreviewByFileId,
   ]);
+  const getCodeLayerProjectionForScreenRef = useRef(
+    getCodeLayerProjectionForScreen,
+  );
+  getCodeLayerProjectionForScreenRef.current = getCodeLayerProjectionForScreen;
+  useEffect(() => {
+    if (layerModelsCoverAll) return;
+    const projected: string[] = [];
+    let next = 0;
+    return runInIdleSlices((deadline) => {
+      const pending = historyFilesRef.current;
+      do {
+        const file = pending[next];
+        if (!file) {
+          // Always a new set: files that landed behind `next` mid-fill are
+          // still uncovered, and the new identity reruns this effect for them.
+          setCoveredLayerModelFileIds(
+            (covered) => new Set([...covered, ...projected]),
+          );
+          return true;
+        }
+        next += 1;
+        if (coveredLayerModelFileIds.has(file.id)) continue;
+        getCodeLayerProjectionForScreenRef.current(file.id);
+        projected.push(file.id);
+      } while (performance.now() < deadline);
+      return false;
+    });
+  }, [coveredLayerModelFileIds, layerModelsCoverAll]);
   const codeLayerModelByFileId = useMemo(
     () => new Map(codeLayerModelsByFile.map((model) => [model.fileId, model])),
     [codeLayerModelsByFile],
@@ -20428,27 +21013,26 @@ function DesignEditor() {
   // PF8: getLayerSelectorsForFile is called once per rendered screen (both
   // in the hoisted renderScreenContent above and for the board-file props
   // below), and previously allocated a brand-new array every call even when
-  // nothing relevant changed. Cache by fileId + a cheap signature of the
-  // resolved selectors so unchanged calls return the same array identity,
-  // letting DesignCanvas's own prop-diffing (or a future memo) bail.
-  const layerSelectorsCacheRef = useRef<
-    Map<
-      string,
-      { modelRef: unknown; layerIdsRef: Set<string>; value: string[] }
-    >
-  >(new Map());
+  // nothing relevant changed. Cache per id set, then per file, so unchanged
+  // calls return the same array and DesignCanvas's replay effect stays quiet.
+  // Every screen asks for both its locked and its hidden selectors; a cache
+  // keyed by file alone evicts one with the other on every render.
+  const layerSelectorsCacheRef = useRef(
+    new WeakMap<
+      Set<string>,
+      Map<string, { modelRef: unknown; value: string[] }>
+    >(),
+  );
   const getLayerSelectorsForFile = useCallback(
     (fileId: string, layerIds: Set<string>) => {
       const model = codeLayerModelByFileId.get(fileId);
-      const cache = layerSelectorsCacheRef.current;
-      const cached = cache.get(fileId);
-      if (
-        cached &&
-        cached.modelRef === model &&
-        cached.layerIdsRef === layerIds
-      ) {
-        return cached.value;
+      let cache = layerSelectorsCacheRef.current.get(layerIds);
+      if (!cache) {
+        cache = new Map();
+        layerSelectorsCacheRef.current.set(layerIds, cache);
       }
+      const cached = cache.get(fileId);
+      if (cached && cached.modelRef === model) return cached.value;
       const fileLayerIds = layerStateIdsForScreen(layerIds, fileId);
       const selectors = Array.from(fileLayerIds)
         .flatMap((layerId) =>
@@ -20456,8 +21040,9 @@ function DesignEditor() {
         )
         .filter(Boolean);
       if (fileLayerIds.has(fileId)) selectors.push("body");
-      const value = Array.from(new Set(selectors));
-      cache.set(fileId, { modelRef: model, layerIdsRef: layerIds, value });
+      const value =
+        selectors.length > 0 ? Array.from(new Set(selectors)) : NO_SELECTORS;
+      cache.set(fileId, { modelRef: model, value });
       return value;
     },
     [codeLayerModelByFileId],
@@ -23453,6 +24038,25 @@ function DesignEditor() {
           measured,
         );
       }
+      if (selectedLayerIdsStateRef.current.includes(layerId)) {
+        setSelectedElement((current) => {
+          if (!current) return measured;
+          const currentId = current.sourceId ?? current.runtimeSourceId;
+          const ownerId =
+            owner.node.dataAttributes["data-agent-native-node-id"] ??
+            bridgeSourceIdForCodeLayerNode(owner.node);
+          return currentId === ownerId ? measured : current;
+        });
+      }
+      // Keep zero-area measurements associated with the selected node so the
+      // style recorder can reject an invisible wrapper instead of queuing a
+      // pending edit that can never render.
+      if (
+        measured.boundingRect.width <= 0 ||
+        measured.boundingRect.height <= 0
+      ) {
+        return;
+      }
     };
     for (const [layerId, owner] of ownersToMeasure) {
       const synchronouslyMeasured = readRenderedLayerInfo(
@@ -23777,6 +24381,65 @@ function DesignEditor() {
     ],
   );
 
+  // LayersPanel and every LayerRow are memoized, and these callbacks reach
+  // each row. Handlers that change identity on unrelated editor renders
+  // (hover, zoom, each live frame booting) re-render the whole layer tree, so
+  // the panel gets stable forwarders to the latest handlers.
+  const layerPanelHandlers = {
+    onRename: handleLayerRename,
+    onToggleLocked: handleToggleLayerLocked,
+    onToggleHidden: handleToggleLayerHidden,
+    onHoverLayer: handleLayerHover,
+    onMoveLayer: handleLayerMove,
+    canMoveLayer,
+    onSelectionChange: handleLayerSelectionChange,
+    onCopyLayer: handleCopySelection,
+    onDuplicateLayer: handleDuplicateSelection,
+    onDeleteLayer: handleDeleteSelection,
+    onGroupSelection: handleGroupSelection,
+    onUngroupSelection: handleUngroupSelection,
+    onReorderLayer: changeSelectedZIndex,
+    onPasteToReplace: handlePasteToReplace,
+    onFrameSelection: handleFrameSelection,
+    onFlipHorizontal: handleFlipHorizontal,
+    onFlipVertical: handleFlipVertical,
+  };
+  const layerPanelHandlersRef = useRef(layerPanelHandlers);
+  layerPanelHandlersRef.current = layerPanelHandlers;
+  const layerPanelCallbacks = useMemo(() => {
+    const latest = () => layerPanelHandlersRef.current;
+    return {
+      onRename: (...args: Parameters<typeof handleLayerRename>) =>
+        latest().onRename(...args),
+      onToggleLocked: (...args: Parameters<typeof handleToggleLayerLocked>) =>
+        latest().onToggleLocked(...args),
+      onToggleHidden: (...args: Parameters<typeof handleToggleLayerHidden>) =>
+        latest().onToggleHidden(...args),
+      onHoverLayer: (...args: Parameters<typeof handleLayerHover>) =>
+        latest().onHoverLayer(...args),
+      onMoveLayer: (...args: Parameters<typeof handleLayerMove>) =>
+        latest().onMoveLayer(...args),
+      canMoveLayer: (...args: Parameters<typeof canMoveLayer>) =>
+        latest().canMoveLayer(...args),
+      onSelectionChange: (
+        ...args: Parameters<typeof handleLayerSelectionChange>
+      ) => latest().onSelectionChange(...args),
+      onCopyLayer: () => latest().onCopyLayer(),
+      onDuplicateLayer: () => latest().onDuplicateLayer(),
+      onDeleteLayer: () => latest().onDeleteLayer(),
+      onGroupSelection: () => latest().onGroupSelection(),
+      onUngroupSelection: () => latest().onUngroupSelection(),
+      onReorderLayer: (
+        _ids: string[],
+        direction: Parameters<typeof changeSelectedZIndex>[0],
+      ) => latest().onReorderLayer(direction),
+      onPasteToReplace: () => latest().onPasteToReplace(),
+      onFrameSelection: () => latest().onFrameSelection(),
+      onFlipHorizontal: () => latest().onFlipHorizontal(),
+      onFlipVertical: () => latest().onFlipVertical(),
+    };
+  }, []);
+
   // Figma's Cmd+Shift+H / Cmd+Shift+L: toggle hide/lock for the CURRENT
   // selection — every selected layer/screen (selectedLayerIds already unifies
   // overview screen selection and single-screen layer selection into one
@@ -23999,9 +24662,7 @@ function DesignEditor() {
       const screenBridgeUrl = screen.bridgeUrl;
       const screenPreviewUrl = screen.url ?? screen.previewUrl;
       const currentLiveRoutePath =
-        mode === "interact"
-          ? undefined
-          : liveRoutePathsByScreenIdRef.current[screen.id];
+        liveRoutePathsByScreenIdRef.current[screen.id];
       const screenPreviewToken =
         effectivePreviewTokensByScreenId[screen.id] ??
         ("previewToken" in screen && typeof screen.previewToken === "string"
@@ -24173,7 +24834,7 @@ function DesignEditor() {
           }
           fusionUrl={designFusionUrl}
           onComponentSourceJump={handleComponentSourceJump}
-          motionTracks={screenIsActive ? motionTracksWire : []}
+          motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
           motionDefaultEase={motionDefaultEase}
           motionDurationMs={motionDurationMs}
           gradientEditTarget={
@@ -24200,8 +24861,10 @@ function DesignEditor() {
           fitRootBodyToFrame={metadata.heightMode !== "hug"}
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
-          editMode={mode === "edit"}
-          interactMode={mode === "interact"}
+          editMode={mode === "edit" && overviewInteractScreenId !== screen.id}
+          interactMode={
+            mode === "interact" || overviewInteractScreenId === screen.id
+          }
           readOnly={!canEditDesign && !canEditLiveScreen(screen.id)}
           scaleMode={screenIsActive && activeTool === "scale"}
           handToolActive={activeTool === "hand"}
@@ -24210,10 +24873,10 @@ function DesignEditor() {
           registerRuntimeBridge={screenIsActive}
           selectedSelector={screenIsActive ? selectedCanvasSelector : null}
           selectedSelectorCandidates={
-            screenIsActive ? selectedCanvasSelectorCandidates : []
+            screenIsActive ? selectedCanvasSelectorCandidates : NO_SELECTORS
           }
           selectedSelectorGroups={
-            selectedLayerSelectorGroupsByScreen[screen.id] ?? []
+            selectedLayerSelectorGroupsByScreen[screen.id] ?? NO_SELECTOR_GROUPS
           }
           passiveSelectionStyle={
             screen.breakpointWidths?.length && !screenIsActive
@@ -24226,7 +24889,7 @@ function DesignEditor() {
           hoveredSelectorCandidates={
             hoveredElementScreenId === screen.id
               ? hoveredCanvasSelectorCandidates
-              : []
+              : NO_SELECTORS
           }
           lockedSelectors={getLayerSelectorsForFile(screen.id, lockedLayerIds)}
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
@@ -24383,6 +25046,7 @@ function DesignEditor() {
       getEmbeddedFrame,
       overviewCanvasZoom,
       mode,
+      overviewInteractScreenId,
       canEditDesign,
       canEditLiveScreen,
       publicVisualEditConnectionId,
@@ -24467,6 +25131,20 @@ function DesignEditor() {
       ),
     [renderEditableScreenContent],
   );
+
+  // Runtime structure requests are delivered through each screen's
+  // DesignCanvas element. Keep the iframe document mounted while still
+  // invalidating the overview's React-element cache so a request created after
+  // the initial render reaches its live destination. Without this explicit
+  // key, a cached screen node can retain the old null request and a board to
+  // live drop appears to complete while the destination never changes.
+  const overviewScreenContentRenderKey = [
+    runtimeStructureMoveRequest?.requestId ?? "",
+    runtimeStructureInsertRequest?.requestId ?? "",
+    runtimeStructureInsertRequest?.transactionId ?? "",
+    runtimeStructureDeleteRequest?.requestId ?? "",
+    runtimeStructureRollbackRequest?.requestId ?? "",
+  ].join("|");
 
   // ── Board element handlers ─────────────────────────────────────────────────
   // PF8: the board <DesignCanvas> callbacks below curry `boardFileId` into the
@@ -26060,11 +26738,15 @@ function DesignEditor() {
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
-    componentExpectedFiles,
+    getComponentExpectedFiles,
     componentDetailsReady,
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,
     onShaderSourceApplied: handleShaderSourceApplied,
+    onFontUploaded:
+      canEditActiveVisualScreen && activeCanvasSourceType === "inline"
+        ? handleFontUploaded
+        : undefined,
     onTweakChange: handleTweakChange,
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
@@ -26234,30 +26916,12 @@ function DesignEditor() {
                     onAddScreen={handleAddScreenAffordance}
                     onSearchQueryChange={setLayersSearchQuery}
                     onExpandedIdsChange={setExpandedLayerIds}
-                    onSelectionChange={handleLayerSelectionChange}
-                    onRename={handleLayerRename}
-                    onToggleLocked={handleToggleLayerLocked}
-                    onToggleHidden={handleToggleLayerHidden}
-                    onHoverLayer={handleLayerHover}
                     onLeaveLayer={handleLayerLeave}
-                    onMoveLayer={handleLayerMove}
-                    canMoveLayer={canMoveLayer}
                     boardElements={
                       viewMode === "overview" ? boardElements : undefined
                     }
                     hoveredLayerId={hoveredCodeLayerNode?.id ?? null}
-                    onCopyLayer={() => handleCopySelection()}
-                    onDuplicateLayer={() => handleDuplicateSelection()}
-                    onDeleteLayer={() => handleDeleteSelection()}
-                    onGroupSelection={() => handleGroupSelection()}
-                    onUngroupSelection={() => handleUngroupSelection()}
-                    onReorderLayer={(_ids, direction) =>
-                      changeSelectedZIndex(direction)
-                    }
-                    onPasteToReplace={() => handlePasteToReplace()}
-                    onFrameSelection={() => handleFrameSelection()}
-                    onFlipHorizontal={() => handleFlipHorizontal()}
-                    onFlipVertical={() => handleFlipVertical()}
+                    {...layerPanelCallbacks}
                   />
                 </div>
               </div>
@@ -27038,6 +27702,7 @@ function DesignEditor() {
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
+                        interactScreenId={overviewInteractScreenId}
                         readOnly={!canEditDesign}
                         editableScreenIds={editableLiveScreenIds}
                         activeScreenHasHoveredChild={
@@ -27109,6 +27774,30 @@ function DesignEditor() {
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}
+                        boardRuntimeStructureInsertRequest={
+                          runtimeStructureInsertRequest?.screenId ===
+                          boardFileId
+                            ? runtimeStructureInsertRequest
+                            : null
+                        }
+                        boardRuntimeStructureRollbackRequest={
+                          runtimeStructureRollbackRequest?.screenId ===
+                          boardFileId
+                            ? runtimeStructureRollbackRequest
+                            : null
+                        }
+                        runtimeStructurePendingTransactionRef={
+                          runtimeStructurePendingTransactionRef
+                        }
+                        onBoardRuntimeStructureInsertRejected={
+                          handleRuntimeStructureInsertRejected
+                        }
+                        onBoardRuntimeStructureInsertApplied={
+                          handleRuntimeStructureInsertApplied
+                        }
+                        onBoardRuntimeStructureRollbackResult={
+                          handleRuntimeStructureRollbackResult
+                        }
                         boardClearSelectionRequest={
                           overviewClearSelectionRequest
                         }
@@ -27148,7 +27837,7 @@ function DesignEditor() {
                         onBoardDrawPrimitive={
                           canEditDesign ? handleBoardDrawPrimitive : undefined
                         }
-                        boardEditMode={canEditDesign}
+                        boardEditMode={canEditDesign || publicVisualEdit}
                         onBoardElementSelect={
                           boardFileId ? handleBoardElementSelect : undefined
                         }
@@ -27243,7 +27932,9 @@ function DesignEditor() {
                         }
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
+                        screenContentRenderKey={overviewScreenContentRenderKey}
                         screenSnapshotsById={liveScreenSnapshotsById}
+                        tweakValues={cssVarValues}
                         renderBreakpointContent={renderBreakpointContent}
                       />
                       {id &&
@@ -27412,6 +28103,16 @@ function DesignEditor() {
                         }
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
+                        previewUrlOverride={
+                          activeCanvasSourceType === "localhost"
+                            ? previewUrlAtLiveRoute(
+                                activeScreenPreviewUrl ?? undefined,
+                                liveRoutePathsByScreenIdRef.current[
+                                  activeFile.id
+                                ],
+                              )
+                            : undefined
+                        }
                         bridgeUrl={activeScreenBridgeUrl}
                         connectionId={activeOverviewScreen?.connectionId}
                         previewToken={activeScreenPreviewToken}
@@ -27943,7 +28644,7 @@ function DesignEditor() {
           (designSystemsLoading && promptDesignSystemId === undefined)
         }
         anchorRef={promptAnchorRef}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}
