@@ -345,11 +345,25 @@ same preloadJevTools path used by the agent; baseline uses tool-search ranking.
 Latency is selection overhead, not full agent completion time.`);
 }
 
+function parseRepetitions(value: string | undefined): number {
+  const repetitions = Number(value);
+  if (!Number.isInteger(repetitions) || repetitions < 1) {
+    throw new Error("--repetitions must be a positive integer.");
+  }
+  return repetitions;
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return;
   }
+
+  const repetitionsIndex = process.argv.indexOf("--repetitions");
+  const repetitions =
+    repetitionsIndex >= 0
+      ? parseRepetitions(process.argv[repetitionsIndex + 1])
+      : undefined;
 
   const apiKey = process.env.JEV_API_KEY?.trim();
   if (!apiKey) {
@@ -358,11 +372,6 @@ async function main(): Promise<void> {
     );
   }
 
-  const repetitionsIndex = process.argv.indexOf("--repetitions");
-  const repetitions =
-    repetitionsIndex >= 0
-      ? Number(process.argv[repetitionsIndex + 1])
-      : undefined;
   const report = await runJevToolSelectionEval({ apiKey, repetitions });
   if (process.argv.includes("--json")) {
     console.log(JSON.stringify(report, null, 2));
