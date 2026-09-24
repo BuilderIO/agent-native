@@ -476,7 +476,6 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
     );
     const paths = svg.locator("g > path");
     await expect(paths).toHaveCount(2);
-
     const layers = page.getByRole("tree", { name: "Layers" });
     const svgRow = layers
       .getByRole("treeitem")
@@ -545,7 +544,31 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
     expect(reloadedPaint[0]?.style).not.toContain(
       "--an-vector-stroke-gradient:",
     );
+    expect(reloadedPaint[1]?.style).toContain("--an-vector-stroke-gradient:");
     expect(reloadedPaint[1]?.style).toMatch(/stroke: url\(["']?#/);
+    await expandAllLayers(page);
+    const reloadedTarget = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem", { level: 4 })
+      .first();
+    await expect(reloadedTarget).toBeVisible();
+    await reloadedTarget.click();
+    const reloadedStroke = page
+      .getByRole("heading", { name: "Stroke", exact: true })
+      .locator("xpath=ancestor::section");
+    const reloadedPicker = reloadedStroke.getByRole("button", {
+      name: "Open color picker",
+    });
+    await expect(reloadedPicker).toContainText("Linear gradient");
+    await reloadedPicker.click();
+    const reloadedPopoverId =
+      await reloadedPicker.getAttribute("aria-controls");
+    expect(reloadedPopoverId).toBeTruthy();
+    await expect(
+      page
+        .locator(`[id="${reloadedPopoverId}"]`)
+        .getByRole("button", { name: "Linear", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({
       path: testInfo.outputPath("nested-svg-stroke-gradient.png"),
     });

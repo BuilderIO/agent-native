@@ -534,6 +534,21 @@ test("vector stroke gradient is visible, persisted, undoable, and reloadable", a
     await expect
       .poll(() => boardVectorStrokeGradient(page))
       .toMatchObject({ gradientCount: 1, referencesGradient: true });
+    await selectLayerRow(page, "Vector");
+    const reloadedStrokePicker = inspectorSection(page, /^Stroke$/i).getByRole(
+      "button",
+      { name: "Open color picker" },
+    );
+    await expect(reloadedStrokePicker).toContainText("Linear gradient");
+    await reloadedStrokePicker.click();
+    const reloadedStrokePopoverId =
+      await reloadedStrokePicker.getAttribute("aria-controls");
+    expect(reloadedStrokePopoverId).toBeTruthy();
+    await expect(
+      page
+        .locator(`[id="${reloadedStrokePopoverId}"]`)
+        .getByRole("button", { name: "Linear", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect
       .poll(async () => {
         const source = await persistedBoardVectorPaint(

@@ -3783,6 +3783,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "--an-vector-start-point",
       "--an-vector-end-point",
       "--an-vector-fill-gradient",
+      "--an-vector-stroke-gradient",
       "--an-css-border-gradient",
       "--an-css-border-solid-color",
       "border",
@@ -10437,39 +10438,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         style.removeProperty(properties[i]);
       }
     }
-    function vectorFillGradientPaintTarget(el) {
+    function vectorGradientPaintTarget(el, paintProperty) {
       var root = el.tagName.toLowerCase() === "svg" ? el : el.closest("svg[data-an-primitive]");
       if (!root) return null;
-      var target = vectorPaintTarget(root);
+      var target = paintProperty === "stroke" ? vectorStrokeTarget(root) : vectorPaintTarget(root);
       if (!target && el !== root && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(el.tagName)) {
         target = el;
       }
       return target ? { root, target } : null;
     }
-    function removeVectorFillGradientPreview(root, target) {
-      var fillStyle = target.style.getPropertyValue("fill");
-      var reference = fillStyle.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
-      var gradientId = reference ? reference[1] : "";
-      var defsContainers = Array.from(
-        root.querySelectorAll(":scope > defs[data-an-vector-fill-gradient]")
-      );
-      defsContainers.forEach(function(defs) {
-        Array.from(defs.children).forEach(function(gradient) {
-          if (gradientId && gradient.getAttribute("id") === gradientId) {
-            gradient.remove();
-          }
-        });
-      });
-      var normalizedDefs = normalizeVectorFillGradientDefs(root);
-      if (normalizedDefs && normalizedDefs.children.length === 0) {
-        normalizedDefs.remove();
-      }
-      target.style.removeProperty("--an-vector-fill-gradient");
-      root.style.removeProperty("--an-vector-fill-gradient");
+    function vectorGradientDefAttribute(paintProperty) {
+      return "data-an-vector-" + paintProperty + "-gradient";
     }
-    function normalizeVectorFillGradientDefs(root) {
+    function vectorGradientMetadataProperty(paintProperty) {
+      return "--an-vector-" + paintProperty + "-gradient";
+    }
+    function normalizeVectorGradientDefs(root, paintProperty) {
       var containers = Array.from(
-        root.querySelectorAll(":scope > defs[data-an-vector-fill-gradient]")
+        root.querySelectorAll(
+          ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]"
+        )
       );
       var canonical = containers[0] || null;
       if (!canonical) return null;
@@ -10489,6 +10477,30 @@ export const editorChromeBridgeScript: string = `"use strict";
         duplicate.remove();
       });
       return canonical;
+    }
+    function removeVectorGradientPreview(root, target, paintProperty) {
+      var style = target.style.getPropertyValue(paintProperty);
+      var reference = style.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
+      var gradientId = reference ? reference[1] : "";
+      var defsContainers = Array.from(
+        root.querySelectorAll(
+          ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]"
+        )
+      );
+      defsContainers.forEach(function(defs) {
+        Array.from(defs.children).forEach(function(gradient) {
+          if (gradientId && gradient.getAttribute("id") === gradientId) {
+            gradient.remove();
+          }
+        });
+      });
+      var normalizedDefs = normalizeVectorGradientDefs(root, paintProperty);
+      if (normalizedDefs && normalizedDefs.children.length === 0) {
+        normalizedDefs.remove();
+      }
+      var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+      target.style.removeProperty(metadataProperty);
+      root.style.removeProperty(metadataProperty);
     }
     function vectorFillGradientShapeCount(root) {
       var count = 0;
@@ -10540,8 +10552,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return appended >= 2;
     }
-    function applyVectorFillGradientPreview(el, value) {
-      var paint = vectorFillGradientPaintTarget(el);
+    function applyVectorGradientPreview(el, value, paintProperty) {
+      var paint = vectorGradientPaintTarget(el, paintProperty);
       if (!paint) return false;
       var linear = parseLinearGradientCss(value);
       var radialMatch = String(value || "").trim().match(/^radial-gradient\\s*\\(([\\s\\S]*)\\)$/i);
@@ -10562,8 +10574,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var isRadial = !!radialMatch && radialStops.length >= 2;
       if (!linear && !isRadial) return false;
       var stops = linear ? linear.stops : radialStops;
-      removeVectorFillGradientPreview(paint.root, paint.target);
-      var baseId = (paint.root.getAttribute("data-agent-native-node-id") || "vector") + "-fill-gradient";
+      removeVectorGradientPreview(paint.root, paint.target, paintProperty);
+      var baseId = (paint.root.getAttribute("data-agent-native-node-id") || "vector") + "-" + paintProperty + "-gradient";
       var gradientId = baseId;
       var suffix = 2;
       while (document.getElementById(gradientId)) {
@@ -10712,21 +10724,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       gradient.setAttribute("id", gradientId);
       if (!appendSvgGradientStops(gradient, stops)) return false;
-      var defs = normalizeVectorFillGradientDefs(paint.root);
+      var defs = normalizeVectorGradientDefs(paint.root, paintProperty);
       if (!defs) {
         defs = document.createElementNS(svgNs, "defs");
-        defs.setAttribute("data-an-vector-fill-gradient", "");
+        defs.setAttribute(vectorGradientDefAttribute(paintProperty), "");
         paint.root.insertBefore(defs, paint.root.firstChild);
       }
       defs.appendChild(gradient);
       recordSourceSubtree(defs);
       paint.target.style.setProperty(
-        "fill",
+        paintProperty,
         "url(#" + gradientId + ")"
       );
       var metadataTarget = vectorFillGradientShapeCount(paint.root) === 1 ? paint.root : paint.target;
       metadataTarget.style.setProperty(
-        "--an-vector-fill-gradient",
+        vectorGradientMetadataProperty(paintProperty),
         value.trim()
       );
       return true;
@@ -10736,7 +10748,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
       if (cssProperty === "fill" && typeof value === "string") {
-        if (applyVectorFillGradientPreview(el, value)) return true;
+        if (applyVectorGradientPreview(el, value, "fill")) return true;
+      }
+      if (cssProperty === "stroke" && typeof value === "string") {
+        if (applyVectorGradientPreview(el, value, "stroke")) return true;
       }
       if (cssProperty === "--an-vector-start-point" || cssProperty === "--an-vector-end-point") {
         return applyVectorEndpointProperty(el, cssProperty, value);
@@ -10749,16 +10764,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var useOverlay = false;
       if (isVectorPaintProperty(cssProperty)) {
         var shape = vectorPaintTarget(el);
+        var vectorRoot = el.tagName.toLowerCase() === "svg" ? el : el.closest(
+          "svg[data-an-primitive]"
+        );
+        if (!shape && vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg" && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+          el.tagName
+        )) {
+          shape = el;
+        }
         if (shape) {
-          if (cssProperty === "fill") {
-            var vectorRoot = el.tagName.toLowerCase() === "svg" ? el : el.closest(
-              "svg[data-an-primitive]"
-            );
-            if (vectorRoot) removeVectorFillGradientPreview(vectorRoot, shape);
+          if (cssProperty === "fill" && vectorRoot) {
+            removeVectorGradientPreview(vectorRoot, shape, "fill");
           }
           strokeOverlay = vectorStrokeTarget(el);
           useOverlay = cssProperty.indexOf("stroke") === 0 && !!strokeOverlay && strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
           target = useOverlay ? strokeOverlay : shape;
+          if (cssProperty === "stroke" && vectorRoot) {
+            removeVectorGradientPreview(vectorRoot, target, "stroke");
+          }
           clearVectorWrapperPaint(el);
           if (useOverlay && cssProperty === "stroke-width") {
             var logicalWidth = String(value);

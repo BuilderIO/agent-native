@@ -18923,9 +18923,9 @@ function DesignEditor() {
       }
       const iframe = getOverviewFrameIframe(owner.fileId);
       const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
-      const element = iframe?.contentDocument?.querySelector<
-        SVGSVGElement | HTMLElement
-      >(`[data-agent-native-node-id="${safeNodeId}"]`);
+      const element = iframe?.contentDocument?.querySelector<Element>(
+        `[data-agent-native-node-id="${safeNodeId}"]`,
+      );
       if (!iframe || !element) {
         toast.error(t("designEditor.toasts.vectorEditUnsupported"));
         return true;
@@ -18933,9 +18933,19 @@ function DesignEditor() {
 
       if (penNodesAttr) {
         const path = parsePenNodes(penNodesAttr);
+        const elementTag = element.tagName.toLowerCase();
+        const svg =
+          elementTag === "svg"
+            ? (element as SVGSVGElement)
+            : elementTag === "path"
+              ? (element as SVGPathElement).ownerSVGElement
+              : null;
+        const isPastedChildPath =
+          elementTag === "path" &&
+          svg?.getAttribute("data-an-primitive") === "pasted-svg";
         const offset =
-          element.tagName.toLowerCase() === "svg"
-            ? penPathScreenContentOffset(element as SVGSVGElement)
+          svg && (elementTag === "svg" || isPastedChildPath)
+            ? penPathScreenContentOffset(svg)
             : null;
         if (!path || !offset) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));

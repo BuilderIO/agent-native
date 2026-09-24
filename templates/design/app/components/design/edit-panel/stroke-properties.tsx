@@ -1032,7 +1032,9 @@ function VectorStrokeProperties({
   const t = useT();
   const styles = element.computedStyles;
   const stroke = styles.stroke || "none";
-  const strokeGradient = styles["--an-vector-stroke-gradient"];
+  const strokeGradient =
+    element.inlineStyles?.["--an-vector-stroke-gradient"] ||
+    styles["--an-vector-stroke-gradient"];
   const width = styles.strokeWidth || "0px";
   const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
   const strokeExists = vectorStrokeExists(stroke);
@@ -1100,6 +1102,7 @@ function VectorStrokeProperties({
                 }
                 onChange={(value, meta) => onStyleChange("stroke", value, meta)}
                 supportsLayeredFills
+                singlePaint
                 backgroundImage={strokeGradient}
                 onBackgroundImageChange={(value) =>
                   onStyleChange("stroke", value)

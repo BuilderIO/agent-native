@@ -40,6 +40,7 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "--an-vector-start-point",
   "--an-vector-end-point",
   "--an-vector-fill-gradient",
+  "--an-vector-stroke-gradient",
   "--an-css-border-gradient",
   "--an-css-border-solid-color",
   "border",

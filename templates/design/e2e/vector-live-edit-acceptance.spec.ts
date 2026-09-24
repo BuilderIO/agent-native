@@ -13,6 +13,8 @@ const GROUPED_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 const EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0L30 30L0 30Z" fill="#f97316"/></svg>';
+const GROUPED_EDITABLE_SVG =
+  '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z" fill="#f97316"/><path d="M50 0L80 0L80 30Z" fill="#16a34a"/></g></svg>';
 const PEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;min-height:600px"><main data-agent-native-node-id="main" style="position:relative;min-height:600px"><div data-agent-native-node-id="frame" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position:absolute;left:40px;top:120px;width:600px;height:400px"><div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:80px;top:70px;width:280px;height:200px;transform:translate(10px,5px)"><svg data-agent-native-node-id="nested-path" data-agent-native-layer-name="Nested path" data-an-primitive="path" data-an-pen-nodes='[1,[0,0,null,null,null,null],[100,0,null,null,null,null],[100,80,null,null,null,null],[0,80,null,null,null,null]]' viewBox="0 0 100 80" preserveAspectRatio="none" style="position:absolute;left:15.25px;top:20.5px;width:100px;height:80px;overflow:visible;opacity:0.5;filter:drop-shadow(0 1px 2px #000)"><path d="M 0 0 L 100 0 L 100 80 L 0 80 Z" fill="#336699" stroke="none" /></svg></div></div></main></body></html>`;
 
 async function action(
@@ -252,6 +254,131 @@ test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
     await page.keyboard.press("Enter");
     await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
     await expect.poll(() => path.getAttribute("d")).toBe(editedPathData);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("a grouped pasted SVG edits only the selected path through undo and reload", async ({
+  page,
+}, testInfo) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    expect(await pasteSvg(page.locator("body"), GROUPED_EDITABLE_SVG)).toBe(
+      true,
+    );
+    await expandAllLayers(page);
+
+    const frame = designFrame(page, screenId);
+    const svg = frame.locator('svg[data-agent-native-layer-name="Pasted SVG"]');
+    const paths = svg.locator("g > path");
+    await expect(paths).toHaveCount(2);
+    const firstPath = paths.nth(0);
+    const targetPath = paths.nth(1);
+    const firstPathBefore = await firstPath.getAttribute("d");
+    const targetPathBefore = await targetPath.getAttribute("d");
+    const targetPathId = await targetPath.getAttribute(
+      "data-agent-native-node-id",
+    );
+    if (!targetPathBefore || !targetPathId)
+      throw new Error("grouped target path identity was not persisted");
+    const originalSource = await readSource(page, designId);
+
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const pathRows = layers.getByRole("treeitem", { level: 4 }).filter({
+      has: page.getByRole("button", { name: "PATH", exact: true }),
+    });
+    await expect(pathRows).toHaveCount(2);
+    // Layer rows display SVG siblings in reverse document order.
+    const targetRow = pathRows.nth(0);
+    const layerButton = targetRow.locator("[data-layer-row-button]");
+    await expect(layerButton).toBeVisible();
+    await layerButton.click();
+    const row = layerButton.locator("xpath=ancestor::*[@role='treeitem'][1]");
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+
+    const previewPath = page
+      .locator("[data-vector-edit-overlay] svg path")
+      .nth(0);
+    const originalPreviewPathData = await previewPath.getAttribute("d");
+    const anchor = page.locator("[data-vector-anchor]").nth(1);
+    const box = await anchor.boundingBox();
+    if (!box) throw new Error("grouped SVG anchor has no bounds");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 + 16,
+      box.y + box.height / 2 + 9,
+      { steps: 4 },
+    );
+    await expect
+      .poll(() => previewPath.getAttribute("d"))
+      .not.toBe(originalPreviewPathData);
+    await expect(firstPath).toHaveAttribute("d", firstPathBefore!);
+    await expect(targetPath).toHaveAttribute("d", targetPathBefore);
+    expect(await readSource(page, designId)).toBe(originalSource);
+    await page.screenshot({
+      path: testInfo.outputPath("grouped-vector-live-preview.png"),
+    });
+    await page.mouse.up();
+    await expect
+      .poll(() => targetPath.getAttribute("d"))
+      .not.toBe(targetPathBefore);
+    const editedTargetPath = await targetPath.getAttribute("d");
+    await expect
+      .poll(() => readSource(page, designId))
+      .toContain(editedTargetPath);
+    await expect(firstPath).toHaveAttribute("d", firstPathBefore!);
+    await page.screenshot({
+      path: testInfo.outputPath("grouped-vector-committed.png"),
+    });
+    await page.keyboard.press("Escape");
+
+    const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+    const redo =
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
+    await page.keyboard.press(undo);
+    await expect.poll(() => readSource(page, designId)).toBe(originalSource);
+    await expect(targetPath).toHaveAttribute("d", targetPathBefore);
+    await page.keyboard.press(redo);
+    await expect
+      .poll(() => targetPath.getAttribute("d"))
+      .toBe(editedTargetPath);
+    await page.reload();
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    const reloadedPathRows = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem", { level: 4 })
+      .filter({
+        has: page.getByRole("button", { name: "PATH", exact: true }),
+      });
+    await expect(reloadedPathRows).toHaveCount(2);
+    const reloadedLayer = reloadedPathRows
+      .nth(0)
+      .locator("[data-layer-row-button]");
+    await expect(reloadedLayer).toBeVisible();
+    await reloadedLayer.click();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await expect
+      .poll(() =>
+        designFrame(page, screenId)
+          .locator('svg[data-agent-native-layer-name="Pasted SVG"] g > path')
+          .nth(1)
+          .getAttribute("d"),
+      )
+      .toBe(editedTargetPath);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

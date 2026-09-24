@@ -350,33 +350,57 @@ export function parsePastedSvg(source: string): PastedSvg | null {
       ?.trim()
       .split(/[\s,]+/)
       .map(Number) ?? [];
-  const drawableChildren = Array.from(svg.children).filter(
-    (element) => element.localName.toLowerCase() !== "defs",
-  );
-  const path = drawableChildren[0];
-  const pathData = path?.getAttribute("d") ?? "";
-  const unsupportedPathSyntax = pathData
-    .replace(/[MLCZ]|-?\d+(?:\.\d+)?/g, "")
-    .replace(/[\s,]/g, "");
-  // Only mark the Pen round-trip grammar when its local coordinates already
-  // match the pasted 1:1 SVG viewport; other SVG transforms need an inverse map.
-  if (
-    drawableChildren.length === 1 &&
-    path?.localName.toLowerCase() === "path" &&
-    svg.querySelectorAll("path").length === 1 &&
+  const elements = [svg, ...Array.from(svg.querySelectorAll("*"))];
+  const directPenCoordinates =
     viewBoxValues.length === 4 &&
     viewBoxValues.every(Number.isFinite) &&
+    Math.abs(viewBoxValues[0]!) < 0.001 &&
+    Math.abs(viewBoxValues[1]!) < 0.001 &&
     Math.abs(viewBoxValues[2]! - width) < 0.001 &&
     Math.abs(viewBoxValues[3]! - height) < 0.001 &&
-    !svg.hasAttribute("transform") &&
-    !path.hasAttribute("transform") &&
-    !hasInlineTransform(svg) &&
-    !hasInlineTransform(path) &&
-    !unsupportedPathSyntax
-  ) {
-    const penPath = parsePenPathFromSerializedD(pathData);
-    if (penPath && penPath.nodes.length > 1) {
-      svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+    elements.every(
+      (element) =>
+        !element.hasAttribute("transform") && !hasInlineTransform(element),
+    );
+  if (directPenCoordinates) {
+    const paths = Array.from(svg.querySelectorAll("path")).filter((path) => {
+      let ancestor = path.parentElement;
+      while (ancestor && ancestor !== svg) {
+        if (
+          ["defs", "clippath", "mask"].includes(
+            ancestor.localName.toLowerCase(),
+          )
+        )
+          return false;
+        ancestor = ancestor.parentElement;
+      }
+      return true;
+    });
+    const editablePaths = paths.flatMap((path) => {
+      const pathData = path.getAttribute("d") ?? "";
+      const unsupportedPathSyntax = pathData
+        .replace(/[MLCZ]|-?\d+(?:\.\d+)?/g, "")
+        .replace(/[\s,]/g, "");
+      if (unsupportedPathSyntax) return [];
+      const penPath = parsePenPathFromSerializedD(pathData);
+      return penPath && penPath.nodes.length > 1 ? [{ path, penPath }] : [];
+    });
+    if (
+      paths.length === 1 &&
+      svg.children.length === 1 &&
+      svg.firstElementChild === paths[0]
+    ) {
+      const editablePath = editablePaths[0];
+      if (editablePath) {
+        svg.setAttribute(
+          "data-an-pen-nodes",
+          serializePenNodes(editablePath.penPath),
+        );
+      }
+    } else {
+      for (const { path, penPath } of editablePaths) {
+        path.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+      }
     }
   }
   return { svg: svg.outerHTML, width, height };

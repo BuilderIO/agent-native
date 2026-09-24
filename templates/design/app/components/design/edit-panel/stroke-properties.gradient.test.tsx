@@ -51,6 +51,8 @@ describe("vector stroke gradient inspector", () => {
           computedStyles: {
             stroke: "url(#pen-1-stroke-gradient)",
             strokeWidth: "2px",
+          },
+          inlineStyles: {
             "--an-vector-stroke-gradient":
               "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
           },
@@ -69,6 +71,7 @@ describe("vector stroke gradient inspector", () => {
       'data-supported-paint-types="solid,linear,radial"',
     );
     expect(markup).toContain('data-supports-layered-fills="true"');
+    expect(markup).toContain('data-single-paint="true"');
     expect(markup).toContain(
       'data-value="linear-gradient(90deg, #ff0000 0%, #0000ff 100%)"',
     );

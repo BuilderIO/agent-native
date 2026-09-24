@@ -8,6 +8,7 @@ import {
   parsePenNodes,
   resumePenPathAtEnd,
   setPenNodeCornerRadius,
+  serializePenNodes,
   serializePenPath,
   translatePenPath,
   type PenPath,
@@ -32,6 +33,61 @@ const editedPath: PenPath = {
 };
 
 describe("nested Pen path commits", () => {
+  it("updates only the selected child path in a grouped pasted SVG", () => {
+    const firstPath: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const secondPath: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 50, y: 0 }),
+        createCornerNode({ x: 80, y: 0 }),
+        createCornerNode({ x: 80, y: 30 }),
+      ],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 80 40" style="position:absolute;left:10px;top:20px;width:80px;height:40px;overflow:hidden">
+      <g>
+        <path data-agent-native-node-id="first" data-an-pen-nodes="${serializePenNodes(firstPath)}"
+          d="${serializePenPath(firstPath)}" fill="#f97316" />
+        <path data-agent-native-node-id="second" data-an-pen-nodes="${serializePenNodes(secondPath)}"
+          d="${serializePenPath(secondPath)}" fill="#16a34a" />
+      </g></svg>`;
+    const editedSecondPath = translatePenPath(secondPath, 5, 2);
+
+    const updated = writeBackVectorEditedPenPath(
+      html,
+      "second",
+      editedSecondPath,
+    );
+    const doc = new DOMParser().parseFromString(updated!, "text/html");
+    const svg = doc.querySelector("svg");
+    const first = doc.querySelector('[data-agent-native-node-id="first"]');
+    const second = doc.querySelector('[data-agent-native-node-id="second"]');
+
+    expect(updated).not.toBeNull();
+    expect(first?.getAttribute("d")).toBe(serializePenPath(firstPath));
+    expect(
+      parsePenNodes(first?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(firstPath);
+    expect(second?.getAttribute("d")).toBe(serializePenPath(editedSecondPath));
+    expect(
+      parsePenNodes(second?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(editedSecondPath);
+    expect(second?.getAttribute("fill")).toBe("#16a34a");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 80 40");
+    expect(svg?.style.left).toBe("10px");
+    expect(svg?.style.top).toBe("20px");
+    expect(svg?.style.width).toBe("80px");
+    expect(svg?.style.height).toBe("40px");
+    expect(svg?.style.overflow).toBe("visible");
+  });
+
   it("persists one rounded anchor through vector writeback and node rehydration", () => {
     const path = closePenPath(
       appendPenNode(

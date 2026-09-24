@@ -45,12 +45,63 @@ describe("parsePastedSvg", () => {
     ]);
   });
 
+  it("keeps untransformed grouped paths independently editable", () => {
+    const pasted = parsePastedSvg(
+      '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z"/><path d="M50 0L80 0L80 30Z"/></g></svg>',
+    );
+    const root = new DOMParser().parseFromString(
+      pasted!.svg,
+      "image/svg+xml",
+    ).documentElement;
+    const paths = Array.from(root.querySelectorAll("g > path"));
+
+    expect(root.hasAttribute("data-an-pen-nodes")).toBe(false);
+    expect(paths).toHaveLength(2);
+    expect(paths.map((path) => path.hasAttribute("data-an-pen-nodes"))).toEqual(
+      [true, true],
+    );
+    expect(
+      paths.map((path) => JSON.parse(path.getAttribute("data-an-pen-nodes")!)),
+    ).toEqual([
+      [
+        1,
+        [0, 0, null, null, null, null, null],
+        [30, 0, null, null, null, null, null],
+        [30, 30, null, null, null, null, null],
+      ],
+      [
+        1,
+        [50, 0, null, null, null, null, null],
+        [80, 0, null, null, null, null, null],
+        [80, 30, null, null, null, null, null],
+      ],
+    ]);
+  });
+
+  it("does not mark paths used only for SVG definitions as editable", () => {
+    const pasted = parsePastedSvg(
+      '<svg width="80" height="40" viewBox="0 0 80 40"><defs><clipPath id="clip"><path d="M0 0L10 0L10 10Z"/></clipPath></defs><path clip-path="url(#clip)" d="M0 0L30 0L30 30Z"/></svg>',
+    );
+    const root = new DOMParser().parseFromString(
+      pasted!.svg,
+      "image/svg+xml",
+    ).documentElement;
+
+    expect(
+      root.querySelector("clipPath path")?.hasAttribute("data-an-pen-nodes"),
+    ).toBe(false);
+    expect(
+      root.querySelector(":scope > path")?.hasAttribute("data-an-pen-nodes"),
+    ).toBe(true);
+  });
+
   it.each([
     '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0h30v30z"/></svg>',
     '<svg width="80" height="40" viewBox="0 0 80 40"><path transform="scale(2)" d="M0 0L30 0L30 30Z"/></svg>',
     '<svg width="80" height="40" viewBox="0 0 80 40" style="transform:scale(2)"><path d="M0 0L30 0L30 30Z"/></svg>',
     '<svg width="80" height="40" viewBox="0 0 80 40"><path style="transform:scale(2)" d="M0 0L30 0L30 30Z"/></svg>',
-    '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z"/></g></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40"><g transform="scale(2)"><path d="M0 0L30 0L30 30Z"/></g></svg>',
+    '<svg width="80" height="40" viewBox="10 0 80 40"><path d="M0 0L30 0L30 30Z"/></svg>',
   ])("leaves non-round-trippable clipboard paths unmarked (%s)", (source) => {
     const pasted = parsePastedSvg(source);
 

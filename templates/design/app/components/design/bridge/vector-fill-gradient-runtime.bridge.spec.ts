@@ -24,6 +24,10 @@ const VECTOR_HTML = `<!doctype html><html><body style="margin:0">
 <svg data-agent-native-node-id="vector.1" data-an-primitive="pasted-svg" viewBox="0 0 200 100" style="width:200px;height:100px">
   <path d="M0 0 H200 V100 H0 Z" fill="#cccccc" stroke="#111111" stroke-width="4" />
 </svg></body></html>`;
+const GROUPED_VECTOR_HTML = VECTOR_HTML.replace(
+  '<path d="M0 0 H200 V100 H0 Z" fill="#cccccc" stroke="#111111" stroke-width="4" />',
+  '<g><path data-agent-native-node-id="vector.shape.1" d="M0 0 H90 V100 H0 Z" fill="#cccccc" stroke="#111111" stroke-width="4" /><path data-agent-native-node-id="vector.shape.2" d="M110 0 H200 V100 H110 Z" fill="#cccccc" stroke="#222222" stroke-width="4" /></g>',
+);
 const VECTOR_WITH_STROKE_GRADIENT_HTML = VECTOR_HTML.replace(
   '<path d="M0 0 H200 V100 H0 Z" fill="#cccccc" stroke="#111111" stroke-width="4" />',
   '<defs data-an-vector-stroke-gradient=""><linearGradient id="vector.1-stroke-gradient"><stop offset="0%" stop-color="#111111"/><stop offset="100%" stop-color="#eeeeee"/></linearGradient></defs><path d="M0 0 H200 V100 H0 Z" fill="#cccccc" style="stroke: url(#vector.1-stroke-gradient); stroke-width: 4" />',
@@ -43,6 +47,48 @@ async function sendFill(page: import("@playwright/test").Page, value: string) {
       "*",
     );
   }, value);
+}
+
+async function sendStroke(
+  page: import("@playwright/test").Page,
+  value: string,
+) {
+  await page.evaluate((nextValue) => {
+    window.postMessage(
+      {
+        type: "style-change",
+        selector: '[data-agent-native-node-id="vector.1"]',
+        selectorCandidates: [],
+        nodeId: "vector.1",
+        property: "stroke",
+        value: nextValue,
+      },
+      "*",
+    );
+  }, value);
+}
+
+async function sendChildStroke(
+  page: import("@playwright/test").Page,
+  nodeId: string,
+  value: string,
+) {
+  await page.evaluate(
+    ({ nodeId, value }) => {
+      window.postMessage(
+        {
+          type: "style-change",
+          selector: `[data-agent-native-node-id="${nodeId}"]`,
+          selectorCandidates: [],
+          nodeId,
+          property: "stroke",
+          value,
+        },
+        "*",
+      );
+    },
+    { nodeId, value },
+  );
 }
 
 async function pixels(page: import("@playwright/test").Page) {
@@ -76,6 +122,81 @@ async function pixels(page: import("@playwright/test").Page) {
 }
 
 describe("live SVG vector fill gradients", () => {
+  it("clears a grouped child's stroke gradient when changed back to solid", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(GROUPED_VECTOR_HTML);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      await sendChildStroke(
+        page,
+        "vector.shape.2",
+        "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)",
+      );
+      const gradient = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        const target = document.querySelector<SVGPathElement>(
+          '[data-agent-native-node-id="vector.shape.2"]',
+        )!;
+        const sibling = document.querySelector<SVGPathElement>(
+          '[data-agent-native-node-id="vector.shape.1"]',
+        )!;
+        return {
+          stroke: target.style.stroke,
+          gradient: target.style.getPropertyValue(
+            "--an-vector-stroke-gradient",
+          ),
+          siblingStroke: sibling.getAttribute("stroke"),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-stroke-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(gradient.stroke).toMatch(
+        /^url\(["']?#vector\.1-stroke-gradient["']?\)$/,
+      );
+      expect(gradient.gradient).toContain("linear-gradient");
+      expect(gradient.siblingStroke).toBe("#111111");
+      expect(gradient.definitions).toBe(1);
+
+      await sendChildStroke(page, "vector.shape.2", "#00ff00");
+      const solid = await page.evaluate(() => {
+        const root = document.querySelector<SVGSVGElement>(
+          '[data-agent-native-node-id="vector.1"]',
+        )!;
+        const target = document.querySelector<SVGPathElement>(
+          '[data-agent-native-node-id="vector.shape.2"]',
+        )!;
+        const sibling = document.querySelector<SVGPathElement>(
+          '[data-agent-native-node-id="vector.shape.1"]',
+        )!;
+        return {
+          stroke: target.style.stroke,
+          gradient: target.style.getPropertyValue(
+            "--an-vector-stroke-gradient",
+          ),
+          siblingStroke: sibling.getAttribute("stroke"),
+          definitions: root.querySelectorAll(
+            ":scope > defs[data-an-vector-stroke-gradient] linearGradient",
+          ).length,
+        };
+      });
+      expect(solid).toEqual({
+        stroke: "rgb(0, 255, 0)",
+        gradient: "",
+        siblingStroke: "#111111",
+        definitions: 0,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it(
     "previews off-center radial headers with their authored position and extent",
     { timeout: 30_000 },
@@ -271,6 +392,152 @@ describe("live SVG vector fill gradients", () => {
         const rendered = await pixels(page);
         expect(rendered.left[0]).toBeGreaterThan(rendered.left[2]);
         expect(rendered.right[2]).toBeGreaterThan(rendered.right[0]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "renders linear and radial stroke gradients and keeps fill paint servers independent",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(VECTOR_HTML);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await sendStroke(
+          page,
+          "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)",
+        );
+        await sendFill(
+          page,
+          "linear-gradient(0deg, rgb(0, 255, 0) 0%, rgb(255, 255, 0) 100%)",
+        );
+        const linear = await page.evaluate(() => {
+          const svg = document.querySelector<SVGSVGElement>(
+            '[data-agent-native-node-id="vector.1"]',
+          )!;
+          const path = svg.querySelector("path")!;
+          const strokeGradient = svg.querySelector(
+            "defs[data-an-vector-stroke-gradient] linearGradient",
+          );
+          return {
+            stroke: (path as SVGElement & { style: CSSStyleDeclaration }).style
+              .stroke,
+            strokeStops: strokeGradient?.querySelectorAll("stop").length ?? 0,
+            strokeMetadata: svg.style.getPropertyValue(
+              "--an-vector-stroke-gradient",
+            ),
+            fill: (path as SVGElement & { style: CSSStyleDeclaration }).style
+              .fill,
+            fillGradient: svg.querySelector(
+              "defs[data-an-vector-fill-gradient] linearGradient",
+            ),
+          };
+        });
+        expect(linear.stroke).toMatch(
+          /^url\(["']?#vector\.1-stroke-gradient["']?\)$/,
+        );
+        expect(linear.strokeStops).toBe(2);
+        expect(linear.strokeMetadata).toContain("linear-gradient");
+        expect(linear.fill).toMatch(/^url\(/);
+        expect(linear.fillGradient).not.toBeNull();
+
+        const linearStrokePixels = await page.evaluate(async () => {
+          const svg = document.querySelector<SVGSVGElement>(
+            '[data-agent-native-node-id="vector.1"]',
+          )!;
+          const blob = new Blob(
+            [new XMLSerializer().serializeToString(svg.cloneNode(true))],
+            { type: "image/svg+xml" },
+          );
+          const url = URL.createObjectURL(blob);
+          try {
+            const image = new Image();
+            image.src = url;
+            await image.decode();
+            const canvas = document.createElement("canvas");
+            canvas.width = 200;
+            canvas.height = 100;
+            const context = canvas.getContext("2d")!;
+            context.drawImage(image, 0, 0);
+            return {
+              left: Array.from(context.getImageData(1, 50, 1, 1).data),
+              right: Array.from(context.getImageData(199, 50, 1, 1).data),
+            };
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        });
+        expect(linearStrokePixels.left[0]).toBeGreaterThan(
+          linearStrokePixels.left[2],
+        );
+        expect(linearStrokePixels.right[2]).toBeGreaterThan(
+          linearStrokePixels.right[0],
+        );
+
+        await sendStroke(
+          page,
+          "radial-gradient(circle at center, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)",
+        );
+        const radial = await page.evaluate(() => {
+          const svg = document.querySelector<SVGSVGElement>(
+            '[data-agent-native-node-id="vector.1"]',
+          )!;
+          const path = svg.querySelector("path")!;
+          const gradient = svg.querySelector(
+            "defs[data-an-vector-stroke-gradient] radialGradient",
+          );
+          return {
+            stroke: (path as SVGElement & { style: CSSStyleDeclaration }).style
+              .stroke,
+            strokeDefs: svg.querySelectorAll(
+              ":scope > defs[data-an-vector-stroke-gradient]",
+            ).length,
+            gradientId: gradient?.getAttribute("id"),
+            fillGradientCount: svg.querySelectorAll(
+              "defs[data-an-vector-fill-gradient] linearGradient",
+            ).length,
+          };
+        });
+        expect(radial.stroke).toMatch(
+          /^url\(["']?#vector\.1-stroke-gradient["']?\)$/,
+        );
+        expect(radial.strokeDefs).toBe(1);
+        expect(radial.gradientId).toBe("vector.1-stroke-gradient");
+        expect(radial.fillGradientCount).toBe(1);
+
+        await sendStroke(page, "#00ff00");
+        const cleared = await page.evaluate(() => {
+          const svg = document.querySelector<SVGSVGElement>(
+            '[data-agent-native-node-id="vector.1"]',
+          )!;
+          const path = svg.querySelector("path")!;
+          return {
+            strokeDefs: svg.querySelectorAll(
+              ":scope > defs[data-an-vector-stroke-gradient]",
+            ).length,
+            fillDefs: svg.querySelectorAll(
+              ":scope > defs[data-an-vector-fill-gradient]",
+            ).length,
+            strokeMetadata: svg.style.getPropertyValue(
+              "--an-vector-stroke-gradient",
+            ),
+            fill: (path as SVGElement & { style: CSSStyleDeclaration }).style
+              .fill,
+          };
+        });
+        expect(cleared).toEqual({
+          strokeDefs: 0,
+          fillDefs: 1,
+          strokeMetadata: "",
+          fill: linear.fill,
+        });
       } finally {
         await browser.close();
       }
