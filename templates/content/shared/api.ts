@@ -168,6 +168,8 @@ export interface DocumentUpdateResponse extends Document {
 export interface DocumentMoveRequest {
   parentId?: string | null;
   position?: number;
+  /** Destination Content space; moves the page and its sub-pages there. */
+  spaceId?: string;
 }
 
 export interface DocumentListResponse {
