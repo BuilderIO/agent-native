@@ -333,7 +333,19 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       // key, forced a re-register, and left the canvas on "Preparing editable
       // preview..." until that round trip finished.
       if (typeof e.data.editingSafetyEnabled === "boolean") {
-        editingSafetyEnabled = e.data.editingSafetyEnabled;
+        var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
+        if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
+          cancelActivePan();
+          if (forwardedSpaceKeyDown) {
+            forwardedSpaceKeyDown = false;
+            postToParent({
+              type: "design-hotkey-up",
+              key: " ",
+              code: "Space",
+            });
+          }
+        }
+        editingSafetyEnabled = nextEditingSafetyEnabled;
         syncEditingSafetyStyle();
       }
     }

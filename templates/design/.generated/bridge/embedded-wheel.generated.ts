@@ -241,7 +241,19 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         wheelEnabled = !!e.data.wheelEnabled;
         spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
         if (typeof e.data.editingSafetyEnabled === "boolean") {
-          editingSafetyEnabled = e.data.editingSafetyEnabled;
+          var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
+          if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
+            cancelActivePan();
+            if (forwardedSpaceKeyDown) {
+              forwardedSpaceKeyDown = false;
+              postToParent({
+                type: "design-hotkey-up",
+                key: " ",
+                code: "Space"
+              });
+            }
+          }
+          editingSafetyEnabled = nextEditingSafetyEnabled;
           syncEditingSafetyStyle();
         }
       }
