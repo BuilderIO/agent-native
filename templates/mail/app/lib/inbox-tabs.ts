@@ -4,6 +4,7 @@ import {
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import { ALL_TAB_PARAM } from "@shared/inbox-threads";
 import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage, SavedMailFilter } from "@shared/types";
@@ -73,7 +74,7 @@ export function resolveDefaultMailHref(opts: {
   savedFilters?: readonly Pick<SavedMailFilter, "id">[];
 }): string {
   if (opts.combineInbox) return "/inbox";
-  if (opts.showAllTab !== false) return "/inbox?tab=all";
+  if (opts.showAllTab !== false) return `/inbox?tab=${ALL_TAB_PARAM}`;
   const resolved = resolvePinnedLabels(
     opts.pinnedLabels,
     opts.isGoogleConnected ?? true,

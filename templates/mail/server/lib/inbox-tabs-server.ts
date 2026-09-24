@@ -134,6 +134,5 @@ export function resolveActiveTabId(
 ): string {
   const first = tabs[0]?.id ?? OTHER_TAB_ID;
   if (!requested) return first;
-  const requestedId = requested === "all" ? ALL_TAB_ID : requested;
-  return tabs.some((t) => t.id === requestedId) ? requestedId : first;
+  return tabs.some((t) => t.id === requested) ? requested : first;
 }

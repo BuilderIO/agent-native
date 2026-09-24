@@ -177,7 +177,7 @@ describe("resolveDefaultMailHref", () => {
         pinnedLabels: undefined,
         isGoogleConnected: true,
       }),
-    ).toBe("/inbox?tab=all");
+    ).toBe("/inbox?tab=__inbox_all__");
   });
 
   it("selects the first top label when All is hidden", () => {
@@ -236,7 +236,7 @@ describe("resolveDefaultMailHref", () => {
 
 describe("All inbox tab deep links", () => {
   it("uses the public all parameter for the built-in tab id", () => {
-    expect(inboxTabHref(ALL_TAB_ID)).toBe("/inbox?tab=all");
+    expect(inboxTabHref(ALL_TAB_ID)).toBe("/inbox?tab=__inbox_all__");
   });
 });
 

@@ -88,6 +88,8 @@ describe("AppLayout inbox tab bar", () => {
       'tab.kind === "all" ? t("mail.views.all") : tab.name',
     );
     expect(source).toContain("allTabVisible={showAllTab}");
+    expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
+    expect(source).not.toContain('"relative hidden sm:block"');
     expect(source).toContain("tooltip: tab.query");
     expect(source).toContain("total: tab.total");
     expect(source).toContain("unread: tab.unread");

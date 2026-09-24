@@ -16,7 +16,7 @@ export const IMPORTANT_TAB_ID = "important";
 export const OTHER_TAB_ID = "other";
 /** The unfiltered inbox tab; distinct from a Gmail label or saved-filter id. */
 export const ALL_TAB_ID = "__inbox_all__";
-export const ALL_TAB_PARAM = "all";
+export const ALL_TAB_PARAM = ALL_TAB_ID;
 /** The whole inbox, no split (used when `combineInbox` is on). */
 export const ALL_INBOX_TAB_ID = "inbox";
 

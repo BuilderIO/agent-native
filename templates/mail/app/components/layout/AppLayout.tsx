@@ -1455,10 +1455,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
             {/* Tab settings cog */}
             <div
-              className={cn(
-                "relative hidden sm:block",
-                tabsLoading && "invisible",
-              )}
+              className={cn("relative shrink-0", tabsLoading && "invisible")}
             >
               <Popover
                 open={tabSettingsOpen}

@@ -1,4 +1,5 @@
 import {
+  ALL_TAB_PARAM,
   ALL_TAB_ID,
   IMPORTANT_TAB_ID,
   type InboxTabConfig,
@@ -191,7 +192,19 @@ describe("resolveActiveTabId", () => {
       { ...config, showAllTab: true },
       new Map(),
     );
-    expect(resolveActiveTabId("all", allTabs)).toBe(ALL_TAB_ID);
+    expect(resolveActiveTabId(ALL_TAB_PARAM, allTabs)).toBe(ALL_TAB_ID);
+  });
+
+  it("does not reserve a saved-filter id named all", () => {
+    const tabsWithAllFilter = resolveInboxTabs(
+      {
+        ...config,
+        savedFilters: [{ id: "all", name: "All matches", query: "is:unread" }],
+      },
+      new Map(),
+    );
+
+    expect(resolveActiveTabId("all", tabsWithAllFilter)).toBe("all");
   });
 
   it("lands on All by default even when pinned labels and saved filters exist", () => {
