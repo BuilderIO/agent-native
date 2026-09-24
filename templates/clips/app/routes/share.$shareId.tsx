@@ -1782,33 +1782,39 @@ export default function ShareRoute() {
         <RecordingSidePanel
           className={cn(
             "lg:col-start-2 lg:row-start-2",
-            sidePanelCollapsed && "h-10 lg:me-0 lg:h-10 lg:w-10",
+            sidePanelCollapsed &&
+              "lg:me-0 lg:h-10 lg:w-10 lg:border-0 lg:bg-transparent lg:shadow-none",
           )}
           tabs={
-            <div className="flex min-w-0 items-center border-b border-border">
-              {!sidePanelCollapsed ? (
-                <ViewerTabsList>
-                  {recording.enableComments ? (
-                    <ViewerTabsTrigger
-                      value="comments"
-                      className="px-0 data-[state=active]:after:inset-x-0"
-                    >
-                      {t("sharePage.comments")}
-                    </ViewerTabsTrigger>
-                  ) : null}
-                  <ViewerTabsTrigger value="transcript">
-                    {t("sharePage.transcript")}
+            <div
+              className={cn(
+                "flex min-w-0 items-center border-b border-border",
+                sidePanelCollapsed && "lg:border-0",
+              )}
+            >
+              <ViewerTabsList
+                className={sidePanelCollapsed ? "lg:hidden" : undefined}
+              >
+                {recording.enableComments ? (
+                  <ViewerTabsTrigger
+                    value="comments"
+                    className="px-0 data-[state=active]:after:inset-x-0"
+                  >
+                    {t("sharePage.comments")}
                   </ViewerTabsTrigger>
-                  <ViewerTabsTrigger value="agent">
-                    {t("sharePage.agent")}
-                  </ViewerTabsTrigger>
-                </ViewerTabsList>
-              ) : null}
+                ) : null}
+                <ViewerTabsTrigger value="transcript">
+                  {t("sharePage.transcript")}
+                </ViewerTabsTrigger>
+                <ViewerTabsTrigger value="agent">
+                  {t("sharePage.agent")}
+                </ViewerTabsTrigger>
+              </ViewerTabsList>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <ViewerIconButton
                     variant="ghost"
-                    className="ms-auto me-1 size-8 shrink-0"
+                    className="ms-auto me-1 hidden size-8 shrink-0 border-0 shadow-none lg:inline-flex"
                     aria-label={t(
                       sidePanelCollapsed
                         ? "navigation.expandSidebar"
@@ -1840,7 +1846,7 @@ export default function ShareRoute() {
         >
           <div
             id="clip-share-side-panel-content"
-            className={sidePanelCollapsed ? "hidden" : "contents"}
+            className={cn("contents", sidePanelCollapsed && "lg:hidden")}
           >
             {recording.enableComments ? (
               <TabsContent
