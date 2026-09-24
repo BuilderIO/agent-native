@@ -865,8 +865,8 @@ export function createIntegrationsPlugin(
     // `workspaceApps` tool group for a deployment with no A2A peer.
     const localActions = options?.actions ?? {};
     let callAgentEntry: Record<string, unknown> = {};
-    if (options?.callAgent !== false) {
-      try {
+    try {
+      if (options?.callAgent !== false) {
         const mod = await import("../scripts/call-agent.js");
         callAgentEntry = {
           "call-agent": {
@@ -875,9 +875,9 @@ export function createIntegrationsPlugin(
               mod.run(args, context as any, options?.appId),
           },
         };
-      } catch {
-        // call-agent script not available — skip
       }
+    } catch {
+      // call-agent script not available — skip
     }
     const actions = {
       ...integrationMemoryActions(),
