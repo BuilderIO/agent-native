@@ -1339,9 +1339,15 @@ async function ensureEmailVerifiedForRedirect(
   request: Request,
   response: Response,
 ): Promise<void> {
-  const email =
-    (await emailFromVerificationResponseSession(response)) ??
-    decodeEmailVerificationTokenEmail(request);
+  let email = decodeEmailVerificationTokenEmail(request);
+  try {
+    email = (await emailFromVerificationResponseSession(response)) ?? email;
+  } catch (error) {
+    console.warn(
+      "[auth] could not resolve the magic-link session for verification repair:",
+      error instanceof Error ? error.constructor.name : typeof error,
+    );
+  }
   if (!email) return;
   try {
     const db = getDbExec();
@@ -1487,7 +1493,17 @@ async function persistMagicLinkLegacySession(
 ): Promise<void> {
   const rawToken = extractSessionTokenFromAuthResponse(response);
   if (!rawToken) return;
-  const resolved = await resolveBetterAuthSessionToken(rawToken);
+  let resolved: { token: string; email: string } | null;
+  try {
+    resolved = await resolveBetterAuthSessionToken(rawToken);
+  } catch (error) {
+    console.error(
+      "[auth] failed to resolve magic-link session:",
+      error instanceof Error ? error.constructor.name : typeof error,
+    );
+    setFrameworkSessionCookie(event, decodeSessionCookieValue(rawToken));
+    return;
+  }
   const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
   setFrameworkSessionCookie(event, token);
   if (!resolved) return;
