@@ -692,7 +692,6 @@ export default function DeckEditor() {
   );
   const {
     attempt: {
-      generating: attemptGenerating,
       observedRun: attemptObservedRun,
       runError: attemptRunError,
       stopReason: attemptStopReason,
