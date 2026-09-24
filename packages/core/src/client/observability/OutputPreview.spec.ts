@@ -193,7 +193,7 @@ describe("parseOutputPreview", () => {
       title: undefined,
       summary: undefined,
       imageUrl: undefined,
-      previewUrl: `${origin}/design/present/design_123?reviewEmbed=1`,
+      previewUrl: `${origin}/present/design_123?reviewEmbed=1`,
       tokens: [],
     });
 
@@ -256,7 +256,7 @@ describe("parseOutputPreview", () => {
       ),
     ).toMatchObject({
       kind: "design",
-      previewUrl: `${origin}/design/present/another_1?reviewEmbed=1`,
+      previewUrl: `${origin}/present/another_1?reviewEmbed=1`,
     });
   });
 

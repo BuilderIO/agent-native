@@ -145,17 +145,7 @@ function safeDesignPreviewUrl(
       /^\/design\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
     );
     if (!match || !DESIGN_ID_PATTERN.test(match[1])) return undefined;
-    const designOrigin =
-      url.origin === DESIGN_HOST_ORIGIN ||
-      url.origin === BETA_DESIGN_HOST_ORIGIN;
-    const mountPath =
-      sameOrigin && !designOrigin
-        ? url.pathname.slice(0, -`/${match[1]}`.length)
-        : "";
-    return new URL(
-      `${mountPath}/present/${match[1]}?reviewEmbed=1`,
-      url.origin,
-    ).toString();
+    return new URL(`/present/${match[1]}?reviewEmbed=1`, url.origin).toString();
     // coercion-ok: malformed untrusted design URLs are intentionally rejected.
   } catch {
     return undefined;
