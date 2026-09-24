@@ -37,11 +37,12 @@ describe("deployment target logos", () => {
     expect(content).not.toContain("deployment-target-mark text-mark");
   });
 
-  it("provides a dark-mode logo for monochrome providers", () => {
+  it("provides a dark-mode logo for marks that fade on dark", () => {
     const content = readFileSync(deploymentDoc, "utf8");
 
     for (const logo of [
       "vercel-white.svg",
+      "netlify-darkmode.svg",
       "deno-white.svg",
       "koyeb-white.svg",
       "render-white.svg",

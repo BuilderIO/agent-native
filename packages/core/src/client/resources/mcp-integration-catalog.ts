@@ -423,7 +423,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     connectionMode: "oauth",
     availability: "provider-setup",
     verification: "restricted",
-    logoUrl: mcpIntegrationLogo("atlassian"),
+    logoUrl: mcpIntegrationLogo("jira"),
     docsUrl:
       "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
     setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
