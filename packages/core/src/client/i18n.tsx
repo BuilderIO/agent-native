@@ -944,6 +944,7 @@ export function useIconPickerLabels() {
     allCategories: t("iconPicker.allCategories"),
     loadError: t("iconPicker.loadError"),
     saveError: t("iconPicker.saveError"),
+    uploadTooLarge: t("iconPicker.uploadTooLarge"),
     retry: t("iconPicker.retry"),
     uploadHint: t("iconPicker.uploadHint"),
     colorNames: Object.fromEntries(

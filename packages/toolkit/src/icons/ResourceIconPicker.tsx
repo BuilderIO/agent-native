@@ -45,6 +45,7 @@ const colors: Array<ResourceIconColor | undefined> = [
 ];
 const columns = 7;
 const rowHeight = 36;
+const MAX_ICON_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 export interface ResourceIconPickerLabels {
   trigger: string;
@@ -63,6 +64,7 @@ export interface ResourceIconPickerLabels {
   saveError?: string;
   retry?: string;
   uploadHint?: string;
+  uploadTooLarge?: string;
   allCategories?: string;
   colorNames?: Partial<Record<ResourceIconColor, string>>;
   categoryNames?: Record<string, string>;
@@ -336,6 +338,7 @@ export function ResourceIconPicker({
   const [retry, setRetry] = React.useState(0);
   const [uploading, setUploading] = React.useState(false);
   const [saveFailed, setSaveFailed] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState<string>();
   const [color, setColor] = React.useState<ResourceIconColor | undefined>(
     value?.kind === "library" ? value.color : undefined,
   );
@@ -432,6 +435,7 @@ export function ResourceIconPicker({
   }, [open, tab, retry]);
   const select = async (next: ResourceIconValue | null, close = true) => {
     setSaveFailed(false);
+    setUploadError(undefined);
     const persisted = next ? persistedIconValue(next) : null;
     try {
       await onValueChange(persisted);
@@ -444,8 +448,15 @@ export function ResourceIconPicker({
   };
   const upload = async (file: File) => {
     if (!onUpload) return;
+    if (file.size > MAX_ICON_UPLOAD_BYTES) {
+      setSaveFailed(false);
+      setUploadError(labels.uploadTooLarge ?? labels.saveError);
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
     setUploading(true);
     setSaveFailed(false);
+    setUploadError(undefined);
     try {
       await select(await onUpload(file));
     } catch (error) {
@@ -510,6 +521,7 @@ export function ResourceIconPicker({
         if (next) {
           setQuery("");
           setSaveFailed(false);
+          setUploadError(undefined);
         }
       }}
     >
@@ -547,6 +559,7 @@ export function ResourceIconPicker({
             setQuery("");
             setCategory("all");
             setSaveFailed(false);
+            setUploadError(undefined);
           }}
         >
           <div className="p-2">
@@ -749,9 +762,9 @@ export function ResourceIconPicker({
             />
           )}
         </Tabs>
-        {saveFailed && (
+        {(saveFailed || uploadError) && (
           <p role="alert" className="px-3 py-2 text-sm text-destructive">
-            {labels.saveError}
+            {uploadError ?? labels.saveError}
           </p>
         )}
         {value && (

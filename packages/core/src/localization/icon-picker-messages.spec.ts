@@ -23,6 +23,7 @@ describe("icon picker translations", () => {
         messages.allCategories,
         messages.loadError,
         messages.saveError,
+        messages.uploadTooLarge,
         messages.retry,
         messages.uploadHint,
         ...Object.values(messages.categoryNames),
