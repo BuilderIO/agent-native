@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -212,6 +213,8 @@ export default function SessionsPage() {
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
+  const includeZeroMinuteSessions =
+    searchParams.get("includeZeroMinuteSessions") === "true";
   const from = useMemo(() => rangeToFrom(range), [range]);
 
   const updateFilter = useCallback(
@@ -251,13 +254,15 @@ export default function SessionsPage() {
       from: from ?? undefined,
       app: app || undefined,
       query: query || undefined,
+      minDurationMs: includeZeroMinuteSessions ? undefined : 60_000,
       limit: 100,
     },
     { staleTime: 30_000 },
   );
 
   const recordings = data ?? [];
-  const popoverFiltered = range !== "30d" || app !== "";
+  const popoverFiltered =
+    range !== "30d" || app !== "" || includeZeroMinuteSessions;
 
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
@@ -328,6 +333,18 @@ export default function SessionsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <label className="flex cursor-pointer items-center gap-2 border-t pt-3 text-sm">
+                    <Checkbox
+                      checked={includeZeroMinuteSessions}
+                      onCheckedChange={(checked) =>
+                        updateFilter(
+                          "includeZeroMinuteSessions",
+                          checked === true ? "true" : "",
+                        )
+                      }
+                    />
+                    {t("sessions.includeZeroMinuteSessions")}
+                  </label>
                   <div className="grid gap-1.5 border-t pt-3">
                     <div className="text-xs font-medium text-muted-foreground">
                       {t("sessions.userFilters")}
