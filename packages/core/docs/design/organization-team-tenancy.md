@@ -28,16 +28,16 @@ model.
 
 ## Authority Boundary Map
 
-| Surface | Authority | Boundary |
-| --- | --- | --- |
-| Organization and team membership | Organization owners/admins govern every team; team leads manage membership in their own team. | Membership requires organization membership; a lead has no authority over another team. |
-| Durable resources and scope | One personal, organization, or team scope; one human owner. | Scope is durable and distinct from human ownership. |
-| Resource visibility and sharing | Scope and grants enforce shared access. | Scope does not change existing ACL. |
-| Inherited organization resources | The organization resource remains authoritative. | Team views can include organization-visible resources and private organization resources shared with that team; there are no copies or deny overrides. |
-| Connections and integrations | Organization owns credentials; owners/admins manage team and app grants. | Team use requires current app, team, execution-scope, and actor authorization. |
-| Durable runs and external effects | Current authority governs each point of work. | Resume and external effects revalidate authority; accepted external effects cannot be cancelled. |
-| Active team selection | The server validates requested scope. | Selection filters lists and defaults placement; it never grants authority. |
-| Team archival | Organization admins archive teams. | Archival retains history, revokes team-derived authority, and never deletes inherited organization resources. |
+| Surface                           | Authority                                                                                     | Boundary                                                                                                                                               |
+| --------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Organization and team membership  | Organization owners/admins govern every team; team leads manage membership in their own team. | Membership requires organization membership; a lead has no authority over another team.                                                                |
+| Durable resources and scope       | One personal, organization, or team scope; one human owner.                                   | Scope is durable and distinct from human ownership.                                                                                                    |
+| Resource visibility and sharing   | Scope and grants enforce shared access.                                                       | Scope does not change existing ACL.                                                                                                                    |
+| Inherited organization resources  | The organization resource remains authoritative.                                              | Team views can include organization-visible resources and private organization resources shared with that team; there are no copies or deny overrides. |
+| Connections and integrations      | Organization owns credentials; owners/admins manage team and app grants.                      | Team use requires current app, team, execution-scope, and actor authorization.                                                                         |
+| Durable runs and external effects | Current authority governs each point of work.                                                 | Resume and external effects revalidate authority; accepted external effects cannot be cancelled.                                                       |
+| Active team selection             | The server validates requested scope.                                                         | Selection filters lists and defaults placement; it never grants authority.                                                                             |
+| Team archival                     | Organization admins archive teams.                                                            | Archival retains history, revokes team-derived authority, and never deletes inherited organization resources.                                          |
 
 ## Team Governance
 
