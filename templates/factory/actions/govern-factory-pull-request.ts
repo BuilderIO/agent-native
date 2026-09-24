@@ -738,6 +738,9 @@ export default defineAction({
         ReturnType<typeof github.getPullRequestEvidence>
       >;
       let postClaimChangedFiles: readonly string[];
+      let postClaimInternalMember: Awaited<
+        ReturnType<typeof github.checkOrganizationMemberById>
+      >;
       let postClaimPullRequest = pullRequest;
       try {
         postClaimPullRequest = await github.getPullRequestSummary(
@@ -749,20 +752,26 @@ export default defineAction({
             `PR evidence changed after approval claim: expected ${pullRequest.headSha}, received ${postClaimPullRequest.headSha}.`,
           );
         }
-        [postClaimSnapshot, postClaimChangedFiles] = await Promise.all([
-          github.getPullRequestEvidence(
-            repository,
-            pullRequestNumber,
-            postClaimPullRequest.headSha,
-          ),
-          github.listPullRequestChangedFiles(repository, pullRequestNumber),
-        ]);
+        [postClaimSnapshot, postClaimChangedFiles, postClaimInternalMember] =
+          await Promise.all([
+            github.getPullRequestEvidence(
+              repository,
+              pullRequestNumber,
+              postClaimPullRequest.headSha,
+            ),
+            github.listPullRequestChangedFiles(repository, pullRequestNumber),
+            github.checkOrganizationMemberById(
+              "BuilderIO",
+              pullRequest.userId,
+              pullRequest.userLogin,
+            ),
+          ]);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "unknown evidence error";
         await reconcileClaim(
           pullRequest.headSha,
-          `Post-claim PR evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+          `Post-claim PR evidence or author membership could not be verified: ${message}. Reconciliation is required before approval.`,
         );
         throw error;
       }
@@ -807,11 +816,6 @@ export default defineAction({
       });
       const postClaimReviewFeedbackHandled =
         postClaimBlockingReviewStatesClean && postClaimReviewFeedback.isClean;
-      const postClaimInternalMember = await github.checkOrganizationMemberById(
-        "BuilderIO",
-        pullRequest.userId,
-        pullRequest.userLogin,
-      );
       postClaimInternalMemberIsMember = postClaimInternalMember.isMember;
       const postClaimGovernance = decidePullRequestGovernance({
         author: pullRequest.userLogin,
