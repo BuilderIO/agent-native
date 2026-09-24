@@ -3,10 +3,10 @@ import {
   buildBrandAnalysisResult,
   normalizeBrandWebsiteUrl,
 } from "@agent-native/core/brand-kit";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
 import { z } from "zod";
 
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 // Re-exported for back-compat with existing imports/tests.
@@ -42,7 +42,7 @@ export default defineAction({
 
     // Include existing design system data if provided
     if (designSystemId) {
-      const access = await resolveAccess("design-system", designSystemId);
+      const access = await resolveDesignSystemAccess(designSystemId);
       if (access) {
         const row = access.resource;
         existingDesignSystem = {

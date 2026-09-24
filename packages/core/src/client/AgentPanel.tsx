@@ -59,6 +59,7 @@ import {
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
 import type { AgentRun } from "../progress/types.js";
+import { useAgentChatActivity } from "./agent-chat-activity.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   DropdownMenu,
@@ -832,6 +833,9 @@ export interface AgentPanelProps extends Omit<
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
+  fixedThreadId?: MultiTabAssistantChatProps["fixedThreadId"];
+  onThreadReady?: MultiTabAssistantChatProps["onThreadReady"];
+  onRunStateChange?: MultiTabAssistantChatProps["onRunStateChange"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -852,6 +856,8 @@ export interface AgentPanelProps extends Omit<
   pageToolbarSlot?: React.ReactNode;
   /** Reports whether the active conversation has enough state to show page chrome. */
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
+  onActiveThreadChange?: MultiTabAssistantChatProps["onActiveThreadChange"];
+  composerContextThreadId?: MultiTabAssistantChatProps["composerContextThreadId"];
   /** Keep this surface on chat even when mode controls are hidden. */
   chatOnly?: boolean;
   /** Optional link shown in Resources mode for the full Agent page. */
@@ -1030,6 +1036,9 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   isolateHistoryByScope = false,
+  fixedThreadId,
+  onThreadReady,
+  onRunStateChange,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
@@ -1040,6 +1049,8 @@ function AgentPanelInner({
   pageHeaderLeadingSlot,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
+  onActiveThreadChange,
+  composerContextThreadId,
   chatOnly = false,
   agentPageHref,
   codeAccess,
@@ -2673,6 +2684,8 @@ function AgentPanelInner({
             >
               <MultiTabAssistantChatLazy
                 {...assistantChatProps}
+                onActiveThreadChange={onActiveThreadChange}
+                composerContextThreadId={composerContextThreadId}
                 threadContentSlot={assistantChatProps.threadContentSlot}
                 agentChatSurface={effectiveAgentChatSurface}
                 apiUrl={apiUrl}
@@ -2699,6 +2712,9 @@ function AgentPanelInner({
                 restoreActiveThread={restoreActiveThread}
                 scope={scope}
                 isolateHistoryByScope={isolateHistoryByScope}
+                fixedThreadId={fixedThreadId}
+                onThreadReady={onThreadReady}
+                onRunStateChange={onRunStateChange}
                 showScopeBadge={showScopeBadge}
                 browserTabId={browserTabId}
                 threadUrlSync={threadUrlSync}
@@ -3430,6 +3446,14 @@ export interface AgentSidebarProps {
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   /** Optional controls rendered in the chat composer toolbar. */
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
+  composerContextItems?: AssistantChatProps["composerContextItems"];
+  onActiveThreadChange?: MultiTabAssistantChatProps["onActiveThreadChange"];
+  composerContextThreadId?: MultiTabAssistantChatProps["composerContextThreadId"];
+  composerContextMenuItems?: AssistantChatProps["composerContextMenuItems"];
+  onRemoveComposerContextItem?: AssistantChatProps["onRemoveComposerContextItem"];
+  onInspectComposerContextItem?: AssistantChatProps["onInspectComposerContextItem"];
+  onRetryComposerContextItem?: AssistantChatProps["onRetryComposerContextItem"];
+  onBeforeComposerSubmit?: AssistantChatProps["onBeforeComposerSubmit"];
   /** Optional contextual content rendered just above the chat composer. */
   composerSlot?: AssistantChatProps["composerSlot"];
   /** Observe the active chat composer's current plain text. */
@@ -3567,6 +3591,14 @@ export function AgentSidebar({
   suggestions,
   dynamicSuggestions,
   composerToolbarSlot,
+  composerContextItems,
+  onActiveThreadChange,
+  composerContextThreadId,
+  composerContextMenuItems,
+  onRemoveComposerContextItem,
+  onInspectComposerContextItem,
+  onRetryComposerContextItem,
+  onBeforeComposerSubmit,
   composerSlot,
   onComposerTextChange,
   imageModelMenu,
@@ -3621,6 +3653,7 @@ export function AgentSidebar({
   showModelSelector,
   chatOnly = true,
 }: AgentSidebarProps) {
+  const interactionActive = useAgentChatActivity();
   const resolvedBrowserTabId =
     browserTabId ??
     (typeof window === "undefined" ? undefined : getBrowserTabId());
@@ -4304,7 +4337,7 @@ export function AgentSidebar({
   const shouldRenderPanel =
     enabled &&
     (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
-  const panelOpen = enabled && open && shouldMountPanel;
+  const panelOpen = enabled && interactionActive && open && shouldMountPanel;
   const panelLayout = isMobile
     ? "mobile"
     : wideDrawerEnabled
@@ -4441,6 +4474,14 @@ export function AgentSidebar({
             dynamicSuggestions={dynamicSuggestions}
             suggestionPlacement="context-chips"
             composerToolbarSlot={composerToolbarSlot}
+            composerContextItems={composerContextItems}
+            onActiveThreadChange={onActiveThreadChange}
+            composerContextThreadId={composerContextThreadId}
+            composerContextMenuItems={composerContextMenuItems}
+            onRemoveComposerContextItem={onRemoveComposerContextItem}
+            onInspectComposerContextItem={onInspectComposerContextItem}
+            onRetryComposerContextItem={onRetryComposerContextItem}
+            onBeforeComposerSubmit={onBeforeComposerSubmit}
             composerSlot={composerSlot}
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
@@ -4535,6 +4576,7 @@ export function AgentSidebar({
         >
           {/* Mobile backdrop — tapping it closes the sidebar */}
           {isMobile &&
+            interactionActive &&
             !isPerAppChatHosted &&
             !presentationMode &&
             enabled &&

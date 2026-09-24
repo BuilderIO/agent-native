@@ -1,9 +1,11 @@
+import { ActionContractError } from "@agent-native/core/action";
 import {
   FeatureNotConfiguredError,
   getSession,
   runWithRequestContext,
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 const MAX_FIG_BYTES = 512 * 1024 * 1024;
@@ -67,10 +69,17 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
   try {
     const uploads = await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
-      () => startBuilderDesignSystemUpload(attachments),
+      async () => {
+        await assertBuilderDsiAccess();
+        return startBuilderDesignSystemUpload(attachments);
+      },
     );
     return { uploads };
   } catch (err) {
+    if (err instanceof ActionContractError) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {

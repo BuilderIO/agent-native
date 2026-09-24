@@ -148,11 +148,22 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
-const mockGetDesignSystemRun = vi.fn(async ({ id }: { id: string }) => ({
-  id,
-  title: "Acme",
-  agentContext: "Use --brand-accent: #123456.",
-}));
+const mockGetDesignSystemRun = vi.fn(
+  async ({
+    id,
+    ownerApp = "slides",
+    consumedRevision = 11,
+  }: {
+    id: string;
+    ownerApp?: string;
+    consumedRevision?: number;
+  }) => ({
+    id,
+    reference: { systemId: id, ownerApp, revision: consumedRevision },
+    title: "Acme",
+    agentContext: "Use --brand-accent: #123456.",
+  }),
+);
 
 vi.mock("./get-design-system.js", () => ({
   default: {
@@ -176,6 +187,89 @@ beforeEach(() => {
 });
 
 describe("create-deck — aspectRatio", () => {
+  it("persists an explicit Design-owned pin without selecting a local default", async () => {
+    defaultDesignSystemId = "local-default";
+    const designSystemRef = {
+      id: "foreign-system",
+      ownerApp: "design" as const,
+      consumedRevision: 11,
+    };
+    const result = await action.run({
+      title: "System deck",
+      slides: [],
+      designSystemRef,
+    });
+    expect(result.designSystemRef).toEqual(designSystemRef);
+    expect(insertedRow?.designSystemId).toBeNull();
+    expect(JSON.parse(insertedRow!.data as string).designSystemRef).toEqual(
+      designSystemRef,
+    );
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith({
+      id: "foreign-system",
+      ownerApp: "design",
+      consumedRevision: 11,
+      compact: "false",
+    });
+    expect(defaultDesignSystemLimitFn).not.toHaveBeenCalled();
+  });
+  it("retains the exact existing pin when replacing with a repeated local ID", async () => {
+    const designSystemRef = {
+      id: "system",
+      ownerApp: "slides" as const,
+      consumedRevision: 8,
+    };
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "now",
+      data: JSON.stringify({
+        title: "Before",
+        slides: [],
+        designSystemId: "system",
+        designSystemRef,
+      }),
+    };
+    const result = await action.run({
+      title: "Revised deck",
+      deckId: "deck-1",
+      slides: [],
+      designSystemId: "system",
+    });
+    expect(result.designSystemRef).toEqual(designSystemRef);
+    expect(JSON.parse(updatedFields!.data as string).designSystemRef).toEqual(
+      designSystemRef,
+    );
+  });
+  it("honors explicit no-system choice over a default", async () => {
+    defaultDesignSystemId = "local-default";
+    const result = await action.run({
+      title: "Unlinked deck",
+      slides: [],
+      designSystemRef: null,
+    });
+    expect(result.designSystemRef).toBeNull();
+    expect(mockGetDesignSystemRun).not.toHaveBeenCalled();
+  });
+  it.each([403, 409])(
+    "rejects forbidden/stale refs before persisting a deck (%s)",
+    async (statusCode) => {
+      mockGetDesignSystemRun.mockRejectedValueOnce(
+        Object.assign(new Error("Unavailable pin"), { statusCode }),
+      );
+      await expect(
+        action.run({
+          title: "Pinned",
+          slides: [],
+          designSystemRef: {
+            id: "system",
+            ownerApp: "design",
+            consumedRevision: 11,
+          },
+        }),
+      ).rejects.toMatchObject({ statusCode });
+      expect(insertedRow).toBeUndefined();
+      expect(updatedFields).toBeUndefined();
+    },
+  );
   it("defaults omitted slides to an empty deck", async () => {
     await action.run({
       title: "T",
@@ -224,6 +318,24 @@ describe("create-deck — aspectRatio", () => {
     expect(result.designSystemId).toBe("ds-default");
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-default");
+  });
+
+  it("does not persist a deck when its ready implicit DSI default is denied by the system reader", async () => {
+    defaultDesignSystemId = "builder-default";
+    defaultDesignSystemData = JSON.stringify({
+      source: "builder",
+      builderStatus: "ready",
+      colors: {},
+    });
+    const denied = Object.assign(new Error("Builder account required"), {
+      statusCode: 403,
+      errorCode: "builder_dsi_missing",
+    });
+    mockGetDesignSystemRun.mockRejectedValueOnce(denied);
+    await expect(action.run({ title: "Example", slides: [] })).rejects.toBe(
+      denied,
+    );
+    expect(insertedRow).toBeUndefined();
   });
 
   it("falls back to no design system when the caller's default is still indexing", async () => {
@@ -549,3 +661,10 @@ describe("create-deck — aspectRatio", () => {
     );
   });
 });
+vi.mock("@agent-native/core/server/builder-dsi-access", () => ({
+  assertBuilderDsiAccess: vi.fn(async () => ({
+    status: "ready",
+    eligible: true,
+  })),
+  getBuilderDsiAccess: vi.fn(async () => ({ status: "ready", eligible: true })),
+}));

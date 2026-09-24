@@ -30,6 +30,70 @@ interface DeckShareResource {
   designSystemId?: string | null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function pickStyleStrings(value: unknown, keys: readonly string[]) {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(
+    keys
+      .filter((key) => typeof value[key] === "string")
+      .map((key) => [key, value[key]]),
+  );
+}
+
+// Snapshot only presentation tokens, never authoring context or provider data.
+// Apply this on reads too: older share links stored the entire system record.
+function toSharedDesignSystem(value: unknown): DesignSystemData | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: Record<string, unknown> = {};
+  const groups = {
+    colors: [
+      "primary",
+      "secondary",
+      "accent",
+      "background",
+      "surface",
+      "text",
+      "textMuted",
+    ],
+    typography: ["headingFont", "bodyFont", "headingWeight", "bodyWeight"],
+    spacing: ["slidePadding", "elementGap"],
+    borders: ["radius", "accentWidth"],
+    slideDefaults: ["background", "labelStyle"],
+  };
+  for (const [group, keys] of Object.entries(groups)) {
+    const fields = pickStyleStrings(value[group], keys);
+    if (fields) result[group] = fields;
+  }
+  if (isRecord(value.typography)) {
+    const headingSizes = pickStyleStrings(value.typography.headingSizes, [
+      "h1",
+      "h2",
+      "h3",
+    ]);
+    if (headingSizes) {
+      (result.typography as Record<string, unknown>).headingSizes =
+        headingSizes;
+    }
+  }
+  if (Array.isArray(value.logos)) {
+    result.logos = value.logos
+      .filter(
+        (logo) =>
+          isRecord(logo) &&
+          typeof logo.url === "string" &&
+          typeof logo.name === "string" &&
+          ["light", "dark", "auto"].includes(logo.variant as string),
+      )
+      .map((logo) => pickStyleStrings(logo, ["url", "name", "variant"]));
+  }
+  if (typeof value.customCSS === "string") result.customCSS = value.customCSS;
+  // The presentation merges partial legacy token sets with its defaults.
+  return result as unknown as DesignSystemData;
+}
+
 /**
  * POST /api/share
  * Persist a deck snapshot with a random token.
@@ -96,6 +160,8 @@ async function createShareLink(event: any, deckId: string) {
   let designSystemData: string | null = null;
 
   if (typeof designSystemId === "string" && designSystemId.trim()) {
+    // Publishing an existing deck is not a DSI operation. Resource access still
+    // applies; only the rendering projection below may leave this boundary.
     const designSystemAccess = await resolveAccess(
       "design-system",
       designSystemId,
@@ -103,10 +169,8 @@ async function createShareLink(event: any, deckId: string) {
     const rawData = designSystemAccess?.resource?.data;
     if (typeof rawData === "string") {
       try {
-        const parsed = JSON.parse(rawData);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          designSystemData = JSON.stringify(parsed as DesignSystemData);
-        }
+        const presentation = toSharedDesignSystem(JSON.parse(rawData));
+        if (presentation) designSystemData = JSON.stringify(presentation);
         // coercion-ok: malformed optional style data keeps a valid deck shareable.
       } catch {
         // A malformed style record should not make an otherwise valid deck
@@ -180,10 +244,10 @@ export const getSharedDeck = defineEventHandler(async (event) => {
   };
   if (shared.designSystemData) {
     try {
-      const parsed = JSON.parse(shared.designSystemData);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        response.designSystem = parsed as DesignSystemData;
-      }
+      const presentation = toSharedDesignSystem(
+        JSON.parse(shared.designSystemData),
+      );
+      if (presentation) response.designSystem = presentation;
       // coercion-ok: malformed optional snapshots remain viewable with default tokens.
     } catch {
       // Keep legacy or malformed snapshots viewable with default tokens.

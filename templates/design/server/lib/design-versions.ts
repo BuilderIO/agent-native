@@ -32,6 +32,7 @@ import {
   withSourceFileWriteLock,
 } from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
+import { assertDesignSystemAccess } from "./design-system-dsi-access.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
 const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
@@ -1001,7 +1002,7 @@ export async function restoreDesignVersion(args: {
     }
 
     if (target.designSystemId) {
-      await assertAccess("design-system", target.designSystemId, "viewer");
+      await assertDesignSystemAccess(target.designSystemId, "viewer");
     }
 
     const currentFiles = await db

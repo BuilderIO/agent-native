@@ -1,9 +1,11 @@
+import { ActionContractError } from "@agent-native/core/action";
 import {
   FeatureNotConfiguredError,
   getSession,
   indexBuilderDesignSystem,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
@@ -22,6 +24,7 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
 
   const body = (await readBody(event).catch(() => null)) as {
     projectName?: unknown;
+    autoDefault?: unknown;
     uploadTokens?: unknown;
   } | null;
   const uploadTokens = Array.isArray(body?.uploadTokens)
@@ -48,12 +51,14 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
     return await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
       async () => {
+        await assertBuilderDsiAccess();
         const result = await indexBuilderDesignSystem({ sources, projectName });
         const proxy = await upsertBuilderProxyDesignSystem({
           result,
           ownerEmail: session.email,
           orgId: session.orgId ?? null,
           projectName,
+          autoDefault: body?.autoDefault === false ? false : undefined,
         });
         return {
           ...result,
@@ -63,6 +68,10 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
       },
     );
   } catch (err) {
+    if (err instanceof ActionContractError) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {

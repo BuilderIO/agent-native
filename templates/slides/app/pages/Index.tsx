@@ -66,6 +66,10 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
+import {
+  formatComposerContext,
+  type SlidesPromptSubmitOptions,
+} from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
   describeUploadedFilesForAgent,
@@ -824,7 +828,9 @@ export default function Index() {
       setIsStartingNewDeck(true);
       deck = createDeck(undefined, {
         noDefaultSlides: true,
-        designSystemId: selectedDesignSystem?.id ?? null,
+        designSystemId: referenceSelection.composerContext
+          ? designSystemId
+          : (selectedDesignSystem?.id ?? null),
       });
     });
     if (!deck) {
@@ -981,29 +987,34 @@ export default function Index() {
         loadReferenceDeckGenerationContext(referenceDeckId),
         loadDesignSystemGenerationContext(selectedDesignSystem?.id),
       ]);
-    const designSystemContext = selectedDesignSystem
-      ? [
-          "",
-          "Design system selection:",
-          `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
-          "- The deck has already been linked to this design system.",
-          "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
-          hydratedDesignSystemContext,
-          "- Do not choose or apply a different design system.",
-        ].join("\n")
-      : [
-          "",
-          "Design system selection:",
-          "- No design system was selected in the picker.",
-          ...(referenceDeckId || hasHydratedReferenceDesign
-            ? [
-                "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
-              ]
-            : [
-                "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-                "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
-              ]),
-        ].join("\n");
+    const designSystemContext = referenceSelection.composerContext
+      ? formatComposerContext(
+          referenceSelection.composerContext,
+          referenceSelection.contextItems ?? [],
+        )
+      : selectedDesignSystem
+        ? [
+            "",
+            "Design system selection:",
+            `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
+            "- The deck has already been linked to this design system.",
+            "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
+            hydratedDesignSystemContext,
+            "- Do not choose or apply a different design system.",
+          ].join("\n")
+        : [
+            "",
+            "Design system selection:",
+            "- No design system was selected in the picker.",
+            ...(referenceDeckId || hasHydratedReferenceDesign
+              ? [
+                  "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
+                ]
+              : [
+                  "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+                  "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
+                ]),
+          ].join("\n");
     const referenceSource = referenceSelection.referenceSource;
     const referenceSourceContext = referenceSource
       ? [
@@ -1088,6 +1099,12 @@ export default function Index() {
         })),
         designSystemId,
         referenceDeckId,
+        ...(referenceSelection.composerContext
+          ? {
+              composerContext: referenceSelection.composerContext,
+              contextItems: referenceSelection.contextItems,
+            }
+          : {}),
         ...(referenceSource ? { referenceSource } : {}),
         mode: importedSourceDeck ? "source-preserving" : "new",
         targetSlideCount:
@@ -1171,7 +1188,7 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       attachments: PromptAttachmentActions,
-      options?: PromptComposerSubmitOptions,
+      options?: SlidesPromptSubmitOptions,
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -1180,6 +1197,23 @@ export default function Index() {
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       const retryReferenceFilePaths =
         newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
+      if (options?.slidesContext) {
+        void runPendingDeckGeneration(
+          prompt,
+          files,
+          {
+            designSystemId: options.slidesContext.designSystemId,
+            referenceDeckId: null,
+            referenceFilePaths: files.map((file) => file.path),
+            composerContext: options.slidesContext,
+            contextItems: options.contextItems,
+          },
+          retryContext,
+          attachments.attachments,
+          options,
+        );
+        return "retain" as const;
+      }
       setPendingDeck({
         prompt,
         files,
@@ -1218,6 +1252,7 @@ export default function Index() {
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
+      runPendingDeckGeneration,
       setNewDeckPromptOpen,
     ],
   );

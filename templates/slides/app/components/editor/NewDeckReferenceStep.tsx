@@ -1,4 +1,8 @@
+import { useDesignSystemWorkspaceOrigin } from "@agent-native/core/client/agent-chat";
+import { useSession, callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type { DesignSystemReference } from "@agent-native/core/shared/design-system-authoring";
+import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import {
   IconArrowLeft,
   IconBrandFigma,
@@ -45,9 +49,12 @@ import {
 } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
+import type { SlidesComposerContext } from "../../../shared/composer-context";
 import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
+  composerContext?: SlidesComposerContext;
+  contextItems?: readonly AgentChatContextItem[];
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
@@ -135,6 +142,20 @@ export function NewDeckReferenceStep({
   promptSummary,
 }: NewDeckReferenceStepProps) {
   const t = useT();
+  const { session } = useSession();
+  const originId = `${session?.email ?? "guest"}:${session?.orgId ?? "personal"}:slides:reference-step`;
+  const [systemReference, setSystemReference] =
+    useState<DesignSystemReference | null>(null);
+  const openWorkspace = useDesignSystemWorkspaceOrigin(originId, (system) => {
+    designSystemAutoRef.current = false;
+    setSystemReference({
+      id: system.id,
+      ownerApp: system.ownerApp,
+      consumedRevision: system.revision,
+    });
+    setSelectedDesignSystemId(system.ownerApp === "slides" ? system.id : null);
+    onDesignSystemsChanged();
+  });
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
   >(() =>
@@ -178,6 +199,7 @@ export function NewDeckReferenceStep({
     if (!open) return;
     designSystemAutoRef.current = true;
     referenceDeckAutoRef.current = true;
+    setSystemReference(null);
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
@@ -246,6 +268,29 @@ export function NewDeckReferenceStep({
 
       await onSelect({
         designSystemId: selectedDesignSystemId,
+        ...(systemReference
+          ? {
+              composerContext: {
+                designSystemId: selectedDesignSystemId,
+                designSystemRef: systemReference,
+                references: [],
+              },
+              contextItems: [
+                {
+                  key: `system:${systemReference.id}`,
+                  title: selectedDesignSystem?.title ?? systemReference.id,
+                  context: (
+                    await callAction<{ agentContext: string }>(
+                      "get-design-system",
+                      systemReference,
+                      { method: "GET" },
+                    )
+                  ).agentContext,
+                  status: "ready" as const,
+                },
+              ],
+            }
+          : {}),
         referenceDeckId: selectedReferenceDeckId,
         referenceSource: trimmedSource,
         ...(importedReference?.referenceFilePaths?.length
@@ -360,6 +405,7 @@ export function NewDeckReferenceStep({
                 onValueChange={(value) => {
                   designSystemAutoRef.current = false;
                   setSelectedDesignSystemId(value === "none" ? null : value);
+                  setSystemReference(null);
                   setSelectedSource(null);
                 }}
               >
@@ -654,6 +700,15 @@ export function NewDeckReferenceStep({
 
       <DesignSystemSetup
         open={showDesignSystemSetup}
+        originDraft={{
+          app: "slides",
+          draftId: originId,
+          returnPath: `${window.location.pathname}${window.location.search}`,
+        }}
+        onCreated={(systemId) => {
+          setShowDesignSystemSetup(false);
+          openWorkspace(systemId);
+        }}
         onClose={() => setShowDesignSystemSetup(false)}
         onComplete={() => {
           setShowDesignSystemSetup(false);

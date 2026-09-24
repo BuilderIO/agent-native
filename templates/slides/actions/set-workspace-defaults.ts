@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   assertWorkspaceVisible,
   writeWorkspaceDefaults,
@@ -39,7 +40,7 @@ export default defineAction({
       if (args.designSystemId === null) {
         patch.designSystemId = null;
       } else {
-        await assertAccess("design-system", args.designSystemId, "viewer");
+        await assertDesignSystemAccess(args.designSystemId, "viewer");
         await assertWorkspaceVisible("design-system", args.designSystemId);
         patch.designSystemId = args.designSystemId;
       }

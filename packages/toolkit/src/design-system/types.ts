@@ -323,6 +323,8 @@ export interface TabItem<Value extends DesignSystemKey = string> {
   value: Value;
   label: ReactNode;
   content: ReactNode;
+  /** Keep inactive content mounted while hiding it from view and keyboard navigation. */
+  keepMounted?: boolean;
   disabled?: boolean;
   icon?: ReactNode;
 }
@@ -334,6 +336,8 @@ export interface TabsProps<Value extends DesignSystemKey = string>
   onChange: (value: Value) => void;
   orientation?: "horizontal" | "vertical";
   activationMode?: "automatic" | "manual";
+  /** Panels mode exposes every item as a named region without tab controls. Adapters must retain content subtrees when switching modes. */
+  display?: "tabs" | "panels";
 }
 
 export interface PickerComponent {

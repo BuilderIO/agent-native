@@ -1,3 +1,10 @@
+vi.mock("@agent-native/core/server/builder-dsi-access", () => ({
+  assertBuilderDsiAccess: vi.fn(async () => ({
+    status: "ready",
+    eligible: true,
+  })),
+  getBuilderDsiAccess: vi.fn(async () => ({ status: "ready", eligible: true })),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
@@ -77,7 +84,10 @@ describe("apply-design-system", () => {
 
     await expect(
       action.run({ deckId: "deck-1", designSystemId: "ds-1" }),
-    ).rejects.toThrow(/unavailable/);
+    ).rejects.toMatchObject({
+      errorCode: "design_system_data_invalid",
+      statusCode: 409,
+    });
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 });

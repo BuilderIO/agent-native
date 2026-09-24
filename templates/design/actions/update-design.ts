@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 
@@ -421,7 +422,7 @@ export default defineAction({
     await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
     if (designSystemId != null) {
-      await assertAccess("design-system", designSystemId, "viewer");
+      await assertDesignSystemAccess(designSystemId, "viewer");
     }
     if (
       title === undefined &&

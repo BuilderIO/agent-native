@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import { parseDesignSystemIndexingStatus } from "../shared/design-system-validation.js";
 
 export default defineAction({
@@ -20,8 +21,7 @@ export default defineAction({
   run: async ({ deckId, designSystemId }) => {
     // Verify access to both the deck and the design system
     await assertAccess("deck", deckId, "editor");
-    const designSystemAccess = await assertAccess(
-      "design-system",
+    const designSystemAccess = await assertDesignSystemAccess(
       designSystemId,
       "viewer",
     );

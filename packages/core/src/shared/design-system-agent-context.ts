@@ -25,7 +25,12 @@ export type AgentDesignSystemContext =
 // export directly, so this accepts the same "sync or async" shape the loader
 // already awaits either way.
 export interface AgentDesignSystemReader {
-  run(args: { id: string; compact?: "true" | "false" }): unknown;
+  run(args: {
+    id: string;
+    compact?: "true" | "false";
+    ownerApp?: "design" | "slides";
+    consumedRevision?: number;
+  }): unknown;
 }
 
 const UNAVAILABLE_MESSAGE =
@@ -49,9 +54,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function loadAgentDesignSystemContext(
   designSystemId: string | null | undefined,
   getDesignSystem: AgentDesignSystemReader,
-  opts?: { full?: boolean },
+  opts?: { full?: boolean; reference?: DesignSystemReference | null },
 ): Promise<AgentDesignSystemContext | null> {
-  const id = typeof designSystemId === "string" ? designSystemId.trim() : "";
+  const reference = opts?.reference;
+  const id =
+    reference?.id ??
+    (typeof designSystemId === "string" ? designSystemId.trim() : "");
   if (!id) return null;
 
   const full = Boolean(opts?.full);
@@ -59,6 +67,12 @@ export async function loadAgentDesignSystemContext(
     const value = await getDesignSystem.run({
       id,
       compact: full ? "false" : "true",
+      ...(reference
+        ? {
+            ownerApp: reference.ownerApp,
+            consumedRevision: reference.consumedRevision,
+          }
+        : {}),
     });
     if (
       !isRecord(value) ||
@@ -77,7 +91,7 @@ export async function loadAgentDesignSystemContext(
       ...(full
         ? {}
         : {
-            next: `Call get-design-system { id: "${id}" } once before the first slide or screen you author for the full tokens, assets, docs, and custom instructions; reuse it for every later write.`,
+            next: `Call get-design-system { id: "${id}"${reference ? `, ownerApp: "${reference.ownerApp}", consumedRevision: ${reference.consumedRevision}` : ""} } once before the first slide or screen you author for the full tokens, assets, docs, and custom instructions; reuse it for every later write.`,
           }),
     };
   } catch (error) {
@@ -86,7 +100,11 @@ export async function loadAgentDesignSystemContext(
     return {
       status: "unavailable",
       id,
-      message: notFound ? NOT_ACCESSIBLE_MESSAGE : UNAVAILABLE_MESSAGE,
+      message: notFound
+        ? NOT_ACCESSIBLE_MESSAGE
+        : (error as { statusCode?: unknown } | null)?.statusCode === 409
+          ? "The pinned design system revision is unavailable. Ask the user to select an available revision; do not silently use the latest system or a same-ID local system."
+          : UNAVAILABLE_MESSAGE,
     };
   }
 }
@@ -112,4 +130,14 @@ export function formatAgentDesignSystemContext(
     context.agentContext,
     ...(context.next ? [context.next] : []),
   ];
+}
+import {
+  designSystemReferenceSchema,
+  type DesignSystemReference,
+} from "./design-system-authoring.js";
+
+export function readDesignSystemReference(
+  value: unknown,
+): DesignSystemReference | null {
+  return value == null ? null : designSystemReferenceSchema.parse(value);
 }

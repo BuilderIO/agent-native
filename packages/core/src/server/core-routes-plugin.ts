@@ -197,9 +197,11 @@ import {
 import {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
+  attestProvisionedBuilderAccount,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
   getBuilderOAuthStoredScope,
+  prepareBuilderAccountDisconnect,
   saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
   type BuilderOAuthPendingFlow,
@@ -3553,6 +3555,7 @@ export function createCoreRoutesPlugin(
               const { writeBuilderCredentials } =
                 await import("./credential-provider.js");
               await writeBuilderCredentials(ownerEmail, credentials);
+              await attestProvisionedBuilderAccount(ownerEmail, credentials);
               await Promise.all([
                 deleteSetting("builder-disconnected").catch(
                   () => false, // coercion-ok: best-effort cleanup after successful provisioning
@@ -4528,6 +4531,9 @@ export function createCoreRoutesPlugin(
                 legacyDeleteOptions = { orgId, role };
               }
             }
+            const disconnectProof = await prepareBuilderAccountDisconnect(
+              session.email,
+            );
             const oauthResult = oauthScope
               ? await deleteBuilderOAuthSession(
                   session.email,
@@ -4539,6 +4545,7 @@ export function createCoreRoutesPlugin(
               session.email,
               oauthScope ? undefined : legacyDeleteOptions,
             );
+            await disconnectProof();
             await trackBuilderLifecycle(
               event,
               "builder disconnect succeeded",

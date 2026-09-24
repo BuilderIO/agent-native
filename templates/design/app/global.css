@@ -7,10 +7,13 @@
 
 @source "./**/*.{ts,tsx}";
 
-/* Keep agent context available to the Design agent without making the
- * composer carry implementation details as visible chips. */
-[data-design-app] .agent-composer-context-row {
-  display: none;
+.design-home-prompt-composer-area.agent-composer-area--hero {
+  padding-block: 0;
+}
+
+[data-design-home-composer] {
+  --agent-kit-composer-min-height: 7.75rem;
+  --agent-kit-composer-editor-min-height: 3.875rem;
 }
 
 :root {

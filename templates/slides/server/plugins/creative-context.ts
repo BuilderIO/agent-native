@@ -14,6 +14,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
+import { assertDesignSystemDsiAccess } from "../lib/design-system-dsi-access.js";
 import { nativeDeckCreativeContextAdapter } from "../lib/native-creative-context.js";
 
 type ProjectedLayoutTemplate = {
@@ -104,6 +105,7 @@ const projections: CreativeContextProjectionAdapters = {
   layoutTemplate: {
     promote: async (input) => {
       const designSystem = await ensureLayoutTarget();
+      await assertDesignSystemDsiAccess(designSystem.data);
       const assets = parseAssets(designSystem.assets).filter(
         (asset) =>
           !isProjectedLayout(asset) ||
@@ -134,6 +136,7 @@ const projections: CreativeContextProjectionAdapters = {
       if (!projectionItemId) return;
       const designSystems = await ownedDesignSystems();
       for (const designSystem of designSystems) {
+        await assertDesignSystemDsiAccess(designSystem.data);
         const assets = parseAssets(designSystem.assets);
         const filtered = assets.filter(
           (asset) =>

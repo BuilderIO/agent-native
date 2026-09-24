@@ -1,12 +1,10 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import { DesignAgentChatSurface } from "@/components/editor/DesignAgentChatSurface";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 
 const SEO_TITLE = "Design - Agent chat";
@@ -58,7 +56,7 @@ export default function ChatRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
+      <DesignAgentChatSurface
         mode="page"
         chatViewTransition
         className="h-full"

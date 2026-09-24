@@ -3,9 +3,10 @@
  * `save-deck`, `delete-deck`). Underscore-prefixed so action discovery skips
  * it — this module is not itself an action.
  */
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq, isNull, type AnyColumn } from "drizzle-orm";
 
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 /** A deck is stored as one opaque JSON blob in `decks.data`. */
@@ -107,7 +108,7 @@ export async function assertDesignSystemReadable(
 ): Promise<void> {
   if (!designSystemId) return;
   try {
-    await assertAccess("design-system", designSystemId, "viewer");
+    await assertDesignSystemAccess(designSystemId, "viewer");
   } catch (err) {
     if (err instanceof ForbiddenError) {
       throw deckHttpError(400, "Design system not accessible");

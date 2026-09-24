@@ -51,10 +51,20 @@ export interface EnsureFusionContainerResult {
 }
 
 export interface SendFusionMessageResult {
+  /** Observed delivery acknowledgment or agent activity, not successful completion. */
   sent: boolean;
-  /** Final agent text when the call waited for completion. */
+  /** `completed` proves an agent done event, never DSI publication or deployment. */
+  outcome: "dispatched" | "completed" | "failed" | "incomplete" | "timed_out";
+  /** Remains true if a later error or interrupted stream prevents completion. */
+  doneObserved: boolean;
+  requestId?: string;
+  /** Last text from a done event; inspect outcome before treating it as success. */
   response?: string;
   error?: string;
+  /** Terminal upstream, completion, or transport failures. */
+  errors?: string[];
+  /** Tool/action and child-agent failures that the parent may recover from. */
+  diagnostics?: string[];
 }
 
 async function resolveFusionAuth(
@@ -116,6 +126,7 @@ export function getFusionHostingUrl(slug: string): string {
 async function readNdjsonStream(
   response: Response,
   onLine: (chunk: Record<string, unknown>) => boolean | undefined,
+  onInvalidLine?: () => void,
 ): Promise<void> {
   const body = response.body;
   if (!body) return;
@@ -135,10 +146,13 @@ async function readNdjsonStream(
         try {
           parsed = JSON.parse(trimmed);
         } catch {
+          onInvalidLine?.();
           continue;
         }
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           if (onLine(parsed as Record<string, unknown>)) return;
+        } else {
+          onInvalidLine?.();
         }
       }
       if (done) return;
@@ -250,10 +264,16 @@ export async function sendFusionBranchMessage(
     fireAndForget?: boolean;
     timeoutMs?: number;
     userEmail?: string;
+    /** Forwarded as userMessage.idempotencyKey; not an exactly-once guarantee. */
+    requestId?: string;
   },
 ): Promise<SendFusionMessageResult> {
   const prompt = args.prompt?.trim();
   if (!prompt) throw new Error("prompt is required");
+  const requestId = args.requestId?.trim();
+  if (args.requestId !== undefined && !requestId) {
+    throw new Error("requestId must not be empty");
+  }
   const auth = await resolveFusionAuth("builder:projects:write");
   const fireAndForget = args.fireAndForget ?? true;
   const controller = new AbortController();
@@ -261,8 +281,106 @@ export async function sendFusionBranchMessage(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let dispatched = false;
+  let acknowledged = false;
+  let doneObserved = false;
   let finalText: string | undefined;
-  let errorMessage: string | undefined;
+  const errors: string[] = [];
+  const diagnostics: string[] = [];
+
+  function result(
+    outcome: SendFusionMessageResult["outcome"],
+  ): SendFusionMessageResult {
+    return {
+      sent: dispatched,
+      outcome,
+      doneObserved,
+      ...(requestId ? { requestId } : {}),
+      ...(finalText ? { response: finalText } : {}),
+      ...(errors.length
+        ? { error: errors.join("\n"), errors: [...errors] }
+        : {}),
+      ...(diagnostics.length ? { diagnostics: [...diagnostics] } : {}),
+    };
+  }
+
+  function readAgentEvent(value: unknown, subagent = false): void {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      errors.push("Invalid agent event in branch message stream");
+      return;
+    }
+    const event = value as Record<string, unknown>;
+    const type = asString(event.type);
+    if (!type) {
+      errors.push("Missing agent event type in branch message stream");
+      return;
+    }
+    dispatched = true;
+    const eventFailures = subagent ? diagnostics : errors;
+    if (type === "error") {
+      eventFailures.push(
+        asString(event.message) ??
+          asString(event.error) ??
+          "Agent message failed",
+      );
+    }
+    if (Array.isArray(event.errors)) {
+      const messages = type === "done" ? eventFailures : diagnostics;
+      for (const error of event.errors) {
+        messages.push(asString(error) ?? "Agent action failed");
+      }
+    }
+    if (type === "batch" && Array.isArray(event.steps)) {
+      for (const step of event.steps) readAgentEvent(step, subagent);
+    } else if (type === "agent") {
+      readAgentEvent(event.step, true);
+    } else if (type === "done") {
+      if (!Array.isArray(event.actions)) {
+        errors.push("Invalid done event in branch message stream");
+        return;
+      }
+      if (!subagent) doneObserved = true;
+      const stopReason = asString(event.stopReason);
+      if (
+        stopReason &&
+        [
+          "error",
+          "aborted",
+          "max_tokens",
+          "content_filter",
+          "refusal",
+          "model_context_window_exceeded",
+        ].includes(stopReason)
+      ) {
+        eventFailures.push(`Agent completion stopped: ${stopReason}`);
+      }
+      for (const action of event.actions) {
+        if (!action || typeof action !== "object") continue;
+        if (!subagent && action.type === "text") {
+          const content = asString(action.content);
+          if (content) finalText = content;
+        }
+        if (Array.isArray(action.errors)) {
+          for (const error of action.errors) {
+            eventFailures.push(asString(error) ?? "Agent action failed");
+          }
+        }
+      }
+    } else if (type === "tool_result") {
+      const toolResult = event.result;
+      if (
+        toolResult &&
+        typeof toolResult === "object" &&
+        "is_error" in toolResult &&
+        toolResult.is_error === true
+      ) {
+        diagnostics.push(
+          "content" in toolResult
+            ? (asString(toolResult.content) ?? "Agent tool failed")
+            : "Agent tool failed",
+        );
+      }
+    }
+  }
 
   try {
     const response = await fetch(fusionUrl("/projects/branch/message", auth), {
@@ -277,6 +395,7 @@ export async function sendFusionBranchMessage(
         fireAndForget,
         userMessage: {
           userPrompt: prompt,
+          ...(requestId ? { idempotencyKey: requestId } : {}),
           ...(auth.userId || args.userEmail
             ? {
                 user: {
@@ -293,63 +412,57 @@ export async function sendFusionBranchMessage(
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      return {
-        sent: false,
-        error:
-          text.slice(0, 500) || `branch message failed (${response.status})`,
-      };
+      errors.push(
+        text.slice(0, 500) || `branch message failed (${response.status})`,
+      );
+      return result("failed");
     }
-    await readNdjsonStream(response, (chunk) => {
-      const type = asString(chunk.type);
-      if (type === "sending-message") dispatched = true;
-      if (type === "error") {
-        errorMessage =
-          asString(chunk.error) ?? asString(chunk.message) ?? "Message failed";
-        return true;
-      }
-      if (type === "ai") {
-        dispatched = true;
-        const event = chunk.event;
-        if (event && typeof event === "object") {
-          const ev = event as Record<string, unknown>;
-          if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
-            for (const action of ev.actions) {
-              if (
-                action &&
-                typeof action === "object" &&
-                (action as Record<string, unknown>).type === "text"
-              ) {
-                const content = asString(
-                  (action as Record<string, unknown>).content,
-                );
-                if (content) finalText = content;
-              }
-            }
-          }
+    await readNdjsonStream(
+      response,
+      (chunk) => {
+        const type = asString(chunk.type);
+        // `sending-message` precedes the container request; it is not an ack.
+        if (type === "message-sent") {
+          acknowledged = true;
+          dispatched = true;
         }
-      }
-      return undefined;
-    });
+        if (type === "error") {
+          errors.push(
+            asString(chunk.error) ??
+              asString(chunk.message) ??
+              "Message failed",
+          );
+        }
+        if (type === "ai") {
+          readAgentEvent(chunk.event);
+        }
+        return undefined;
+      },
+      () => errors.push("Invalid JSON object in branch message stream"),
+    );
   } catch (error) {
     if (controller.signal.aborted) {
-      // Timed out reading the stream. With fire-and-forget the dispatch has
-      // already happened server-side once we saw any progress chunk.
-      if (dispatched) return { sent: true };
-      return {
-        sent: false,
-        error: "Timed out sending message to the app agent",
-      };
+      errors.push(
+        dispatched
+          ? "Timed out after message dispatch; completion is unknown"
+          : "Timed out before message dispatch was confirmed",
+      );
+      return result("timed_out");
     }
-    return {
-      sent: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    errors.push(error instanceof Error ? error.message : String(error));
+    return result("failed");
   } finally {
     clearTimeout(timer);
   }
 
-  if (errorMessage) return { sent: dispatched, error: errorMessage };
-  return { sent: true, response: finalText };
+  if (errors.length) return result("failed");
+  if (doneObserved) return result("completed");
+  if (fireAndForget && acknowledged) return result("dispatched");
+  errors.push(
+    "Branch message stream ended without " +
+      (fireAndForget ? "dispatch acknowledgment" : "an agent done event"),
+  );
+  return result("incomplete");
 }
 
 async function fusionJsonRequest(

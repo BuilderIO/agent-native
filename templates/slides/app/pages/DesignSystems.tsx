@@ -11,6 +11,7 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
@@ -56,6 +57,7 @@ export default function DesignSystems() {
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults();
   const [showSetup, setShowSetup] = useState(false);
+  const navigate = useNavigate();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] = useState<
     (typeof designSystems)[number] | undefined
@@ -64,8 +66,7 @@ export default function DesignSystems() {
   const deleteMutation = useActionMutation("delete-design-system");
 
   const handleCardClick = (id: string) => {
-    setEditingId(id);
-    setShowSetup(true);
+    void navigate(`/design-systems/${encodeURIComponent(id)}`);
   };
 
   const handleSetDefault = async (id: string, isDefault: boolean) => {
@@ -338,6 +339,10 @@ export default function DesignSystems() {
         onClose={handleClose}
         onComplete={handleComplete}
         editingId={editingId ?? undefined}
+        onCreated={(id) => {
+          setShowSetup(false);
+          void navigate(`/design-systems/${encodeURIComponent(id)}`);
+        }}
       />
     </div>
   );

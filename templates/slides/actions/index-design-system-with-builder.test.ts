@@ -1,3 +1,10 @@
+vi.mock("@agent-native/core/server/builder-dsi-access", () => ({
+  assertBuilderDsiAccess: vi.fn(async () => ({
+    status: "ready",
+    eligible: true,
+  })),
+  getBuilderDsiAccess: vi.fn(async () => ({ status: "ready", eligible: true })),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -20,16 +27,39 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 vi.mock("../server/lib/builder-design-system-proxy.js", () => ({
   upsertBuilderProxyDesignSystem: vi.fn(),
 }));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => "owner@example.test",
+  getRequestOrgId: () => "test-org",
+}));
 
 import { ActionContractError } from "@agent-native/core/action";
 import { FeatureNotConfiguredError } from "@agent-native/core/server";
 
+import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import action from "./index-design-system-with-builder.js";
 
 describe("index-design-system-with-builder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.buildBuilderDesignSystemIndexFiles.mockReturnValue([]);
+  });
+
+  it("forwards prompt-only creation without changing workspace defaults", async () => {
+    mocks.startBuilderDesignSystemIndex.mockResolvedValue({
+      designSystemId: "builder-system",
+    });
+    await action.run({
+      githubSources: [{ repoUrl: "https://github.com/example/ui" }],
+      makeDefaultIfFirst: false,
+    });
+    expect(upsertBuilderProxyDesignSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        makeDefaultIfFirst: false,
+        ownerEmail: "owner@example.test",
+        orgId: "test-org",
+      }),
+    );
   });
 
   it("returns an actionable precondition when Builder is not connected", async () => {

@@ -1,8 +1,5 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import {
-  PromptComposer,
-  useEagerFileUploads,
-} from "@agent-native/core/client/composer";
+import { useEagerFileUploads } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
 import {
@@ -18,13 +15,23 @@ import { toast } from "sonner";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import {
   isInsidePortaledLayer,
+  createPromptChatAttachments,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
-import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import {
+  persistComposerSubmission,
+  type SlidesPromptSubmitOptions,
+} from "@/lib/composer-context";
+import {
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+  describeUploadedFilesForAgent,
+} from "@/lib/create-deck-generation";
+import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+import { SlidesPromptComposer } from "./SlidesComposerContext";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 
@@ -41,30 +48,6 @@ function truncateSourceForContext(prompt: string): {
   };
 }
 
-function describeUploadedFilesForAgent(
-  files: UploadedFile[],
-  deckId: string,
-): string {
-  if (files.length === 0) return "";
-  const fileList = files
-    .map(
-      (f) =>
-        `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}${f.url ? `; embeddable URL: ${f.url}` : ""}`,
-    )
-    .join("\n");
-  return [
-    "",
-    `The user uploaded ${files.length} file(s). These paths are real uploaded files; process them with import actions before using their contents:`,
-    fileList,
-    "",
-    "File handling rules:",
-    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
-    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text.`,
-    "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
-    '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
-    "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
-  ].join("\n");
-}
 export function AddSlidePopover({
   open,
   onOpenChange,
@@ -88,7 +71,11 @@ export function AddSlidePopover({
   activeSlideId: string;
   slideCount: number;
   activeSlideIndex: number;
-  agentSubmit: (message: string, context: string) => Promise<boolean>;
+  agentSubmit: (
+    message: string,
+    context: string,
+    options?: SlidesPromptSubmitOptions,
+  ) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
   /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
@@ -172,6 +159,7 @@ export function AddSlidePopover({
       }
     };
     const handleKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isInsidePortaledLayer(e.target)) return;
       if (e.key === "Escape" && !submitting) onOpenChange(false);
     };
     document.addEventListener("mousedown", handleClick);
@@ -183,7 +171,12 @@ export function AddSlidePopover({
   }, [anchorRef, onOpenChange, open, submitting]);
 
   const handleSubmit = useCallback(
-    async (text: string, files: File[]) => {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: SlidesPromptSubmitOptions,
+    ) => {
       if (submittingRef.current) return;
       submittingRef.current = true;
       setSubmitting(true);
@@ -206,6 +199,14 @@ export function AddSlidePopover({
         const googleDocSourceForContext =
           truncateSourceForContext(googleDocContext);
         const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
+        const hydrated = await hydrateReferenceDocuments(uploaded);
+        if (hydrated.status === "unreadable") throw new Error(hydrated.message);
+        const sourceContext = [
+          options?.slidesContextText,
+          hydrated.status === "hydrated" ? hydrated.context : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
         const context = targetSlideId
           ? [
               `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
@@ -217,6 +218,7 @@ export function AddSlidePopover({
                 ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
                 : "",
               fileContext,
+              sourceContext,
               "",
               "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep the slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
               "If the user asked for more than one slide's worth of content, update this slide with the first one, then call `add-slide` for the rest, positioned starting right after this slide.",
@@ -231,6 +233,7 @@ export function AddSlidePopover({
                 ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
                 : "",
               fileContext,
+              sourceContext,
               "",
               "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
                 deckId +
@@ -244,9 +247,24 @@ export function AddSlidePopover({
 
         retainFiles(files);
         try {
+          const attachments = await createPromptChatAttachments(
+            options?.attachments,
+            uploaded,
+          );
+          if (options?.slidesContext) {
+            await persistComposerSubmission(
+              deckId,
+              options.slidesContext,
+              options.contextItems ?? [],
+            );
+          }
           const started = await agentSubmit(
             addSlideAgentMessage(text),
             context,
+            {
+              ...options,
+              attachments,
+            },
           );
           if (!started) {
             discardFiles(files);
@@ -381,7 +399,9 @@ export function AddSlidePopover({
           <div className="-mx-3 mb-2 h-px bg-border" />
         </>
       )}
-      <PromptComposer
+      <SlidesPromptComposer
+        deferContextPersistence
+        deckId={deckId}
         autoFocus
         maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
         documentAttachmentLimitLabel="Slides reference files"

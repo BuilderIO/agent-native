@@ -11,9 +11,9 @@ import { getCredentialContext } from "@agent-native/core/server";
 import { GOOGLE_DOCS_PROVIDER } from "./google-docs-oauth.js";
 
 export const SLIDES_APP_ID = "slides";
-export const SLIDES_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
-  "slides",
-) as [ProviderApiId, ...ProviderApiId[]];
+export const SLIDES_PROVIDER_API_IDS = [
+  ...new Set([...listProviderApiIdsForTemplateUse("slides"), "figma" as const]),
+] as [ProviderApiId, ...ProviderApiId[]];
 export type SlidesProviderApiId = (typeof SLIDES_PROVIDER_API_IDS)[number];
 export type { ProviderApiMethod, ProviderApiRequestArgs };
 

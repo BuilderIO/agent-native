@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   parseDesignTemplateData,
   readDesignTemplateSource,
@@ -115,7 +116,7 @@ export default defineAction({
           ? template.designSystemId
           : null;
       templateDesignSystemId = rawDesignSystemId
-        ? (await resolveAccess("design-system", rawDesignSystemId))
+        ? (await resolveDesignSystemAccess(rawDesignSystemId))
           ? rawDesignSystemId
           : null
         : null;

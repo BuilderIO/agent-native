@@ -38,6 +38,65 @@ describe("useChatThreads", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["missing", "persisted", "unreadable"])(
+    "binds a reserved system thread without replacing %s history",
+    async (state) => {
+      const id = "reserved-system-thread";
+      const scope = { type: "design-system", id: "design-system:qa" };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (url.startsWith("/chat/threads?"))
+            return jsonResponse({ threads: [] });
+          if (url.startsWith(`/chat/threads/${id}`)) {
+            if (state === "missing")
+              return new Response("Not found", { status: 404 });
+            if (state === "unreadable")
+              return new Response("Unavailable", { status: 503 });
+            return jsonResponse({
+              id,
+              title: "Persisted system",
+              messageCount: 5,
+              createdAt: 1,
+              updatedAt: 2,
+              scope,
+            });
+          }
+          throw new Error(`Unexpected read ${url}`);
+        }),
+      );
+      let hook!: ReturnType<typeof useChatThreads>;
+      function Harness() {
+        hook = useChatThreads("/chat", "qa-workspace", scope, {
+          routeThreadId: id,
+          isolateHistoryByScope: true,
+          createMissingRouteThread: true,
+        });
+        return null;
+      }
+      await act(async () => {
+        root.render(<Harness />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/chat/threads/${id}`),
+      );
+      expect(hook.activeThreadId).toBe(id);
+      expect({
+        loading: hook.isLoading,
+        threads: hook.threads,
+        fresh: hook.isNewThread(id),
+      }).toMatchObject({ loading: false, fresh: state === "missing" });
+      if (state === "persisted")
+        expect(
+          hook.threads.find((thread) => thread.id === id)?.messageCount,
+        ).toBe(5);
+    },
+  );
+
   it("starts fresh when no active thread is saved, even if server history exists", async () => {
     const oldThread: ChatThreadSummary = {
       id: "old-project-thread",

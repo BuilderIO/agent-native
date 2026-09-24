@@ -1,6 +1,23 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired":
+    "Conecte sua conta Builder para criar e usar sistemas de design.",
+  "dsi.accessUnavailable":
+    "Não foi possível verificar o acesso ao Builder. Tente novamente.",
+  "composer.draftFileRestoreFailed":
+    "Não foi possível restaurar os arquivos do rascunho. Anexe-os novamente antes de enviar.",
+  "composer.draftFileSaveFailed":
+    "Não foi possível salvar os arquivos do rascunho para recarregar a página. Mantenha esta página aberta ou anexe-os novamente mais tarde.",
+  "composer.addContext": "Adicionar contexto",
+  "composer.contextActionFailed": "Não foi possível adicionar o contexto.",
+  "composer.attachFiles": "Anexar arquivos",
+  "composer.contextBack": "Voltar",
+  "composer.searchContext": "Buscar contexto…",
+  "composer.noContextResults": "Nenhum contexto correspondente.",
+  "composer.contextPending": "Contexto pendente",
+  "composer.contextError": "Falha no contexto",
+  "composer.retryContext": "Tentar novamente o contexto {{name}}",
   "activity.reasoning": "Raciocínio",
   "approval.alwaysAllow": "Sempre permitir",
   "approval.alwaysAllowHint": "Aprovar e sempre permitir este comando exato",

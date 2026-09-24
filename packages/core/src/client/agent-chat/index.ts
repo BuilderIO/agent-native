@@ -262,6 +262,23 @@ export {
   type AgentSidebarProps,
 } from "../AgentPanel.js";
 export {
+  AgentChatActivityProvider,
+  useAgentChatActivity,
+} from "../agent-chat-activity.js";
+export {
+  DesignSystemWorkspace,
+  DesignSystemWorkspaceProvider,
+  useDesignSystemWorkspace,
+  useDesignSystemWorkspaceOrigin,
+  type DesignSystemWorkspaceReturn,
+  type OpenDesignSystemWorkspace,
+} from "../DesignSystemWorkspace.js";
+export {
+  DesignSystemWorkspaceView,
+  designSystemWorkspaceLabels,
+  type DesignSystemWorkspaceLabels,
+} from "../DesignSystemWorkspaceView.js";
+export {
   AgentTabsPage,
   ConnectionsTab,
   type AgentPageExtraTabContext,
@@ -416,3 +433,8 @@ export {
   isThinkingDisplay,
   type ThinkingDisplay,
 } from "../../shared/thinking-display.js";
+export {
+  formatDesignSystemReference,
+  readDesignSystemReference,
+} from "../design-system-reference.js";
+export { BuilderDsiGate } from "../BuilderDsiGate.js";

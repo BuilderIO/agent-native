@@ -1,6 +1,23 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired":
+    "Connectez votre compte Builder pour créer et utiliser des systèmes de design.",
+  "dsi.accessUnavailable":
+    "Impossible de vérifier l’accès à Builder. Réessayez.",
+  "composer.draftFileRestoreFailed":
+    "Impossible de restaurer les fichiers du brouillon. Joignez-les à nouveau avant l’envoi.",
+  "composer.draftFileSaveFailed":
+    "Impossible d’enregistrer les fichiers du brouillon pour le rechargement. Gardez cette page ouverte ou joignez-les à nouveau plus tard.",
+  "composer.addContext": "Ajouter du contexte",
+  "composer.contextActionFailed": "Impossible d’ajouter le contexte.",
+  "composer.attachFiles": "Joindre des fichiers",
+  "composer.contextBack": "Retour",
+  "composer.searchContext": "Rechercher du contexte…",
+  "composer.noContextResults": "Aucun contexte correspondant.",
+  "composer.contextPending": "Contexte en attente",
+  "composer.contextError": "Échec du contexte",
+  "composer.retryContext": "Réessayer le contexte {{name}}",
   "activity.reasoning": "Raisonnement",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":

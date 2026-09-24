@@ -8,6 +8,10 @@ import Templates from "./Templates";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  create: vi.fn(),
+  callAction: vi.fn().mockResolvedValue({}),
+  writePending: vi.fn(),
+  systemIsDefault: false,
   setSearchParams: vi.fn(),
   promptProps: null as Record<string, any> | null,
   queryClient: { invalidateQueries: vi.fn() },
@@ -44,6 +48,7 @@ vi.mock("@agent-native/core/client/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: mocks.callAction,
   useActionQuery: () => ({
     data: {
       count: 2,
@@ -54,8 +59,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     isLoading: false,
   }),
   useActionMutation: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: mocks.create,
   }),
+}));
+vi.mock("@/lib/pending-generation", () => ({
+  writePendingGeneration: mocks.writePending,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -87,8 +95,22 @@ vi.mock("@/components/templates/TemplatePreview", () => ({
 
 vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: () => ({
-    designSystems: [],
-    defaultSystem: null,
+    designSystems: [
+      {
+        id: "available-system",
+        title: "Available",
+        data: "{}",
+        isDefault: mocks.systemIsDefault,
+      },
+    ],
+    defaultSystem: mocks.systemIsDefault
+      ? {
+          id: "available-system",
+          title: "Available",
+          data: "{}",
+          isDefault: true,
+        }
+      : null,
     isLoading: false,
   }),
 }));
@@ -109,6 +131,8 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.promptProps = null;
+  mocks.systemIsDefault = false;
+  mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
     value: vi.fn(),
@@ -124,6 +148,66 @@ afterEach(async () => {
 });
 
 describe("Templates deep links", () => {
+  it("does not auto-attach an unrelated nondefault system but honors a real default", async () => {
+    await act(async () => root.render(<Templates />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+    mocks.systemIsDefault = true;
+    await act(async () => root.render(<Templates key="with-default" />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("available-system");
+  });
+  it("persists source descriptors and sends an immutable context snapshot with actual uploaded files", async () => {
+    let complete!: (value: unknown) => void;
+    mocks.create.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    await act(async () => root.render(<Templates />));
+    const reference = {
+      source: "design",
+      id: "source-design",
+      title: "Reference",
+    };
+    const item = {
+      key: `design-reference:${JSON.stringify(reference)}`,
+      title: "Reference",
+      context: "Captured source",
+      status: "ready",
+    };
+    const file = {
+      path: "/uploads/test.txt",
+      filename: "test.txt",
+      originalName: "test.txt",
+      type: "text/plain",
+      size: 4,
+      textContent: "Real upload text",
+    };
+    let submission!: Promise<void>;
+    await act(async () => {
+      submission = mocks.promptProps?.onSubmit("Adapt this", [file], {
+        contextItems: [item],
+      });
+    });
+    item.context = "Changed while creating";
+    await act(async () => {
+      complete({ id: "created", adaptationPending: true });
+      await submission;
+    });
+    expect(mocks.callAction).toHaveBeenCalledWith("update-design", {
+      id: "created",
+      dataOperations: [
+        { op: "set", path: ["composerContext"], value: [reference] },
+      ],
+    });
+    expect(mocks.writePending).toHaveBeenCalledWith(
+      "created",
+      expect.objectContaining({
+        files: [file],
+        contextItems: [expect.objectContaining({ context: "Captured source" })],
+      }),
+    );
+  });
   it("highlights and opens the templateId query target", async () => {
     await act(async () => {
       root.render(<Templates />);

@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
+import {
+  loadAgentDesignSystemContext,
+  readDesignSystemReference,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { asc, eq } from "drizzle-orm";
@@ -46,9 +49,15 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id))
       .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
+    const designData =
+      typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+    const designSystemRef = readDesignSystemReference(
+      designData?.composerDesignSystemRef,
+    );
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
+      { reference: designSystemRef },
     );
 
     track(
@@ -69,6 +78,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      designSystemRef,
       designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,

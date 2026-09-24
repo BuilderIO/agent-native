@@ -10,6 +10,7 @@ import { normalizedDesignFileType } from "@/pages/design-editor/canvas-primitive
 export const PENDING_GENERATION_STALE_MS = 30 * 60_000;
 
 export interface PendingGeneration {
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   prompt?: string;
   files?: UploadedFile[];
   title?: string;

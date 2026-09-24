@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { CommandDialog } from "./command.js";
+import { Command, CommandDialog, CommandInput } from "./command.js";
 
 interface CommandDialogElement extends ReactElement {
   props: {
@@ -47,5 +48,28 @@ describe("CommandDialog", () => {
 
     expect(command.props.filter).toBe(filter);
     expect(command.props.value).toBe("selected-command");
+  });
+});
+
+describe("CommandInput leading slot", () => {
+  it("keeps the search icon by default", () => {
+    const html = renderToStaticMarkup(
+      <Command>
+        <CommandInput placeholder="Search" />
+      </Command>,
+    );
+    expect(html).toContain("tabler-icon-search");
+    expect(html).toContain('placeholder="Search"');
+  });
+
+  it("replaces the icon with the leading slot without forwarding it to the input", () => {
+    const html = renderToStaticMarkup(
+      <Command>
+        <CommandInput leading={<button type="button">Back</button>} />
+      </Command>,
+    );
+    expect(html).toContain('<button type="button">Back</button>');
+    expect(html).not.toContain("tabler-icon-search");
+    expect(html).not.toContain("leading=");
   });
 });

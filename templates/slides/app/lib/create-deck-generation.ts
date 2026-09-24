@@ -3,6 +3,7 @@ import {
   callAction,
   deleteClientAppState,
 } from "@agent-native/core/client/hooks";
+import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import { flushSync } from "react-dom";
@@ -21,6 +22,9 @@ import {
   referenceDocumentFormat,
 } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
+
+import type { SlidesComposerContext } from "../../shared/composer-context";
+import { formatComposerContext } from "./composer-context";
 
 export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
@@ -284,6 +288,8 @@ export interface StartDeckGenerationOptions {
 }
 
 export interface DeckGenerationContext {
+  composerContext?: SlidesComposerContext;
+  contextItems?: readonly AgentChatContextItem[];
   originalPrompt: string;
   files: Array<{
     path: string;
@@ -309,6 +315,9 @@ export async function persistDeckGenerationContext(
         op: "patch-deck-fields",
         fields: {
           generationContext: context as unknown as Record<string, unknown>,
+          ...(context.composerContext
+            ? { composerContext: context.composerContext }
+            : {}),
         },
       },
     ],
@@ -377,7 +386,9 @@ export async function startDeckGeneration({
   flushSync(() => {
     deck = createDeck(undefined, {
       noDefaultSlides: true,
-      designSystemId: selectedDesignSystem?.id ?? null,
+      designSystemId: referenceSelection.composerContext
+        ? designSystemId
+        : (selectedDesignSystem?.id ?? null),
     });
   });
   if (!deck) return "failed";
@@ -467,29 +478,34 @@ export async function startDeckGeneration({
       loadDesignSystemGenerationContext(selectedDesignSystem?.id),
     ],
   );
-  const designSystemContext = selectedDesignSystem
-    ? [
-        "",
-        "Design system selection:",
-        `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
-        "- The deck has already been linked to this design system.",
-        "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
-        hydratedDesignSystemContext,
-        "- Do not choose or apply a different design system.",
-      ].join("\n")
-    : [
-        "",
-        "Design system selection:",
-        "- No design system was selected in the picker.",
-        ...(referenceDeckId || hasHydratedReferenceDesign
-          ? [
-              "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
-            ]
-          : [
-              "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-              "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
-            ]),
-      ].join("\n");
+  const designSystemContext = referenceSelection.composerContext
+    ? formatComposerContext(
+        referenceSelection.composerContext,
+        referenceSelection.contextItems ?? [],
+      )
+    : selectedDesignSystem
+      ? [
+          "",
+          "Design system selection:",
+          `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
+          "- The deck has already been linked to this design system.",
+          "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
+          hydratedDesignSystemContext,
+          "- Do not choose or apply a different design system.",
+        ].join("\n")
+      : [
+          "",
+          "Design system selection:",
+          "- No design system was selected in the picker.",
+          ...(referenceDeckId || hasHydratedReferenceDesign
+            ? [
+                "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
+              ]
+            : [
+                "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+                "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
+              ]),
+        ].join("\n");
   const referenceSource = referenceSelection.referenceSource;
   const referenceSourceContext = referenceSource
     ? [
@@ -570,6 +586,12 @@ export async function startDeckGeneration({
       })),
       designSystemId,
       referenceDeckId,
+      ...(referenceSelection.composerContext
+        ? {
+            composerContext: referenceSelection.composerContext,
+            contextItems: referenceSelection.contextItems,
+          }
+        : {}),
       ...(referenceSource ? { referenceSource } : {}),
       mode: importedSourceDeck ? "source-preserving" : "new",
       targetSlideCount:

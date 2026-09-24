@@ -1,0 +1,274 @@
+---
+title: "Design systems · create together"
+brief: "A small MVP of the clip's workflow: gather references, build a living system, refine it in native chat."
+version: 1
+kind: "plan"
+localOnly: true
+---
+
+## The product
+
+Create **Acme** from a website, design.md, a logo, and a Figma file. One action opens Acme's workspace: **chat on the left; foundations, rendered components, and usage rules on the right**. Watch the system take shape, select Avatar, ask for rounded squares, and see that component change. Use the result in the original Design or Slides prompt.
+
+That complete loop is the MVP. A token viewer, a generic chat sidebar, or a background import that finishes with “Open in Builder” does not satisfy it.
+
+<Callout id="contract" tone="decision">
+
+Build the workflow shown in the [concept clip](https://beta.clips.agent-native.com/r/ufznkqAVv2QK), with fewer capabilities—not a different interaction. Native chat is the primary experience. Launch includes Start fresh, Figma, website, design.md, and general file references. GitHub/npm and speculative pricing gates are outside this release.
+
+</Callout>
+
+The top prototype is an interaction model, not a working integration. It supports a combined reference batch, removal, the fresh path, component selection, one example Avatar refinement, and return to the prompt. File selection uses fixtures and generation is compressed. Implementation uses the real shadcn primitives and AgentKit composer, not the wireframe renderer's styling.
+
+## The four screens
+
+### 1. Choose a starting path
+
+From **+ → Add context → Design → Use a design system**, select an existing system or **Create design system**. The compact dialog contains Name, two illustrated radio cards—**Start fresh** and **References**—and **Continue**.
+
+Start fresh immediately opens the named workspace. The agent asks for a direction and creates with the user; there is no prerequisite source form. References opens the source collector. Preserve the name, selection, original prompt, and other attachments through Back, connection setup, and resume.
+
+Keep **Attach Figma** and **Reference a design/deck** as sibling actions inside the Design context category. A one-off Figma reference is not an implicit design-system import.
+
+### 2. Add references
+
+Show three compact cards in one row: **Website**, **Brand files**, **Figma**. Brand files contains design.md and supported general files. Selecting a card reveals its editor inline beneath the cards; several editors can remain open. Do not navigate between a stack of separate source dialogs.
+
+**Add** stages the item. Show it as a removable chip and check the corresponding card only when it contains an added item. Multiple source types form one batch; adding or editing one must not reset the others. File uploads support multiple files with individual status and removal.
+
+The footer has one **Create design system** action. Submit the entire batch once and enter the workspace immediately, before extraction or generation finishes. Adding more references later uses this same collector and returns to the existing conversation with **Add to system**, not a second system.
+
+A check means “added,” never “successfully understood.” Connection requirements and unsupported formats appear at the relevant source, retaining the draft.
+
+### 3. Build and refine in the workspace
+
+This is a dedicated **system-authoring mode**, intentionally shaped like the clip. It is not the current library detail Sheet with its generic right-hand agent sidebar.
+
+- **Left:** persistent system-scoped conversation, real progress messages, and the shared AgentKit composer. Source and selected-component attachments belong inside the conversation/composer.
+- **Right:** a living canvas with **Foundations**, **Components**, and **Usage rules**. It starts with layout-matching empty/loading states and fills from persisted agent output.
+- **Selection:** clicking a component or foundation attaches that exact target to the composer. “Make it rounder” edits the selected object, not a new unrelated system.
+- **Iteration:** chat changes update the rendered artifact and related rules in place. Keep the last usable content visible during edits and recoverable after a failure.
+- **More context:** add references at any point without losing the conversation, existing sources, or manual decisions.
+- **Resume:** leave and reopen the same system, conversation, selection, and saved artifacts.
+
+The starter canvas needs colors, typography, spacing, and radius; a small coherent component set (**Button, Input, Card, Avatar**); and short usage guidance. These are real editable outputs used by generation, not decorative sample cards. A full component catalog, code mapping, and a rules-management console can come later.
+
+Status must reflect actual work: reading sources, drafting foundations, building components, or needs attention. Do not invent percentages, fidelity scores, or success from a submitted provider job. Label output provenance as extracted, inferred, or generated where useful.
+
+### 4. Use the system
+
+**Use in this prompt** returns to the exact originating composer with the system attached once, preserving the user's prompt and other attachments. Subsequent generation must actually resolve and use that system; showing a chip is not the completion criterion.
+
+The same create/edit/use flow is available from Design home, the Design editor, Slides creation, the Slides editor, and their agent composers. Library access resumes the same workspace. This does not automatically change organization defaults, widen sharing, or rewrite older designs/decks.
+
+## What stays in the MVP
+
+<Table
+  id="scope"
+  columns={["Keep the complete loop", "Defer the extra capability"]}
+  rows={[
+    [
+      "Two starting cards and staged multi-source collection",
+      "Enterprise/npm path, GitHub, local-code ingestion, tier comparison",
+    ],
+    [
+      "Native left-chat workspace and progressively rendered system",
+      "Builder as a required authoring destination; a second integration-management UI",
+    ],
+    [
+      "Selectable foundations and four useful starter components, refined in chat",
+      "Full visual component editor, production-code binding, automatic component-library mapping",
+    ],
+    [
+      "Website, design.md, tested general files, Figma import",
+      "Frame browser, variable/collection picker, exhaustive Figma fidelity",
+    ],
+    [
+      "Add more sources, recover, reopen, and use in Design/Slides",
+      "Automatic bidirectional sync and retroactive propagation to all projects",
+    ],
+    [
+      "Actual capability/access restrictions where encountered",
+      "Unapproved Pro/Enterprise badges, quotas, upgrade prompts and growth experiments",
+    ],
+  ]}
+/>
+
+Cut breadth, not the create-and-iterate experience. Unsupported advanced options should be absent rather than a wall of Coming soon cards.
+
+## Integration contract
+
+**The UX is the requirement; existing code is reusable material, not the product boundary.** Reuse the shared composer, context menu, upload, connection, action, and run infrastructure. Extend or replace the design-system integration where it cannot produce the required workspace.
+
+### One durable system, not an import receipt
+
+Create a system identity and bind its conversation before dispatch. Store its source manifest, run reference, saved artifact revision, and return target. Use idempotent creation so double-clicks, reconnects, and uncertain acknowledgements do not duplicate systems.
+
+Foundations, component artifacts, and usage guidance need stable target IDs and persisted editable content. The same scoped actions must let both UI and agent inspect and update them. An edit targets the existing system/artifact and expected revision; source reprocessing must not silently erase that edit.
+
+Reuse SQL for metadata and configured file/blob storage for uploaded and generated bodies. Preserve source errors and provenance explicitly. Application state exposes the active system, selected artifact, and navigation to the agent.
+
+A minimum handoff carries a system ID, source references, creation intent, conversation/run identity, and origin-draft reference. Do not substitute a giant unstructured prompt or provider job ID for this contract.
+
+### AgentKit and app ownership
+
+<Table
+  id="ownership"
+  columns={["Area", "Required work"]}
+  rows={[
+    [
+      "Shared AgentKit / toolkit",
+      "Reuse composer frame, prompt editor, attachments, nested context menu and chat/run surfaces. Add reusable target-context and draft/return behavior where missing. Keep domain-specific source extraction out of generic composer code.",
+    ],
+    [
+      "Design-system workflow shared by Design and Slides",
+      "One starting-path and reference-collector implementation, system-scoped workspace controller, target-selection contract and source/run states. App adapters supply navigation, scoped actions and attachment resolution.",
+    ],
+    [
+      "Design and Slides integration",
+      "Replace the existing setup/detail dead ends with the new authoring mode. Suppress competing generic agent chrome there; do not nest a second chat panel. All entry points resume the same flow.",
+    ],
+    [
+      "Actions and DSI runtime",
+      "Create/read/update the actual foundations, component artifacts and rules; batch source inputs; emit meaningful progress; apply targeted revisions. Expand current actions and provider adapters as necessary.",
+    ],
+    [
+      "Builder, when used",
+      "Provider behind the native experience. Keep exact system/project/run mapping. An optional verified project link may live in overflow; neither opening it nor background completion constitutes native authoring.",
+    ],
+  ]}
+/>
+
+Current code does **not** establish the required component-authoring lifecycle. The existing update action edits local metadata/data; the current Builder helpers expose indexing and reads, not a verified targeted component-edit loop. This is a gap to implement and prove, not a reason to ship a local-JSON viewer or external-editor handoff.
+
+The feasibility slice must determine which DSI operations can run through supported Builder APIs and which require native agent tooling or adapter expansion. Whichever engine is used must write the same editable system artifacts and support the native loop. Do not assume two-way sync, infer remote write support from indexing, or claim a provider fallback completes the MVP.
+
+### Source boundaries
+
+- **Figma:** validate a file URL, access, and the supported extraction path. A .fig export can be a supported alternative when proven. URL attachment, frame extraction, and variables access are different capabilities. MVP does not require a frame/variable picker; it does require useful Figma-derived system output with honest limitations. Unsupported extraction is not successful import.
+- **Website:** fetch real evidence from a validated public URL. Distinguish unreachable, forbidden, unsupported, and no useful evidence; protect private/internal network targets. Do not generate a brand and label it imported.
+- **Brand files:** start with a tested matrix including design.md, common image/logo assets, and selected general document formats. Upload acceptance and successful interpretation are separate. Explain per-file rejection without dropping the rest.
+- **Access and licensing:** use the workspace's existing connection and entitlement primitives. Only verified restrictions are shown. No speculative product-tier gate is implied by the prototype.
+
+Design and Slides currently have app-local system records. Keep an owner-qualified system reference and explicit consumed revision when crossing apps; resolve through existing scoped app-discovery/A2A mechanisms. No new registry service or direct cross-app SQL is needed. A copied record must not masquerade as a synced system.
+
+## Code boundaries to change
+
+Use these as implementation anchors—not constraints on the approved experience.
+
+<Table
+  id="code-map"
+  columns={["Existing boundary", "Treatment"]}
+  rows={[
+    [
+      "packages/toolkit/src/composer/ComposerContextMenu.tsx; packages/agentkit/src/react/components.tsx",
+      "Reuse and extend the shared context/attachment seams.",
+    ],
+    [
+      "templates/design/app/pages/DesignSystemSetup.tsx; templates/slides/app/components/design-system/DesignSystemSetup.tsx",
+      "Replace the setup interaction with the shared two-path dialog and inline batch collector.",
+    ],
+    [
+      "Both apps' DesignSystems.tsx and layout/chat scoping",
+      "Introduce the dedicated left-chat authoring workspace and route/resume binding; retain library navigation, not the old detail interaction.",
+    ],
+    [
+      "DesignContextPicker.tsx; SlidesComposerContext.tsx",
+      "Return a durable system attachment to the exact saved composer draft.",
+    ],
+    [
+      "Existing create/update design-system actions and schemas",
+      "Add the artifact, source, conversation and run lifecycle needed by native authoring.",
+    ],
+    [
+      "packages/core/src/server/builder-design-systems.ts and app provider adapters",
+      "Prove capabilities; extend the integration where it cannot drive native creation and targeted iteration.",
+    ],
+  ]}
+/>
+
+Source findings: [shared menu](/Users/shawn/.codex/worktrees/b97b/agent-native/packages/toolkit/src/composer/ComposerContextMenu.tsx:120), [AgentKit context seam](/Users/shawn/.codex/worktrees/b97b/agent-native/packages/agentkit/src/react/components.tsx:2382), [current local update](/Users/shawn/.codex/worktrees/b97b/agent-native/templates/design/actions/update-design-system.ts:62), [Builder indexing](/Users/shawn/.codex/worktrees/b97b/agent-native/packages/core/src/server/builder-design-systems.ts:1565). These are repository observations, not live provider certification.
+
+## Two implementation loops
+
+**Loop 1 — prove the product, end to end.** Build one real vertical slice: two paths → combined source batch → named native workspace → foundations + four components + rules → select Avatar → targeted chat edit → reload → use in Design and Slides. Start with the artifact/agent capability probe, then wire that proof through the shared UI. Review this running loop against the clip before expanding options.
+
+**Loop 2 — make it reliable and consistent.** Exercise every composer entry, add sources during iteration, connection interruption, partial extraction, failed edits, cancellation/resume, keyboard navigation, and narrow layouts. Preserve usable work and the originating prompt. Update actions, agent instructions, application state, localized UI copy, relevant package changesets, and app changelogs together.
+
+### Release proof
+
+<Checklist
+  id="acceptance"
+  items={[
+    {
+      id: "fresh",
+      label:
+        "Start fresh opens native chat immediately; a direction produces an actual editable system.",
+    },
+    {
+      id: "batch",
+      label:
+        "Website + design.md + a general file + Figma are retained in one request; edit/remove/back never drop unrelated items.",
+    },
+    {
+      id: "progress",
+      label:
+        "Real generation populates the canvas progressively; partial/failed work never reports completion.",
+    },
+    {
+      id: "target",
+      label:
+        "Select Avatar, request rounded squares, verify the rendered component and saved artifact changed; reopen and verify persistence.",
+    },
+    {
+      id: "more",
+      label:
+        "Add another source while iterating; continue the same system and thread without erasing previous decisions.",
+    },
+    {
+      id: "use",
+      label:
+        "Return to each Design/Slides composer, preserve its draft, and generate output demonstrably using the attached system.",
+    },
+    {
+      id: "recovery",
+      label:
+        "Double-submit, reload, missing access, failed extraction and failed revision preserve identity and usable work.",
+    },
+    {
+      id: "quality",
+      label:
+        "Real shadcn controls and AgentKit composers; clear selection, keyboard focus, no clipping, no invented pricing or fidelity claims.",
+    },
+  ]}
+/>
+
+## Open questions
+
+Product scope and native-first direction are settled. The remaining approval is whether this compact form of the clip's workspace and interaction loop is the right implementation target. Provider capability gaps are engineering work, not permission to substitute a weaker workflow.
+
+<QuestionForm
+  id="approval"
+  submitLabel="Save review"
+  questions={[
+    {
+      id: "proceed",
+      title: "Approve this MVP workflow for implementation?",
+      mode: "single",
+      options: [
+        {
+          id: "approve",
+          label: "Implement the complete native create-and-refine loop",
+          recommended: true,
+        },
+        { id: "revise", label: "Revise the interaction before implementation" },
+      ],
+    },
+    {
+      id: "notes",
+      title: "Which interaction still differs from the clip?",
+      mode: "freeform",
+      placeholder: "Name the screen or transition.",
+    },
+  ]}
+/>

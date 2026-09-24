@@ -1,6 +1,23 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired":
+    "디자인 시스템을 만들고 사용하려면 Builder 계정을 연결하세요.",
+  "dsi.accessUnavailable":
+    "Builder 액세스를 확인할 수 없습니다. 다시 시도하세요.",
+  "composer.draftFileRestoreFailed":
+    "초안 파일을 복원하지 못했습니다. 보내기 전에 다시 첨부하세요.",
+  "composer.draftFileSaveFailed":
+    "새로고침을 위해 초안 파일을 저장하지 못했습니다. 이 페이지를 열어 두거나 나중에 다시 첨부하세요.",
+  "composer.addContext": "컨텍스트 추가",
+  "composer.contextActionFailed": "컨텍스트를 추가하지 못했습니다.",
+  "composer.attachFiles": "파일 첨부",
+  "composer.contextBack": "뒤로",
+  "composer.searchContext": "컨텍스트 검색…",
+  "composer.noContextResults": "일치하는 컨텍스트가 없습니다.",
+  "composer.contextPending": "컨텍스트 대기 중",
+  "composer.contextError": "컨텍스트 실패",
+  "composer.retryContext": "{{name}} 컨텍스트 다시 시도",
   "activity.reasoning": "추론",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":

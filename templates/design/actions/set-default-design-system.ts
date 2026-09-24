@@ -3,11 +3,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 
 export default defineAction({
   description:
@@ -21,7 +21,7 @@ export default defineAction({
       .describe("Whether this design system should be the default"),
   }),
   run: async ({ id, isDefault }) => {
-    await assertAccess("design-system", id, "editor");
+    await assertDesignSystemAccess(id, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();

@@ -11,8 +11,9 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
 import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
+import "../server/db/index.js"; // ensure registerShareableResource runs
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -597,10 +598,8 @@ export default defineAction({
     let designSystem: DesignSystemData | undefined;
     let builderTokenValues: Record<string, string> | undefined;
     if (typeof designSystemId === "string" && designSystemId.trim()) {
-      const designSystemAccess = await resolveAccess(
-        "design-system",
-        designSystemId,
-      );
+      const designSystemAccess =
+        await resolveDesignSystemAccess(designSystemId);
       const rawData = designSystemAccess?.resource?.data;
       if (typeof rawData === "string") {
         designSystem = parseStoredDesignSystem(rawData);

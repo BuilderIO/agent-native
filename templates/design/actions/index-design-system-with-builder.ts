@@ -1,8 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   buildBuilderDesignSystemIndexFiles,
+  isBuilderEditorUrl,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -57,12 +59,22 @@ const githubSourceSchema = z.object({
 });
 
 export default defineAction({
+  authorize: async () => {
+    await assertBuilderDsiAccess();
+  },
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
+    "Batch completed uploadedFiles references with all other sources in one call; returns editorUrl when the working project is available. " +
     "Use this instead of local import-code/import-github when the user wants a reusable brand kit or design system. " +
     "Private GitHub repositories use the saved GITHUB_TOKEN server-side; the token is never sent to Builder or exposed to the client. " +
     "Requires Builder.io to be connected (free tier available); Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
   schema: z.object({
+    autoDefault: z
+      .boolean()
+      .optional()
+      .describe(
+        "Allow default promotion when indexing completes; pass false for a system created as prompt context. Omitted preserves existing behavior.",
+      ),
     projectName: z
       .string()
       .optional()
@@ -91,6 +103,19 @@ export default defineAction({
       .array(codeFileSchema)
       .optional()
       .describe("Optional inlined code/design files to upload to Builder"),
+    uploadedFiles: z
+      .array(
+        z.object({
+          name: z.string().trim().min(1),
+          uploadToken: z.string().trim().min(1),
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional()
+      .describe(
+        "Completed Builder uploads from setup: preserve each name and uploadToken exactly. Combine all staged files with GitHub/code/designMd in one indexing call.",
+      ),
     designMd: z
       .string()
       .optional()
@@ -99,20 +124,29 @@ export default defineAction({
       ),
   }),
   run: async ({
+    autoDefault,
     projectName,
     description,
     githubRepoUrl,
     githubSources,
     connectedProjectId,
     codeFiles,
+    uploadedFiles,
     designMd,
   }) => {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) {
+      fail("Authentication required.", {
+        statusCode: 401,
+        errorCode: "authentication_required",
+      });
+    }
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,
       // Agent action payloads intentionally stay at the core 2 MB inline
       // budget. Fail loudly instead of silently dropping a larger `.fig`;
-      // the setup screen's guarded multipart route supports up to 200 MB.
+      // larger files arrive as completed uploadedFiles references.
       overflowBehavior: "throw",
     });
     const result = await startBuilderDesignSystemIndex({
@@ -122,11 +156,11 @@ export default defineAction({
       githubRepos: githubSources,
       connectedProjectId,
       files,
+      uploadedFiles,
     });
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
 
     const proxy = await upsertBuilderProxyDesignSystem({
+      autoDefault,
       result,
       ownerEmail,
       orgId: getRequestOrgId(),
@@ -136,11 +170,11 @@ export default defineAction({
         githubSources ?? (githubRepoUrl ? [{ repoUrl: githubRepoUrl }] : []),
       sourceKind:
         (githubSources?.length || githubRepoUrl) &&
-        (codeFiles?.length || designMd)
+        (codeFiles?.length || uploadedFiles?.length || designMd)
           ? "mixed"
           : githubSources?.length || githubRepoUrl
             ? "github"
-            : codeFiles?.length || designMd
+            : codeFiles?.length || uploadedFiles?.length || designMd
               ? "code"
               : undefined,
     });
@@ -148,8 +182,14 @@ export default defineAction({
     return {
       ...result,
       ...proxy,
-      uploadedFileCount: files.length,
+      uploadedFileCount: files.length + (uploadedFiles?.length ?? 0),
       githubSourceCount: githubSources?.length ?? (githubRepoUrl ? 1 : 0),
     };
+  },
+  link: ({ result }) => {
+    const editorUrl = (result as { editorUrl?: unknown } | null)?.editorUrl;
+    return isBuilderEditorUrl(editorUrl)
+      ? { url: editorUrl, label: "Open design system", view: "editor" }
+      : null;
   },
 });

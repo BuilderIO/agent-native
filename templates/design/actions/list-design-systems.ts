@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { canManageDesignSystemRole } from "../server/lib/design-system-access.js";
 import { resolveDefaultDesignSystemId } from "../server/lib/design-system-defaults.js";
+import { filterAccessibleDesignSystems } from "../server/lib/design-system-dsi-access.js";
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -47,24 +48,26 @@ export default defineAction({
     const db = getDb();
     const userEmail = normalizeEmail(getRequestUserEmail());
     const orgId = getRequestOrgId();
-    const rows = await db
-      .select({
-        id: schema.designSystems.id,
-        title: schema.designSystems.title,
-        description: schema.designSystems.description,
-        data: schema.designSystems.data,
-        assets: schema.designSystems.assets,
-        customInstructions: schema.designSystems.customInstructions,
-        isDefault: schema.designSystems.isDefault,
-        visibility: schema.designSystems.visibility,
-        ownerEmail: schema.designSystems.ownerEmail,
-        orgId: schema.designSystems.orgId,
-        createdAt: schema.designSystems.createdAt,
-        updatedAt: schema.designSystems.updatedAt,
-      })
-      .from(schema.designSystems)
-      .where(accessFilter(schema.designSystems, schema.designSystemShares))
-      .orderBy(desc(schema.designSystems.updatedAt));
+    const rows = await filterAccessibleDesignSystems(
+      await db
+        .select({
+          id: schema.designSystems.id,
+          title: schema.designSystems.title,
+          description: schema.designSystems.description,
+          data: schema.designSystems.data,
+          assets: schema.designSystems.assets,
+          customInstructions: schema.designSystems.customInstructions,
+          isDefault: schema.designSystems.isDefault,
+          visibility: schema.designSystems.visibility,
+          ownerEmail: schema.designSystems.ownerEmail,
+          orgId: schema.designSystems.orgId,
+          createdAt: schema.designSystems.createdAt,
+          updatedAt: schema.designSystems.updatedAt,
+        })
+        .from(schema.designSystems)
+        .where(accessFilter(schema.designSystems, schema.designSystemShares))
+        .orderBy(desc(schema.designSystems.updatedAt)),
+    );
 
     if (rows.length === 0) {
       return { count: 0, designSystems: [] };

@@ -12,6 +12,7 @@
  */
 import { AgentActionStopError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
+import { designSystemReferenceSchema } from "@agent-native/core/shared/design-system-authoring";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -40,6 +41,7 @@ import {
 } from "../server/lib/source-import.js";
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { SlidesComposerContextSchema } from "../shared/composer-context.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -225,6 +227,7 @@ const PatchDeckFieldsOp = z.object({
     .object({
       title: z.string().optional(),
       designSystemId: z.string().nullable().optional(),
+      designSystemRef: designSystemReferenceSchema.nullable().optional(),
       tweaks: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
         .optional(),
@@ -233,6 +236,7 @@ const PatchDeckFieldsOp = z.object({
       visibility: z.enum(["private", "org", "public"]).optional(),
       starred: z.boolean().optional(),
       generationContext: z.record(z.string(), z.unknown()).optional(),
+      composerContext: SlidesComposerContextSchema.optional(),
     })
     .passthrough(),
 });
@@ -587,6 +591,8 @@ export function applyOperation(
       }
       if ("designSystemId" in fields)
         deck.designSystemId = fields.designSystemId;
+      if ("designSystemRef" in fields)
+        deck.designSystemRef = fields.designSystemRef;
       if (fields.tweaks !== undefined) deck.tweaks = fields.tweaks;
       if (fields.aspectRatio !== undefined)
         deck.aspectRatio = fields.aspectRatio;
@@ -595,6 +601,20 @@ export function applyOperation(
       if (fields.starred !== undefined) deck.starred = fields.starred;
       if (fields.generationContext !== undefined)
         deck.generationContext = fields.generationContext;
+      if (fields.composerContext !== undefined)
+        deck.composerContext = fields.composerContext;
+      if ("designSystemRef" in fields) {
+        if (deck.composerContext)
+          deck.composerContext.designSystemRef = fields.designSystemRef;
+      } else if (
+        fields.composerContext &&
+        "designSystemRef" in fields.composerContext
+      ) {
+        deck.designSystemRef = fields.composerContext.designSystemRef;
+      } else if ("designSystemId" in fields) {
+        deck.designSystemRef = null;
+        if (deck.composerContext) deck.composerContext.designSystemRef = null;
+      }
       return false;
     }
   }

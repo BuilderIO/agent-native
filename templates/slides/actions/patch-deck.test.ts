@@ -491,6 +491,28 @@ describe("applyOperation — add-slide", () => {
 });
 
 describe("applyOperation — patch-deck-fields", () => {
+  it("persists editable context separately from the previous generation snapshot", () => {
+    const previous = {
+      originalPrompt: "A deck",
+      composerContext: { designSystemId: "brand", references: [] },
+    };
+    const deck = {
+      title: "T",
+      slides: [{ id: "s1", content: "unchanged" }],
+      generationContext: previous,
+    };
+    const composerContext = {
+      designSystemId: null,
+      references: [{ source: "slides" as const, id: "ref", title: "Layout" }],
+    };
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { composerContext },
+    });
+    expect(deck.composerContext).toEqual(composerContext);
+    expect(deck.generationContext).toBe(previous);
+    expect(deck.slides).toEqual([{ id: "s1", content: "unchanged" }]);
+  });
   it("updates only the provided top-level fields", () => {
     const deck = {
       title: "Old",

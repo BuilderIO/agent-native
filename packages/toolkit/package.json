@@ -180,6 +180,13 @@
       "import": "./dist/context-ui/index.js",
       "default": "./dist/context-ui/index.js"
     },
+    "./design-system-creation": {
+      "types": "./dist/design-system-creation/index.d.ts",
+      "browser": "./dist/design-system-creation/index.js",
+      "development": "./dist/design-system-creation/index.js",
+      "import": "./dist/design-system-creation/index.js",
+      "default": "./dist/design-system-creation/index.js"
+    },
     "./design-tweaks": {
       "types": "./dist/design-tweaks/index.d.ts",
       "browser": "./dist/design-tweaks/index.js",

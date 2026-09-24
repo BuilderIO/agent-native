@@ -1,14 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
-import {
-  assertAccess,
-  resolveAccess,
-  type ShareRole,
-} from "@agent-native/core/sharing";
+import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -78,7 +75,7 @@ export default defineAction({
     id: z.string().min(1).describe("Design system ID to delete"),
   }),
   run: async ({ id }) => {
-    const access = await assertAccess("design-system", id, "admin");
+    const access = await assertDesignSystemAccess(id, "admin");
 
     const db = getDb();
     const orgId = getRequestOrgId();
@@ -92,7 +89,7 @@ export default defineAction({
 
     // Delete the design system (and its shares) before touching linked decks.
     // Once the row is gone, apply-design-system/create-deck's
-    // assertAccess("design-system", ...) check fails for anyone trying to
+    // assertDesignSystemAccess(...) check fails for anyone trying to
     // attach a fresh link, shrinking the window for a deck to end up pointing
     // at a design system we're about to remove. If this was the owner's
     // default, promote another of their design systems in the same

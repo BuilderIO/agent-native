@@ -1,3 +1,4 @@
+import { defineAction } from "@agent-native/core/action";
 /**
  * run-design-audit — read-only a11y audit over a design's rendered HTML/DOM.
  *
@@ -11,13 +12,12 @@
  *
  * See DESIGN-STUDIO-PLAN.md §6.5 + §7 (Review surface).
  */
-
-import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemDsiAccess } from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import type {
@@ -846,6 +846,7 @@ export default defineAction({
         ),
       )
       .limit(1);
+    if (linkedSystem) await assertDesignSystemDsiAccess(linkedSystem.data);
     const designSystemFindings = linkedSystem
       ? checkDesignSystemAdherence(
           html,

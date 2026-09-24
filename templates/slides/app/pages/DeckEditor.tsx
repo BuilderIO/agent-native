@@ -375,9 +375,13 @@ export default function DeckEditor() {
   // to this run at all (by design — it reflects ANY agent chat activity).
   const sawGeneratingRef = useRef(false);
   const submitAddSlideAgent = useCallback(
-    (message: string, context: string) => {
+    (
+      message: string,
+      context: string,
+      options?: Parameters<typeof addSlideAgentSubmit>[2],
+    ) => {
       addSlideRequestSentRef.current = true;
-      addSlideAgentSubmit(message, context);
+      addSlideAgentSubmit(message, context, options);
     },
     [addSlideAgentSubmit],
   );

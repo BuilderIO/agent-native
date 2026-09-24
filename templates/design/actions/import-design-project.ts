@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertDesignSystemAccess,
+  resolveDesignSystemAccess,
+} from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -39,9 +43,9 @@ export default defineAction({
   run: async ({ designId, designSystemId }) => {
     // If importing from an existing design system, return its data for cloning
     if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
+      await assertDesignSystemAccess(designSystemId, "viewer");
 
-      const access = await resolveAccess("design-system", designSystemId);
+      const access = await resolveDesignSystemAccess(designSystemId);
       if (!access) {
         throw new Error("Design system not found");
       }
@@ -233,10 +237,7 @@ export default defineAction({
       assets: unknown;
     } | null = null;
     if (design.designSystemId) {
-      const dsAccess = await resolveAccess(
-        "design-system",
-        design.designSystemId,
-      );
+      const dsAccess = await resolveDesignSystemAccess(design.designSystemId);
       if (dsAccess) {
         const ds = dsAccess.resource;
         existingDesignSystem = {

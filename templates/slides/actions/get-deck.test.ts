@@ -91,6 +91,32 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
+  it("resolves the persisted cross-app design-system reference rather than a same-ID local record", async () => {
+    const data = JSON.parse(currentResource!.data);
+    const designSystemRef = {
+      id: "foreign-system",
+      ownerApp: "design",
+      consumedRevision: 4,
+    };
+    data.composerContext = {
+      designSystemId: null,
+      designSystemRef,
+      references: [],
+    };
+    currentResource!.data = JSON.stringify(data);
+    const result = await action.run({ id: "deck-1", compact: "true" });
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith({
+      id: "foreign-system",
+      ownerApp: "design",
+      consumedRevision: 4,
+      compact: "true",
+    });
+    expect(result.designSystemRef).toEqual(designSystemRef);
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      next: expect.stringContaining('ownerApp: "design"'),
+    });
+  });
   it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
     // Every sibling tool (create-deck, add-slide, update-slide, patch-deck)

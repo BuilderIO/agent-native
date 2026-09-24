@@ -3,6 +3,10 @@ import type { PromptComposerSubmitOptions } from "@agent-native/core/client/comp
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  formatComposerContext,
+  SYSTEM_CONTEXT_KEY,
+} from "@/lib/composer-context";
 import { patchPendingGeneration } from "@/lib/pending-generation";
 import type { RetryablePrompt } from "@/pages/design-editor/command-types";
 import { MAX_GENERATION_ATTEMPTS } from "@/pages/design-editor/editor-constants";
@@ -37,6 +41,7 @@ export interface StartRetryGenerationArgs {
   setRetryablePrompt: Dispatch<
     SetStateAction<{
       prompt: string;
+      contextItems?: PromptComposerSubmitOptions["contextItems"];
       files: UploadedFile[];
       model?: PromptComposerSubmitOptions["model"];
       engine?: PromptComposerSubmitOptions["engine"];
@@ -72,9 +77,11 @@ export async function runStartRetryGeneration(
   clearAutoRetryTimer();
   const fileContext = formatUploadedFileContext(promptState.files);
   const images = imageAttachmentsFromUploadedFiles(promptState.files);
-  const designSystemContext = await loadDesignSystemGenerationContext(
-    promptState.designSystemId,
-  );
+  const designSystemContext = promptState.contextItems?.some(
+    (item) => item.key === SYSTEM_CONTEXT_KEY,
+  )
+    ? ""
+    : await loadDesignSystemGenerationContext(promptState.designSystemId);
   const retryLine =
     mode === "auto"
       ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
@@ -89,6 +96,7 @@ export async function runStartRetryGeneration(
       : "",
     designSystemContext,
     fileContext,
+    formatComposerContext(promptState.contextItems),
     "",
     retryLine,
     ...(promptState.templateId
@@ -103,6 +111,7 @@ export async function runStartRetryGeneration(
   setGenerationIssue(null);
   const startedAt = Date.now();
   patchPendingGeneration(id, {
+    contextItems: promptState.contextItems,
     prompt: promptState.prompt,
     files: promptState.files,
     title: design.title,
@@ -131,6 +140,7 @@ export async function runStartRetryGeneration(
   });
   setGenerationChatTabId(runTabId);
   patchPendingGeneration(id, {
+    contextItems: promptState.contextItems,
     prompt: promptState.prompt,
     files: promptState.files,
     title: design.title,

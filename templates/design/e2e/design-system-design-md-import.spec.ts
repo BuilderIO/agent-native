@@ -1,4 +1,20 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function chooseMarkdown(page: Page) {
+  await page.goto("/design-systems/setup");
+  await expect(
+    page.getByRole("button", { name: "Continue", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Acme");
+  await page.getByRole("radio", { name: "References", exact: true }).click();
+  await expect(page.locator("[data-source]")).toHaveCount(0);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Name", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await page.locator('[data-source="designMd"]').click();
+}
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/_agent-native/actions/list-designs**", async (route) => {
@@ -18,36 +34,18 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test("imports design.md guidance through Builder DSI", async ({ page }) => {
-  let capturedInput: Record<string, unknown> | null = null;
-
+test("commits design.md only on Add without starting a provider job", async ({
+  page,
+}) => {
+  let indexRequests = 0;
   await page.route(
     "**/_agent-native/actions/index-design-system-with-builder**",
     async (route) => {
-      capturedInput = route.request().postDataJSON() as Record<string, unknown>;
-      await route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({
-          ok: true,
-          source: "builder",
-          projectId: "project-design-md-e2e",
-          jobId: "job-design-md-e2e",
-          designSystemId: "ds-design-md-e2e",
-          suggestedTitle: "Acme",
-          builderUrl:
-            "https://builder.io/app/design-system-intelligence/ds-design-md-e2e",
-          status: "in-progress",
-          localDesignSystemId: "builder-ds-design-md-e2e",
-          uploadedFileCount: 1,
-        }),
-      });
+      indexRequests += 1;
+      await route.abort();
     },
   );
-
-  await page.goto("/design-systems/setup");
-  await page
-    .getByRole("button", { name: "Import design.md", exact: true })
-    .click();
+  await chooseMarkdown(page);
   await page.locator('input[accept=".md,.mdx"]').setInputFiles({
     name: "design.md",
     mimeType: "text/markdown",
@@ -55,35 +53,51 @@ test("imports design.md guidance through Builder DSI", async ({ page }) => {
       "# Acme Design System\n\nUse cobalt accents and compact controls.",
     ),
   });
-
+  await expect(page.getByText("design.md", { exact: true })).toBeVisible();
+  expect(indexRequests).toBe(0);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const source = page.locator('[data-source="designMd"]');
+  await expect(source).toHaveAttribute("data-state", "empty");
   await expect(
-    page.locator("#design-system-design-md-source").getByText("design.md", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await page
-    .getByRole("banner")
-    .getByRole("button", { name: "Continue to generation", exact: true })
-    .click();
-
-  await expect(page.getByRole("heading", { name: "Acme" })).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Open in Builder" }),
-  ).toHaveAttribute("href", /design-system-intelligence\/ds-design-md-e2e/);
-  expect(capturedInput).toMatchObject({
-    designMd:
-      "# Acme Design System\n\nUse cobalt accents and compact controls.",
+    page.getByRole("button", { name: "Continue", exact: true }),
+  ).toBeDisabled();
+  await source.click();
+  await page.locator('input[accept=".md,.mdx"]').setInputFiles({
+    name: "design.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("# Acme guidance"),
   });
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(source).toHaveAttribute("data-state", "added");
+  await expect(source.getByText("Added", { exact: true })).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Continue", exact: true }),
+  ).toBeEnabled();
+  expect(indexRequests).toBe(0);
+  await source.click();
+  await page
+    .getByRole("button", { name: "Remove design.md", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(source).toHaveAttribute("data-state", "empty");
+  expect(indexRequests).toBe(0);
+  // Final chat handoff and its combined payload are mocked in the component tests.
 });
 
-test("imports a dropped design.md file", async ({ page }) => {
-  await page.goto("/design-systems/setup");
+test("stages a dropped design.md file without starting indexing", async ({
+  page,
+}) => {
+  let indexRequests = 0;
+  await page.route(
+    "**/_agent-native/actions/index-design-system-with-builder**",
+    async (route) => {
+      indexRequests += 1;
+      await route.abort();
+    },
+  );
+  await chooseMarkdown(page);
   await page
-    .getByRole("button", { name: "Import design.md", exact: true })
-    .click();
-
-  await page
-    .locator("#design-system-design-md-source > button")
+    .getByRole("button", { name: "Upload design.md", exact: true })
     .evaluate((button) => {
       const file = new File(
         ["# Dropped Design System\n\nUse cobalt accents."],
@@ -100,27 +114,19 @@ test("imports a dropped design.md file", async ({ page }) => {
         }),
       );
     });
-
-  await expect(
-    page.locator("#design-system-design-md-source").getByText("design.md", {
-      exact: true,
-    }),
-  ).toBeVisible();
+  await expect(page.getByText("design.md", { exact: true })).toBeVisible();
+  expect(indexRequests).toBe(0);
 });
 
 test("rejects design.md files larger than the inline Builder limit", async ({
   page,
 }) => {
-  await page.goto("/design-systems/setup");
-  await page
-    .getByRole("button", { name: "Import design.md", exact: true })
-    .click();
+  await chooseMarkdown(page);
   await page.locator('input[accept=".md,.mdx"]').setInputFiles({
     name: "design.md",
     mimeType: "text/markdown",
     buffer: Buffer.alloc(2 * 1024 * 1024 + 1, "x"),
   });
-
   await expect(page.getByRole("alert")).toHaveText(
     "The Markdown file must be 2 MB or smaller.",
   );

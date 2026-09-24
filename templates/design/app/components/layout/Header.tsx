@@ -15,6 +15,7 @@ import { useLocation } from "react-router";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.designs",
+  "/home": "navigation.designs",
   "/design-systems": "navigation.designSystems",
   "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",

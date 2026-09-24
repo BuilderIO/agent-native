@@ -5,8 +5,9 @@ import {
   getSession,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+
+import { resolveDesignSystemAccess } from "../lib/design-system-dsi-access.js";
 
 /**
  * Looks up the Builder project/branch interactive preview URL for a
@@ -35,7 +36,7 @@ export const designSystemBuilderLink = defineEventHandler(async (event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
-      const access = await resolveAccess("design-system", id);
+      const access = await resolveDesignSystemAccess(id);
       if (!access) {
         setResponseStatus(event, 404);
         return { error: "Design system not found" };

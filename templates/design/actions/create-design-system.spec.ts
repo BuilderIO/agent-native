@@ -56,6 +56,14 @@ beforeEach(() => {
 });
 
 describe("create-design-system production templates", () => {
+  it("keeps prompt-created templates out of global defaults", async () => {
+    const result = await action.run({
+      templateId: "carbon-white",
+      autoDefault: false,
+    });
+    expect(testState.insertedValues?.isDefault).toBe(false);
+    expect(result.isDefault).toBe(false);
+  });
   it("copies the exact template data and guidance into a normal owned system", async () => {
     const result = await action.run({ templateId: "carbon-white" });
 

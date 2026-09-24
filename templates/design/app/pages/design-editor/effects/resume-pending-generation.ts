@@ -4,6 +4,10 @@ import { readCreativeContextState } from "@agent-native/creative-context/client"
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
+  formatComposerContext,
+  SYSTEM_CONTEXT_KEY,
+} from "@/lib/composer-context";
+import {
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
@@ -129,7 +133,9 @@ export function runResumePendingGeneration({
       hasReferenceImages;
     const usesTemplate = Boolean(pending.templateId);
     const [designSystemContext, intake] = await Promise.all([
-      loadDesignSystemGenerationContext(pendingDesignSystemId),
+      pending.contextItems?.some((item) => item.key === SYSTEM_CONTEXT_KEY)
+        ? Promise.resolve("")
+        : loadDesignSystemGenerationContext(pendingDesignSystemId),
       usesTemplate || shouldExploreVariants || !creativeContextEnabled
         ? Promise.resolve(null)
         : loadIntakeContextFromAppState(
@@ -151,6 +157,7 @@ export function runResumePendingGeneration({
         : "",
       designSystemContext,
       fileContext,
+      formatComposerContext(pending.contextItems),
       "",
       ...(pending.templateId
         ? designTemplateRefinementDirectives(

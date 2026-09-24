@@ -87,6 +87,8 @@ export interface UseChatThreadsOptions {
    * create/new-chat mode.
    */
   routeThreadId?: string | null;
+  /** A server-reserved conversation may create its draft after a confirmed 404. */
+  createMissingRouteThread?: boolean;
   /** Include connected and other-app chats in list/search results. */
   includeExternal?: boolean;
   /**
@@ -879,7 +881,7 @@ export function useChatThreads(
       // ids this client generated, which have never reached the server.
       const lookupRestored = Boolean(
         restoredId &&
-        !routeControlsActiveThread &&
+        (!routeControlsActiveThread || options?.createMissingRouteThread) &&
         !newlyCreatedRef.current.has(restoredId) &&
         !hasClientDraftThreadMarker(restoredId),
       );
@@ -917,6 +919,13 @@ export function useChatThreads(
           isolateHistory,
         ),
       );
+      if (restoredThread && !restoredOnPage && !restoredBelongsElsewhere) {
+        setThreads((current) =>
+          current.some((thread) => thread.id === restoredThread.id)
+            ? current
+            : sortThreadSummaries([...current, restoredThread]),
+        );
+      }
       // A missing saved id is stale local UI state on a normal home surface,
       // not a reason to show an error above a fresh composer. Preserve it for
       // explicit routes and list-only readers, where the caller still owns
@@ -942,6 +951,11 @@ export function useChatThreads(
       ) {
         addOptimisticThread(savedId, scopeRef.current ?? null);
       } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
+        if (options?.createMissingRouteThread && restoredIsUnavailable) {
+          newlyCreatedRef.current.add(savedId);
+          markClientDraftThread(savedId);
+          addOptimisticThread(savedId, scopeRef.current ?? null);
+        }
         // A deep link may point to a thread that is not in the current list
         // response. Keep it route-owned so AssistantChat can restore it via
         // /threads/:id instead of reclassifying it as a new empty tab.
@@ -997,6 +1011,7 @@ export function useChatThreads(
     isolateHistory,
     routeControlsActiveThread,
     routeThreadId,
+    options?.createMissingRouteThread,
   ]);
 
   const createThread = useCallback(
@@ -1317,11 +1332,20 @@ export function useChatThreads(
 
   const isNewThread = useCallback(
     (id: string) => {
-      if (routeControlsActiveThread && routeThreadId === id) return false;
+      if (
+        routeControlsActiveThread &&
+        routeThreadId === id &&
+        !options?.createMissingRouteThread
+      )
+        return false;
       if (serverConfirmedThreadIdsRef.current.has(id)) return false;
       return newlyCreatedRef.current.has(id) || hasClientDraftThreadMarker(id);
     },
-    [routeControlsActiveThread, routeThreadId],
+    [
+      routeControlsActiveThread,
+      routeThreadId,
+      options?.createMissingRouteThread,
+    ],
   );
 
   const switchThread = useCallback(

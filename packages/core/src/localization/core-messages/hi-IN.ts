@@ -1,6 +1,23 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired":
+    "डिज़ाइन सिस्टम बनाने और इस्तेमाल करने के लिए अपना Builder खाता कनेक्ट करें।",
+  "dsi.accessUnavailable":
+    "Builder का ऐक्सेस सत्यापित नहीं हो सका। फिर से कोशिश करें।",
+  "composer.draftFileRestoreFailed":
+    "ड्राफ़्ट फ़ाइलें पुनर्स्थापित नहीं हो सकीं। भेजने से पहले उन्हें फिर से संलग्न करें।",
+  "composer.draftFileSaveFailed":
+    "रीलोड के लिए ड्राफ़्ट फ़ाइलें सहेजी नहीं जा सकीं। इस पेज को खुला रखें या बाद में उन्हें फिर से संलग्न करें।",
+  "composer.addContext": "संदर्भ जोड़ें",
+  "composer.contextActionFailed": "संदर्भ नहीं जोड़ा जा सका।",
+  "composer.attachFiles": "फ़ाइलें संलग्न करें",
+  "composer.contextBack": "वापस",
+  "composer.searchContext": "संदर्भ खोजें…",
+  "composer.noContextResults": "कोई मेल खाता संदर्भ नहीं।",
+  "composer.contextPending": "संदर्भ लंबित है",
+  "composer.contextError": "संदर्भ विफल हुआ",
+  "composer.retryContext": "{{name}} संदर्भ फिर से आज़माएँ",
   "activity.reasoning": "तर्क",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",

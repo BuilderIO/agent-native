@@ -36,6 +36,69 @@ The protocol README records the shared product goals and clean implementation
 boundary; it is not a runtime dependency or compatibility layer for another
 chat product.
 
+## Composer context
+
+`PromptComposer` and `TiptapComposer` accept controlled `contextItems` and
+`onRemoveContextItem(key)`, `onInspectContextItem(key)`, and
+`onRetryContextItem(key)` callbacks. Each `AgentChatContextItem` has
+`{ key, title, context, status?, statusMessage? }`. Status is `ready`, `pending`,
+or `error`; omitted status means ready. Pending and failed items stay visible
+inside the composer frame and block both click and keyboard submission.
+
+Opt into the shared Add context menu with `contextMenuItems`. Its recursive
+`ComposerContextMenuItem` union accepts categories with `children` and actions
+with `onSelect(): void | Promise<void>`. Both have `id`, `label`, optional
+`keywords`, `icon`, and `disabled`. Use unique IDs across the tree. Root search
+finds all descendant actions; search within a category stays in that subtree.
+The menu adds native Attach files through the composer's attachment action when
+attachments are enabled. Omitting `contextMenuItems` keeps the existing menu.
+Apps own discovery, selection state, and action semantics.
+
+For an in-place picker, an action can also provide
+`render(controls: ComposerContextPageControls): ReactNode` and
+`onDismiss(): void`. Selecting it calls `onSelect` synchronously and replaces
+the menu content inside the same compact, composer-anchored popover. Each render
+uses the latest action matching its ID, so asynchronous results stay current,
+including actions reached through root search. The outer composer stays mounted.
+
+The page controls are `onBack()` (dismiss the picker and return to the originating
+category), `onClose()` (dismiss and reset the menu), and `onResume()` (reopen the
+captured page/category after a separate creation dialog). Resume does **not**
+call `onSelect` or `onDismiss`; restore the host's picker view before invoking a
+saved resume callback. Escape and outside dismissal call `onDismiss` too. Hosts
+can preserve a creation/inspection view conditionally in that callback. Action
+errors, including rejected promises, remain visible and reach `onAttachmentError`.
+
+Use `ComposerContextSearchInput` inside a page's `Command`. It accepts the
+standard `CommandInput` props except `leading`, plus optional `onBack`. Back is
+a localized ghost icon in the search field's leading slot, with native button
+keyboard behavior. `CommandInput` itself accepts an optional `leading: ReactNode`
+slot and keeps its existing search icon by default. These page controls and the
+search helper are exported from both `/composer` and the narrow `/agentkit`
+Toolkit entry point.
+
+`PromptComposer.onSubmit(text, files, references, options)` receives the
+immutable selection in `options.contextItems`. Tiptap uses the same options
+field in its submit callback. Both capture the snapshot before asynchronous
+submission work and leave the submitted text unchanged. The host must consume
+the snapshot when constructing its request. Controlled context is not cleared
+automatically after submission.
+
+Core's `AgentSidebar` and `AgentChatSurface` expose the same hooks with the
+`composerContextItems` / `composerContextMenuItems` names and
+`onBeforeComposerSubmit(snapshot)`. For thread-local selections, observe
+`onActiveThreadChange(threadId)` and bind the resolved selection using
+`composerContextThreadId`. Context bound to a different thread is withheld and
+submission waits for the host to catch up. Omit the binding only when context
+is deliberately shared across the project's threads. Provider setup and model
+loading gate submission, not local drafting or context selection.
+
+Import these components and types, `ComposerContextSnapshot`,
+`areComposerContextItemsReady`, and `snapshotComposerContextItems` from
+`@agent-native/toolkit/composer`. Snapshotting rejects unready items; check
+readiness before starting a programmatic submission. Array input returns a
+definite snapshot; undefined input stays undefined.
+
 ## Imports
 
 ```tsx
@@ -112,6 +175,15 @@ mobile drawer state separate.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.
+
+For a radio choice card, compose `FieldLabel` around `Field`, with a
+`RadioGroupItem`, `FieldContent`, `FieldTitle`, and optional `FieldDescription`.
+The `/ui/field` entry point follows shadcn's Field pattern: the entire label is
+clickable and the checked radio controls the card's selected treatment. Group
+cards with `FieldSet` and `FieldLegend`. Place a `Badge` alongside the radio when
+the app supplies an actual tier or license restriction; the primitive does not
+infer entitlements. Keep restricted options disabled and associate their reason
+with `aria-describedby`.
 
 ## Dashboard kit
 

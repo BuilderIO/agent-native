@@ -155,6 +155,35 @@ describe("get-design", () => {
     });
   });
 
+  it("passes the owner-qualified composer reference into actual generation context", async () => {
+    const designSystemRef = {
+      id: "foreign-brand",
+      ownerApp: "slides",
+      consumedRevision: 2,
+    };
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: {
+        id: "design_123",
+        title: "Draft",
+        designSystemId: null,
+        data: JSON.stringify({ composerDesignSystemRef: designSystemRef }),
+      },
+    });
+    const result = await action.run({ id: "design_123" });
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith({
+      id: "foreign-brand",
+      ownerApp: "slides",
+      consumedRevision: 2,
+      compact: "true",
+    });
+    expect(result.designSystemRef).toEqual(designSystemRef);
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      next: expect.stringContaining('ownerApp: "slides"'),
+    });
+  });
+
   it("returns files in a stable order so a design lays itself out the same way twice", async () => {
     // Heap order is not stable across writes, and this array feeds the overview
     // screen stack plus each screen's index within its layout group.

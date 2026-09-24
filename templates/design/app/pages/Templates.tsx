@@ -47,6 +47,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import {
+  persistComposerContext,
+  snapshotComposerContext,
+} from "@/lib/composer-context";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
@@ -130,11 +134,7 @@ export default function Templates() {
     ) {
       return defaultSystem.id;
     }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
+    return null;
   };
 
   const resolveTemplateDesignSystemId = (
@@ -209,7 +209,9 @@ export default function Templates() {
     template: DesignTemplateSummary,
     prompt?: string,
     options: PromptComposerSubmitOptions = {},
+    files: UploadedFile[] = [],
   ) => {
+    const contextItems = snapshotComposerContext(options.contextItems);
     setCreating(true);
     try {
       const trimmedPrompt = prompt?.trim() ?? "";
@@ -234,6 +236,7 @@ export default function Templates() {
       };
       if (!result.id)
         throw new Error("Template copy did not return a design ID");
+      await persistComposerContext(result.id, contextItems);
       if (result.adaptationPending) {
         const effectiveDesignSystemId = result.designSystemId ?? null;
         const effectiveSystemTitle =
@@ -253,6 +256,8 @@ export default function Templates() {
           designSystemId: effectiveDesignSystemId,
           skipQuestions: true,
           ...options,
+          contextItems,
+          files,
         });
       }
       void queryClient
@@ -269,11 +274,11 @@ export default function Templates() {
 
   const handleSubmit = (
     prompt: string,
-    _files: UploadedFile[],
+    files: UploadedFile[],
     options: PromptComposerSubmitOptions,
   ) => {
     if (!selected) return;
-    return createFromTemplate(selected, prompt, options);
+    return createFromTemplate(selected, prompt, options, files);
   };
 
   const handleDelete = async () => {

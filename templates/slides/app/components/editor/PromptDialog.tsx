@@ -1,6 +1,5 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  PromptComposer,
   type PromptComposerSubmitOptions,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
@@ -18,6 +17,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import {
   canAddInlineImageToPayload,
   canInlineImageFile,
@@ -32,6 +32,10 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
+import {
+  SlidesComposerInput,
+  useSlidesComposerContext,
+} from "./SlidesComposerContext";
 
 export interface UploadedFile {
   path: string;
@@ -370,6 +374,7 @@ export async function uploadPromptFiles(
  */
 export function isInsidePortaledLayer(target: EventTarget | null): boolean {
   return Boolean(
+    document.querySelector('[role="dialog"][data-state="open"]') ||
     (target as Element | null)?.closest?.(
       "[data-radix-popper-content-wrapper]",
     ),
@@ -457,6 +462,11 @@ export default function PromptPopover({
   children,
 }: PromptPopoverProps) {
   const t = useT();
+  const composerContext = useSlidesComposerContext(
+    undefined,
+    undefined,
+    draftScope ?? title,
+  );
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
@@ -543,6 +553,7 @@ export default function PromptPopover({
       }
     };
     const handleKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isInsidePortaledLayer(e.target)) return;
       if (e.key === "Escape") onOpenChange(false);
     };
     document.addEventListener("mousedown", handleClick);
@@ -631,7 +642,7 @@ export default function PromptPopover({
       text: string,
       files: File[],
       _references: unknown[],
-      options?: PromptComposerSubmitOptions,
+      options?: SlidesPromptSubmitOptions,
     ) => {
       const preUploadChatAttachments = options?.attachments?.length
         ? await createPromptChatAttachments(options.attachments, [])
@@ -640,7 +651,9 @@ export default function PromptPopover({
         onBeforeUpload?.(
           text,
           files,
-          googleDocContext || undefined,
+          [googleDocContext, options?.slidesContextText]
+            .filter(Boolean)
+            .join("\n\n") || undefined,
           preUploadChatAttachments,
           options,
         ) === false
@@ -865,7 +878,8 @@ export default function PromptPopover({
             aria-hidden={importMode ? true : undefined}
           >
             <div className="px-2.5 pb-2.5">
-              <PromptComposer
+              <SlidesComposerInput
+                context={composerContext}
                 autoFocus
                 attachmentsEnabled
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}

@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildPromptComposerSubmission,
@@ -10,11 +10,17 @@ import {
   shouldGateComposerForMissingEngine,
   type PromptComposerFile,
 } from "./PromptComposer.js";
+import {
+  ComposerRuntimeAdaptersProvider,
+  type AgentChatContextItem,
+} from "./runtime-adapters.js";
+import type { TiptapComposerHandle } from "./TiptapComposer.js";
 
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -23,6 +29,232 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.unstubAllGlobals();
+});
+
+describe("controlled composer context", () => {
+  it.each(["click", "enter"])(
+    "allows %s steering past a nonremovable failed persisted source",
+    async (method) => {
+      const onSubmit = vi.fn();
+      const remove = vi.fn();
+      const source: AgentChatContextItem = {
+        key: "system-source:qa",
+        title: "QA reference",
+        context: "systemId=qa; sourceId=qa",
+        status: "error",
+        statusMessage: "Source read failed",
+        removable: false,
+        blocksSubmission: false,
+      };
+      await act(async () => {
+        root.render(
+          React.createElement(PromptComposer, {
+            onSubmit,
+            contextItems: [source],
+            onRemoveContextItem: remove,
+            initialText: "Try a different direction",
+            initialTextKey: "nonblocking-source",
+            showModelSelector: false,
+            modelStatusChecksEnabled: false,
+            attachmentsEnabled: false,
+            includeDefaultSlashSkills: false,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        container.querySelector(
+          'button[aria-label="Remove QA reference context"]',
+        ),
+      ).toBeNull();
+      expect(
+        container
+          .querySelector('[data-context-key="system-source:qa"]')
+          ?.getAttribute("title"),
+      ).toBe("Source read failed");
+      await act(async () => {
+        if (method === "click")
+          container
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="Send message"]',
+            )!
+            .click();
+        else
+          container
+            .querySelector('[contenteditable="true"]')!
+            .dispatchEvent(
+              new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+            );
+      });
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(onSubmit.mock.calls[0][3].contextItems).toEqual([source]);
+      expect(remove).not.toHaveBeenCalled();
+    },
+  );
+  it("allows drafting and context selection before provider setup but preserves the draft when send is gated", async () => {
+    const onSubmit = vi.fn();
+    let state = "missing";
+    const adapters = {
+      models: {
+        useAgentEngineConfigured: () => ({
+          state,
+          missing: state === "missing",
+        }),
+        fetchAgentEngineConfiguredState: vi.fn().mockResolvedValue("missing"),
+        BuilderSetupCard: () => null,
+      },
+    };
+    const render = async () =>
+      act(async () => {
+        root.render(
+          React.createElement(ComposerRuntimeAdaptersProvider, {
+            adapters,
+            children: React.createElement(PromptComposer, {
+              onSubmit,
+              initialText: "Draft before connecting",
+              initialTextKey: "provider-gate",
+              showModelSelector: false,
+              voiceEnabled: false,
+              includeDefaultSlashSkills: false,
+              contextMenuItems: [
+                { id: "design", label: "Design", onSelect: vi.fn() },
+              ],
+            }),
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    await render();
+    expect(container.querySelector('[contenteditable="true"]')).not.toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Add context"]',
+      )?.disabled,
+    ).toBe(false);
+    const send = async () =>
+      act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          )!
+          .click();
+      });
+    await send();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toContain("Draft before connecting");
+    state = "unknown";
+    await render();
+    await send();
+    expect(
+      adapters.models.fetchAgentEngineConfiguredState,
+    ).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    state = "configured";
+    await render();
+    await send();
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("renders context inside the frame, forwards inspection/retry/removal, and blocks click and keyboard submission until ready", async () => {
+    const onSubmit = vi.fn();
+    const onRemoveContextItem = vi.fn();
+    const onInspectContextItem = vi.fn();
+    const onRetryContextItem = vi.fn();
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const item: AgentChatContextItem = {
+      key: "brief",
+      title: "Brief",
+      context: "Original context",
+      status: "pending",
+    };
+    const render = async () => {
+      await act(async () => {
+        root.render(
+          React.createElement(PromptComposer, {
+            contextItems: [item],
+            onRemoveContextItem,
+            onInspectContextItem,
+            onRetryContextItem,
+            composerRef,
+            onSubmit,
+            initialText: "Review",
+            initialTextKey: "context-test",
+            showModelSelector: false,
+            modelStatusChecksEnabled: false,
+            attachmentsEnabled: false,
+            includeDefaultSlashSkills: false,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await render();
+    expect(
+      container
+        .querySelector('[data-context-key="brief"]')
+        ?.closest('[data-agent-composer-slot="root"]'),
+    ).not.toBeNull();
+    const clickSend = async () => {
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          )!
+          .click(),
+      );
+    };
+    const pressEnter = async () => {
+      await act(async () =>
+        container
+          .querySelector('[contenteditable="true"]')!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          ),
+      );
+    };
+    await clickSend();
+    await pressEnter();
+    expect(onSubmit).not.toHaveBeenCalled();
+    item.status = "error";
+    await render();
+    await clickSend();
+    await pressEnter();
+    expect(onSubmit).not.toHaveBeenCalled();
+    const contextRow = container.querySelector('[data-context-key="brief"]')!;
+    await act(async () => {
+      contextRow.querySelector<HTMLButtonElement>("button")!.click();
+      contextRow
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Retry Brief context"]',
+        )!
+        .click();
+      contextRow
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove Brief context"]',
+        )!
+        .click();
+    });
+    expect(onInspectContextItem).toHaveBeenCalledWith("brief");
+    expect(onRetryContextItem).toHaveBeenCalledWith("brief");
+    expect(onRemoveContextItem).toHaveBeenCalledWith("brief");
+    expect(
+      container.querySelector('[data-context-key="brief"]'),
+    ).not.toBeNull();
+    item.status = "ready";
+    await render();
+    await clickSend();
+    expect(onSubmit).toHaveBeenCalledOnce();
+    const [text, , references, options] = onSubmit.mock.calls[0];
+    expect(text).toBe("Review");
+    expect(references).toEqual([]);
+    expect(options.contextItems).toEqual([item]);
+    item.context = "Changed later";
+    expect(options.contextItems[0].context).toBe("Original context");
+    expect(Object.isFrozen(options.contextItems[0])).toBe(true);
+  });
 });
 
 describe("shouldGateComposerForMissingEngine", () => {

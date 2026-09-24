@@ -1,11 +1,12 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
+import { resolveDesignSystemGenerationSelection } from "@agent-native/core/server/design-system-authoring";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
+import { designSystemReferenceSchema } from "@agent-native/core/shared/design-system-authoring";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -20,12 +21,16 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
-import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  resolveDeckDesignSystemId,
+  resolveDeckDesignSystemReference,
+} from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -164,9 +169,16 @@ export default defineAction({
       ),
     designSystemId: z
       .string()
+      .nullable()
       .optional()
       .describe(
-        "Optional design system ID to link to the deck; omit to use your default, or pass its exact title as `designSystem` instead.",
+        "Optional local design system ID; omit to use your default or preserve an existing selection, null opts out. A repeated local ID retains its existing consumed pin.",
+      ),
+    designSystemRef: designSystemReferenceSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Exact owner-qualified {id,ownerApp,consumedRevision}; omit to retain the current pin, null opts out. Foreign IDs remain out of the local designSystemId column; stale/inaccessible refs fail before writing slides.",
       ),
     designSystem: z
       .string()
@@ -208,6 +220,7 @@ export default defineAction({
       deckId,
       aspectRatio,
       designSystemId: explicitDesignSystemId,
+      designSystemRef,
       designSystem,
       contextPackId,
       contextModeOverride,
@@ -303,15 +316,15 @@ export default defineAction({
     // Resolve the title form before the branches split so replacing a deck
     // honors it the same way creating one does.
     const designSystemId =
-      explicitDesignSystemId ??
-      (designSystem
-        ? await resolveDesignSystemIdByTitle(designSystem)
-        : undefined);
+      explicitDesignSystemId !== undefined
+        ? explicitDesignSystemId
+        : designSystemRef === undefined && designSystem
+          ? await resolveDesignSystemIdByTitle(designSystem)
+          : undefined;
 
     if (deckId) {
-      if (designSystemId) {
-        const designSystemAccess = await assertAccess(
-          "design-system",
+      if (designSystemRef === undefined && designSystemId) {
+        const designSystemAccess = await assertDesignSystemAccess(
           designSystemId,
           "viewer",
         );
@@ -340,13 +353,33 @@ export default defineAction({
         existing[0],
         prevData,
       );
+      const selection = await resolveDesignSystemGenerationSelection(
+        {
+          ownerApp: "slides",
+          designSystemId,
+          designSystemRef,
+          existingDesignSystemId: previousDesignSystemId,
+          existingReference: resolveDeckDesignSystemReference(prevData),
+          full: true,
+        },
+        getDesignSystem,
+      );
       const data = {
         ...prevData,
         title: existingDeckTitle,
         slides,
         updatedAt: writeNow,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
-        designSystemId: designSystemId ?? prevData.designSystemId,
+        designSystemId: selection.designSystemId,
+        designSystemRef: selection.designSystemRef,
+        ...(prevData.composerContext
+          ? {
+              composerContext: {
+                ...prevData.composerContext,
+                designSystemRef: selection.designSystemRef,
+              },
+            }
+          : {}),
         creativeContext: creativeContextProvenance,
       };
       await db.transaction(async (tx: any) => {
@@ -364,7 +397,7 @@ export default defineAction({
           .set({
             title: existingDeckTitle,
             data: JSON.stringify(data),
-            designSystemId: designSystemId ?? previousDesignSystemId,
+            designSystemId: selection.designSystemId,
             updatedAt: writeNow,
           })
           .where(
@@ -406,12 +439,7 @@ export default defineAction({
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
-        designSystemId: designSystemId ?? previousDesignSystemId,
-        designSystem: await loadAgentDesignSystemContext(
-          designSystemId ?? previousDesignSystemId,
-          getDesignSystem,
-          { full: true },
-        ),
+        ...selection,
         url: getDeckUrl(deckId),
         appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
@@ -425,9 +453,8 @@ export default defineAction({
     assertHumanReadableDeckTitle(resolvedTitle);
 
     let resolvedDesignSystemId = designSystemId;
-    if (resolvedDesignSystemId) {
-      const designSystemAccess = await assertAccess(
-        "design-system",
+    if (designSystemRef === undefined && resolvedDesignSystemId) {
+      const designSystemAccess = await assertDesignSystemAccess(
         resolvedDesignSystemId,
         "viewer",
       );
@@ -435,7 +462,10 @@ export default defineAction({
         resolvedDesignSystemId,
         designSystemAccess.resource.data,
       );
-    } else {
+    } else if (
+      designSystemRef === undefined &&
+      resolvedDesignSystemId === undefined
+    ) {
       const candidateDefaultId = await resolveDefaultDesignSystemId(ownerEmail);
       if (candidateDefaultId) {
         // An implicit default is a convenience, not an explicit request —
@@ -453,6 +483,15 @@ export default defineAction({
             : undefined;
       }
     }
+    const selection = await resolveDesignSystemGenerationSelection(
+      {
+        ownerApp: "slides",
+        designSystemId: resolvedDesignSystemId,
+        designSystemRef,
+        full: true,
+      },
+      getDesignSystem,
+    );
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const data: Record<string, unknown> = {
@@ -462,13 +501,15 @@ export default defineAction({
       updatedAt: now,
     };
     if (aspectRatio) data.aspectRatio = aspectRatio;
-    if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
+    if (selection.designSystemId)
+      data.designSystemId = selection.designSystemId;
+    data.designSystemRef = selection.designSystemRef;
     data.creativeContext = creativeContextProvenance;
     await db.insert(schema.decks).values({
       id,
       title: resolvedTitle,
       data: JSON.stringify(data),
-      designSystemId: resolvedDesignSystemId ?? null,
+      designSystemId: selection.designSystemId,
       ownerEmail,
       orgId: getRequestOrgId(),
       createdAt: now,
@@ -500,12 +541,7 @@ export default defineAction({
       id,
       title: resolvedTitle,
       slideCount: slides.length,
-      designSystemId: resolvedDesignSystemId ?? null,
-      designSystem: await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
+      ...selection,
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),

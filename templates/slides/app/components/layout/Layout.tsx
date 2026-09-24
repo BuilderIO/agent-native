@@ -21,7 +21,9 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { DesignSystemWorkspaceHost } from "@/components/design-system/DesignSystemWorkspaceHost";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { describeComposerContext } from "@/lib/composer-context";
 import {
   hasCurrentSlideSelection,
   buildSlidesAgentContext,
@@ -33,6 +35,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
+import { useSlidesComposerContext } from "../editor/SlidesComposerContext";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
@@ -56,6 +59,7 @@ interface EditorSidebarOverride {
 function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
+  if (pathname.startsWith("/design-systems/")) return true;
   // /extensions (list) and /extensions/<id> (viewer) both render their own headers
   // from @agent-native/core/client/extensions.
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
@@ -64,9 +68,23 @@ function pageHasOwnToolbar(pathname: string): boolean {
 }
 
 export function Layout({ children }: LayoutProps) {
+  return (
+    <DesignSystemWorkspaceHost>
+      <SlidesLayout>{children}</SlidesLayout>
+    </DesignSystemWorkspaceHost>
+  );
+}
+
+function SlidesLayout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const [contextThreadId, setContextThreadId] = useState("");
+  const contextDeckId = location.pathname.match(/^\/deck\/([^/]+)/)?.[1];
+  const composerContext = useSlidesComposerContext(
+    contextDeckId,
+    `sidebar:${contextThreadId}`,
+  );
   const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
@@ -144,8 +162,9 @@ export function Layout({ children }: LayoutProps) {
       label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
       contextKey: "slides-current-context",
       ...agentContext,
+      context: `${agentContext.context}\n${describeComposerContext(composerContext.selection)}`,
     };
-  }, [location.pathname, slidesSelection, t]);
+  }, [location.pathname, slidesSelection, t, composerContext.selection]);
   const deckChatHistory = useMemo<
     AssistantChatHistoryConfig | undefined
   >(() => {
@@ -286,10 +305,12 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
+      {composerContext.dialogs}
       {isChatRoute ? (
         shell
       ) : (
         <AgentSidebar
+          enabled={!location.pathname.startsWith("/design-systems/")}
           position="right"
           defaultOpen={false}
           chatViewTransition
@@ -308,6 +329,21 @@ export function Layout({ children }: LayoutProps) {
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
           onComposerTextChange={setComposerText}
+          onActiveThreadChange={setContextThreadId}
+          composerContextThreadId={contextDeckId ? undefined : contextThreadId}
+          composerContextItems={composerContext.props.contextItems}
+          composerContextMenuItems={composerContext.props.contextMenuItems}
+          onRemoveComposerContextItem={
+            composerContext.props.onRemoveContextItem
+          }
+          onInspectComposerContextItem={
+            composerContext.props.onInspectContextItem
+          }
+          onRetryComposerContextItem={composerContext.props.onRetryContextItem}
+          onBeforeComposerSubmit={async (items) => {
+            await composerContext.beforeSend({ contextItems: items });
+            return true;
+          }}
           composerSlot={
             <>
               <GoogleDriveConnectionCta

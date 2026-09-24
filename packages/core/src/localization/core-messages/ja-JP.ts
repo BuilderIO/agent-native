@@ -1,6 +1,23 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired":
+    "デザインシステムを作成・使用するには、Builderアカウントを接続してください。",
+  "dsi.accessUnavailable":
+    "Builderへのアクセスを確認できませんでした。もう一度お試しください。",
+  "composer.draftFileRestoreFailed":
+    "下書きのファイルを復元できませんでした。送信前にもう一度添付してください。",
+  "composer.draftFileSaveFailed":
+    "再読み込みに備えて下書きのファイルを保存できませんでした。このページを開いたままにするか、後でもう一度添付してください。",
+  "composer.addContext": "コンテキストを追加",
+  "composer.contextActionFailed": "コンテキストを追加できませんでした。",
+  "composer.attachFiles": "ファイルを添付",
+  "composer.contextBack": "戻る",
+  "composer.searchContext": "コンテキストを検索…",
+  "composer.noContextResults": "一致するコンテキストがありません。",
+  "composer.contextPending": "コンテキストを読み込み中",
+  "composer.contextError": "コンテキストの読み込みに失敗",
+  "composer.retryContext": "{{name}} のコンテキストを再試行",
   "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":

@@ -119,6 +119,7 @@ export interface PatchProofState {
 export type ResponsiveEditScope = "cascade-smaller" | "only";
 
 export interface RetryablePrompt {
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   prompt: string;
   files: UploadedFile[];
   model?: PromptComposerSubmitOptions["model"];

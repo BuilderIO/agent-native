@@ -730,6 +730,42 @@ describe("promoteQueuedMessage", () => {
   });
 });
 
+describe("logical turn queue replay boundary", () => {
+  it("normalizes local queue writes without acknowledging a native run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", "utf8");
+    const start = source.indexOf(
+      "const applyLocalQueuedMessages = useCallback",
+    );
+    const end = source.indexOf("useBrowserLayoutEffect", start);
+    const boundary = source.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(boundary).toContain("normalizeQueuedTurns(updater(previous))");
+    expect(boundary).toContain("queuedMessagesRef.current = next");
+    expect(boundary).toContain("queueDirtyRef.current = true");
+    expect(boundary).not.toContain("startRun");
+    expect(boundary).not.toContain("delivered");
+  });
+
+  it("normalizes restored duplicates and persists the repaired queue", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", "utf8");
+    const start = source.indexOf(
+      "if (settled && Array.isArray(repo?.queuedMessages))",
+    );
+    const end = source.indexOf("if (settled && signature !== null)", start);
+    const boundary = source.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(boundary).toContain("normalizeQueuedTurns(");
+    expect(boundary).toContain("repo.queuedMessages as QueuedMessage[]");
+    expect(boundary).toContain("setQueuedMessages(incomingQueue)");
+    expect(boundary).toContain(
+      "lastPersistedQueueRef.current = JSON.stringify(repo.queuedMessages)",
+    );
+    expect(boundary).toContain(
+      "incomingQueue.length !== repo.queuedMessages.length",
+    );
+  });
+});
+
 describe("send-now promotion", () => {
   it("keeps promotion optimistic and leaves the active run untouched", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
@@ -1941,8 +1977,9 @@ describe("missing agent engine setup", () => {
     );
     expect(source).toContain('"agent-composer-area--attached-above"');
     expect(source).toContain("layout={missingApiKeySetupLayout}");
+    expect(source).toContain("disabled={isComposerDisabled}");
     expect(source).toMatch(
-      /disabled=\{\s*isComposerDisabled \|\| showMissingKeySetup\s*\}/,
+      /onBeforeSubmit=\{\(\) => \{\s*if \(!showMissingKeySetup\) return true;\s*bounceMissingKeySetup\(\);\s*return false;/,
     );
     expect(source).not.toContain("data-agent-composer-setup-position");
     expect(css).toContain(".agent-builder-setup-card--attached");

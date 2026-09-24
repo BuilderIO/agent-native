@@ -119,7 +119,10 @@ describe("apply-fusion-edits", () => {
         target: null,
       },
     ];
-    sendFusionBranchMessage.mockResolvedValue({ sent: true });
+    sendFusionBranchMessage.mockResolvedValue({
+      sent: true,
+      outcome: "dispatched",
+    });
 
     const result = (await action.run({ designId: "design_1" } as never)) as {
       sentCount: number;
@@ -163,4 +166,27 @@ describe("apply-fusion-edits", () => {
       error: "container unreachable",
     });
   });
+
+  it.each(["failed", "incomplete", "timed_out"])(
+    "does not report success when delivery was observed but the stream was %s",
+    async (outcome) => {
+      pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+      sendFusionBranchMessage.mockResolvedValue({
+        sent: true,
+        outcome,
+        error: "Completion could not be verified",
+      });
+
+      await expect(
+        action.run({ designId: "design_1" } as never),
+      ).rejects.toMatchObject({
+        errorCode: "fusion_edit_dispatch_failed",
+        details: { sent: true, outcome },
+      });
+      expect(updateCalls[0]).toMatchObject({
+        status: "error",
+        error: "Completion could not be verified",
+      });
+    },
+  );
 });

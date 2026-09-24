@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentChatActivityProvider } from "./agent-chat-activity.js";
 import {
   AGENT_CHAT_CONTEXT_CHANGED_EVENT,
   cancelAgentChatSubmit,
@@ -260,6 +261,8 @@ vi.mock("./AssistantChat.js", async () => {
         selectedEffort?: string;
         availableModels?: Array<{ engine: string; configured: boolean }>;
         composerDisabled?: boolean;
+        composerSubmitting?: boolean;
+        composerContextItems?: Array<{ key: string }>;
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
@@ -291,6 +294,10 @@ vi.mock("./AssistantChat.js", async () => {
             ?.map((group) => `${group.engine}:${group.configured}`)
             .join(",")}
           data-composer-disabled={props.composerDisabled ? "true" : "false"}
+          data-composer-submitting={props.composerSubmitting ? "true" : "false"}
+          data-host-context={props.composerContextItems
+            ?.map((item) => item.key)
+            .join(",")}
           data-context-scope={
             props.contextScope
               ? `${props.contextScope.type}:${props.contextScope.id}`
@@ -427,7 +434,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
-  it("blocks a fresh chat until the model catalog resolves", async () => {
+  it("allows drafting but blocks sending until the model catalog resolves", async () => {
     const engines = [
       {
         name: "builder",
@@ -452,8 +459,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       el
         .querySelector("[data-testid='assistant-chat']")
-        ?.getAttribute("data-composer-disabled"),
+        ?.getAttribute("data-composer-submitting"),
     ).toBe("true");
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-disabled"),
+    ).toBe("false");
 
     await act(async () => {
       resolveEngineList({ engines });
@@ -464,11 +476,46 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       el
         .querySelector("[data-testid='assistant-chat']")
-        ?.getAttribute("data-composer-disabled"),
+        ?.getAttribute("data-composer-submitting"),
     ).toBe("false");
 
     await act(async () => localRoot.unmount());
     el.remove();
+  });
+
+  it("reports the active thread and withholds context bound to another thread", async () => {
+    const onActiveThreadChange = vi.fn();
+    const render = async (binding: string) =>
+      act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            onActiveThreadChange={onActiveThreadChange}
+            composerContextThreadId={binding}
+            composerContextItems={[
+              { key: "brand", title: "Brand", context: "Tokens" },
+            ]}
+          />,
+        );
+      });
+    await render("thread-2");
+    expect(onActiveThreadChange).toHaveBeenCalledWith("thread-1");
+    expect(
+      container
+        .querySelector('[data-testid="assistant-chat"]')
+        ?.getAttribute("data-host-context"),
+    ).toBe("");
+    expect(
+      container
+        .querySelector('[data-testid="assistant-chat"]')
+        ?.getAttribute("data-composer-submitting"),
+    ).toBe("true");
+    await render("thread-1");
+    expect(
+      container
+        .querySelector('[data-testid="assistant-chat"]')
+        ?.getAttribute("data-host-context"),
+    ).toBe("brand");
   });
 
   // The engines fetch is still in flight when an app-initiated first turn
@@ -1783,6 +1830,41 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     _resetAgentChatSubmitBufferForTests();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("leaves cold-start scoped submissions buffered while the origin surface is inactive", async () => {
+    resetThreadMocks();
+    sendToAgentChat({
+      message: "Only the system thread",
+      submit: true,
+      tabId: "thread-1",
+      submitMessageId: "system-handoff",
+      turnId: "system-handoff",
+      openSidebar: false,
+    });
+    await act(async () => {
+      root.render(
+        <AgentChatActivityProvider active={false}>
+          <MultiTabAssistantChat storageKey="mode-b" fixedThreadId="thread-1" />
+        </AgentChatActivityProvider>,
+      );
+    });
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      root.render(
+        <AgentChatActivityProvider active>
+          <MultiTabAssistantChat storageKey="mode-b" fixedThreadId="thread-1" />
+        </AgentChatActivityProvider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledTimes(1);
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Only the system thread",
+      undefined,
+      expect.objectContaining({ turnId: "system-handoff" }),
+    );
+    expect(threadMocks.createThread).not.toHaveBeenCalled();
   });
 
   it("delivers a message sent before the lazy panel mounted its listener", async () => {

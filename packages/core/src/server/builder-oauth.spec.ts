@@ -12,6 +12,12 @@ const markReconnectMock = vi.hoisted(() => vi.fn());
 const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
 const resolveOrgMock = vi.hoisted(() => vi.fn());
+const connectionStateMock = vi.hoisted(() => vi.fn());
+const savePersonalLinkMock = vi.hoisted(() => vi.fn());
+const resolveLegacyMock = vi.hoisted(() => vi.fn());
+const fingerprintMock = vi.hoisted(() => vi.fn());
+const proofSnapshotMock = vi.hoisted(() => vi.fn());
+const deleteProofMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../mcp-client/oauth-client.js", () => ({
   startMcpOAuthAuthorization: startMock,
@@ -20,12 +26,21 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
   saveMcpOAuthCredentials: saveMock,
   revokeMcpOAuthCredentials: revokeMock,
   getMcpOAuthAccessToken: getAccessTokenMock,
+  getMcpOAuthConnectionState: connectionStateMock,
   markMcpOAuthReconnectRequired: markReconnectMock,
   validateMcpOAuthCallbackIssuer: validateIssuerMock,
 }));
 
 vi.mock("../oauth-tokens/store.js", () => ({
   getOAuthTokens: getRawTokensMock,
+  saveOAuthTokens: savePersonalLinkMock,
+  getOAuthTokenSnapshot: proofSnapshotMock,
+  deleteOAuthTokensIfRevision: deleteProofMock,
+}));
+
+vi.mock("./credential-provider.js", () => ({
+  resolveBuilderCredentialsDetailed: resolveLegacyMock,
+  builderCredentialFingerprint: fingerprintMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -37,6 +52,7 @@ import {
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   BUILDER_OAUTH_SCOPES,
+  attestProvisionedBuilderAccount,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
@@ -46,6 +62,8 @@ import {
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
+  resolvePersonalBuilderAccountAccess,
+  prepareBuilderAccountDisconnect,
   saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
 } from "./builder-oauth.js";
@@ -106,6 +124,613 @@ beforeEach(() => {
   resolveOrgMock.mockReset();
   // Every user belongs to an org; individual tests override the org id.
   resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
+  connectionStateMock.mockReset();
+  connectionStateMock.mockResolvedValue({ kind: "missing" });
+  savePersonalLinkMock.mockReset();
+  resolveLegacyMock.mockReset();
+  fingerprintMock.mockReset();
+  proofSnapshotMock.mockReset();
+  proofSnapshotMock.mockResolvedValue(null);
+  deleteProofMock.mockReset();
+});
+
+describe("personal Builder account eligibility", () => {
+  const requiredScopes = [
+    "builder:designsystem:read",
+    "builder:designsystem:write",
+  ] as const;
+  const access = (
+    refresh = false,
+    email = ownerEmail,
+    orgId: string | null = DEFAULT_ORG,
+  ) =>
+    resolvePersonalBuilderAccountAccess({
+      ownerEmail: email,
+      orgId,
+      requiredScopes,
+      refresh,
+    });
+  const grant = () => {
+    const value = credentials();
+    return {
+      ...value,
+      tokens: { ...value.tokens, scope: requiredScopes.join(" ") },
+    };
+  };
+  const state = (kind = "connected", value = grant()) => ({
+    kind,
+    credential: value,
+    revision: 1,
+    legacyRevision: 1,
+  });
+  const link = (scope: "user" | "org" = "org") => ({
+    link: {
+      version: 1,
+      ownerEmail,
+      source: "oauth",
+      scope,
+      scopeId: scope === "org" ? DEFAULT_ORG : ownerEmail,
+      grantId: "example-grant-id",
+    },
+  });
+  const linkedGrant = () => ({
+    ...grant(),
+    builderAccountLinkId: "example-grant-id",
+    builderAccountOwnerEmail: ownerEmail,
+  });
+
+  it.each(["owner", "admin", "member"])(
+    "attests the %s who actually completed OAuth without duplicating rotating tokens",
+    async (role) => {
+      await saveBuilderOAuthCredentials({
+        ownerEmail,
+        orgId: DEFAULT_ORG,
+        role,
+        credentials: grant(),
+      });
+      expect(saveMock).toHaveBeenCalledTimes(1);
+      const saved = saveMock.mock.calls[0][0];
+      expect(saved.scope).toBe(role === "member" ? "user" : "org");
+      expect(savePersonalLinkMock).toHaveBeenCalledWith(
+        "builder-account",
+        perUserKey(ownerEmail),
+        {
+          link: {
+            version: 1,
+            ownerEmail,
+            source: "oauth",
+            scope: saved.scope,
+            scopeId: saved.scopeId,
+            grantId: saved.credentials.builderAccountLinkId,
+          },
+        },
+        `user:${ownerEmail}`,
+      );
+      expect(JSON.stringify(savePersonalLinkMock.mock.calls)).not.toContain(
+        "<ACCESS_TOKEN_EXAMPLE>",
+      );
+      expect(JSON.stringify(savePersonalLinkMock.mock.calls)).not.toContain(
+        "<REFRESH_TOKEN_EXAMPLE>",
+      );
+    },
+  );
+
+  it("does not mint proof when saving the verified grant fails", async () => {
+    saveMock.mockRejectedValueOnce(new Error("fixture store unavailable"));
+    await expect(
+      saveBuilderOAuthCredentials({ ownerEmail, credentials: grant() }),
+    ).rejects.toThrow();
+    expect(savePersonalLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses non-Builder credentials before minting proof", async () => {
+    await expect(
+      saveBuilderOAuthCredentials({
+        ownerEmail,
+        credentials: { ...grant(), serverUrl: "https://other.example.test" },
+      }),
+    ).rejects.toThrow();
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(savePersonalLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the just-connected admin's exact org grant", async () => {
+    getRawTokensMock.mockResolvedValue(link());
+    connectionStateMock.mockResolvedValue(state("connected", linkedGrant()));
+    await expect(access()).resolves.toEqual({ status: "ready" });
+    expect(connectionStateMock).toHaveBeenCalledWith({
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+    });
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let another org member inherit that admin's proof", async () => {
+    getRawTokensMock.mockImplementation(async (_provider, _key, owner) =>
+      owner === `user:${ownerEmail}` ? link() : null,
+    );
+    connectionStateMock.mockImplementation(async (options) =>
+      options.scope === "org"
+        ? state("connected", linkedGrant())
+        : { kind: "missing" },
+    );
+    await expect(access(false, "bob@example.com")).resolves.toEqual({
+      status: "missing",
+    });
+    expect(connectionStateMock).toHaveBeenCalledTimes(1);
+    expect(connectionStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "user", scopeId: "bob@example.com" }),
+    );
+    expect(resolveLegacyMock).not.toHaveBeenCalled();
+    expect(resolveOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("does not follow the attested org grant outside the current authenticated org", async () => {
+    getRawTokensMock.mockResolvedValue(link());
+    await expect(access(false, ownerEmail, "other-org")).resolves.toMatchObject(
+      { status: "reconnect_required", reason: "revoked" },
+    );
+    expect(connectionStateMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a peer's valid replacement service grant without losing personal eligibility", async () => {
+    getRawTokensMock.mockResolvedValue(link());
+    connectionStateMock.mockResolvedValue(
+      state("connected", {
+        ...grant(),
+        builderAccountLinkId: "someone-elses-grant",
+        builderAccountOwnerEmail: "bob@example.com",
+      }),
+    );
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    await expect(access(true)).resolves.toEqual({ status: "ready" });
+    expect(getAccessTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org", scopeId: DEFAULT_ORG }),
+    );
+    expect(savePersonalLinkMock).not.toHaveBeenCalled();
+    expect(deleteProofMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps both verified admins ready through repeated peer connects without qualifying a third teammate", async () => {
+    const proofs = new Map<string, unknown>();
+    let activeGrant = linkedGrant();
+    savePersonalLinkMock.mockImplementation(
+      async (_provider, _key, tokens, owner) => {
+        proofs.set(owner, tokens);
+      },
+    );
+    saveMock.mockImplementation(async ({ credentials: value }) => {
+      activeGrant = value;
+    });
+    getRawTokensMock.mockImplementation(
+      async (_provider, _key, owner) => proofs.get(owner) ?? null,
+    );
+    connectionStateMock.mockImplementation(async ({ scope }) =>
+      scope === "org" ? state("connected", activeGrant) : { kind: "missing" },
+    );
+    for (const connector of [ownerEmail, "bob@example.com", ownerEmail]) {
+      await saveBuilderOAuthCredentials({
+        ownerEmail: connector,
+        orgId: DEFAULT_ORG,
+        role: "admin",
+        credentials: grant(),
+      });
+      await expect(access(false, ownerEmail)).resolves.toEqual({
+        status: "ready",
+      });
+      if (proofs.has("user:bob@example.com"))
+        await expect(access(false, "bob@example.com")).resolves.toEqual({
+          status: "ready",
+        });
+      await expect(access(false, "charlie@example.com")).resolves.toEqual({
+        status: "missing",
+      });
+    }
+    expect(proofs.size).toBe(2);
+    expect(saveMock).toHaveBeenCalledTimes(3);
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+    expect(deleteProofMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["reconnect_required", "missing_scope", "wrong_resource"])(
+    "still validates a peer's replacement grant: %s",
+    async (problem) => {
+      getRawTokensMock.mockResolvedValue(link());
+      const value = {
+        ...linkedGrant(),
+        builderAccountOwnerEmail: "bob@example.com",
+      };
+      if (problem === "missing_scope")
+        value.tokens.scope = "builder:designsystem:read";
+      if (problem === "wrong_resource")
+        value.serverUrl = "https://other.example.test";
+      connectionStateMock.mockResolvedValue(
+        state(problem === "reconnect_required" ? problem : "connected", value),
+      );
+      await expect(access()).resolves.toMatchObject(
+        problem === "wrong_resource"
+          ? { status: "unavailable", reason: "invalid_connection" }
+          : {
+              status: "reconnect_required",
+              reason:
+                problem === "missing_scope" ? "missing_scopes" : "revoked",
+            },
+      );
+      expect(deleteProofMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps an attested but deleted grant eligible for reconnect", async () => {
+    getRawTokensMock.mockResolvedValue(link("user"));
+    await expect(access()).resolves.toMatchObject({
+      status: "reconnect_required",
+      reason: "revoked",
+    });
+  });
+
+  it("recognizes a legacy personally owned Builder OAuth grant without org inference", async () => {
+    connectionStateMock.mockResolvedValue(state());
+    await expect(access(false, "Alice@Example.com ")).resolves.toEqual({
+      status: "ready",
+    });
+    expect(connectionStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: perUserKey(ownerEmail),
+        scope: "user",
+        scopeId: ownerEmail,
+      }),
+    );
+  });
+
+  it("does not refresh an expired but refreshable grant during status inspection", async () => {
+    connectionStateMock.mockResolvedValue(state("expired"));
+    await expect(access()).resolves.toEqual({ status: "ready" });
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+    expect(savePersonalLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("automatically refreshes through the canonical resolver during assertion", async () => {
+    connectionStateMock
+      .mockResolvedValueOnce(state("expired"))
+      .mockResolvedValueOnce(state());
+    getAccessTokenMock.mockResolvedValue("<ROTATED_ACCESS_TOKEN_EXAMPLE>");
+    await expect(access(true)).resolves.toEqual({ status: "ready" });
+    expect(getAccessTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "user", scopeId: ownerEmail }),
+    );
+  });
+
+  it("accepts a valid peer org rotation during canonical refresh", async () => {
+    getRawTokensMock.mockResolvedValue(link());
+    connectionStateMock
+      .mockResolvedValueOnce(state("expired", linkedGrant()))
+      .mockResolvedValueOnce(
+        state("connected", {
+          ...grant(),
+          builderAccountLinkId: "replaced-during-refresh",
+        }),
+      );
+    getAccessTokenMock.mockResolvedValue("<ROTATED_ACCESS_TOKEN_EXAMPLE>");
+    await expect(access(true)).resolves.toEqual({ status: "ready" });
+  });
+
+  it("still rejects another identity replacing a personally held grant", async () => {
+    getRawTokensMock.mockResolvedValue(link("user"));
+    connectionStateMock
+      .mockResolvedValueOnce(state("expired", linkedGrant()))
+      .mockResolvedValueOnce(
+        state("connected", {
+          ...grant(),
+          builderAccountLinkId: "replaced-during-refresh",
+          builderAccountOwnerEmail: "bob@example.com",
+        }),
+      );
+    getAccessTokenMock.mockResolvedValue("<ROTATED_ACCESS_TOKEN_EXAMPLE>");
+    await expect(access(true)).resolves.toMatchObject({
+      status: "reconnect_required",
+      reason: "revoked",
+    });
+  });
+
+  it("requests reconnect when the canonical refresh latches revocation", async () => {
+    connectionStateMock
+      .mockResolvedValueOnce(state("expired"))
+      .mockResolvedValueOnce(state("reconnect_required"));
+    getAccessTokenMock.mockResolvedValue(null);
+    await expect(access(true)).resolves.toMatchObject({
+      status: "reconnect_required",
+      reason: "revoked",
+    });
+  });
+
+  it("requests reconnect for expired unrefreshable credentials", async () => {
+    const value = grant();
+    connectionStateMock.mockResolvedValue(
+      state("expired", {
+        ...value,
+        tokens: { ...value.tokens, refresh_token: "" },
+      }),
+    );
+    await expect(access()).resolves.toMatchObject({
+      status: "reconnect_required",
+      reason: "expired",
+    });
+  });
+
+  it("does not refresh credentials already marked for reconnect", async () => {
+    connectionStateMock.mockResolvedValue(state("reconnect_required"));
+    await expect(access(true)).resolves.toMatchObject({
+      status: "reconnect_required",
+      reason: "revoked",
+    });
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("reports exactly the missing DSI scope, not missing account identity", async () => {
+    const value = grant();
+    connectionStateMock.mockResolvedValue(
+      state("connected", {
+        ...value,
+        tokens: { ...value.tokens, scope: "builder:designsystem:read" },
+      }),
+    );
+    await expect(access()).resolves.toEqual({
+      status: "reconnect_required",
+      reason: "missing_scopes",
+      missingScopes: ["builder:designsystem:write"],
+    });
+  });
+
+  it.each([
+    {},
+    { link: { ...link().link, ownerEmail: "someone@example.com" } },
+    { link: { ...link("user").link, scopeId: "someone@example.com" } },
+  ])(
+    "fails closed on malformed or mismatched personal proof",
+    async (value) => {
+      getRawTokensMock.mockResolvedValue(value);
+      await expect(access()).resolves.toEqual({
+        status: "unavailable",
+        reason: "invalid_connection",
+      });
+      expect(connectionStateMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("distinguishes unreadable credential state from no connection", async () => {
+    connectionStateMock.mockResolvedValue({
+      kind: "malformed",
+      reason: "structure",
+    });
+    await expect(access()).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid_connection",
+    });
+  });
+
+  it.each(["serverUrl", "clientInformation", "discoveryState", "tokens"])(
+    "rejects a broken %s binding before refresh",
+    async (field) => {
+      connectionStateMock.mockResolvedValue(
+        state("connected", { ...grant(), [field]: undefined }),
+      );
+      await expect(access(true)).resolves.toEqual({
+        status: "unavailable",
+        reason: "invalid_connection",
+      });
+      expect(getAccessTokenMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["proof", "grant", "refresh"])(
+    "sanitizes %s read failures without authorizing",
+    async (source) => {
+      connectionStateMock.mockResolvedValue(state());
+      const failure = new Error("<SECRET_IN_UPSTREAM_ERROR_EXAMPLE>");
+      if (source === "proof") getRawTokensMock.mockRejectedValue(failure);
+      if (source === "grant") connectionStateMock.mockRejectedValue(failure);
+      if (source === "refresh") getAccessTokenMock.mockRejectedValue(failure);
+      await expect(access(true)).resolves.toEqual({
+        status: "unavailable",
+        reason: "store_unavailable",
+      });
+    },
+  );
+
+  it("records provisioning proof only for the verified provisioning identity", async () => {
+    fingerprintMock.mockReturnValue("example-fingerprint");
+    await attestProvisionedBuilderAccount(ownerEmail, {
+      privateKey: "<PRIVATE_KEY_EXAMPLE>",
+      publicKey: "<PUBLIC_KEY_EXAMPLE>",
+    });
+    expect(savePersonalLinkMock).toHaveBeenCalledWith(
+      "builder-account",
+      perUserKey(ownerEmail),
+      {
+        link: {
+          version: 1,
+          source: "provisioned",
+          ownerEmail,
+          credentialFingerprint: "example-fingerprint",
+        },
+      },
+      `user:${ownerEmail}`,
+    );
+  });
+
+  it.each(["user", "org", "workspace", "env", null])(
+    "requires matching personal provisioning credentials, not %s inheritance",
+    async (source) => {
+      getRawTokensMock.mockResolvedValue({
+        link: {
+          version: 1,
+          source: "provisioned",
+          ownerEmail,
+          credentialFingerprint: "example-fingerprint",
+        },
+      });
+      resolveLegacyMock.mockResolvedValue({
+        source,
+        privateKey: "<PRIVATE_KEY_EXAMPLE>",
+        publicKey: "<PUBLIC_KEY_EXAMPLE>",
+        lookupFailed: false,
+      });
+      fingerprintMock.mockReturnValue("example-fingerprint");
+      await expect(access()).resolves.toMatchObject({
+        status: source === "user" ? "ready" : "reconnect_required",
+      });
+      expect(resolveLegacyMock).toHaveBeenCalledWith({
+        userEmail: ownerEmail,
+        orgId: null,
+      });
+    },
+  );
+
+  it("refuses manually replaced provisioning credentials", async () => {
+    getRawTokensMock.mockResolvedValue({
+      link: {
+        version: 1,
+        source: "provisioned",
+        ownerEmail,
+        credentialFingerprint: "example-fingerprint",
+      },
+    });
+    resolveLegacyMock.mockResolvedValue({
+      source: "user",
+      privateKey: "<PRIVATE_KEY_EXAMPLE>",
+      publicKey: "<PUBLIC_KEY_EXAMPLE>",
+      lookupFailed: false,
+    });
+    fingerprintMock.mockReturnValue("different-fingerprint");
+    await expect(access()).resolves.toMatchObject({
+      status: "reconnect_required",
+    });
+  });
+});
+
+describe("Builder personal proof disconnect", () => {
+  const proof = {
+    link: {
+      version: 1,
+      source: "oauth",
+      ownerEmail,
+      scope: "org",
+      scopeId: DEFAULT_ORG,
+      grantId: "example-grant-id",
+    },
+  };
+  const snapshot = {
+    tokens: proof,
+    owner: `user:${ownerEmail}`,
+    revision: 7,
+    legacyRevision: 3,
+    storageVersion: "<ENCRYPTED_PROOF_EXAMPLE>",
+  };
+
+  it.each(["succeeded", "failed"])(
+    "never removes a peer's personal proof when revoking the shared grant, remote %s",
+    async (remote) => {
+      getRawTokensMock.mockResolvedValue({ retained: true });
+      readMock.mockResolvedValue({
+        ...credentials(),
+        builderAccountLinkId: "example-grant-id",
+        builderAccountOwnerEmail: ownerEmail,
+      });
+      proofSnapshotMock.mockResolvedValue(snapshot);
+      revokeMock.mockResolvedValue({ local: "deleted", remote });
+      await expect(
+        deleteBuilderOAuthSession(
+          "another-admin@example.com",
+          "org",
+          DEFAULT_ORG,
+        ),
+      ).resolves.toEqual({
+        localDeleted: true,
+        remoteRevoked: remote === "succeeded",
+      });
+      expect(proofSnapshotMock).not.toHaveBeenCalled();
+      expect(deleteProofMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not remove proof when a concurrent refresh or reconnect replaced the grant", async () => {
+    getRawTokensMock.mockResolvedValue({ retained: true });
+    readMock.mockResolvedValue({
+      ...credentials(),
+      builderAccountLinkId: "example-grant-id",
+      builderAccountOwnerEmail: ownerEmail,
+    });
+    proofSnapshotMock.mockResolvedValue(snapshot);
+    revokeMock.mockResolvedValue({ local: "replaced", remote: "succeeded" });
+    await deleteBuilderOAuthSession(ownerEmail, "org", DEFAULT_ORG);
+    expect(deleteProofMock).not.toHaveBeenCalled();
+  });
+
+  it("explicit caller disconnect removes only its snapshot even after a peer replaced the shared grant", async () => {
+    proofSnapshotMock.mockResolvedValue(snapshot);
+    const disconnect = await prepareBuilderAccountDisconnect(ownerEmail);
+    getRawTokensMock.mockResolvedValue({ retained: true });
+    readMock.mockResolvedValue({
+      ...credentials(),
+      builderAccountOwnerEmail: "bob@example.com",
+    });
+    revokeMock.mockResolvedValue({ local: "replaced", remote: "succeeded" });
+    await deleteBuilderOAuthSession(ownerEmail, "org", DEFAULT_ORG);
+    await disconnect();
+    expect(deleteProofMock).toHaveBeenCalledTimes(1);
+    expect(deleteProofMock).toHaveBeenCalledWith(
+      "builder-account",
+      perUserKey(ownerEmail),
+      `user:${ownerEmail}`,
+      7,
+      3,
+      "<ENCRYPTED_PROOF_EXAMPLE>",
+    );
+  });
+
+  it("captures the revision before disconnect and never deletes by owner alone", async () => {
+    proofSnapshotMock.mockResolvedValue(snapshot);
+    const disconnect = await prepareBuilderAccountDisconnect(ownerEmail);
+    proofSnapshotMock.mockResolvedValue({ ...snapshot, revision: 8 });
+    deleteProofMock.mockResolvedValue(false);
+    await disconnect();
+    expect(proofSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(deleteProofMock).toHaveBeenCalledWith(
+      "builder-account",
+      perUserKey(ownerEmail),
+      `user:${ownerEmail}`,
+      7,
+      3,
+      "<ENCRYPTED_PROOF_EXAMPLE>",
+    );
+  });
+
+  it("also disconnects provisioned account proof", async () => {
+    proofSnapshotMock.mockResolvedValue({
+      ...snapshot,
+      tokens: {
+        link: {
+          version: 1,
+          source: "provisioned",
+          ownerEmail,
+          credentialFingerprint: "example-fingerprint",
+        },
+      },
+    });
+    const disconnect = await prepareBuilderAccountDisconnect(ownerEmail);
+    await disconnect();
+    expect(deleteProofMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed if proof is unreadable rather than deleting unverified identity", async () => {
+    proofSnapshotMock.mockResolvedValue({ ...snapshot, tokens: {} });
+    await expect(prepareBuilderAccountDisconnect(ownerEmail)).rejects.toThrow(
+      "could not be verified",
+    );
+    expect(deleteProofMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("Builder hosted user OAuth", () => {
@@ -194,7 +819,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: expect.objectContaining(finished),
     });
   });
 
@@ -219,7 +844,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "user",
       scopeId: ownerEmail,
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: expect.objectContaining(finished),
     });
     expect(validateIssuerMock).toHaveBeenCalledWith(
       finished.discoveryState,
@@ -287,7 +912,9 @@ describe("Builder hosted user OAuth", () => {
     });
 
     expect(saveMock).toHaveBeenCalledWith(
-      expect.objectContaining({ credentials: finished }),
+      expect.objectContaining({
+        credentials: expect.objectContaining(finished),
+      }),
     );
   });
 
@@ -415,7 +1042,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: "org-acme",
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: expect.objectContaining(finished),
     });
   });
 
@@ -471,7 +1098,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: "org-started",
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: expect.objectContaining(finished),
     });
     expect(resolveOrgMock).not.toHaveBeenCalled();
   });

@@ -131,7 +131,7 @@ export default defineAction({
     const now = new Date().toISOString();
     const ids = pending.map((edit) => edit.id);
 
-    if (!result.sent) {
+    if (!result.sent || !["dispatched", "completed"].includes(result.outcome)) {
       await db
         .update(schema.designFusionEdits)
         .set({
@@ -143,6 +143,7 @@ export default defineAction({
       fail(result.error ?? "Failed to send edits to the app agent", {
         errorCode: "fusion_edit_dispatch_failed",
         statusCode: 502,
+        details: { sent: result.sent, outcome: result.outcome },
       });
     }
 
@@ -155,6 +156,7 @@ export default defineAction({
     return {
       sentCount: pending.length,
       batchId,
+      outcome: result.outcome,
       message:
         `Sent ${pending.length} queued edit(s) to the app agent as batch ` +
         `"${batchId}".`,

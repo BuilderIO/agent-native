@@ -39,60 +39,83 @@ Design systems are stored in the `design_systems` SQL table. Each has a `data` c
 - `customCSS`: optional custom CSS
 - `visibility`: organization-scoped systems default to `org`; local systems default to `private`
 
-## Creating a Design System
+## Native creation and refinement
 
-1. User provides brand context (company name, website, assets, notes)
-2. `analyze-brand-assets` renders a website in a real browser and gathers the
-   computed visual system (colors, fonts, spacing, radii, shadows, components,
-   CSS variables, logos, and design.md-style guidance)
-3. Agent analyzes the data and calls `create-design-system` with extracted tokens
-4. The design system is published and becomes available for deck creation
+`get-builder-dsi-access` checks the signed-in caller's personal Builder account.
+An organization connection alone does not qualify a teammate. Resolve missing
+or expired access through the existing Builder connection flow; keep the draft.
+Account eligibility is not a generation or publication receipt.
 
-When an organization is active, newly created systems are shared with that
-organization by default. Builder-indexed local proxy systems follow the same
-visibility rule.
+Use `start-design-system-authoring` with the name, intent, complete source batch
+and origin draft. Reuse its request ID only for identical retries. This reserves
+the native workspace and conversation, not generated output. Follow-ups stay in
+the returned conversation; Builder runs behind it without a product handoff.
 
-### Source: Figma `.fig` file
+Read `get-design-system-workspace` before generating. New workspaces use
+`runtime: "builder"`; their files and publication live in Builder, with only
+scoped references and artifact metadata in Agent-Native.
 
-When the user uploads a raw Figma local copy (`.fig`), start Builder
-design-system indexing with `import-file` instead of treating it like a
-document:
+| Action | Purpose |
+| --- | --- |
+| `run-design-system-agent` | Send a direction to the same persistent Builder DSI session, preparing the entire reference batch on first start |
+| `get-design-system-workspace` | Read actual provider progress, source outcomes, file inventory and canonical session binding |
+| `get-design-system-artifact` | Read a real Builder file at its recorded artifact revision |
+| `read-design-system-source` | Inspect scoped source evidence and extraction limitations |
+| `update-design-system-workspace` | Append references, explicitly exclude/restore sources or change selection with workspace CAS |
+| `get-design-system` | Resolve confirmed published context for Design or Slides generation |
 
-```bash
-pnpm action import-file --filePath "data/uploads/brand.fig" --format fig
-```
+For Start fresh, ask for direction if none was supplied, then pass that direction
+to `run-design-system-agent`. References starts with the complete saved batch.
+Use a stable `requestId` for one turn. Refinements pass the selected `targetId`
+when relevant and `expectedRevision: workspace.builder.revision`. This remote
+revision is a string, distinct from the numeric workspace/target revisions.
 
-The action requires Builder to be connected and returns Builder `projectId`,
-`jobId`, `designSystemId`, and `builderUrl`. Builder is the source of truth for
-the indexed brand kit, generated docs, and usage guidance.
+The returned session is a submission receipt until its actual progress says
+otherwise. Read the existing workspace after interruption; never start another
+system to recover an unknown outcome. Keep failed or unsupported sources visible
+and let the user correct or exclude them. Source upload acceptance does not prove
+interpretation. Read generated file bodies before describing their contents.
 
-Do not call `create-design-system` locally from `.fig` uploads. Do not call
-`import-document` for `.fig` files; it only handles metadata and will miss the
-Builder indexing flow.
+Builder workspaces reject local `write-design-system-artifact` output and
+client-authored generation statuses. Existing native-only workspaces retain
+their legacy writer; do not silently migrate or replace their saved artifacts.
+Builder's actual file inventory determines the canvas, not a fixed sample kit.
 
-### Source: connected code, GitHub, or `design.md`
+The user chooses **Use** after reviewing the output. That action publishes the
+exact Builder revision and verifies its receipt before attaching it to the
+originating composer. A completed turn does not mean published. Generation reads
+reject unpublished or changed context. No default or sharing policy changes
+implicitly.
 
-For any other reusable source - connected code, a GitHub repo, local
-code/design files, or an optional `design.md` - use Builder-backed DSI
-indexing through `index-design-system-with-builder`. Pass GitHub sources as one
-`githubSources` array; each source may pin a branch/tag/commit and include
-repository-relative files or folders. Pass readable `design.md` content as
-`designMd`, and use the returned local design system id in the rest of the
-Slides flow. Call `get-design-system` before generation so Builder docs and
-tokens are hydrated when available. For a saved GitHub-backed system, call
-`sync-design-system-with-builder --id <localDesignSystemId>` to replay its
-persisted source scope after upstream changes.
+Cross-app `consumedRevision` is the numeric `workspace.contentRevision` returned
+as `reference.revision` by `get-design-system`; keep its `ownerApp`. Artifact
+reads retain the selected artifact's numeric revision and verify the underlying
+Builder file hash. Stale content is an explicit failure, not a switch to latest.
 
-Never create a duplicate local design system from raw Figma or code sources.
-Builder owns the indexed brand kit; a second local copy drifts from it and
-nothing records which one a deck was actually built from.
+### Supported references
 
-That rule is about duplicates, not about failures. When
-`index-design-system-with-builder` fails there is nothing to duplicate, so
-never end a setup request with nothing created: build the design system with
-`create-design-system` from the same sources and say plainly that Builder
-indexing was unavailable and why. An indexing error the user cannot see, with
-no design system to select afterwards, reads as the request being dropped.
+- Website: a public HTTP(S) URL read through the scoped SSRF-safe extractor.
+  Builder receives bounded evidence, not a complete website capture.
+- Brand files: owner/org-bound uploads, up to 20 MiB each and 100 MiB per batch.
+  PDF, supported images and text retain original bytes. JSON is sent as original
+  plain-text bytes. DOCX/PPTX use extracted text with explicit loss of layout,
+  images and typography; unsupported extraction remains a visible failure.
+- Figma: a file/design URL, optionally a frame. The connected-account reader
+  supplies bounded paints, typography and geometry, not Variables or complete
+  file fidelity. Preserve its access and size errors. Raw `.fig` and old
+  unverified Builder upload tokens are not native collector inputs.
+
+Adding sources stages them on the same workspace. Keep prior sources and manual
+decisions; never silently ignore a changed batch or create a replacement project.
+Explicit exclusion retains the evidence and history. Corrected sources append a
+new entry and exclude the old one only at the user's direction.
+
+### Existing provider-backed systems
+
+Legacy indexing/editor/sync actions remain available for existing systems or
+explicit advanced requests. They do not replace the persistent native authoring
+session. Builder's editor is optional; its backend is the authoring runtime.
+GitHub/npm are not creation choices in this MVP.
 
 ### Source: workspace default
 
@@ -150,9 +173,18 @@ system or measured reference exists, choose a subject-appropriate direction
 once and repeat it; vary structure, not theme.
 
 Every deck read returns `designSystem` as a bounded summary; call
-`get-design-system` once for the full context before the first slide, and use
-`get-deck`'s `deckStyle` and `representativeSlideId` to match an existing deck
-(the actions skill documents the field).
+`get-design-system` once for the authored foundations, components, usage rules,
+and legacy context before the first slide, retaining the attached reference's
+`ownerApp` and `consumedRevision`. Pass that exact
+`designSystemRef: { id, ownerApp, consumedRevision }` to `create-deck`; for a
+newly read selection, map the returned `reference.systemId`,
+`reference.ownerApp`, and `reference.revision` respectively. A local legacy ID
+resolves the actual owner and revision; repeating the same ID preserves an
+existing pin. Omitting the reference preserves it when updating an existing
+deck; `null` explicitly opts out. Stale or inaccessible references fail before
+writes: re-read the selected context before retrying, rather than dropping its
+pin. Use `get-deck`'s `deckStyle` and `representativeSlideId` to match an existing
+deck (the actions skill documents the field).
 
 Before calling a deck ready, render the changed slides and perform one bounded
 review for system consistency, hierarchy, contrast, overflow, missing assets,

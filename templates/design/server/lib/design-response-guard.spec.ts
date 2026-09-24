@@ -548,6 +548,64 @@ describe("Design final response guard", () => {
     expect(result).not.toBeNull();
   });
 
+  it("accepts native artifact receipts, not an old workspace, failed write, or empty payload", () => {
+    const receipt = {
+      persisted: true,
+      operationId: "refine-avatar",
+      targetId: "avatar",
+      revision: 2,
+      kind: "component",
+      tokenCount: 0,
+      contentHash: "a".repeat(64),
+    };
+    const saved = { id: "system", workspace: { systemId: "system" }, receipt };
+    for (const result of [
+      saved,
+      { ...saved, receipt: { ...receipt, kind: "usage-rule" } },
+      {
+        ...saved,
+        receipt: {
+          ...receipt,
+          kind: "foundation",
+          tokenCount: 4,
+          contentHash: null,
+        },
+      },
+    ]) {
+      expect(
+        designFinalResponseGuard(
+          guardContext("refine this component", {
+            toolResults: [toolResult("write-design-system-artifact", result)],
+          }),
+        ),
+      ).toBeNull();
+    }
+    for (const result of [
+      { ...saved, receipt: undefined },
+      { ...saved, receipt: { ...receipt, persisted: false } },
+      { ...saved, receipt: { ...receipt, revision: 0 } },
+      { ...saved, receipt: { ...receipt, contentHash: null } },
+      { ...saved, receipt: { ...receipt, kind: "foundation", tokenCount: 0 } },
+      { ...saved, workspace: { systemId: "another-system" } },
+    ])
+      expect(
+        designFinalResponseGuard(
+          guardContext("refine this component", {
+            toolResults: [toolResult("write-design-system-artifact", result)],
+          }),
+        ),
+      ).not.toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext("refine this component", {
+          toolResults: [
+            toolResult("write-design-system-artifact", saved, true),
+          ],
+        }),
+      ),
+    ).not.toBeNull();
+  });
+
   it("does not accept empty tweaks or a stale mirrored file update", () => {
     for (const toolResults of [
       [

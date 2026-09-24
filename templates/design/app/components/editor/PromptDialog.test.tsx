@@ -1,5 +1,21 @@
 // @vitest-environment happy-dom
 
+vi.mock("@/components/editor/use-design-prompt-context", () => ({
+  useDesignPromptContext: () => ({
+    contextItems: [],
+    contextMenuItems: [],
+    view: null,
+    setView: vi.fn(),
+    onRemoveContextItem: vi.fn(),
+    onInspectContextItem: vi.fn(),
+    onRetryContextItem: vi.fn(),
+    flush: async () => {},
+  }),
+}));
+vi.mock("@/components/editor/DesignContextPicker", () => ({
+  DesignContextPicker: () => null,
+}));
+
 import { act, useCallback, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

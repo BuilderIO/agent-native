@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, sql } from "drizzle-orm";
+import { and, desc, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -57,6 +57,12 @@ export default defineAction({
   description:
     "List decks from the database with metadata. Use updatedSince, limit, and cursor for bounded incremental sync; paged responses are metadata-only, so use get-deck for slide content.",
   schema: z.object({
+    search: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe("Case-insensitive title search."),
     compact: z
       .enum(["true", "false"])
       .optional()
@@ -131,13 +137,22 @@ export default defineAction({
     }
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
-    const where =
+    const ownerFilter =
       args.createdBy === "me" && normalizedOwnerEmail !== null
         ? and(
             visibleDecks,
             sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
           )
         : visibleDecks;
+    const where = args.search
+      ? and(
+          ownerFilter,
+          ilike(
+            schema.decks.title,
+            `%${args.search.replace(/([\\%_])/g, "\\$1")}%`,
+          ),
+        )
+      : ownerFilter;
 
     const paged =
       args.updatedSince !== undefined ||

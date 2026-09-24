@@ -1,5 +1,4 @@
 import {
-  AgentSidebar,
   focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
@@ -29,6 +28,8 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { DesignSystemWorkspaceHost } from "@/components/design-system/DesignSystemWorkspaceHost";
+import { DesignAgentSidebar } from "@/components/editor/DesignAgentSidebar";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
@@ -88,12 +89,22 @@ function resolveDesignLayoutMode(input: {
 }
 
 export function Layout({ children }: LayoutProps) {
+  return (
+    <DesignSystemWorkspaceHost>
+      <DesignLayout>{children}</DesignLayout>
+    </DesignSystemWorkspaceHost>
+  );
+}
+
+function DesignLayout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
+  const isSystemWorkspaceRoute =
+    /^\/design-systems\/(?!setup(?:\/|$))[^/]+\/?$/.test(location.pathname);
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const builderHostEmbed = isBuilderHostEmbed();
@@ -199,6 +210,8 @@ export function Layout({ children }: LayoutProps) {
 
   const hideHeader =
     isChatRoute ||
+    isSystemWorkspaceRoute ||
+    location.pathname === "/home" ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
   function openAgentChatFullscreen() {
@@ -289,7 +302,7 @@ export function Layout({ children }: LayoutProps) {
         <main
           className={cn(
             "agent-native-app-main min-h-0 flex-1",
-            isDesignEditor || isChatRoute
+            isDesignEditor || isChatRoute || isSystemWorkspaceRoute
               ? "overflow-hidden"
               : "overflow-y-auto",
           )}
@@ -308,7 +321,8 @@ export function Layout({ children }: LayoutProps) {
         {isChatRoute ? (
           shell
         ) : (
-          <AgentSidebar
+          <DesignAgentSidebar
+            enabled={!isSystemWorkspaceRoute}
             position="right"
             chatViewTransition
             chatViewTransitionHandoff={chatHomeHandoffPending}
@@ -340,7 +354,7 @@ export function Layout({ children }: LayoutProps) {
             }
           >
             {shell}
-          </AgentSidebar>
+          </DesignAgentSidebar>
         )}
       </MobileSidebarContext.Provider>
     </HeaderActionsProvider>

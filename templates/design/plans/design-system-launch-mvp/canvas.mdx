@@ -1,0 +1,110 @@
+<DesignBoard title="Design-system creation · MVP experience" mode="wireframe">
+  <Section id="journey" title="Choose → gather → create together">
+    <Artboard
+      id="start"
+      label="1 · Two clear starting paths"
+      surface="desktop"
+      x={0}
+      y={0}
+      height={620}
+    >
+      <Screen
+        surface="desktop"
+        renderMode="wireframe"
+        html={
+          '<div style="padding:24px;box-sizing:border-box;height:100%;display:flex;align-items:center;justify-content:center"><section class="wf-card" style="display:flex;flex-direction:column;gap:16px;width:100%;max-width:720px;padding:24px"><header style="display:flex;align-items:center;gap:10px"><h2>New design system</h2><div style="flex:1"></div><button  aria-label="Close"><span data-icon="x"></span></button></header><label style="display:flex;flex-direction:column;gap:16px;gap:8px">Name<input aria-label="Name" value="Acme" placeholder="My design system"/></label>\n <fieldset style="border:0;padding:0;margin:0"><legend style="margin-bottom:12px">Start from</legend><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">\n <label class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:12px;cursor:pointer" ><div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:8px;background:var(--wf-paper)"><div style="display:grid;grid-template-columns:2fr 1fr;gap:8px"><div class="wf-box" style="background:var(--wf-accent-soft);padding:12px"></div><div class="wf-box" style="padding:12px"></div></div><div style="border-top:2px solid var(--wf-line);margin-right:30%"></div></div><span style="display:flex;align-items:center;gap:10px"><input type="radio" name="path" value="fresh" /><strong>Start fresh</strong></span><small>Shape a new direction in chat.</small></label><label class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:12px;cursor:pointer" ><div class="wf-card" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;background:var(--wf-paper)"><span class="wf-pill">Aa</span><span class="wf-pill"><span data-icon="user"></span></span><span class="wf-pill" style="background:var(--wf-accent-soft)">UI</span></div><span style="display:flex;align-items:center;gap:10px"><input type="radio" name="path" value="refs" checked/><strong>References</strong></span><small>Build from your brand and files.</small></label>\n </div></fieldset><footer style="display:flex;align-items:center;gap:10px;justify-content:flex-end;padding-top:12px;border-top:1px solid var(--wf-line)"><button  class="primary" >Continue</button></footer></section></div>'
+        }
+        css={
+          ".chosen{border-color:var(--wf-accent)!important;background:var(--wf-accent-soft)!important} label:has(input:checked){border-color:var(--wf-accent);background:var(--wf-accent-soft)} .wf-chip button{padding:2px;border:0;background:transparent} [hidden]{display:none!important}"
+        }
+      />
+    </Artboard>
+    <Artboard
+      id="refs"
+      label="2 · Collect a batch of references"
+      surface="desktop"
+      x={1300}
+      y={0}
+      height={760}
+    >
+      <Screen
+        surface="desktop"
+        renderMode="wireframe"
+        html={
+          '<div style="padding:24px;box-sizing:border-box;height:100%;display:flex;align-items:center;justify-content:center"><section class="wf-card" style="display:flex;flex-direction:column;gap:16px;width:100%;max-width:720px;padding:24px"><header style="display:flex;align-items:center;gap:10px"><button  aria-label="Back"><span data-icon="arrowLeft"></span></button><h2>Add references</h2><div style="flex:1"></div><button  aria-label="Close"><span data-icon="x"></span></button></header><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">\n <button  ><span style="display:flex;flex-direction:column;gap:16px;gap:12px"><div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:8px;background:var(--wf-paper)"><div style="display:grid;grid-template-columns:2fr 1fr;gap:8px"><div class="wf-box" style="background:var(--wf-accent-soft);padding:12px"></div><div class="wf-box" style="padding:12px"></div></div><div style="border-top:2px solid var(--wf-line);margin-right:30%"></div></div><strong>Website <span data-icon="check"></span></strong></span></button><button  ><span style="display:flex;flex-direction:column;gap:16px;gap:12px"><div class="wf-card" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;background:var(--wf-paper)"><span class="wf-pill">Aa</span><span class="wf-pill"><span data-icon="user"></span></span><span class="wf-pill" style="background:var(--wf-accent-soft)">UI</span></div><strong>Brand files <span data-icon="check"></span></strong></span></button><button  ><span style="display:flex;flex-direction:column;gap:16px;gap:12px"><div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:8px;background:var(--wf-paper)"><div style="display:grid;grid-template-columns:2fr 1fr;gap:8px"><div class="wf-box" style="background:var(--wf-accent-soft);padding:12px"></div><div class="wf-box" style="padding:12px"></div></div><div style="border-top:2px solid var(--wf-line);margin-right:30%"></div></div><strong>Figma <span data-icon="check"></span></strong></span></button>\n </div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="wf-chip">acme.example<button  aria-label="Remove website"><span data-icon="x"></span></button></span><span class="wf-chip">design.md<button  aria-label="Remove design.md"><span data-icon="x"></span></button></span><span class="wf-chip">logo.svg<button  aria-label="Remove logo.svg"><span data-icon="x"></span></button></span><span class="wf-chip">Figma<button  aria-label="Remove Figma"><span data-icon="x"></span></button></span></div>\n <section class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:8px"><label>Website</label><div style="display:grid;grid-template-columns:1fr auto;gap:8px"><input aria-label="Website URL" value="acme.example" placeholder="https://company.com"/><button  >Add</button></div></section>\n <section class="wf-card" style="display:flex;align-items:center;gap:10px"><span style="flex:1">Brand files <small>design.md, documents, images and assets</small></span><button  >Choose files</button></section>\n <section class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:8px"><label>Figma</label><div style="display:grid;grid-template-columns:1fr auto;gap:8px"><input aria-label="Figma URL" value="figma.com/design/example" placeholder="Paste a Figma file link"/><button  >Add</button></div></section>\n <footer style="display:flex;align-items:center;gap:10px;padding-top:12px;border-top:1px solid var(--wf-line)"><small>4 sources added</small><div style="flex:1"></div><button  class="primary" >Create design system</button></footer></section></div>'
+        }
+        css={
+          ".chosen{border-color:var(--wf-accent)!important;background:var(--wf-accent-soft)!important} label:has(input:checked){border-color:var(--wf-accent);background:var(--wf-accent-soft)} .wf-chip button{padding:2px;border:0;background:transparent} [hidden]{display:none!important}"
+        }
+      />
+    </Artboard>
+    <Artboard
+      id="workspace"
+      label="3 · A native design-system workspace"
+      surface="desktop"
+      x={0}
+      y={1400}
+      height={850}
+    >
+      <Screen
+        surface="desktop"
+        renderMode="wireframe"
+        html={
+          '<div style="padding:16px;box-sizing:border-box;height:100%;display:grid;grid-template-columns:minmax(0,3fr) minmax(0,7fr);gap:20px"><aside style="display:flex;flex-direction:column;gap:16px;padding-right:18px;border-right:1px solid var(--wf-line);min-width:0">\n <header style="display:flex;align-items:center;gap:10px"><button  aria-label="Back to prompt"><span data-icon="arrowLeft"></span></button><strong>Acme</strong><small>Design system</small></header>\n <div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:10px"><p>Create Acme from these references.</p><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="wf-chip">acme.example</span><span class="wf-chip">design.md</span><span class="wf-chip">logo.svg</span><span class="wf-chip">Figma</span></div></div>\n \n <div style="display:flex;flex-direction:column;gap:16px;gap:12px"><p>Acme is ready to shape together.</p><small><span data-icon="check"></span> Foundations<br><span data-icon="check"></span> Starter components<br><span data-icon="check"></span> Usage rules</small><p>Select anything on the canvas to refine it in chat.</p></div>\n <div class="wf-card"><p>Make avatars rounded squares.</p></div><p>Updated Avatar and its usage rule.</p>\n <div style="flex:1"></div><div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:12px"><span class="wf-chip">Avatar<button  aria-label="Clear selected component"><span data-icon="x"></span></button></span><textarea aria-label="Message the design-system agent"  placeholder="Describe a direction or ask for a change…" rows="3"></textarea><div style="display:flex;align-items:center;gap:10px"><button  aria-label="Add references"><span data-icon="plus"></span></button><div style="flex:1"></div><button  class="primary" aria-label="Send message" ><span data-icon="send"></span></button></div></div></aside>\n <main style="display:flex;flex-direction:column;gap:16px;min-width:0"><header style="display:flex;align-items:center;gap:10px"><h2>Acme</h2><span class="wf-pill">Saved</span><div style="flex:1"></div><button  class="primary" >Use in this prompt</button></header><section style="display:flex;flex-direction:column;gap:16px;gap:12px"><h3>Foundations</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:12px"><strong>Color</strong><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px"><div class="wf-box" style="padding:14px;background:var(--wf-ink)"></div><div class="wf-box" style="padding:14px;background:var(--wf-accent)"></div><div class="wf-box" style="padding:14px;background:var(--wf-accent-soft)"></div><div class="wf-box" style="padding:14px;background:var(--wf-paper)"></div></div><small>Primary · Accent · Surface · Text</small></div><div class="wf-card" style="display:flex;flex-direction:column;gap:16px;gap:8px"><strong>Type</strong><h2>Build with clarity.</h2><small>Heading / Body / Label</small></div><div class="wf-card"><strong>Spacing</strong><p>4 · 8 · 12 · 16 · 24 · 32</p></div><div class="wf-card"><strong>Radius</strong><p>4 · 8 · 12</p></div></div></section>\n <section style="display:flex;flex-direction:column;gap:16px;gap:12px"><h3>Components</h3><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px"><button  ><span style="display:flex;flex-direction:column;gap:16px;gap:14px;text-align:left"><strong>Button</strong><span class="wf-pill accent">Continue</span><small>Generated</small></span></button><button  ><span style="display:flex;flex-direction:column;gap:16px;gap:14px;text-align:left"><strong>Input</strong><span class="wf-box">Your name</span><small>Generated</small></span></button><button  ><span style="display:flex;flex-direction:column;gap:16px;gap:14px;text-align:left"><strong>Card</strong><span class="wf-box"><strong>Project</strong><br><small>Updated today</small></span><small>Generated</small></span></button><button  class="chosen"><span style="display:flex;flex-direction:column;gap:16px;gap:14px;text-align:left"><strong>Avatar</strong><div style="display:flex;align-items:center;gap:10px"><span class="wf-box" style="padding:12px;background:var(--wf-accent-soft)"><span data-icon="user"></span></span><span class="wf-box" style="padding:12px">AC</span></div><small>Generated</small></span></button></div></section>\n <section style="display:flex;flex-direction:column;gap:16px;gap:10px"><h3>Usage rules</h3><div class="wf-card"><p>Use one primary action per view.</p><p>Give every input a visible label.</p><p>Use rounded-square avatars consistently.</p></div></section></main></div>'
+        }
+        css={
+          ".chosen{border-color:var(--wf-accent)!important;background:var(--wf-accent-soft)!important} label:has(input:checked){border-color:var(--wf-accent);background:var(--wf-accent-soft)} .wf-chip button{padding:2px;border:0;background:transparent} [hidden]{display:none!important}"
+        }
+      />
+    </Artboard>
+    <Artboard
+      id="return"
+      label="4 · Use it in the original prompt"
+      surface="desktop"
+      x={1300}
+      y={1400}
+      height={620}
+    >
+      <Screen
+        surface="desktop"
+        renderMode="wireframe"
+        html={
+          '<div style="padding:24px;box-sizing:border-box;height:100%;display:flex;align-items:center;justify-content:center"><section class="wf-card" style="display:flex;flex-direction:column;gap:16px;width:100%;max-width:720px;padding:24px"><header style="display:flex;align-items:center;gap:10px"><h2>What do you want to design?</h2><div style="flex:1"></div><button  >Edit system</button></header><div class="wf-card" style="display:flex;flex-direction:column;gap:16px"><div style="display:flex;align-items:center;gap:10px"><span class="wf-chip">brief.pdf</span><span class="wf-chip">Acme <button  aria-label="Remove design system"><span data-icon="x"></span></button></span></div><p>Create a landing page for our launch.</p><div style="display:flex;align-items:center;gap:10px"><button  aria-label="Add context"><span data-icon="plus"></span></button><div style="flex:1"></div><button  aria-label="Send prompt" disabled><span data-icon="send"></span></button></div></div></section></div>'
+        }
+        css={
+          ".chosen{border-color:var(--wf-accent)!important;background:var(--wf-accent-soft)!important} label:has(input:checked){border-color:var(--wf-accent);background:var(--wf-accent-soft)} .wf-chip button{padding:2px;border:0;background:transparent} [hidden]{display:none!important}"
+        }
+      />
+    </Artboard>
+  </Section>
+  <Annotation
+    id="starting-note"
+    targetId="start"
+    placement="bottom"
+    title="Compact selection cards"
+    text="Continue opens chat for Start fresh, or reference collection for References. No import settings or speculative tier cards."
+  />
+  <Annotation
+    id="sources-note"
+    targetId="refs"
+    placement="bottom"
+    title="One batch, several source types"
+    text="Source cards reveal inline editors. A check means an item was added, not indexed. Keep added items visible and removable. Brand files includes design.md."
+  />
+  <Annotation
+    id="workspace-note"
+    targetId="workspace"
+    placement="bottom"
+    title="The workspace is the product"
+    text="Intentional new system-authoring surface: chat on the left; living foundations, component previews and usage rules on the right. Select Avatar → ask for a change → see that component update. Real progress fills this canvas incrementally."
+  />
+  <Annotation
+    id="return-note"
+    targetId="return"
+    placement="bottom"
+    title="Keep the original task intact"
+    text="Use attaches the system once inside the existing composer. Preserve the draft and other attachments. Design and Slides share this loop."
+  />
+  <Connector from="start" to="refs" />
+  <Connector from="workspace" to="return" />
+</DesignBoard>

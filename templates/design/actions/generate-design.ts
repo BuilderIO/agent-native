@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -10,6 +11,9 @@ import {
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
+import { resolveDesignSystemGenerationSelection } from "@agent-native/core/server/design-system-authoring";
+import { readDesignSystemReference } from "@agent-native/core/shared";
+import { designSystemReferenceSchema } from "@agent-native/core/shared/design-system-authoring";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -29,7 +33,10 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import {
+  mutateDesignData,
+  parseDesignData,
+} from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -68,6 +75,7 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import getDesignSystem from "./get-design-system.js";
 
 /**
  * Editor deep link so external agents can surface "Open design". Passing
@@ -448,6 +456,18 @@ const generateDesignAgentParameters = {
       description:
         "Optional design system ID used for generation. Pass null to unlink.",
     },
+    designSystemRef: {
+      type: ["object", "null"],
+      description:
+        "Owner-qualified consumed design-system revision. Omit to retain the existing pin; null unlinks. Stale or inaccessible pins fail before file writes.",
+      properties: {
+        id: { type: "string" },
+        ownerApp: { type: "string", enum: ["design", "slides"] },
+        consumedRevision: { type: "integer", minimum: 0 },
+      },
+      required: ["id", "ownerApp", "consumedRevision"],
+      additionalProperties: false,
+    },
     projectType: {
       type: "string",
       enum: ["prototype", "other"],
@@ -559,6 +579,12 @@ const generateDesignAction = defineAction({
       .nullable()
       .optional()
       .describe("Design system ID used for generation, or null to unlink"),
+    designSystemRef: designSystemReferenceSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Exact owner-qualified consumed reference; omit to preserve the existing pin (including when repeating its local ID), null unlinks. Stale or inaccessible pins fail before file writes.",
+      ),
     projectType: z
       .enum(["prototype", "other"])
       .optional()
@@ -720,6 +746,7 @@ const generateDesignAction = defineAction({
       prompt,
       files,
       designSystemId,
+      designSystemRef,
       projectType,
       tweaks,
       canvasFrames,
@@ -732,6 +759,33 @@ const generateDesignAction = defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    const db = getDb();
+    const [design] = await db
+      .select({
+        data: schema.designs.data,
+        designSystemId: schema.designs.designSystemId,
+      })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .limit(1);
+    if (!design)
+      return fail("Design not found.", {
+        errorCode: "design_not_found",
+        statusCode: 404,
+      });
+    const originalReference = readDesignSystemReference(
+      parseDesignData(designId, design.data).composerDesignSystemRef,
+    );
+    const selection = await resolveDesignSystemGenerationSelection(
+      {
+        ownerApp: "design",
+        designSystemId,
+        designSystemRef,
+        existingDesignSystemId: design.designSystemId,
+        existingReference: originalReference,
+      },
+      getDesignSystem,
+    );
     track(
       "generation_started",
       {
@@ -740,14 +794,11 @@ const generateDesignAction = defineAction({
         output_id: designId,
         output_type: "design",
         prompt_type: "ui",
-        has_reference_design_system: Boolean(designSystemId),
+        has_reference_design_system: Boolean(selection.designSystemRef),
       },
       context,
     );
     await snapshotDesignBeforeAgentEdit(designId, context);
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
     const rawGenerationSession = (await readAppState(
       designGenerationSessionKey(designId),
     ).catch(() => null)) as DesignGenerationSession | null;
@@ -761,7 +812,6 @@ const generateDesignAction = defineAction({
       reuseLabels,
     });
 
-    const db = getDb();
     const now = new Date().toISOString();
 
     // Path traversal guard on all filenames
@@ -1048,8 +1098,22 @@ const generateDesignAction = defineAction({
     await mutateDesignData({
       designId,
       mutate: (prevData, { updatedAt }) => {
+        if (
+          !jsonValuesEqual(
+            readDesignSystemReference(prevData.composerDesignSystemRef),
+            originalReference,
+          )
+        )
+          return fail(
+            "The design-system selection changed during generation. Read the design and retry without overwriting the new selection.",
+            {
+              errorCode: "design_system_selection_conflict",
+              statusCode: 409,
+            },
+          );
         const mergedData: Record<string, unknown> = {
           ...prevData,
+          composerDesignSystemRef: selection.designSystemRef,
           lastPrompt: prompt,
           generatedAt: now,
           fileCount: files.length,
@@ -1415,6 +1479,10 @@ const generateDesignAction = defineAction({
           current.generatedAt !== now ||
           current.fileCount !== files.length ||
           !jsonValuesEqual(
+            current.composerDesignSystemRef,
+            selection.designSystemRef,
+          ) ||
+          !jsonValuesEqual(
             current.creativeContext,
             creativeContextProvenance,
           ) ||
@@ -1504,9 +1572,7 @@ const generateDesignAction = defineAction({
     }
 
     const designUpdates: Record<string, unknown> = {};
-    if (designSystemId !== undefined) {
-      designUpdates.designSystemId = designSystemId;
-    }
+    designUpdates.designSystemId = selection.designSystemId;
     if (projectType !== undefined) {
       designUpdates.projectType = projectType;
     }
@@ -1549,6 +1615,7 @@ const generateDesignAction = defineAction({
 
     return {
       designId,
+      ...selection,
       urlPath: firstRenderableSavedFile
         ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
         : `/design/${encodeURIComponent(designId)}`,

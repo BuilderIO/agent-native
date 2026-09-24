@@ -1,6 +1,9 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
+import {
+  loadAgentDesignSystemContext,
+  readDesignSystemReference,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -72,9 +75,13 @@ export default defineAction({
       throw err;
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
+    const designSystemRef = readDesignSystemReference(
+      (design.data ? JSON.parse(design.data) : null)?.composerDesignSystemRef,
+    );
     const designSystem = await loadAgentDesignSystemContext(
       design.designSystemId ?? null,
       getDesignSystem,
+      { reference: designSystemRef },
     );
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
@@ -111,6 +118,7 @@ export default defineAction({
       description: design.description ?? null,
       projectType: design.projectType,
       designSystemId: design.designSystemId ?? null,
+      designSystemRef,
       designSystem,
       updatedAt: design.updatedAt,
       ...(templateSource

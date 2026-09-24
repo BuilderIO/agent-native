@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemDsiAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -16,6 +17,12 @@ import {
 
 export const createDesignSystemSchema = z
   .object({
+    autoDefault: z
+      .boolean()
+      .optional()
+      .describe(
+        "Allow the first system to become the default; omit for existing behavior, or pass false when creating from a prompt context picker.",
+      ),
     templateId: z
       .enum(DESIGN_SYSTEM_TEMPLATE_IDS)
       .optional()
@@ -83,7 +90,15 @@ export default defineAction({
     "If this is the first design system for the user, it is automatically set as the default.",
   schema: createDesignSystemSchema,
   run: async (
-    { templateId, title, description, data, assets, customInstructions },
+    {
+      templateId,
+      title,
+      description,
+      data,
+      assets,
+      customInstructions,
+      autoDefault,
+    },
     ctx,
   ) => {
     const template = templateId
@@ -125,6 +140,7 @@ export default defineAction({
       }
     }
 
+    await assertDesignSystemDsiAccess(resolvedData);
     const db = getDb();
     const id = nanoid();
     const now = new Date().toISOString();
@@ -151,7 +167,7 @@ export default defineAction({
       )
       .limit(1);
 
-    const isDefault = existing.length === 0;
+    const isDefault = autoDefault !== false && existing.length === 0;
 
     await db.insert(schema.designSystems).values({
       id,

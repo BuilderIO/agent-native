@@ -1,6 +1,22 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired":
+    "اربط حسابك في Builder لإنشاء أنظمة التصميم واستخدامها.",
+  "dsi.accessUnavailable": "تعذّر التحقق من الوصول إلى Builder. حاول مرة أخرى.",
+  "composer.draftFileRestoreFailed":
+    "تعذّرت استعادة ملفات المسودة. أعد إرفاقها قبل الإرسال.",
+  "composer.draftFileSaveFailed":
+    "تعذّر حفظ ملفات المسودة لإعادة التحميل. أبقِ هذه الصفحة مفتوحة أو أعد إرفاقها لاحقًا.",
+  "composer.addContext": "إضافة سياق",
+  "composer.contextActionFailed": "تعذّرت إضافة السياق.",
+  "composer.attachFiles": "إرفاق ملفات",
+  "composer.contextBack": "رجوع",
+  "composer.searchContext": "البحث في السياق…",
+  "composer.noContextResults": "لا يوجد سياق مطابق.",
+  "composer.contextPending": "السياق قيد الانتظار",
+  "composer.contextError": "فشل السياق",
+  "composer.retryContext": "إعادة محاولة سياق {{name}}",
   "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",

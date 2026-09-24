@@ -10,7 +10,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(),
+  assertAccess: vi.fn(async () => ({
+    resource: { data: "{}" },
+    role: "owner",
+  })),
 }));
 
 vi.mock("drizzle-orm", async (importOriginal) => {

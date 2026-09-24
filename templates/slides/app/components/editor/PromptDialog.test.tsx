@@ -10,6 +10,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+vi.mock("./SlidesComposerContext", async () => {
+  const composer = await import("@agent-native/core/client/composer");
+  return {
+    SlidesComposerInput: composer.PromptComposer,
+    useSlidesComposerContext: () => ({}),
+  };
+});
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
 });
@@ -496,6 +503,34 @@ describe("uploadPromptFiles", () => {
 
 describe("PromptPopover import mode", () => {
   afterEach(() => cleanup());
+
+  it("keeps the originating prompt open while a child context dialog closes", () => {
+    const onOpenChange = vi.fn();
+    const child = render(
+      <div role="dialog" data-state="open">
+        <button>Close source picker</button>
+      </div>,
+    );
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={onOpenChange}
+        title="New presentation"
+        onSubmit={vi.fn()}
+        onSkip={vi.fn()}
+        skipLabel="Skip prompt"
+      />,
+    );
+    fireEvent.mouseDown(screen.getByText("Close source picker"));
+    fireEvent.keyDown(screen.getByText("Close source picker"), {
+      key: "Escape",
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    child.unmount();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 
   function renderPopover(
     onImport: React.ComponentProps<typeof PromptPopover>["onImport"],

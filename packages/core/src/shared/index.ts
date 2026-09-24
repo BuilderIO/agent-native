@@ -54,6 +54,7 @@ export { injectDocumentMarkup } from "./html-document.js";
 export {
   formatAgentDesignSystemContext,
   loadAgentDesignSystemContext,
+  readDesignSystemReference,
   type AgentDesignSystemContext,
   type AgentDesignSystemContextAvailable,
   type AgentDesignSystemContextUnavailable,
@@ -251,3 +252,9 @@ export {
   stripDiagnosticSnippets,
   wrapDiagnosticSnippet,
 } from "./diagnostic-snippet.js";
+export {
+  composerSourceRequestSchema,
+  composerSourceResultSchema,
+  type ComposerSourceRequest,
+  type ComposerSourceResult,
+} from "./composer-source.js";

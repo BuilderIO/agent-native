@@ -6,6 +6,51 @@ import {
 } from "./design-system-agent-context.js";
 
 describe("agent design-system context", () => {
+  it("routes foreign references and full-context hints to the exact owner and content revision", async () => {
+    const run = vi.fn(async () => ({
+      title: "Owned by Design",
+      agentContext: "Actual owner context",
+    }));
+    const context = await loadAgentDesignSystemContext(
+      "same-id-local",
+      { run },
+      {
+        reference: {
+          id: "foreign-system",
+          ownerApp: "design",
+          consumedRevision: 7,
+        },
+      },
+    );
+    expect(run).toHaveBeenCalledWith({
+      id: "foreign-system",
+      compact: "true",
+      ownerApp: "design",
+      consumedRevision: 7,
+    });
+    expect(context).toMatchObject({
+      status: "available",
+      next: expect.stringContaining('ownerApp: "design", consumedRevision: 7'),
+    });
+  });
+
+  it("does not replace an unavailable pinned revision with latest or a same-ID local system", async () => {
+    const run = vi.fn(async () => {
+      throw Object.assign(new Error("pinned unavailable"), { statusCode: 409 });
+    });
+    const context = await loadAgentDesignSystemContext(
+      "same-id",
+      { run },
+      { reference: { id: "same-id", ownerApp: "design", consumedRevision: 3 } },
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(context).toMatchObject({
+      status: "unavailable",
+      message: expect.stringContaining(
+        "pinned design system revision is unavailable",
+      ),
+    });
+  });
   it("reads the bounded summary by default, calling run once with compact true", async () => {
     const run = vi.fn(async () => ({
       title: "Acme",

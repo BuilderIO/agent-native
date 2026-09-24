@@ -1,7 +1,9 @@
+import { ActionContractError } from "@agent-native/core/action";
 import {
   FeatureNotConfiguredError,
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 import {
@@ -75,11 +77,18 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
   try {
     const uploads = await withSlidesRequestContext(
       event,
-      () => startBuilderDesignSystemUpload(attachments),
+      async () => {
+        await assertBuilderDsiAccess();
+        return startBuilderDesignSystemUpload(attachments);
+      },
       session,
     );
     return { uploads };
   } catch (err) {
+    if (err instanceof ActionContractError) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {

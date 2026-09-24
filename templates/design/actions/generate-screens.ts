@@ -14,6 +14,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   type AssignedCanvasRegion,
   DEFAULT_ASSIGNED_REGION_GAP,
@@ -297,7 +298,7 @@ export default defineAction({
   }) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
+      await assertDesignSystemAccess(designSystemId, "viewer");
     }
     const creativeContext = await resolveGenerationCreativeContext({
       query: prompt,

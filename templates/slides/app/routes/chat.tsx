@@ -3,9 +3,11 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
+import { describeComposerContext } from "@/lib/composer-context";
 import {
   buildSlidesAgentContext,
   hasCurrentSlideSelection,
@@ -35,6 +37,11 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const t = useT();
   const deckId = new URLSearchParams(location.search).get("deckId");
+  const [contextThreadId, setContextThreadId] = useState("");
+  const composerContext = useSlidesComposerContext(
+    deckId,
+    `chat:${contextThreadId}`,
+  );
   const slidesSelection = readPublishedSlidesSelection();
   const scope = deckId
     ? {
@@ -47,6 +54,7 @@ export default function ChatRoute() {
         ),
         contextKey: "slides-current-context",
         ...buildSlidesAgentContext(slidesSelection, deckId),
+        context: `${buildSlidesAgentContext(slidesSelection, deckId).context}\n${describeComposerContext(composerContext.selection)}`,
       }
     : null;
   const scopeQuery = deckId ? `?deckId=${encodeURIComponent(deckId)}` : "";
@@ -72,6 +80,7 @@ export default function ChatRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {composerContext.dialogs}
       <AgentChatSurface
         mode="page"
         chatViewTransition
@@ -93,6 +102,19 @@ export default function ChatRoute() {
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
+        onActiveThreadChange={setContextThreadId}
+        composerContextThreadId={deckId ? undefined : contextThreadId}
+        composerContextItems={composerContext.props.contextItems}
+        composerContextMenuItems={composerContext.props.contextMenuItems}
+        onRemoveComposerContextItem={composerContext.props.onRemoveContextItem}
+        onInspectComposerContextItem={
+          composerContext.props.onInspectContextItem
+        }
+        onRetryComposerContextItem={composerContext.props.onRetryContextItem}
+        onBeforeComposerSubmit={async (items) => {
+          await composerContext.beforeSend({ contextItems: items });
+          return true;
+        }}
       />
     </div>
   );

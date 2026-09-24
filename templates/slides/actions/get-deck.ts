@@ -14,7 +14,10 @@ import {
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
-import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  resolveDeckDesignSystemId,
+  resolveDeckDesignSystemReference,
+} from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
@@ -237,9 +240,11 @@ export default defineAction({
       slides.map((slide: any) => slide.id),
     );
     const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystemRef = resolveDeckDesignSystemReference(data);
     const designSystem = await loadAgentDesignSystemContext(
       linkedDesignSystemId,
       getDesignSystem,
+      { reference: designSystemRef },
     );
     const { deckStyle, representativeSlideId } = summarizeDeckStyle(
       slides as any,
@@ -252,9 +257,11 @@ export default defineAction({
         title: row.title || data?.title,
         visibility: row.visibility,
         designSystemId: linkedDesignSystemId,
+        designSystemRef,
         designSystem,
         ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
         generationContext: data?.generationContext ?? null,
+        composerContext: data?.composerContext ?? null,
         sourceImport: data?.sourceImport
           ? {
               mode: data.sourceImport.mode,
@@ -317,6 +324,7 @@ export default defineAction({
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       designSystemId: linkedDesignSystemId,
+      designSystemRef,
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
       sourceCoverage,

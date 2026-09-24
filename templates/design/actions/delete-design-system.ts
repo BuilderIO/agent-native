@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import {
-  assertAccess,
   resolveAccess,
   ROLE_RANK,
   type ShareRole,
@@ -11,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { DESIGN_SYSTEM_MANAGE_ROLE } from "../server/lib/design-system-access.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -64,8 +64,7 @@ export default defineAction({
     id: z.string().min(1).describe("Design system ID to delete"),
   }),
   run: async ({ id }) => {
-    const access = await assertAccess(
-      "design-system",
+    const access = await assertDesignSystemAccess(
       id,
       DESIGN_SYSTEM_MANAGE_ROLE,
     );
@@ -88,7 +87,7 @@ export default defineAction({
 
     // Delete the design system (and its shares) before touching linked
     // designs/templates. Once the row is gone, other actions'
-    // assertAccess("design-system", ...) checks fail for anyone trying to
+    // assertDesignSystemAccess(...) checks fail for anyone trying to
     // attach a fresh link, shrinking the window for a new link to attach to
     // a design system being deleted.
     await db.transaction(async (tx) => {

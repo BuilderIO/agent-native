@@ -3,9 +3,9 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -17,7 +17,7 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ id }) => {
-    const access = await resolveAccess("design-system", id);
+    const access = await resolveDesignSystemAccess(id);
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
         statusCode: 404,

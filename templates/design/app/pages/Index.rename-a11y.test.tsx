@@ -1,5 +1,21 @@
 // @vitest-environment happy-dom
 
+vi.mock("@/components/editor/use-design-prompt-context", () => ({
+  useDesignPromptContext: () => ({
+    contextItems: [],
+    contextMenuItems: [],
+    view: null,
+    setView: vi.fn(),
+    onRemoveContextItem: vi.fn(),
+    onInspectContextItem: vi.fn(),
+    onRetryContextItem: vi.fn(),
+    flush: async () => {},
+  }),
+}));
+vi.mock("@/components/editor/DesignContextPicker", () => ({
+  DesignContextPicker: () => null,
+}));
+
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,8 +44,28 @@ const mocks = vi.hoisted(() => ({
   promptPopoverProps: undefined as Record<string, unknown> | undefined,
 }));
 
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
+}));
+
+vi.mock("@agent-native/core/client/settings", () => ({
+  useBuilderConnectFlow: () => ({
+    configured: true,
+    connecting: false,
+    error: null,
+    start: vi.fn(),
+  }),
+  BuilderConnectPopover: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
+}));
+
+vi.mock("@agent-native/core/client/composer", () => ({
+  PromptComposer: () => null,
 }));
 
 vi.mock("@agent-native/core/client/collab", () => ({
@@ -105,7 +141,11 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
   useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
-  Link: ({ children }: { children: unknown }) => <>{children as never}</>,
+  Link: ({ children, to, ...props }: Record<string, any>) => (
+    <a href={String(to)} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("nanoid", () => ({
@@ -117,6 +157,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
+  uploadPromptFilesToServer: vi.fn().mockResolvedValue([]),
   default: (props: Record<string, unknown>) => {
     mocks.promptPopoverProps = props;
     return null;
@@ -151,6 +192,12 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     <>{children}</>
   ),
   DropdownMenuContent: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuRadioGroup: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuRadioItem: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
   ),
   DropdownMenuItem: ({
@@ -194,6 +241,12 @@ beforeEach(async () => {
   root = createRoot(container);
   await act(async () => {
     root.render(<Index />);
+  });
+  const recentTab = Array.from(
+    container.querySelectorAll<HTMLElement>('[role="tab"]'),
+  ).find((element) => element.textContent === "home.recent");
+  await act(async () => {
+    recentTab?.click();
   });
 });
 

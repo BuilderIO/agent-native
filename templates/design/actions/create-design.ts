@@ -1,11 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
+import { resolveDesignSystemGenerationSelection } from "@agent-native/core/server/design-system-authoring";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { assertAccess } from "@agent-native/core/sharing";
+import { designSystemReferenceSchema } from "@agent-native/core/shared/design-system-authoring";
 import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/lib/design-system-defaults.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import getDesignSystem from "./get-design-system.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -35,7 +36,7 @@ export default defineAction({
     "system is linked, the result includes its `agentContext`; apply it " +
     "before authoring the screen. Omit designSystemId to link the caller's " +
     "default design system; pass null for no design system, or pass " +
-    "designSystemId or the exact title as `designSystem` to override.",
+    "designSystemId or the exact title as `designSystem` to override. Pass designSystemRef to preserve an exact owner-qualified consumed revision; stale or inaccessible references fail before creation.",
   schema: z.object({
     id: z
       .string()
@@ -64,6 +65,12 @@ export default defineAction({
       .describe(
         "Design system ID to link; omit for the caller's default, or pass null for no design system. Overrides designSystem.",
       ),
+    designSystemRef: designSystemReferenceSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Exact {id,ownerApp,consumedRevision} from the selected system; authoritative over defaults, null opts out. Foreign owners never use the local designSystemId column.",
+      ),
     designSystem: z
       .string()
       .optional()
@@ -88,6 +95,7 @@ export default defineAction({
       description,
       projectType,
       designSystemId,
+      designSystemRef,
       designSystem,
     },
     ctx,
@@ -100,9 +108,9 @@ export default defineAction({
     const orgId = getRequestOrgId();
 
     let resolvedDesignSystemId = designSystemId;
-    if (resolvedDesignSystemId) {
-      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
-    } else if (designSystemId !== null) {
+    if (designSystemRef === undefined && resolvedDesignSystemId) {
+      await assertDesignSystemAccess(resolvedDesignSystemId, "viewer");
+    } else if (designSystemRef === undefined && designSystemId !== null) {
       resolvedDesignSystemId =
         (designSystem
           ? await resolveDesignSystemIdByTitle(designSystem)
@@ -110,14 +118,25 @@ export default defineAction({
         (await resolveDefaultDesignSystemId(ownerEmail)) ??
         undefined;
     }
+    const selection = await resolveDesignSystemGenerationSelection(
+      {
+        ownerApp: "design",
+        designSystemId: resolvedDesignSystemId,
+        designSystemRef,
+        full: true,
+      },
+      getDesignSystem,
+    );
 
     await db.insert(schema.designs).values({
       id,
       title,
       description: description ?? null,
       projectType: projectType ?? "prototype",
-      designSystemId: resolvedDesignSystemId ?? null,
-      data: "{}",
+      designSystemId: selection.designSystemId,
+      data: JSON.stringify({
+        composerDesignSystemRef: selection.designSystemRef,
+      }),
       ownerEmail,
       orgId,
       visibility: orgId ? "org" : "private",
@@ -134,7 +153,7 @@ export default defineAction({
         output_type: "design",
         project_type: projectType ?? "prototype",
         variant_count: 0,
-        design_system_id: resolvedDesignSystemId ?? undefined,
+        design_system_id: selection.designSystemRef?.id,
       },
       ctx,
     );
@@ -143,12 +162,7 @@ export default defineAction({
       id,
       title,
       projectType,
-      designSystemId: resolvedDesignSystemId ?? null,
-      designSystem: await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
+      ...selection,
       renderable: false,
       nextRequiredAction:
         "Author the screen HTML, then save it with generate-design or create-file.",

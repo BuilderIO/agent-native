@@ -205,6 +205,10 @@ import {
   MessageQueueDrawer,
   PromptBar,
   TiptapComposer,
+  areComposerContextItemsReady,
+  snapshotComposerContextItems,
+  type ComposerContextSnapshot,
+  type TiptapComposerProps,
   type AgentComposerLayoutVariant,
   type AgentSuggestionInput,
   type ComposerSubmitIntent,
@@ -224,6 +228,7 @@ import {
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
 import { useT } from "./i18n.js";
+import { normalizeQueuedTurns } from "./queued-turns.js";
 import { buildSignInReturnHref } from "./require-session.js";
 import {
   addMcpConnectionCompleteListener,
@@ -329,6 +334,7 @@ export interface AssistantChatSendOptions {
   attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  turnId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
@@ -2228,6 +2234,10 @@ export async function restoreAssistantChatHistoryVersion<
 }
 
 export interface AssistantChatProps {
+  onRunStateChange?: (state: {
+    runId: string | null;
+    status: string | null;
+  }) => void;
   /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
   /** Optional Nitro response-streaming endpoint, usually supplied by VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL. */
@@ -2321,12 +2331,22 @@ export interface AssistantChatProps {
   emptyStateDisplay?: "default" | "hidden";
   /** Optional content rendered inside the composer toolbar after the attach button. */
   composerToolbarSlot?: React.ReactNode;
+  composerContextItems?: TiptapComposerProps["contextItems"];
+  composerContextMenuItems?: TiptapComposerProps["contextMenuItems"];
+  onRemoveComposerContextItem?: TiptapComposerProps["onRemoveContextItem"];
+  onInspectComposerContextItem?: TiptapComposerProps["onInspectContextItem"];
+  onRetryComposerContextItem?: TiptapComposerProps["onRetryContextItem"];
+  onBeforeComposerSubmit?: (
+    items: ComposerContextSnapshot,
+  ) => boolean | Promise<boolean>;
   /** Optional action rendered beside the voice/send controls. */
   composerExtraActionButton?: React.ReactNode;
   /** Show the framework model picker in the shared composer. Defaults to true. */
   showModelSelector?: boolean;
   /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
+  /** Pause sending while host readiness resolves without disabling local drafting. */
+  composerSubmitting?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
@@ -2772,9 +2792,16 @@ const AssistantChatInner = forwardRef<
     centerComposerWhenEmpty = false,
     emptyStateDisplay = "default",
     composerToolbarSlot,
+    composerContextItems: hostComposerContextItems,
+    composerContextMenuItems,
+    onRemoveComposerContextItem,
+    onInspectComposerContextItem,
+    onRetryComposerContextItem,
+    onBeforeComposerSubmit,
     composerExtraActionButton,
     showModelSelector = true,
     composerDisabled = false,
+    composerSubmitting = false,
     composerDisabledPlaceholder,
     isNewThread,
     isThreadStateLoading,
@@ -2811,6 +2838,7 @@ const AssistantChatInner = forwardRef<
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
     onThreadRestoreNotFound,
+    onRunStateChange,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -3008,6 +3036,16 @@ const AssistantChatInner = forwardRef<
     AgentChatContextItem[]
   >([]);
   const composerContextItemsRef = useRef<AgentChatContextItem[]>([]);
+  const hostComposerContextItemsRef = useRef(hostComposerContextItems);
+  hostComposerContextItemsRef.current = hostComposerContextItems;
+  const getComposerContextItems = useCallback(() => {
+    const byKey = new Map(
+      composerContextItemsRef.current.map((item) => [item.key, item]),
+    );
+    for (const item of hostComposerContextItemsRef.current ?? [])
+      byKey.set(item.key, item);
+    return Array.from(byKey.values());
+  }, []);
   const isActiveComposerRef = useRef(isActiveComposer);
   isActiveComposerRef.current = isActiveComposer;
   const normalizedContextNamespace = contextNamespace?.trim() || undefined;
@@ -3075,16 +3113,17 @@ const AssistantChatInner = forwardRef<
     },
     [updateComposerContextItems],
   );
-  const buildComposerContextSubmission = useCallback((text: string) => {
-    const context = formatAgentChatContextItemsForPrompt(
-      composerContextItemsRef.current,
-    );
-    if (!context) return { text, includesContext: false };
-    return {
-      text: appendAgentChatContextToMessage(text, context),
-      includesContext: true,
-    };
-  }, []);
+  const buildComposerContextSubmission = useCallback(
+    (text: string, items: ComposerContextSnapshot) => {
+      const context = formatAgentChatContextItemsForPrompt(Array.from(items));
+      if (!context) return { text, includesContext: false };
+      return {
+        text: appendAgentChatContextToMessage(text, context),
+        includesContext: true,
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages;
@@ -3093,7 +3132,7 @@ const AssistantChatInner = forwardRef<
   const applyLocalQueuedMessages = useCallback(
     (updater: (previous: QueuedMessage[]) => QueuedMessage[]) => {
       setQueuedMessages((previous) => {
-        const next = updater(previous);
+        const next = normalizeQueuedTurns(updater(previous));
         queuedMessagesRef.current = next;
         queueDirtyRef.current = true;
         queueMutationVersionRef.current += 1;
@@ -3134,14 +3173,20 @@ const AssistantChatInner = forwardRef<
       unsubscribe();
     };
   }, [isActiveComposer, normalizedContextNamespace]);
-  const visibleComposerContextItems = useMemo(
-    () =>
-      filterAgentChatContextItems(
-        composerContextItems,
-        normalizedContextNamespace,
-      ),
-    [composerContextItems, normalizedContextNamespace],
-  );
+  const visibleComposerContextItems = useMemo(() => {
+    const items = filterAgentChatContextItems(
+      composerContextItems,
+      normalizedContextNamespace,
+    );
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    for (const item of hostComposerContextItems ?? [])
+      byKey.set(item.key, item);
+    return Array.from(byKey.values());
+  }, [
+    composerContextItems,
+    normalizedContextNamespace,
+    hostComposerContextItems,
+  ]);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -3287,6 +3332,12 @@ const AssistantChatInner = forwardRef<
     enabled: isActiveComposer,
     apiUrl,
   });
+  useEffect(() => {
+    onRunStateChange?.({
+      runId: serverRunState.runId,
+      status: serverRunState.status,
+    });
+  }, [onRunStateChange, serverRunState.runId, serverRunState.status]);
   const serverRunActive =
     serverRunState.runId != null && serverRunState.status === "running";
   // Real running state drives submission/queue gating; UI running also covers
@@ -3754,7 +3805,9 @@ const AssistantChatInner = forwardRef<
         }
       }
       if (settled && Array.isArray(repo?.queuedMessages)) {
-        const incomingQueue = repo.queuedMessages as QueuedMessage[];
+        const incomingQueue = normalizeQueuedTurns(
+          repo.queuedMessages as QueuedMessage[],
+        );
         const incomingSerialized = JSON.stringify(incomingQueue);
         const currentSerialized = JSON.stringify(queuedMessagesRef.current);
         if (
@@ -3763,8 +3816,9 @@ const AssistantChatInner = forwardRef<
         ) {
           queuedMessagesRef.current = incomingQueue;
           setQueuedMessages(incomingQueue);
-          lastPersistedQueueRef.current = incomingSerialized;
-          queueDirtyRef.current = false;
+          lastPersistedQueueRef.current = JSON.stringify(repo.queuedMessages);
+          queueDirtyRef.current =
+            incomingQueue.length !== repo.queuedMessages.length;
         }
       }
       if (settled && signature !== null) {
@@ -5872,6 +5926,11 @@ const AssistantChatInner = forwardRef<
       actionScope?: AgentActionScope,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
+      const selectedContext = includeComposerContext
+        ? getComposerContextItems()
+        : [];
+      if (!areComposerContextItemsReady(selectedContext)) return false;
+      const contextSnapshot = snapshotComposerContextItems(selectedContext);
       const wasSubmissionInFlight = submissionInFlightRef.current > 0;
       submissionInFlightRef.current += 1;
       const previousSubmission = submissionTailRef.current;
@@ -5884,6 +5943,12 @@ const AssistantChatInner = forwardRef<
       );
       await previousSubmission;
       try {
+        if (
+          includeComposerContext &&
+          onBeforeComposerSubmit &&
+          !(await onBeforeComposerSubmit(contextSnapshot))
+        )
+          return false;
         const visibleSubmitSequence = hideUserMessage
           ? null
           : ++visibleSubmitSequenceRef.current;
@@ -5910,7 +5975,7 @@ const AssistantChatInner = forwardRef<
         // as the user actually sends a message so it can't be re-used.
         clearPendingSelection();
         const submitted = includeComposerContext
-          ? buildComposerContextSubmission(text)
+          ? buildComposerContextSubmission(text, contextSnapshot)
           : { text, includesContext: false };
         const submittedText = submitted.text;
         let queuedAttachments: Awaited<
@@ -6185,6 +6250,8 @@ const AssistantChatInner = forwardRef<
     [
       applyLocalQueuedMessages,
       buildComposerContextSubmission,
+      getComposerContextItems,
+      onBeforeComposerSubmit,
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
@@ -6352,7 +6419,7 @@ const AssistantChatInner = forwardRef<
           false,
           options?.submitMessageId,
           undefined,
-          undefined,
+          options?.turnId,
           options?.usageLabel,
           options?.actionScope,
         );
@@ -7500,11 +7567,6 @@ const AssistantChatInner = forwardRef<
                                     !showMissingKeySetup &&
                                     "opacity-70",
                                 )}
-                                onClick={
-                                  showMissingKeySetup
-                                    ? bounceMissingKeySetup
-                                    : undefined
-                                }
                               >
                                 <>
                                   <ComposerAttachmentPreviewStrip />
@@ -7519,9 +7581,13 @@ const AssistantChatInner = forwardRef<
                                         ? handleComposerTextChange
                                         : undefined
                                     }
-                                    disabled={
-                                      isComposerDisabled || showMissingKeySetup
-                                    }
+                                    disabled={isComposerDisabled}
+                                    submitting={composerSubmitting}
+                                    onBeforeSubmit={() => {
+                                      if (!showMissingKeySetup) return true;
+                                      bounceMissingKeySetup();
+                                      return false;
+                                    }}
                                     placeholder={
                                       showMissingKeySetup
                                         ? t(
@@ -7556,8 +7622,30 @@ const AssistantChatInner = forwardRef<
                                       attachments,
                                       options,
                                     ) => {
+                                      const contextSnapshot =
+                                        options?.contextItems ??
+                                        snapshotComposerContextItems(
+                                          visibleComposerContextItems,
+                                        );
+                                      if (
+                                        onBeforeComposerSubmit &&
+                                        !(await onBeforeComposerSubmit(
+                                          contextSnapshot,
+                                        ))
+                                      ) {
+                                        throw new Error(
+                                          t(
+                                            "agentChat.composer.contextActionFailed",
+                                          ),
+                                        );
+                                      }
+                                      const submitted =
+                                        buildComposerContextSubmission(
+                                          text,
+                                          contextSnapshot,
+                                        );
                                       const accepted = await addToQueue(
-                                        text,
+                                        submitted.text,
                                         undefined,
                                         references.length > 0
                                           ? references
@@ -7579,13 +7667,22 @@ const AssistantChatInner = forwardRef<
                                           requestedIntent: options?.intent,
                                         }),
                                         undefined,
-                                        true,
+                                        false,
                                       );
                                       if (!accepted) {
                                         throw new Error(
                                           "Attachment submission was not accepted",
                                         );
                                       }
+                                      const submittedKeys = new Set(
+                                        contextSnapshot.map((item) => item.key),
+                                      );
+                                      updateComposerContextItems((previous) =>
+                                        previous.filter(
+                                          (item) =>
+                                            !submittedKeys.has(item.key),
+                                        ),
+                                      );
                                     }}
                                     willQueue={
                                       engineSetupRequired ||
@@ -7624,9 +7721,22 @@ const AssistantChatInner = forwardRef<
                                     }
                                     toolbarSlot={composerToolbarSlot}
                                     contextItems={visibleComposerContextItems}
-                                    onRemoveContextItem={
-                                      removeComposerContextItem
+                                    onRemoveContextItem={(key) => {
+                                      if (
+                                        hostComposerContextItems?.some(
+                                          (item) => item.key === key,
+                                        )
+                                      )
+                                        onRemoveComposerContextItem?.(key);
+                                      else removeComposerContextItem(key);
+                                    }}
+                                    onInspectContextItem={
+                                      onInspectComposerContextItem
                                     }
+                                    onRetryContextItem={
+                                      onRetryComposerContextItem
+                                    }
+                                    contextMenuItems={composerContextMenuItems}
                                     plusMenuMode={plusMenuMode}
                                     layoutVariant={composerLayoutVariant}
                                     providerConnectStatusEnabled={

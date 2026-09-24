@@ -30,6 +30,7 @@ import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogD
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
 import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { useSession } from "../use-session.js";
 import { useVoiceProviderStatus } from "../voice-provider-status.js";
 import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
 
@@ -97,11 +98,15 @@ export function CoreComposerRuntimeProvider({
   children: ReactNode;
 }) {
   const translate = useT();
+  const { session } = useSession();
+  const draftIdentity = session
+    ? `${typeof location === "undefined" ? "" : location.origin}:${session.email}:${session.orgId ?? "personal"}`
+    : null;
   const formatters = useFormatters();
   const formatNumber = formatters.formatNumber.bind(formatters);
   const adapters = useMemo(
-    () => ({ ...coreComposerAdapters, formatNumber, translate }),
-    [formatNumber, translate],
+    () => ({ ...coreComposerAdapters, formatNumber, translate, draftIdentity }),
+    [formatNumber, translate, draftIdentity],
   );
   return (
     <ComposerRuntimeAdaptersProvider adapters={adapters}>

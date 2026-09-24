@@ -43,12 +43,26 @@ const mocks = vi.hoisted(() => {
   const insertFn = vi.fn(() => ({ values: valuesFn }));
   const mockDb = { select: selectFn, insert: insertFn };
 
-  const assertAccess = vi.fn();
-  const getDesignSystemRun = vi.fn(async ({ id }: { id: string }) => ({
-    id,
-    title: "Acme",
-    agentContext: "Use --brand-accent: #123456.",
+  const assertAccess = vi.fn(async () => ({
+    resource: { data: "{}" },
+    role: "owner",
   }));
+  const getDesignSystemRun = vi.fn(
+    async ({
+      id,
+      ownerApp = "design",
+      consumedRevision = 11,
+    }: {
+      id: string;
+      ownerApp?: string;
+      consumedRevision?: number;
+    }) => ({
+      id,
+      reference: { systemId: id, ownerApp, revision: consumedRevision },
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    }),
+  );
 
   return {
     state,
@@ -106,6 +120,17 @@ beforeEach(() => {
 });
 
 describe("create-design — designSystemId defaults", () => {
+  it("does not persist a design when its implicit default is denied by the system reader", async () => {
+    mocks.state.defaultRows = [{ id: "builder-default" }];
+    const denied = Object.assign(new Error("Builder account required"), {
+      statusCode: 403,
+      errorCode: "builder_dsi_missing",
+    });
+    mocks.getDesignSystemRun.mockRejectedValueOnce(denied);
+    await expect(action.run({ title: "Example" })).rejects.toBe(denied);
+    expect(mocks.state.insertedRow).toBeUndefined();
+  });
+
   it("links the caller's own default design system, not another user's default row", async () => {
     mocks.state.defaultRows = [{ id: "ds-mine" }];
 
@@ -113,6 +138,10 @@ describe("create-design — designSystemId defaults", () => {
 
     expect(mocks.state.insertedRow?.designSystemId).toBe("ds-mine");
     expect(result.designSystemId).toBe("ds-mine");
+    expect(
+      JSON.parse(mocks.state.insertedRow!.data as string)
+        .composerDesignSystemRef,
+    ).toEqual({ id: "ds-mine", ownerApp: "design", consumedRevision: 11 });
   });
 
   it("links nothing when the caller has no default", async () => {
@@ -199,4 +228,55 @@ describe("create-design — designSystemId defaults", () => {
     });
     expect(mocks.state.insertedRow).toBeUndefined();
   });
+  it("persists the exact foreign owner-qualified pin without a local-ID fallback", async () => {
+    mocks.state.defaultRows = [{ id: "local-default" }];
+    const designSystemRef = {
+      id: "foreign-system",
+      ownerApp: "slides" as const,
+      consumedRevision: 11,
+    };
+    const result = await action.run({ title: "Pinned", designSystemRef });
+    expect(result.designSystemRef).toEqual(designSystemRef);
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith({
+      id: "foreign-system",
+      ownerApp: "slides",
+      consumedRevision: 11,
+      compact: "false",
+    });
+    expect(mocks.state.insertedRow?.designSystemId).toBeNull();
+    expect(
+      JSON.parse(mocks.state.insertedRow!.data as string)
+        .composerDesignSystemRef,
+    ).toEqual(designSystemRef);
+    expect(mocks.mockDb.select).not.toHaveBeenCalled();
+  });
+  it("honors a null reference opt-out even when a default exists", async () => {
+    mocks.state.defaultRows = [{ id: "local-default" }];
+    const result = await action.run({
+      title: "Unlinked",
+      designSystemRef: null,
+    });
+    expect(result.designSystemRef).toBeNull();
+    expect(mocks.getDesignSystemRun).not.toHaveBeenCalled();
+    expect(mocks.mockDb.select).not.toHaveBeenCalled();
+  });
+  it.each([403, 409])(
+    "refuses unreadable or stale refs before creating a row (%s)",
+    async (statusCode) => {
+      mocks.getDesignSystemRun.mockRejectedValueOnce(
+        Object.assign(new Error("unavailable"), { statusCode }),
+      );
+      await expect(
+        action.run({
+          title: "Pinned",
+          designSystemRef: {
+            id: "system",
+            ownerApp: "design",
+            consumedRevision: 11,
+          },
+        }),
+      ).rejects.toMatchObject({ statusCode });
+      expect(mocks.state.insertedRow).toBeUndefined();
+    },
+  );
 });

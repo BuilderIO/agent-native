@@ -693,6 +693,8 @@ describe("MCP OAuth client", () => {
   it("refreshes an expiring token and persists the replacement bundle", async () => {
     const expiring = {
       ...credentials,
+      builderAccountLinkId: "example-builder-grant-id",
+      builderAccountOwnerEmail: "alice@example.com",
       tokenExpiresAt: Date.now() - 1,
     };
     getOAuthTokensMock.mockResolvedValue(expiring);
@@ -715,6 +717,10 @@ describe("MCP OAuth client", () => {
     expect(saveOAuthTokensMock.mock.calls[0]?.[0]).toBe("mcp");
     expect(saveOAuthTokensMock.mock.calls[0]?.[1]).toBe("mcp_oauth:test");
     expect(saveOAuthTokensMock.mock.calls[0]?.[3]).toBe("org:org-test");
+    expect(saveOAuthTokensMock.mock.calls[0]?.[2]).toMatchObject({
+      builderAccountLinkId: "example-builder-grant-id",
+      builderAccountOwnerEmail: "alice@example.com",
+    });
     expect(
       (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.refresh_token,
     ).toBe("<REFRESH_TOKEN>");

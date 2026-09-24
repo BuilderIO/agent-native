@@ -439,6 +439,30 @@ AgentKit exposes slash discovery without inventing product semantics. Pass
 unavailable commands and skills; empty integration or skill states are not
 injected into the conversation.
 
+### Composer context and persistence
+
+`AgentKitComposer` accepts Toolkit's `contextItems`, `contextMenuItems`,
+`onRemoveContextItem`, `onInspectContextItem`, and `onRetryContextItem` props.
+`AgentKitChat` and `AgentChat` expose them through `composerProps`. The selected
+items render inside the native composer frame. Pending or failed items block
+submission; omitted status means ready. Omitting the context menu preserves the
+existing menu. Native Attach files follows the runtime's upload capability.
+
+On send and queue, AgentKit captures a frozen copy of the selected context and
+references before any asynchronous uploads. It appends the selected context to
+the runtime message exactly once and includes the snapshot as
+`metadata.contextItems`, alongside existing `metadata.references`.
+
+Use `beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>`
+to persist an app-owned run snapshot. The awaited callback runs after uploads
+and before either runtime call. It receives frozen `threadId`, `intent`
+(`immediate` or `queued`), final runtime `text`, optional `contextItems`,
+`references`, uploaded `attachments` (`FilePart` objects), and run `options`.
+Throwing or rejecting prevents the runtime call, displays the error, and retains
+the draft and attachments for retry. The hook also applies to suggestion sends.
+Import `AgentKitComposerSubmission` from `@agent-native/agentkit/react` or
+`@agent-native/agentkit/react/components`.
+
 ### Semantic styling
 
 The standalone stylesheet uses semantic host tokens and exposes two focused

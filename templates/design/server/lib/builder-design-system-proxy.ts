@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   friendlyTokenName,
   isColorTokenValue,
@@ -174,6 +175,11 @@ export function reconcileBuilderProxyData(
   syncedAt: string,
 ): BuilderProxyReconciliation | null {
   const parsed = parseProxyData(data);
+  if (parsed.authoring)
+    fail(
+      "This system has native authored content. Add source evidence and revise targeted artifacts instead of replacing it with Builder extraction.",
+      { errorCode: "design_system_target_revision_required", statusCode: 409 },
+    );
   const extracted = normalizeBrandKitTokens(
     Object.entries(hydrated.tokenValues).map(([cssVar, value]) => ({
       name: friendlyTokenName(cssVar),
@@ -336,6 +342,7 @@ export async function upsertBuilderProxyDesignSystem({
   sourceKind,
   githubSources,
   localDesignSystemId: requestedLocalDesignSystemId,
+  autoDefault,
 }: {
   result: BuilderDesignSystemIndexResult;
   ownerEmail: string;
@@ -345,6 +352,7 @@ export async function upsertBuilderProxyDesignSystem({
   sourceKind?: BuilderDesignSystemSourceKind;
   githubSources?: BuilderDesignSystemGitHubSource[];
   localDesignSystemId?: string;
+  autoDefault?: boolean;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -360,11 +368,18 @@ export async function upsertBuilderProxyDesignSystem({
     githubSources,
     syncedAt: githubSources?.length ? now : undefined,
   });
+  if (autoDefault === false) {
+    proxyFields.data = JSON.stringify({
+      ...JSON.parse(proxyFields.data),
+      autoDefault: false,
+    });
+  }
   const [existing] = await db
     .select({
       id: schema.designSystems.id,
       ownerEmail: schema.designSystems.ownerEmail,
       orgId: schema.designSystems.orgId,
+      data: schema.designSystems.data,
     })
     .from(schema.designSystems)
     .where(
@@ -382,7 +397,21 @@ export async function upsertBuilderProxyDesignSystem({
       ? `${baseLocalDesignSystemId}-${nanoid(8)}`
       : (requestedLocalDesignSystemId ?? baseLocalDesignSystemId);
   if (existingBelongsToScope) {
-    await db
+    if (parseProxyData(existing.data).authoring !== undefined)
+      fail(
+        "This system has native authored content. Use write-design-system-artifact instead of replacing it with a Builder proxy.",
+        {
+          errorCode: "design_system_target_revision_required",
+          statusCode: 409,
+        },
+      );
+    if (existing.data && JSON.parse(existing.data).autoDefault === false) {
+      proxyFields.data = JSON.stringify({
+        ...JSON.parse(proxyFields.data),
+        autoDefault: false,
+      });
+    }
+    const changed = await db
       .update(schema.designSystems)
       .set({
         title: proxyFields.title,
@@ -392,7 +421,18 @@ export async function upsertBuilderProxyDesignSystem({
         customInstructions: proxyFields.customInstructions,
         updatedAt: now,
       })
-      .where(eq(schema.designSystems.id, existing.id));
+      .where(
+        and(
+          eq(schema.designSystems.id, existing.id),
+          eq(schema.designSystems.data, existing.data),
+        ),
+      )
+      .returning({ id: schema.designSystems.id });
+    if (changed.length !== 1)
+      fail(
+        "The design system changed while Builder indexing was running. Read its latest state before retrying.",
+        { errorCode: "design_system_revision_conflict", statusCode: 409 },
+      );
   } else {
     const [ownedSystem] = await db
       .select({ id: schema.designSystems.id })
@@ -418,7 +458,10 @@ export async function upsertBuilderProxyDesignSystem({
       customInstructions: proxyFields.customInstructions,
       // An indexing proxy has placeholders until Builder confirms completion;
       // making it the default here lets new designs consume an unusable kit.
-      isDefault: !ownedSystem && isBuilderDesignSystemReady(result.status),
+      isDefault:
+        autoDefault !== false &&
+        !ownedSystem &&
+        isBuilderDesignSystemReady(result.status),
       ownerEmail,
       orgId: orgId ?? null,
       visibility: orgId ? "org" : "private",

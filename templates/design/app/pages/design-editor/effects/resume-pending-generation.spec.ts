@@ -23,7 +23,7 @@ vi.mock("@/pages/design-editor/creative-context-precedent", () => ({
 }));
 
 vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
-  designGenerationDirectives: vi.fn(),
+  designGenerationDirectives: vi.fn(() => []),
   designIntakeQuestionDirectives: vi.fn(),
   designTemplateRefinementDirectives: vi.fn(),
   designVariantGenerationDirectives: vi.fn(),
@@ -69,6 +69,40 @@ beforeEach(() => {
 });
 
 describe("runResumePendingGeneration", () => {
+  it("sends the saved reference and system snapshot to the actual generation handoff", async () => {
+    const contextItems = [
+      {
+        key: "design-system",
+        title: "Selected system",
+        context: "Frozen tokens",
+        status: "ready",
+      },
+      {
+        key: "reference",
+        title: "Layout",
+        context: "Frozen reference",
+        status: "ready",
+      },
+    ];
+    mocks.readPendingGeneration.mockReturnValue({
+      prompt: "Create a design",
+      files: [],
+      contextItems,
+      skipQuestions: true,
+    });
+    const args = createArgs({
+      creativeContextLabLoading: false,
+      creativeContextEnabled: false,
+    });
+    runResumePendingGeneration(args);
+    await vi.waitFor(() => expect(args.agentSubmit).toHaveBeenCalled());
+    expect(vi.mocked(args.agentSubmit).mock.calls[0]?.[1]).toContain(
+      "Frozen reference",
+    );
+    expect(vi.mocked(args.agentSubmit).mock.calls[0]?.[1]).toContain(
+      "Frozen tokens",
+    );
+  });
   it("waits for Labs before consuming a pending generation", () => {
     const args = createArgs();
 

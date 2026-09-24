@@ -2,10 +2,13 @@
 
 import {
   Children,
+  act,
   isValidElement,
+  useEffect,
   type ReactElement,
   type ReactNode,
 } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { defaultDesignSystemComponents } from "./default-adapter.js";
@@ -43,6 +46,102 @@ function renderComponent(
 }
 
 describe("default design system adapter", () => {
+  it("only force-mounts tab panels when requested and hides inactive content", () => {
+    const tabs = renderComponent(defaultDesignSystemComponents.Tabs, {
+      value: "other",
+      onChange: vi.fn(),
+      items: [
+        {
+          value: "chat",
+          label: "Chat",
+          content: <textarea />,
+          keepMounted: true,
+        },
+        { value: "other", label: "Other", content: <p>Other</p> },
+      ],
+    });
+    const persistent = findElement(
+      tabs,
+      (element) => element.props.forceMount === true,
+    );
+    expect(persistent?.props.value).toBe("chat");
+    expect(persistent?.props.className).toBe("hidden");
+    expect(persistent?.props.hidden).toBe(true);
+    const content = (tabs.props.children as ReactNode[])[1];
+    const ordinaryPanel = findElement(
+      content,
+      (element) => element.props.value === "other",
+    );
+    expect(ordinaryPanel?.props.forceMount).toBeUndefined();
+    expect(ordinaryPanel?.props.className).toBeUndefined();
+  });
+  it("switches between tabs and visible named regions without remounting content", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const node = document.createElement("div");
+    document.body.append(node);
+    const root = createRoot(node);
+    let mounts = 0;
+    function Chat() {
+      useEffect(() => {
+        mounts++;
+      }, []);
+      return <textarea defaultValue="Unsent draft" />;
+    }
+    const Tabs = defaultDesignSystemComponents.Tabs;
+    const items = [
+      { value: "chat", label: "Chat", keepMounted: true, content: <Chat /> },
+      {
+        value: "canvas",
+        label: "Canvas",
+        keepMounted: true,
+        content: <button>Avatar</button>,
+      },
+    ];
+    const render = async (display: "tabs" | "panels", value: string) =>
+      act(async () => {
+        root.render(
+          <Tabs
+            items={items}
+            value={value}
+            onChange={() => {}}
+            display={display}
+          />,
+        );
+      });
+    try {
+      await render("tabs", "chat");
+      const composer = node.querySelector("textarea");
+      const canvas = node.querySelectorAll<HTMLElement>('[role="tabpanel"]')[1];
+      expect(canvas.hidden).toBe(true);
+      expect(canvas.className).toContain("hidden");
+      await render("panels", "chat");
+      const regions = [
+        ...node.querySelectorAll<HTMLElement>('[role="region"]'),
+      ];
+      expect(regions).toHaveLength(2);
+      for (const [index, region] of regions.entries()) {
+        expect(region.hidden).toBe(false);
+        expect(region.hasAttribute("aria-hidden")).toBe(false);
+        expect(region.hasAttribute("inert")).toBe(false);
+        expect(region.className).not.toContain("hidden");
+        expect(
+          document.getElementById(region.getAttribute("aria-labelledby")!)
+            ?.textContent,
+        ).toBe(items[index].label);
+      }
+      expect(node.querySelector("textarea")).toBe(composer);
+      await render("tabs", "canvas");
+      expect(node.querySelector<HTMLElement>('[role="tabpanel"]')?.hidden).toBe(
+        true,
+      );
+      expect(node.querySelector("textarea")).toBe(composer);
+      expect(mounts).toBe(1);
+    } finally {
+      await act(async () => root.unmount());
+      node.remove();
+      vi.unstubAllGlobals();
+    }
+  });
   it("preserves native click handlers for composed ActionButtons", () => {
     const onPress = vi.fn();
     const onClick = vi.fn();

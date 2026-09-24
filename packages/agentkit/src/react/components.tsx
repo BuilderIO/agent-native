@@ -9,6 +9,8 @@ import {
   agentSuggestionPrompt,
   type PromptComposerFile,
   type PromptComposerProps,
+  type PromptComposerSubmitOptions,
+  type Reference,
   type TiptapComposerHandle,
   splitMarkdownBlocks,
   writeClipboardText,
@@ -57,6 +59,13 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+import {
+  createAgentKitComposerSubmission,
+  snapshotComposerValue,
+  type AgentKitComposerSubmission,
+} from "./composer-submission.js";
+export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
 import {
   inferAgentActivityKind,
@@ -2133,7 +2142,13 @@ export interface AgentKitComposerProps extends Pick<
   | "plusMenuMode"
   | "voiceEnabled"
   | "autoFocus"
+  | "contextItems"
+  | "onRemoveContextItem"
+  | "onInspectContextItem"
+  | "onRetryContextItem"
+  | "contextMenuItems"
 > {
+  beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   threadId?: string;
   className?: string;
   queueWhileRunning?: boolean;
@@ -2162,6 +2177,12 @@ export function AgentKitComposer({
   mode,
   defaultMode = "act",
   onModeChange,
+  contextItems,
+  onRemoveContextItem,
+  onInspectContextItem,
+  onRetryContextItem,
+  contextMenuItems,
+  beforeSend,
 }: AgentKitComposerProps) {
   const {
     threadId: contextThreadId,
@@ -2203,10 +2224,75 @@ export function AgentKitComposer({
     () => registerComposerFocus(threadId, focusComposer),
     [focusComposer, registerComposerFocus, threadId],
   );
-  const submitText = (text: string) =>
-    active && queueWhileRunning && canQueue
-      ? control.queue(text)
-      : control.send(text);
+  const submitPrompt = async (
+    text: string,
+    files: PromptComposerFile[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) => {
+    const submission = command.execute(async () => {
+      const effort = options.effort;
+      const draft = createAgentKitComposerSubmission({
+        threadId,
+        intent:
+          canQueue &&
+          (options.intent === "queued" || (active && queueWhileRunning))
+            ? "queued"
+            : "immediate",
+        text,
+        contextItems: options.contextItems,
+        references,
+        options: {
+          model: options.model,
+          mode: executionMode,
+          reasoningEffort:
+            effort && !["auto", "max"].includes(effort)
+              ? (effort as AgentRunOptions["reasoningEffort"])
+              : undefined,
+        },
+      });
+      const attachments =
+        files.length && canUpload
+          ? await control.uploadFiles(
+              files.map((file) => ({
+                name: file.name,
+                mediaType: file.type || "application/octet-stream",
+                size: file.size,
+                body: file,
+              })),
+            )
+          : [];
+      const payload = Object.freeze({
+        ...draft,
+        attachments: snapshotComposerValue(attachments),
+      });
+      await beforeSend?.(payload);
+      const metadata =
+        payload.references.length || payload.contextItems !== undefined
+          ? {
+              ...(payload.references.length
+                ? { references: payload.references }
+                : {}),
+              ...(payload.contextItems === undefined
+                ? {}
+                : { contextItems: payload.contextItems }),
+            }
+          : undefined;
+      const message = {
+        text: payload.text,
+        attachments: [...payload.attachments],
+        options: payload.options,
+        metadata,
+      };
+      if (payload.intent === "queued") {
+        await control.queueMessage(message);
+      } else {
+        await control.sendMessage(message);
+      }
+    });
+    focusComposer();
+    await submission.finally(focusComposer);
+  };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] = !active
     ? (item) =>
         void command
@@ -2222,8 +2308,9 @@ export function AgentKitComposer({
   const selectSuggestion: AgentKitSuggestionsRenderProps["onSelect"] = (
     suggestion,
   ) =>
-    void command
-      .execute(() => submitText(agentSuggestionPrompt(suggestion)))
+    void submitPrompt(agentSuggestionPrompt(suggestion), [], [], {
+      contextItems,
+    })
       .catch(() => undefined)
       .finally(focusComposer);
   const Queue = slots.queue;
@@ -2292,6 +2379,11 @@ export function AgentKitComposer({
         )
       ) : null}
       <PromptComposer
+        contextItems={contextItems}
+        onRemoveContextItem={onRemoveContextItem}
+        onInspectContextItem={onInspectContextItem}
+        onRetryContextItem={onRetryContextItem}
+        contextMenuItems={contextMenuItems}
         rootClassName="agentkit-composer"
         layoutVariant="default"
         draftScope={`agentkit:${threadId}`}
@@ -2316,43 +2408,7 @@ export function AgentKitComposer({
           if (mode === undefined) setUncontrolledMode(next);
           onModeChange?.(next);
         }}
-        onSubmit={(text, files, references, options) => {
-          const submission = command.execute(async () => {
-            const attachments =
-              files.length && canUpload
-                ? await control.uploadFiles(
-                    files.map((file: PromptComposerFile) => ({
-                      name: file.name,
-                      mediaType: file.type || "application/octet-stream",
-                      size: file.size,
-                      body: file,
-                    })),
-                  )
-                : [];
-            const effort = options.effort;
-            const runOptions: AgentRunOptions = {
-              model: options.model,
-              mode: executionMode,
-              reasoningEffort:
-                effort && !["auto", "max"].includes(effort)
-                  ? (effort as AgentRunOptions["reasoningEffort"])
-                  : undefined,
-            };
-            const metadata = references.length ? { references } : undefined;
-            if (active && queueWhileRunning && canQueue) {
-              await control.queueMessage({ text, attachments, metadata });
-            } else {
-              await control.sendMessage({
-                text,
-                attachments,
-                options: runOptions,
-                metadata,
-              });
-            }
-          });
-          focusComposer();
-          void submission.catch(() => undefined).finally(focusComposer);
-        }}
+        onSubmit={submitPrompt}
       />
       {command.error ? (
         <div className="agentkit-composer-error" role="alert">

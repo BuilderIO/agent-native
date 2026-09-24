@@ -35,6 +35,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "present-design-variants",
   "update-design",
   "update-file",
+  "write-design-system-artifact",
 ]);
 
 const DESIGN_MUTATION_VERBS =
@@ -249,6 +250,30 @@ function hasSuccessfulMutation(
 
     if (name === "create-design-system") {
       return typeof parsed.id === "string";
+    }
+
+    if (name === "write-design-system-artifact") {
+      const receipt = parsed.receipt;
+      if (
+        !isRecord(receipt) ||
+        receipt.persisted !== true ||
+        typeof parsed.id !== "string" ||
+        !isRecord(parsed.workspace) ||
+        parsed.workspace.systemId !== parsed.id ||
+        typeof receipt.targetId !== "string" ||
+        !receipt.targetId ||
+        typeof receipt.operationId !== "string" ||
+        !receipt.operationId ||
+        typeof receipt.revision !== "number" ||
+        !Number.isInteger(receipt.revision) ||
+        receipt.revision < 1
+      )
+        return false;
+      return receipt.kind === "foundation"
+        ? typeof receipt.tokenCount === "number" && receipt.tokenCount > 0
+        : (receipt.kind === "component" || receipt.kind === "usage-rule") &&
+            typeof receipt.contentHash === "string" &&
+            /^[a-f0-9]{64}$/.test(receipt.contentHash);
     }
 
     if (name === "update-design") {
@@ -560,6 +585,7 @@ export function designFinalResponseGuard(
       "Continue in this turn and call the appropriate mutating Design action. " +
       "For a new design, create the project if needed and then call `generate-design` " +
       "or `present-design-variants`; for an existing design, read it and call `edit-design`. " +
+      "For design-system foundations, components or usage rules, call `write-design-system-artifact`; a system ID is not a design ID and cannot be passed to `apply-design-token-edit`. " +
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",

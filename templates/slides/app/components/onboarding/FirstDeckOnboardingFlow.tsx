@@ -1,6 +1,5 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  PromptComposer,
   type PromptComposerSubmitOptions,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
@@ -27,6 +26,7 @@ import {
   type PromptChatAttachment,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
+import { SlidesPromptComposer } from "@/components/editor/SlidesComposerContext";
 import {
   describeDeckPersistenceFailure,
   useDecks,
@@ -34,6 +34,7 @@ import {
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
+import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { startDeckGeneration } from "@/lib/create-deck-generation";
 import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
@@ -190,48 +191,6 @@ export function FirstDeckOnboardingFlow({
     if (result.readable) setRecentReferences(result.items);
   }, []);
 
-  const handlePromptSubmit = useCallback(
-    async (
-      text: string,
-      files: File[],
-      _references: unknown[],
-      options?: PromptComposerSubmitOptions,
-    ) => {
-      try {
-        const uploaded = await uploadFiles(files);
-        retainFiles(files);
-        promptSourceFilesRef.current = files;
-        setReferenceFilePaths([]);
-        setPrompt(text);
-        const chatAttachments = await createPromptChatAttachments(
-          options?.attachments,
-          uploaded,
-        );
-        setPromptFiles(uploaded);
-        setPromptAttachments(chatAttachments);
-        setPromptModelSelection(
-          options
-            ? {
-                model: options.model,
-                engine: options.engine,
-                effort: options.effort,
-              }
-            : undefined,
-        );
-        setStep("references");
-      } catch (error) {
-        discardFiles(files);
-        toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
-        });
-      }
-    },
-    [discardFiles, retainFiles, t, uploadFiles],
-  );
-
   const handlePromptAttachmentsChange = useCallback(
     (files: File[]) => {
       if (files.length === 0 && promptSourceFilesRef.current.length > 0) return;
@@ -273,6 +232,11 @@ export function FirstDeckOnboardingFlow({
     async (
       files: UploadedFile[],
       selection: NewDeckReferenceSelection = {},
+      submitted?: {
+        prompt: string;
+        attachments: PromptChatAttachment[];
+        modelSelection?: PromptModelSelection;
+      },
     ) => {
       const generationReferenceFilePaths = [
         ...new Set([
@@ -290,10 +254,10 @@ export function FirstDeckOnboardingFlow({
       try {
         const result = await startDeckGeneration({
           session,
-          prompt,
+          prompt: submitted?.prompt ?? prompt,
           files,
-          attachments: promptAttachments,
-          modelSelection: promptModelSelection,
+          attachments: submitted?.attachments ?? promptAttachments,
+          modelSelection: submitted?.modelSelection ?? promptModelSelection,
           referenceSelection: {
             ...selection,
             ...(generationReferenceFilePaths.length > 0
@@ -372,6 +336,64 @@ export function FirstDeckOnboardingFlow({
     ],
   );
 
+  const handlePromptSubmit = useCallback(
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: SlidesPromptSubmitOptions,
+    ) => {
+      try {
+        const uploaded = await uploadFiles(files);
+        retainFiles(files);
+        promptSourceFilesRef.current = files;
+        setReferenceFilePaths([]);
+        setPrompt(text);
+        const chatAttachments = await createPromptChatAttachments(
+          options?.attachments,
+          uploaded,
+        );
+        setPromptFiles(uploaded);
+        setPromptAttachments(chatAttachments);
+        setPromptModelSelection(
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,
+        );
+        if (options?.slidesContext) {
+          await startGeneration(
+            uploaded,
+            {
+              designSystemId: options.slidesContext.designSystemId,
+              referenceDeckId: null,
+              referenceFilePaths: uploaded.map((file) => file.path),
+              composerContext: options.slidesContext,
+              contextItems: options.contextItems,
+            },
+            {
+              prompt: text,
+              attachments: chatAttachments,
+              modelSelection: options,
+            },
+          );
+        } else setStep("references");
+      } catch (error) {
+        discardFiles(files);
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      }
+    },
+    [discardFiles, retainFiles, t, uploadFiles, startGeneration],
+  );
+
   const handleReferenceSelect = useCallback(
     async (selection: NewDeckReferenceSelection) => {
       if (selection.designSystemId !== undefined) {
@@ -393,13 +415,7 @@ export function FirstDeckOnboardingFlow({
       }
       await startGeneration(promptFiles, selection);
     },
-    [
-      forgetReference,
-      promptAttachments,
-      promptFiles,
-      rememberReference,
-      startGeneration,
-    ],
+    [forgetReference, promptFiles, rememberReference, startGeneration],
   );
 
   const handleReferenceImport = useCallback(
@@ -670,7 +686,7 @@ export function FirstDeckOnboardingFlow({
           <h1 className="text-center text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">
             {t("home.firstDeckPromptTitle")}
           </h1>
-          <PromptComposer
+          <SlidesPromptComposer
             className="mt-8"
             autoFocus
             attachmentsEnabled

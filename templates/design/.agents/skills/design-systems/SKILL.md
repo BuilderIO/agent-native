@@ -90,45 +90,89 @@ on-brand instead of drifting to a generic stock look each time.
 
 ## Actions
 
-### Creating a Design System
+## Native creation and refinement
 
-```bash
-pnpm action create-design-system \
-  --title "Acme Corp Brand" \
-  --description "Corporate brand identity" \
-  --data '{
-    "colors": {
-      "primary": "#0F172A",
-      "secondary": "#1E293B",
-      "accent": "#2563EB",
-      "background": "#0F172A",
-      "surface": "#1E293B",
-      "text": "#F8FAFC",
-      "textMuted": "#94A3B8"
-    },
-    "typography": {
-      "headingFont": "<HEADING_FONT>",
-      "bodyFont": "<BODY_FONT>",
-      "headingWeight": "700",
-      "bodyWeight": "400",
-      "headingSizes": { "h1": "64px", "h2": "40px", "h3": "28px" }
-    },
-    "spacing": { "pagePadding": "80px 110px", "elementGap": "24px" },
-    "borders": { "radius": "12px", "accentWidth": "4px" },
-    "defaults": { "background": "#0F172A", "labelStyle": "uppercase" },
-    "logos": []
-  }'
-```
+`get-builder-dsi-access` checks the signed-in caller's personal Builder account.
+An organization connection alone does not qualify a teammate. Resolve missing
+or expired access through the existing Builder connection flow; keep the draft.
+Account eligibility is not a generation or publication receipt.
 
-`<HEADING_FONT>` / `<BODY_FONT>` are placeholders — pick a real Google Fonts
-pairing per the design-generation skill's Font Recommendations table (or the
-brand's actual extracted fonts) rather than defaulting to Space Grotesk/DM
-Sans every time; that pairing is this skill's own most common convergence
-fingerprint.
+Use `start-design-system-authoring` with the name, intent, complete source batch
+and origin draft. Reuse its request ID only for identical retries. This reserves
+the native workspace and conversation, not generated output. Follow-ups stay in
+the returned conversation; Builder runs behind it without a product handoff.
 
-If this is the user's first design system in the active organization, it is
-automatically set as the default. Organization-scoped systems are shared with
-that organization by default.
+Read `get-design-system-workspace` before generating. New workspaces use
+`runtime: "builder"`; their files and publication live in Builder, with only
+scoped references and artifact metadata in Agent-Native.
+
+| Action | Purpose |
+| --- | --- |
+| `run-design-system-agent` | Send a direction to the same persistent Builder DSI session, preparing the entire reference batch on first start |
+| `get-design-system-workspace` | Read actual provider progress, source outcomes, file inventory and canonical session binding |
+| `get-design-system-artifact` | Read a real Builder file at its recorded artifact revision |
+| `read-design-system-source` | Inspect scoped source evidence and extraction limitations |
+| `update-design-system-workspace` | Append references, explicitly exclude/restore sources or change selection with workspace CAS |
+| `get-design-system` | Resolve confirmed published context for Design or Slides generation |
+
+For Start fresh, ask for direction if none was supplied, then pass that direction
+to `run-design-system-agent`. References starts with the complete saved batch.
+Use a stable `requestId` for one turn. Refinements pass the selected `targetId`
+when relevant and `expectedRevision: workspace.builder.revision`. This remote
+revision is a string, distinct from the numeric workspace/target revisions.
+
+The returned session is a submission receipt until its actual progress says
+otherwise. Read the existing workspace after interruption; never start another
+system to recover an unknown outcome. Keep failed or unsupported sources visible
+and let the user correct or exclude them. Source upload acceptance does not prove
+interpretation. Read generated file bodies before describing their contents.
+
+Builder workspaces reject local `write-design-system-artifact` output and
+client-authored generation statuses. Existing native-only workspaces retain
+their legacy writer; do not silently migrate or replace their saved artifacts.
+Builder's actual file inventory determines the canvas, not a fixed sample kit.
+
+The user chooses **Use** after reviewing the output. That action publishes the
+exact Builder revision and verifies its receipt before attaching it to the
+originating composer. A completed turn does not mean published. Generation reads
+reject unpublished or changed context. No default or sharing policy changes
+implicitly.
+
+Cross-app `consumedRevision` is the numeric `workspace.contentRevision` returned
+as `reference.revision` by `get-design-system`; keep its `ownerApp`. Artifact
+reads retain the selected artifact's numeric revision and verify the underlying
+Builder file hash. Stale content is an explicit failure, not a switch to latest.
+
+### Supported references
+
+- Website: a public HTTP(S) URL read through the scoped SSRF-safe extractor.
+  Builder receives bounded evidence, not a complete website capture.
+- Brand files: owner/org-bound uploads, up to 20 MiB each and 100 MiB per batch.
+  PDF, supported images and text retain original bytes. JSON is sent as original
+  plain-text bytes. DOCX/PPTX use extracted text with explicit loss of layout,
+  images and typography; unsupported extraction remains a visible failure.
+- Figma: a file/design URL, optionally a frame. The connected-account reader
+  supplies bounded paints, typography and geometry, not Variables or complete
+  file fidelity. Preserve its access and size errors. Raw `.fig` and old
+  unverified Builder upload tokens are not native collector inputs.
+
+Adding sources stages them on the same workspace. Keep prior sources and manual
+decisions; never silently ignore a changed batch or create a replacement project.
+Explicit exclusion retains the evidence and history. Corrected sources append a
+new entry and exclude the old one only at the user's direction.
+
+### Existing provider-backed systems
+
+Legacy indexing/editor/sync actions remain available for existing systems or
+explicit advanced requests. They do not replace the persistent native authoring
+session. Builder's editor is optional; its backend is the authoring runtime.
+GitHub/npm are not creation choices in this MVP.
+
+### Legacy token-only creation
+
+Use `create-design-system` only when deliberately creating a legacy token-only
+record or a curated template snapshot. It is not the authoring lifecycle above.
+Pass `autoDefault: false` unless the user explicitly requests a default change.
 
 ### Starting from an established public system
 
@@ -155,7 +199,8 @@ full stored snapshot is needed.
 pnpm action get-design-system --id <designSystemId>
 ```
 
-Returns the full `data` and `assets` JSON.
+Returns the full legacy `data` and `assets` JSON plus authored generation
+context when this system has a native workspace.
 
 ### Listing All Design Systems
 
@@ -164,7 +209,11 @@ pnpm action list-design-systems
 pnpm action list-design-systems --compact true
 ```
 
-### Updating Tokens
+### Updating legacy tokens
+
+For Builder workspaces, refine through `run-design-system-agent`. Existing
+native-only workspaces retain `write-design-system-artifact` with target CAS.
+The legacy writer below is only for token-only records, not authored systems.
 
 ```bash
 pnpm action update-design-system --id <id> --data '<updated JSON>'
@@ -202,108 +251,10 @@ while no longer linked to a system. If the deleted system was the owner's
 default, another of their design systems is promoted to default so future
 design creation doesn't silently drop to "no design system".
 
-## Multi-Source Import Flow
+## Separate Design imports
 
-The design system setup page collects brand assets from multiple sources. When the user clicks "Continue to generation", a structured message is sent to the agent with all sources. Process each source type with the appropriate action:
-
-### Source: Website URL
-
-```bash
-pnpm action import-from-url --url "https://acme.com"
-```
-
-Renders the live page in a real browser first, then returns a bounded
-design.md-style visual system: computed semantic colors, typography, spacing,
-radii, shadows, representative component styles, CSS variables, logo
-references, screenshots evidence metadata, and reusable Brand Kit data. This
-works for React/CSS-in-JS/Tailwind pages because it reads the computed cascade;
-it reports an explicit static SSRF-safe fallback when no browser is available.
-
-### Source: GitHub Repository
-
-```bash
-pnpm action index-design-system-with-builder --githubSources '[{"repoUrl":"https://github.com/acme/ui","ref":"main","include":["src/styles","design.md"]}]'
-```
-
-Starts one Builder design-system job with one or more GitHub sources. Each
-source can pin a branch, tag, or commit and include repository-relative files or
-folders. Unscoped public repositories stay native Builder sources so large
-codebases are not truncated; private repos and scoped refs stay server-side and
-use the saved `GITHUB_TOKEN` without exposing it to the browser or Builder.
-Builder is the source of truth for the indexed brand kit, generated docs, and
-usage guidance. If Builder is not connected, stop and ask the user to connect
-Builder.
-
-The legacy `githubRepoUrl` argument remains compatible for one unscoped repo.
-For a saved GitHub-backed system, use `sync-design-system-with-builder --id
-<localDesignSystemId>` to replay the stored repository/ref/scope after upstream
-changes. Do not create a second local copy.
-
-### Source: Local Code Files
-
-```bash
-pnpm action index-design-system-with-builder --codeFiles '[{"filename":"globals.css","content":"..."}]'
-```
-
-Uploads code/design files to Builder and starts design-system indexing. Do not create a local design system from uploaded code files unless the user explicitly asks for a manual local fallback.
-
-For the active design's Tokens panel, use `import-design-tokens` when the user
-wants to pull reusable CSS vars/tokens straight into the open design without
-creating a full design system:
-
-```bash
-pnpm action import-design-tokens \
-  --designId "design_123" \
-  --source files \
-  --files '[{"filename":"design.md","content":"Primary color: #2563eb"}]'
-```
-
-Supported sources are `files`, `paste`, and `current-design`. The action parses
-CSS variables, design.md-style labeled lines, Tailwind/theme JSON, colors,
-spacing, radii, and fonts, then persists them through the design's
-`tweakSelections` so the canvas updates like any other token edit. Treat manual
-`apply-design-token-edit` calls as a last-resort one-off edit after import has
-been tried or ruled out.
-
-### Source: Documents (DOCX, PPTX, PDF)
-
-```bash
-pnpm action import-document --files '[{"filename":"brand.pptx","fileType":"application/pptx","sizeBytes":1234}]'
-```
-
-Returns content-type-aware design hints and agent instructions. Presentations are the strongest signal for brand colors/fonts.
-
-### Source: Existing Project or Design System
-
-```bash
-pnpm action import-design-project --designId "abc123"
-pnpm action import-design-project --designId _ --designSystemId "ds-456"
-```
-
-Extracts CSS tokens from a project's generated HTML, or clones an existing design system for forking.
-
-### Source: Figma file
-
-```bash
-pnpm action index-design-system-with-builder \
-  --projectName "Acme Figma system" \
-  --codeFiles '[{"filename":"figma-summary.md","content":"<extracted tokens / styles summary>"}]'
-```
-
-Builder is the required extraction/indexing path for Figma-backed design
-systems. If a connected Figma MCP is available (tools like `get_variable_defs`,
-`get_design_context`, `get_metadata`, `get_screenshot`), call those on the
-file/selection first to pull real variables, color/text styles, and screenshot
-notes, then pass that summary to `index-design-system-with-builder` as an
-uploaded text context file. Do not build a local design system from the Figma
-summary unless the user explicitly asks for a manual local fallback.
-
-**When the user uploads a raw `.fig` file on the Design System Setup page**,
-send it to Builder design-system indexing through the setup page upload route.
-Do not parse `.fig` files locally for this flow and do not call
-`create-design-system` from raw `.fig` output; Builder owns the indexed brand
-kit, generated docs, and usage guidance. This is unchanged and is specifically
-about **token/brand-kit extraction**.
+Screen, clipboard, and component imports below do not create an authored
+system. For a system, use the persisted source workflow above.
 
 **When the user uploads a raw `.fig` file in the Design editor's Import panel**
 (not Design System Setup), it takes a different, narrower path: the server
@@ -312,8 +263,7 @@ its `NodeChange` tree to editable HTML screens (`fig-file-to-html.ts`,
 `fig-file-import.ts`) through the same `saveImportedDesignFiles` path as other
 Design imports — no Builder connection required. This is explicitly scoped to
 **screens only**, not tokens: it does not create or update a design system, and
-it is separate from (and does not reopen) the Design System Setup `.fig`
-upload above. Treat it as experimental — the `.fig` container is a proprietary,
+it remains separate from the native system-authoring collector. Treat it as experimental — the `.fig` container is a proprietary,
 undocumented format, so unsupported node types, geometry, or schema variants
 fail closed with an explicit warning/placeholder rather than a silent
 approximation. Read the returned `fidelityReport` (`stats`, `warnings`) back to
@@ -331,8 +281,8 @@ design-system indexing just to insert a component. Use
 `list-figma-library-assets` with a Figma file URL/key, then
 `insert-figma-library-asset` with the returned `renderUrl`, `fileKey`,
 `nodeId`, `componentKey`, and `sourceUrl`. This inserts a rendered
-component/component set with provenance. Styles and variables still belong in
-the Builder-backed design-system path above.
+component/component set with provenance. For a brand system, use native
+authoring above; a component insert does not extract a complete token system.
 
 ### Import from Figma (pixel-accurate frame import)
 
@@ -372,9 +322,8 @@ pnpm action import-figma-frame --fileKey "<fileKey>" --nodeId "12:34" --designId
   on it.
 - For a file's published FILL/TEXT/EFFECT/GRID styles (name, description, node
   id — not full token values), use `get-figma-styles` with `fileUrl`/`fileKey`.
-  This is the file's Styles panel, not the Enterprise Variables API; full
-  design-token extraction still routes through the Builder-backed
-  `index-design-system-with-builder` path above.
+  This is the file's Styles panel, not the Enterprise Variables API. Native
+  authoring can use this evidence without claiming complete Variables extraction.
 
 #### Paste from Figma (Cmd+C/Cmd+V) vs. a copied frame link
 
@@ -468,11 +417,22 @@ pnpm action get-figma-design-context --figmaUrl "https://www.figma.com/design/<f
   **Styles** (a separate, non-Enterprise feature) — neither is the Variables
   API. If the user has Enterprise access and a connected Figma MCP with
   `get_variable_defs`, call that directly for real variable definitions and
-  pass the result to `index-design-system-with-builder`. Otherwise, tell the
+  use that evidence in the same Builder-backed authoring conversation. Otherwise, tell the
   user variables need Enterprise access or a connected Figma MCP, and offer
   Styles (`get-figma-styles`) or a manual `import-design-tokens` /
   `apply-design-token-edit` pass as the available fallback — do not claim to
   have enumerated variables from a plain `FIGMA_ACCESS_TOKEN`.
+
+### Separate imports into the active design
+
+Use `import-design-tokens` to populate the open design's Tokens panel without
+creating a design system. It accepts `files`, `paste`, or `current-design`
+and persists tokens through `tweakSelections`; use `apply-design-token-edit`
+for a one-off correction after import is tried or ruled out.
+
+```bash
+pnpm action import-design-tokens --designId "design_123" --source files --files '[{"filename":"design.md","content":"Primary color: #2563eb"}]'
+```
 
 ### Source: Brand Analysis (combines website + notes)
 
@@ -487,16 +447,9 @@ Returns CSS properties, colors, fonts, theme-color, metadata.
 
 ### Processing Multiple Sources
 
-When the user provides multiple sources, call all applicable import actions in parallel, then synthesize:
-
-1. **Prioritize code sources** (GitHub, local files) — these have the most accurate tokens
-2. **Figma variables/styles** (via the Figma MCP) — authoritative when the team designs in Figma
-3. **Cross-reference with website** — validates colors/fonts are actually deployed
-4. **Documents supplement** — presentations may reveal brand colors not in code
-5. **Images inform mood** — color temperature, density, visual style
-6. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
-7. **Call `create-design-system`** with the combined result
-8. **Link to design** via `update-design --designSystemId`
+Use the saved source manifest and native authoring actions above. Resolve
+conflicting evidence with the user in the same conversation and update the
+existing artifacts; extraction does not call `create-design-system` again.
 
 ## Fidelity Limits And Open-Ended Figma/GitHub API Access
 
@@ -517,7 +470,18 @@ human approval.
 
 When generating a design that has a linked design system, replace all default CSS custom properties with the design system tokens.
 
-`get-design` / `view-screen` return `designSystem` as a bounded summary; call `get-design-system` once for the full context before the first screen you author, and use `index-design-tokens` to inspect an existing design's applied tokens.
+`get-design` / `view-screen` return `designSystem` as a bounded summary. Read
+the full context with `get-design-system` before the first screen, retaining
+the attached reference's `ownerApp` and `consumedRevision`. Pass that exact
+`designSystemRef: { id, ownerApp, consumedRevision }` to `create-design` and
+`generate-design`; for a newly read selection, map the returned
+`reference.systemId`, `reference.ownerApp`, and `reference.revision` respectively.
+A local legacy ID resolves the actual owner and revision; repeating the same
+ID preserves an existing pin. Omitting the reference preserves it during
+generation; `null` explicitly opts out. Stale or inaccessible references fail
+before writes: re-read the selected context before retrying, rather than
+dropping its pin. Use `index-design-tokens` to inspect an existing design's
+applied tokens.
 
 ### Before (defaults):
 

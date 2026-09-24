@@ -1,11 +1,18 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  authoredDesignSystemAgentContext,
+  designSystemGenerationData,
+  parseDesignSystemAuthoringData,
+  readOwnerDesignSystem,
+} from "@agent-native/core/server/design-system-authoring";
 import { z } from "zod";
 
+import { designSystemAuthoring } from "../server/lib/design-system-authoring.js";
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 const MAX_AGENT_CONTEXT_CHARS = 14_000;
@@ -236,6 +243,20 @@ export default defineAction({
     "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. compact='true' returns only the bounded summary that deck and design reads already include.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
+    ownerApp: z
+      .enum(["design", "slides"])
+      .optional()
+      .describe(
+        "App that owns the system; foreign references resolve through scoped A2A",
+      ),
+    consumedRevision: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        "Pinned content revision; unavailable older revisions fail explicitly",
+      ),
     compact: z
       .enum(["true", "false"])
       .optional()
@@ -244,9 +265,17 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   http: { method: "GET" },
-  run: async ({ id, compact }) => {
-    const access = await resolveAccess("design-system", id);
+  run: async ({ id, compact, ownerApp, consumedRevision }) => {
+    if (ownerApp && ownerApp !== "slides")
+      return readOwnerDesignSystem("slides", {
+        id,
+        compact,
+        ownerApp,
+        consumedRevision,
+      });
+    const access = await resolveDesignSystemAccess(id);
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
         statusCode: 404,
@@ -254,6 +283,51 @@ export default defineAction({
     }
 
     const row = access.resource;
+    let authored = row.data
+      ? parseDesignSystemAuthoringData(row.data).workspace
+      : null;
+    if (authored?.runtime === "builder") {
+      if (compact !== "true") {
+        const live = await designSystemAuthoring.get(id);
+        if (!live.canUse)
+          fail(
+            "Review and use this design system in its workspace before applying it to new work.",
+            {
+              errorCode: "design_system_publication_required",
+              statusCode: 409,
+            },
+          );
+        authored = live.workspace;
+      } else {
+        const publication = authored.builder?.publication;
+        if (
+          !publication ||
+          publication.revision !== authored.builder?.revision ||
+          publication.contentRevision !== authored.contentRevision
+        )
+          fail("This design system has no confirmed current publication.", {
+            errorCode: "design_system_publication_required",
+            statusCode: 409,
+          });
+      }
+    }
+    if (
+      consumedRevision !== undefined &&
+      consumedRevision !== (authored?.contentRevision ?? 0)
+    )
+      fail(
+        "This pinned design-system revision is unavailable. Select the current revision explicitly.",
+        { errorCode: "design_system_revision_unavailable", statusCode: 409 },
+      );
+    const contextData = row.data
+      ? JSON.stringify(
+          Object.fromEntries(
+            Object.entries(designSystemGenerationData(row.data)).filter(
+              ([key]) => key !== "authoring",
+            ),
+          ),
+        )
+      : row.data;
     const builderReference = parseBuilderDesignSystemProxyReference(row.data);
 
     if (compact === "true") {
@@ -264,15 +338,24 @@ export default defineAction({
           ? truncate(row.description, MAX_SUMMARY_DESCRIPTION_CHARS)
           : row.description,
         builderDesignSystemId: builderReference?.builderDesignSystemId ?? null,
-        agentContext: buildCompactDesignSystemAgentContext({
-          id: row.id,
-          title: row.title,
-          description: row.description,
-          data: row.data,
-          customInstructions: row.customInstructions,
-          builderDesignSystemId:
-            builderReference?.builderDesignSystemId ?? null,
-        }),
+        reference: {
+          ownerApp: "slides" as const,
+          systemId: id,
+          revision: authored?.contentRevision ?? 0,
+        },
+        agentContext:
+          buildCompactDesignSystemAgentContext({
+            id: row.id,
+            title: row.title,
+            description: row.description,
+            data: contextData,
+            customInstructions: row.customInstructions,
+            builderDesignSystemId:
+              builderReference?.builderDesignSystemId ?? null,
+          }) +
+          (authored
+            ? `\nOwner app: ${authored.ownerApp}; consumed revision: ${authored.contentRevision}. Read get-design-system with ownerApp and consumedRevision for authored component and usage artifacts. Run: ${authored.run?.status ?? "not-started"}.`
+            : ""),
       };
     }
 
@@ -295,7 +378,9 @@ export default defineAction({
       id: row.id,
       title: row.title,
       description: row.description,
-      data: row.data ?? null,
+      data: row.data
+        ? JSON.stringify(designSystemGenerationData(row.data))
+        : null,
       assets: row.assets ?? null,
       customInstructions: row.customInstructions ?? "",
       isDefault: row.isDefault,
@@ -303,15 +388,26 @@ export default defineAction({
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       builder,
-      agentContext: buildDesignSystemAgentContext({
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        data: row.data,
-        assets: row.assets,
-        customInstructions: row.customInstructions,
-        builder,
-      }),
+      ...(authored ? { authoring: authored } : {}),
+      reference: {
+        ownerApp: "slides" as const,
+        systemId: id,
+        revision: authored?.contentRevision ?? 0,
+      },
+      agentContext:
+        buildDesignSystemAgentContext({
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          data: contextData,
+          assets: row.assets,
+          customInstructions: row.customInstructions,
+          builder,
+        }) +
+        (authored
+          ? "\n\nAuthored artifacts take precedence over earlier extraction:\n" +
+            authoredDesignSystemAgentContext(authored)
+          : ""),
     };
   },
 });

@@ -31,9 +31,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
   type ReactNode,
 } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -84,6 +85,7 @@ import {
   shouldRefreshBuilderDesignSystem,
   type DesignSystemData,
 } from "../lib/design-system-data";
+import DesignSystemSetup from "./DesignSystemSetup";
 
 interface DesignSystem {
   id: string;
@@ -122,6 +124,12 @@ export default function DesignSystems() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const [setupOpen, setSetupOpen] = useState(false);
+  const setupTriggerRef = useRef<HTMLElement | null>(null);
+  const openSetup = useCallback((event: MouseEvent<HTMLElement>) => {
+    setupTriggerRef.current = event.currentTarget;
+    setSetupOpen(true);
+  }, []);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -153,6 +161,13 @@ export default function DesignSystems() {
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
+  useEffect(() => {
+    if (selectedDesignSystemId)
+      void navigate(
+        `/design-systems/${encodeURIComponent(selectedDesignSystemId)}`,
+        { replace: true },
+      );
+  }, [selectedDesignSystemId, navigate]);
   const selectedDesignSystem = useMemo(
     () =>
       selectedDesignSystemId
@@ -168,7 +183,7 @@ export default function DesignSystems() {
 
   const openDesignSystemDetails = useCallback(
     (id: string) => {
-      void navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems/${encodeURIComponent(id)}`);
     },
     [navigate],
   );
@@ -499,11 +514,9 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      <Button asChild size="sm" className="cursor-pointer">
-        <Link to="/design-systems/setup">
-          <IconPlus className="w-3.5 h-3.5" />
-          {t("designSystems.actions.new")}
-        </Link>
+      <Button size="sm" onClick={openSetup} className="cursor-pointer">
+        <IconPlus className="w-3.5 h-3.5" />
+        {t("designSystems.actions.new")}
       </Button>
     </div>,
   );
@@ -520,7 +533,7 @@ export default function DesignSystems() {
               retrying={isFetching}
             />
           ) : designSystems.length === 0 ? (
-            <EmptyState />
+            <EmptyState onCreate={openSetup} />
           ) : (
             <>
               {isSelectionMode ? (
@@ -580,8 +593,9 @@ export default function DesignSystems() {
               <section aria-label={t("designSystems.yoursTitle")}>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
                   {/* New design system card */}
-                  <Link
-                    to="/design-systems/setup"
+                  <button
+                    type="button"
+                    onClick={openSetup}
                     className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
                   >
                     <div className="aspect-video flex items-center justify-center bg-muted/30">
@@ -594,7 +608,7 @@ export default function DesignSystems() {
                         {t("designSystems.actions.new")}
                       </h3>
                     </div>
-                  </Link>
+                  </button>
 
                   {/* Design system cards */}
                   {designSystems.map((ds) => {
@@ -799,6 +813,19 @@ export default function DesignSystems() {
           )}
         </main>
       </div>
+
+      <DesignSystemSetup
+        open={setupOpen}
+        onReturnToPrompt={() => setSetupOpen(false)}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          setupTriggerRef.current?.focus();
+        }}
+        onCreated={(id) => {
+          setSetupOpen(false);
+          openDesignSystemDetails(id);
+        }}
+      />
 
       <AlertDialog
         open={!!deleteId || bulkDeleteOpen}
@@ -1399,7 +1426,11 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  onCreate,
+}: {
+  onCreate: (event: MouseEvent<HTMLElement>) => void;
+}) {
   const t = useT();
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
@@ -1412,11 +1443,9 @@ function EmptyState() {
       <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
         {t("designSystems.empty.description")}
       </p>
-      <Button asChild className="cursor-pointer">
-        <Link to="/design-systems/setup">
-          <IconPlus className="w-4 h-4" />
-          {t("designSystems.actions.new")}
-        </Link>
+      <Button onClick={onCreate} className="cursor-pointer">
+        <IconPlus className="w-4 h-4" />
+        {t("designSystems.actions.new")}
       </Button>
     </div>
   );

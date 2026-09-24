@@ -1,4 +1,21 @@
 export { FileReference } from "./extensions/FileReference.js";
+export {
+  ComposerContextMenu,
+  ComposerContextSearchInput,
+  type ComposerContextSearchInputProps,
+  type ComposerContextPageControls,
+  getComposerContextMenuEntries,
+  type ComposerContextMenuProps,
+  type ComposerContextMenuItem,
+  type ComposerContextMenuAction,
+  type ComposerContextMenuCategory,
+} from "./ComposerContextMenu.js";
+export {
+  areComposerContextItemsReady,
+  snapshotComposerContextItems,
+  type ComposerContextSnapshot,
+} from "./context-items.js";
+export type { AgentChatContextItem } from "./runtime-adapters.js";
 export { SkillReference } from "./extensions/SkillReference.js";
 export { MentionReference } from "./extensions/MentionReference.js";
 export {

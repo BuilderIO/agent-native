@@ -121,6 +121,8 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /** Stable logical turn identity for a durable, idempotent app handoff. */
+  turnId?: string;
   /**
    * Names what this turn is FOR, e.g. `"crm:enrich-record"`. Recorded as the
    * usage row's label and as the run's observability span name
@@ -364,6 +366,10 @@ const SELF_SUBMIT_BUFFER_TTL_MS = 8000;
 const bufferedSelfSubmits: BufferedSelfSubmit[] = [];
 const claimedSubmitIds = new Set<string>();
 const cancelledSubmitIds = new Set<string>();
+const durableSubmitConfirmations = new Map<
+  string,
+  Promise<SendToAgentChatAndConfirmResult>
+>();
 
 interface BufferedOpenRequest extends BufferedAgentChatOpenRequest {
   at: number;
@@ -479,6 +485,7 @@ export function _resetAgentChatSubmitBufferForTests(): void {
   bufferedSelfSubmits.length = 0;
   claimedSubmitIds.clear();
   cancelledSubmitIds.clear();
+  durableSubmitConfirmations.clear();
   bufferedOpenRequests.length = 0;
   claimedOpenRequestIds.clear();
 }
@@ -994,6 +1001,7 @@ export interface ParsedSubmitChat {
   requestMode?: AgentChatRequestMode;
   /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
+  turnId?: string;
   /** See {@link AgentChatMessage.usageLabel}. */
   usageLabel?: string;
 }
@@ -1091,6 +1099,7 @@ export function parseSubmitChatMessage(
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
     usageLabel: nonEmptyString(raw.usageLabel),
+    turnId: nonEmptyString(raw.turnId),
   };
 }
 
@@ -1282,7 +1291,7 @@ export interface SendToAgentChatAndConfirmResult {
  * difference between "still in flight" and "dropped."
  */
 export function sendToAgentChatAndConfirm(
-  opts: Omit<AgentChatMessage, "submitMessageId">,
+  opts: AgentChatMessage,
   options?: { timeoutMs?: number },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
@@ -1305,46 +1314,73 @@ export function sendToAgentChatAndConfirm(
     });
   }
 
-  const submitMessageId = generateAgentChatSubmitMessageId();
+  const submitMessageId =
+    opts.submitMessageId ?? generateAgentChatSubmitMessageId();
+  const durableKey =
+    opts.submitMessageId && opts.turnId
+      ? `${tabId}:${opts.turnId}:${submitMessageId}`
+      : null;
+  const pendingConfirmation = durableKey
+    ? durableSubmitConfirmations.get(durableKey)
+    : null;
+  if (pendingConfirmation) return pendingConfirmation;
+  if (opts.submitMessageId && opts.turnId) {
+    cancelledSubmitIds.delete(submitMessageId);
+    claimedSubmitIds.delete(submitMessageId);
+  }
   const timeoutMs = Math.max(
     0,
     options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,
   );
 
-  return new Promise<SendToAgentChatAndConfirmResult>((resolve) => {
-    let settled = false;
-    let timer: number | undefined;
-    const cleanup = () => {
-      window.removeEventListener(
+  const confirmation = new Promise<SendToAgentChatAndConfirmResult>(
+    (resolve) => {
+      let settled = false;
+      let timer: number | undefined;
+      const cleanup = () => {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          onResult as EventListener,
+        );
+        if (timer !== undefined) window.clearTimeout(timer);
+      };
+      const finish = (delivered: boolean, reason?: string, cancel = false) => {
+        if (settled) return;
+        settled = true;
+        if (cancel) cancelAgentChatSubmit(submitMessageId);
+        cleanup();
+        resolve({ tabId, delivered, reason });
+      };
+      const onResult = (event: Event) => {
+        const detail = (event as CustomEvent<AgentChatSubmitResult>).detail;
+        if (!detail || detail.submitMessageId !== submitMessageId) return;
+        finish(detail.delivered, detail.reason);
+      };
+
+      window.addEventListener(
         AGENT_CHAT_SUBMIT_RESULT_EVENT,
         onResult as EventListener,
       );
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-    const finish = (delivered: boolean, reason?: string, cancel = false) => {
-      if (settled) return;
-      settled = true;
-      if (cancel) cancelAgentChatSubmit(submitMessageId);
-      cleanup();
-      resolve({ tabId, delivered, reason });
-    };
-    const onResult = (event: Event) => {
-      const detail = (event as CustomEvent<AgentChatSubmitResult>).detail;
-      if (!detail || detail.submitMessageId !== submitMessageId) return;
-      finish(detail.delivered, detail.reason);
-    };
-
-    window.addEventListener(
-      AGENT_CHAT_SUBMIT_RESULT_EVENT,
-      onResult as EventListener,
-    );
-    timer = window.setTimeout(() => finish(false, "timeout", true), timeoutMs);
-    try {
-      sendToAgentChat({ ...opts, tabId, submitMessageId });
-    } catch {
-      finish(false, "send-failed", true);
-    }
-  });
+      timer = window.setTimeout(
+        () => finish(false, "timeout", true),
+        timeoutMs,
+      );
+      try {
+        sendToAgentChat({ ...opts, tabId, submitMessageId });
+      } catch {
+        finish(false, "send-failed", true);
+      }
+    },
+  );
+  if (durableKey) {
+    durableSubmitConfirmations.set(durableKey, confirmation);
+    void confirmation.then(() => durableSubmitConfirmations.delete(durableKey));
+    if (durableSubmitConfirmations.size > 256)
+      durableSubmitConfirmations.delete(
+        durableSubmitConfirmations.keys().next().value!,
+      );
+  }
+  return confirmation;
 }
 
 /**

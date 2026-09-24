@@ -7,12 +7,15 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne, notExists } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { reconcileBuilderProxyData } from "../server/lib/builder-design-system-proxy.js";
+import {
+  assertDesignSystemAccess,
+  resolveDesignSystemAccess,
+} from "../server/lib/design-system-dsi-access.js";
 
 function persistedBuilderSyncMatches(data: unknown, syncedAt: string): boolean {
   if (typeof data !== "string") return false;
@@ -47,8 +50,8 @@ export default defineAction({
     id: z.string().min(1).describe("Local design system id"),
   }),
   run: async ({ id }, context) => {
-    await assertAccess("design-system", id, "editor");
-    const access = await resolveAccess("design-system", id);
+    await assertDesignSystemAccess(id, "editor");
+    const access = await resolveDesignSystemAccess(id);
     if (!access) throw new Error("Design system not found");
 
     const reference = parseBuilderDesignSystemProxyReference(
@@ -113,8 +116,8 @@ export default defineAction({
       );
     }
 
-    await assertAccess("design-system", id, "editor");
-    const latestAccess = await resolveAccess("design-system", id);
+    await assertDesignSystemAccess(id, "editor");
+    const latestAccess = await resolveDesignSystemAccess(id);
     if (!latestAccess) throw new Error("Design system not found");
     if (
       latestAccess.resource.id !== access.resource.id ||
@@ -165,27 +168,28 @@ export default defineAction({
         .returning({ id: schema.designSystems.id });
       if (!updated) return false;
 
-      await tx
-        .update(schema.designSystems)
-        .set({ isDefault: true, updatedAt: syncedAt })
-        .where(
-          and(
-            eq(schema.designSystems.id, latestAccess.resource.id),
-            targetScope,
-            notExists(
-              tx
-                .select({ id: schema.designSystems.id })
-                .from(schema.designSystems)
-                .where(
-                  and(
-                    targetScope,
-                    eq(schema.designSystems.isDefault, true),
-                    ne(schema.designSystems.id, latestAccess.resource.id),
+      if (JSON.parse(reconciliation.data).autoDefault !== false)
+        await tx
+          .update(schema.designSystems)
+          .set({ isDefault: true, updatedAt: syncedAt })
+          .where(
+            and(
+              eq(schema.designSystems.id, latestAccess.resource.id),
+              targetScope,
+              notExists(
+                tx
+                  .select({ id: schema.designSystems.id })
+                  .from(schema.designSystems)
+                  .where(
+                    and(
+                      targetScope,
+                      eq(schema.designSystems.isDefault, true),
+                      ne(schema.designSystems.id, latestAccess.resource.id),
+                    ),
                   ),
-                ),
+              ),
             ),
-          ),
-        );
+          );
       return true;
     });
 
@@ -205,7 +209,7 @@ export default defineAction({
       );
     }
 
-    const persisted = await resolveAccess("design-system", id);
+    const persisted = await resolveDesignSystemAccess(id);
     if (!persistedBuilderSyncMatches(persisted?.resource?.data, syncedAt)) {
       return stopAgentOnUnsyncedResult(
         {

@@ -1,4 +1,20 @@
 const messages = {
+  "dsi.connectRequired":
+    "Connect your Builder account to create and use design systems.",
+  "dsi.accessUnavailable": "Could not verify Builder access. Try again.",
+  "composer.draftFileRestoreFailed":
+    "Could not restore draft files. Reattach them before sending.",
+  "composer.draftFileSaveFailed":
+    "Draft files could not be saved for reload. Keep this page open or reattach them later.",
+  "composer.addContext": "Add context",
+  "composer.contextActionFailed": "Could not add context.",
+  "composer.attachFiles": "Attach files",
+  "composer.contextBack": "Back",
+  "composer.searchContext": "Search context…",
+  "composer.noContextResults": "No matching context.",
+  "composer.contextPending": "Context pending",
+  "composer.contextError": "Context failed",
+  "composer.retryContext": "Retry {{name}} context",
   "activity.reasoning": "Reasoning",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",

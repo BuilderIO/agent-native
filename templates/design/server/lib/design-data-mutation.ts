@@ -43,7 +43,7 @@ export class InvalidDesignDataError extends Error {
   }
 }
 
-function parseDesignData(
+export function parseDesignData(
   designId: string,
   serialized: string | null,
 ): DesignDataRecord {

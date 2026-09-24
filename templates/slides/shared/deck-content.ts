@@ -1,3 +1,17 @@
+import { readDesignSystemReference } from "@agent-native/core/shared";
+
+export function resolveDeckDesignSystemReference(data: unknown) {
+  const record = data as {
+    designSystemRef?: unknown;
+    composerContext?: { designSystemRef?: unknown };
+  } | null;
+  return readDesignSystemReference(
+    record && Object.hasOwn(record, "designSystemRef")
+      ? record.designSystemRef
+      : record?.composerContext?.designSystemRef,
+  );
+}
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;

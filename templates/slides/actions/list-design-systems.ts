@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { filterAccessibleDesignSystems } from "../server/lib/design-system-dsi-access.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 import { parseDesignSystemIndexingStatus } from "../shared/design-system-validation.js";
 
@@ -61,22 +62,24 @@ export default defineAction({
     // Project only the columns this list returns. The default path returns
     // `data`, but neither path returns the heavy `assets` blob — a bare
     // `.select()` would load it off every row for nothing.
-    const rows = await db
-      .select({
-        id: schema.designSystems.id,
-        title: schema.designSystems.title,
-        description: schema.designSystems.description,
-        data: schema.designSystems.data,
-        isDefault: schema.designSystems.isDefault,
-        visibility: schema.designSystems.visibility,
-        ownerEmail: schema.designSystems.ownerEmail,
-        orgId: schema.designSystems.orgId,
-        createdAt: schema.designSystems.createdAt,
-        updatedAt: schema.designSystems.updatedAt,
-      })
-      .from(schema.designSystems)
-      .where(accessFilter(schema.designSystems, schema.designSystemShares))
-      .orderBy(desc(schema.designSystems.updatedAt));
+    const rows = await filterAccessibleDesignSystems(
+      await db
+        .select({
+          id: schema.designSystems.id,
+          title: schema.designSystems.title,
+          description: schema.designSystems.description,
+          data: schema.designSystems.data,
+          isDefault: schema.designSystems.isDefault,
+          visibility: schema.designSystems.visibility,
+          ownerEmail: schema.designSystems.ownerEmail,
+          orgId: schema.designSystems.orgId,
+          createdAt: schema.designSystems.createdAt,
+          updatedAt: schema.designSystems.updatedAt,
+        })
+        .from(schema.designSystems)
+        .where(accessFilter(schema.designSystems, schema.designSystemShares))
+        .orderBy(desc(schema.designSystems.updatedAt)),
+    );
 
     if (rows.length === 0) {
       return { count: 0, designSystems: [] };

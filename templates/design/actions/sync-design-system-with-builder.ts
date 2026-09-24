@@ -3,22 +3,29 @@ import {
   parseBuilderDesignSystemProxyReference,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import "../server/db/index.js";
+import {
+  assertDesignSystemAccess,
+  resolveDesignSystemAccess,
+} from "../server/lib/design-system-dsi-access.js";
 
 export default defineAction({
+  authorize: async () => {
+    await assertBuilderDsiAccess();
+  },
   description:
     "Re-index a Builder-backed GitHub design system using its persisted repository, ref, and file/folder scope. Requires editor access.",
   schema: z.object({
     id: z.string().min(1).describe("Local design system id"),
   }),
   run: async ({ id }) => {
-    await assertAccess("design-system", id, "editor");
-    const access = await resolveAccess("design-system", id);
+    await assertDesignSystemAccess(id, "editor");
+    const access = await resolveDesignSystemAccess(id);
     if (!access) throw new Error("Design system not found");
 
     const reference = parseBuilderDesignSystemProxyReference(

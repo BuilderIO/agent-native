@@ -1,8 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+
+import { z } from "zod";
 
 import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
+  getMcpOAuthConnectionState,
   markMcpOAuthReconnectRequired,
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
@@ -11,7 +14,12 @@ import {
   validateMcpOAuthCallbackIssuer,
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
-import { getOAuthTokens } from "../oauth-tokens/store.js";
+import {
+  deleteOAuthTokensIfRevision,
+  getOAuthTokenSnapshot,
+  getOAuthTokens,
+  saveOAuthTokens,
+} from "../oauth-tokens/store.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 
 export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
@@ -206,8 +214,13 @@ function isBuilderDiscoveryState(value: unknown): boolean {
 function isBuilderCredential(credentials: McpOAuthCredentialBundle): boolean {
   return (
     resourceUrlsMatch(credentials.serverUrl, BUILDER_OAUTH_RESOURCE) &&
-    credentials.clientInformation.issuer === BUILDER_OAUTH_ISSUER &&
-    credentials.tokens.issuer === BUILDER_OAUTH_ISSUER &&
+    credentials.clientInformation?.issuer === BUILDER_OAUTH_ISSUER &&
+    credentials.tokens?.issuer === BUILDER_OAUTH_ISSUER &&
+    typeof credentials.tokens.access_token === "string" &&
+    credentials.tokens.access_token.trim().length > 0 &&
+    (credentials.tokenExpiresAt === undefined ||
+      (typeof credentials.tokenExpiresAt === "number" &&
+        Number.isFinite(credentials.tokenExpiresAt))) &&
     isBuilderDiscoveryState(credentials.discoveryState)
   );
 }
@@ -272,12 +285,249 @@ export async function saveBuilderOAuthCredentials(input: {
   role?: string | null;
   credentials: McpOAuthCredentialBundle;
 }): Promise<BuilderOAuthScope> {
+  if (!isBuilderCredential(input.credentials)) {
+    throw new Error(
+      "Builder OAuth credentials have an invalid issuer or resource",
+    );
+  }
   const options = await writeBuilderOAuthOptions(input);
+  const grantId = randomUUID();
   await saveMcpOAuthCredentials({
     ...options,
-    credentials: input.credentials,
+    credentials: {
+      ...input.credentials,
+      builderAccountLinkId: grantId,
+      builderAccountOwnerEmail: normalizeOwnerEmail(input.ownerEmail),
+    },
+  });
+  await savePersonalBuilderLink(input.ownerEmail, {
+    version: 1,
+    ownerEmail: normalizeOwnerEmail(input.ownerEmail),
+    source: "oauth",
+    scope: options.scope,
+    scopeId: options.scopeId,
+    grantId,
   });
   return options.scope;
+}
+
+const personalBuilderLink = z.discriminatedUnion("source", [
+  z.object({
+    version: z.literal(1),
+    ownerEmail: z.string().min(1),
+    source: z.literal("oauth"),
+    scope: z.enum(["user", "org"]),
+    scopeId: z.string().min(1),
+    grantId: z.string().min(1),
+  }),
+  z.object({
+    version: z.literal(1),
+    ownerEmail: z.string().min(1),
+    source: z.literal("provisioned"),
+    credentialFingerprint: z.string().min(1),
+  }),
+]);
+
+async function savePersonalBuilderLink(
+  ownerEmail: string,
+  link: z.infer<typeof personalBuilderLink>,
+): Promise<void> {
+  const email = normalizeOwnerEmail(ownerEmail);
+  await saveOAuthTokens(
+    "builder-account",
+    userOAuthKey(email),
+    { link },
+    `user:${email}`,
+  );
+}
+
+/** Only call after the session-bound provisioning response and credential save succeed. */
+export async function attestProvisionedBuilderAccount(
+  ownerEmail: string,
+  credentials: { privateKey: string; publicKey: string },
+): Promise<void> {
+  const { builderCredentialFingerprint } =
+    await import("./credential-provider.js");
+  const fingerprint = builderCredentialFingerprint(
+    credentials.privateKey,
+    credentials.publicKey,
+  );
+  if (!fingerprint)
+    throw new Error("Builder provisioning credentials are incomplete");
+  await savePersonalBuilderLink(ownerEmail, {
+    version: 1,
+    ownerEmail: normalizeOwnerEmail(ownerEmail),
+    source: "provisioned",
+    credentialFingerprint: fingerprint,
+  });
+}
+
+/** Snapshot before disconnect; a reconnect that wins the race keeps its new proof. */
+export async function prepareBuilderAccountDisconnect(
+  ownerEmail: string,
+): Promise<() => Promise<void>> {
+  const email = normalizeOwnerEmail(ownerEmail);
+  const key = userOAuthKey(email);
+  const owner = `user:${email}`;
+  const snapshot = await getOAuthTokenSnapshot("builder-account", key, owner);
+  if (!snapshot) return async () => {};
+  const parsed = personalBuilderLink.safeParse(snapshot.tokens.link);
+  if (!parsed.success || parsed.data.ownerEmail !== email) {
+    throw new Error(
+      "Builder account proof could not be verified for disconnect",
+    );
+  }
+  return async () => {
+    await deleteOAuthTokensIfRevision(
+      "builder-account",
+      key,
+      owner,
+      snapshot.revision,
+      snapshot.legacyRevision,
+      snapshot.storageVersion,
+    );
+  };
+}
+
+export type BuilderPersonalAccountAccess<
+  Scope extends BuilderOAuthPermissionScope,
+> =
+  | { status: "missing" }
+  | { status: "ready" }
+  | {
+      status: "reconnect_required";
+      reason: "expired" | "revoked" | "missing_scopes";
+      missingScopes: Scope[];
+    }
+  | {
+      status: "unavailable";
+      reason: "store_unavailable" | "invalid_connection";
+    };
+
+/**
+ * A personal account proof is distinct from the service grant shared with an org.
+ * Its org grant id records callback provenance, not a requirement that peers
+ * never rotate the shared grant. The caller must still be in the attested org.
+ * Keeping one token copy preserves refresh single-flight.
+ * `refresh` belongs to execution, not status polling.
+ */
+export async function resolvePersonalBuilderAccountAccess<
+  Scope extends BuilderOAuthPermissionScope,
+>(input: {
+  ownerEmail: string;
+  orgId: string | null;
+  requiredScopes: readonly Scope[];
+  refresh?: boolean;
+}): Promise<BuilderPersonalAccountAccess<Scope>> {
+  const email = normalizeOwnerEmail(input.ownerEmail);
+  const invalid = {
+    status: "unavailable",
+    reason: "invalid_connection",
+  } as const;
+  const revoked = {
+    status: "reconnect_required",
+    reason: "revoked",
+    missingScopes: [],
+  } as const;
+  try {
+    const stored = await getOAuthTokens(
+      "builder-account",
+      userOAuthKey(email),
+      `user:${email}`,
+    );
+    let link: z.infer<typeof personalBuilderLink> | undefined;
+    if (stored !== null) {
+      const parsed = personalBuilderLink.safeParse(stored?.link);
+      if (!parsed.success || parsed.data.ownerEmail !== email) return invalid;
+      link = parsed.data;
+    }
+
+    if (link?.source === "provisioned") {
+      const {
+        builderCredentialFingerprint,
+        resolveBuilderCredentialsDetailed,
+      } = await import("./credential-provider.js");
+      const credentials = await resolveBuilderCredentialsDetailed({
+        userEmail: email,
+        orgId: null,
+      });
+      if (credentials.lookupFailed)
+        return { status: "unavailable", reason: "store_unavailable" };
+      if (
+        credentials.source !== "user" ||
+        builderCredentialFingerprint(
+          credentials.privateKey,
+          credentials.publicKey,
+        ) !== link.credentialFingerprint
+      ) {
+        return { ...revoked, missingScopes: [] };
+      }
+      return { status: "ready" };
+    }
+
+    const options = userOwnerOptions(email);
+    if (link) {
+      if (link.scope === "org") {
+        if (link.scopeId !== input.orgId)
+          return { ...revoked, missingScopes: [] };
+      } else if (link.scopeId !== email) {
+        return invalid;
+      }
+    }
+    const custody =
+      link?.scope === "org" ? orgOwnerOptions(link.scopeId) : options;
+    const readState = () => getMcpOAuthConnectionState(custody);
+    let state = await readState();
+    if (state.kind === "missing")
+      return link ? { ...revoked, missingScopes: [] } : { status: "missing" };
+    if (state.kind === "malformed" || !isBuilderCredential(state.credential))
+      return invalid;
+    if (
+      link?.scope === "user" &&
+      (state.credential.builderAccountLinkId !== link.grantId ||
+        state.credential.builderAccountOwnerEmail !== email)
+    )
+      return { ...revoked, missingScopes: [] };
+
+    // Validate proof and binding before allowing the canonical resolver to refresh.
+    if (input.refresh && state.kind !== "reconnect_required") {
+      const token = await getMcpOAuthAccessToken(custody);
+      state = await readState();
+      if (state.kind === "missing") return { ...revoked, missingScopes: [] };
+      if (state.kind === "malformed" || !isBuilderCredential(state.credential))
+        return invalid;
+      if (
+        link?.scope === "user" &&
+        (state.credential.builderAccountLinkId !== link.grantId ||
+          state.credential.builderAccountOwnerEmail !== email)
+      )
+        return { ...revoked, missingScopes: [] };
+      if (!token && state.kind === "connected")
+        return { status: "unavailable", reason: "store_unavailable" };
+    }
+
+    const granted = scopesFrom(state.credential);
+    const missingScopes = input.requiredScopes.filter(
+      (scope) => !granted.includes(scope),
+    );
+    if (state.kind === "reconnect_required")
+      return { ...revoked, missingScopes };
+    if (
+      state.kind === "expired" &&
+      (input.refresh || !state.credential.tokens.refresh_token)
+    ) {
+      return { status: "reconnect_required", reason: "expired", missingScopes };
+    }
+    if (missingScopes.length)
+      return {
+        status: "reconnect_required",
+        reason: "missing_scopes",
+        missingScopes,
+      };
+    return { status: "ready" };
+  } catch {
+    return { status: "unavailable", reason: "store_unavailable" };
+  }
 }
 
 export async function finishBuilderOAuthAuthorization(input: {
@@ -441,6 +691,8 @@ export async function deleteBuilderOAuthSession(
     }
   }
   if (!selected) return { localDeleted: false, remoteRevoked: false };
+  // The authenticated disconnect route owns caller-proof removal. Revoking a
+  // shared service grant must not delete another connector's personal proof.
   const result = await revokeMcpOAuthCredentials(selected);
   return {
     localDeleted: result.local === "deleted",

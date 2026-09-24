@@ -64,6 +64,99 @@ describe("getUploadedImageAgentOptions", () => {
 });
 
 describe("startDeckGeneration", () => {
+  it("persists and sends the full explicit-none composer snapshot without importing its reference deck", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockResolvedValue({});
+    const deck = {
+      id: "snapshot-deck",
+      title: "Untitled Deck",
+      createdAt: "2026-09-22",
+      updatedAt: "2026-09-22",
+      slides: [],
+    };
+    const reference = Object.freeze({
+      source: "slides" as const,
+      id: "layout-deck",
+      title: "Layout deck",
+    });
+    const composerContext = { designSystemId: null, references: [reference] };
+    const contextItems = Object.freeze([
+      Object.freeze({
+        key: "slides:layout-deck:",
+        title: "Layout deck",
+        context: "EXACT_LAYOUT_SNAPSHOT",
+        status: "ready" as const,
+      }),
+      Object.freeze({
+        key: "mention:files:guide",
+        title: "Guide",
+        context: "EXACT_MENTION_SNAPSHOT",
+      }),
+    ]);
+    const agentSubmit = vi.fn();
+    const createDeck = vi.fn(() => deck);
+    expect(
+      await startDeckGeneration({
+        session: { user: "owner@example.test" },
+        prompt: "Create a roadmap deck",
+        files: [],
+        designSystems: [],
+        selectedDesignSystemId: "workspace-default",
+        referenceSelection: {
+          designSystemId: null,
+          referenceDeckId: null,
+          composerContext,
+          contextItems,
+        },
+        createDeck,
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).toBe("started");
+    expect(createDeck).toHaveBeenCalledWith(undefined, {
+      noDefaultSlides: true,
+      designSystemId: null,
+    });
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        deckId: deck.id,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: expect.objectContaining({
+              composerContext,
+              generationContext: expect.objectContaining({
+                composerContext,
+                contextItems,
+                designSystemId: null,
+                referenceDeckId: null,
+                mode: "new",
+              }),
+            }),
+          },
+        ],
+      }),
+    );
+    expect(agentSubmit.mock.calls[0][1]).toContain("EXACT_LAYOUT_SNAPSHOT");
+    expect(agentSubmit.mock.calls[0][1]).toContain("EXACT_MENTION_SNAPSHOT");
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "The user selected no design system",
+    );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "Never import, clone, replace",
+    );
+    expect(
+      mockCallAction.mock.calls.some(
+        ([name]) => name === "import-file" || name === "clone-deck",
+      ),
+    ).toBe(false);
+  });
   it("extracts an explicit target slide count for continuation", () => {
     expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
     expect(requestedSlideCount("Create exactly 8 slides about launches")).toBe(

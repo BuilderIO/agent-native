@@ -15,7 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -71,12 +71,15 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const formatters = useFormatters();
   const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
   const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [figmaUrl, setFigmaUrl] = useState("");
+  const [figmaUrl, setFigmaUrl] = useState(
+    () => searchParams.get("figmaUrl") ?? "",
+  );
   const [figmaAccessToken, setFigmaAccessToken] = useState("");
   const [figmaConnectionChecked, setFigmaConnectionChecked] = useState(false);
   const [figmaConnected, setFigmaConnected] = useState(false);

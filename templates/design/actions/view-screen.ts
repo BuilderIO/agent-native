@@ -1,3 +1,4 @@
+import { defineAction } from "@agent-native/core/action";
 /**
  * See what the user is currently looking at on screen.
  *
@@ -6,8 +7,6 @@
  * Usage:
  *   pnpm action view-screen
  */
-
-import { defineAction } from "@agent-native/core/action";
 import {
   listAppState,
   readAppState,
@@ -23,12 +22,16 @@ import {
   type ReviewResourceContext,
 } from "@agent-native/core/review";
 import * as reviewRuntime from "@agent-native/core/review";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
+import {
+  loadAgentDesignSystemContext,
+  readDesignSystemReference,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
@@ -274,7 +277,7 @@ export default defineAction({
               ? template.designSystemId
               : null;
           const designSystemAccess = linkedDesignSystemId
-            ? await resolveAccess("design-system", linkedDesignSystemId).catch(
+            ? await resolveDesignSystemAccess(linkedDesignSystemId).catch(
                 () => null,
               )
             : null;
@@ -329,12 +332,16 @@ export default defineAction({
           navigation,
           designSelection,
         );
+        const designSystemRef = readDesignSystemReference(
+          data.composerDesignSystemRef,
+        );
         const linkedDesignSystem = await loadAgentDesignSystemContext(
           typeof (access.resource as { designSystemId?: unknown })
             .designSystemId === "string"
             ? (access.resource as { designSystemId: string }).designSystemId
             : null,
           getDesignSystem,
+          { reference: designSystemRef },
         );
         screen.design = {
           id: designId,
@@ -348,6 +355,7 @@ export default defineAction({
               ? (access.resource as { designSystemId: string }).designSystemId
               : null,
           designSystem: linkedDesignSystem,
+          designSystemRef,
           screens: overviewScreens,
           activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),

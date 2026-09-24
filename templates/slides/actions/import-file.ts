@@ -4,6 +4,7 @@ import { defineAction } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -169,6 +170,7 @@ export default defineAction({
         );
       }
       const title = titleFromPath(filename);
+      await assertBuilderDsiAccess();
       const result = await startBuilderDesignSystemIndex({
         projectName: title,
         files: [

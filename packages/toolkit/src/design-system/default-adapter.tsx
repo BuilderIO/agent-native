@@ -874,6 +874,7 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
   onChange,
   orientation,
   activationMode,
+  display = "tabs",
   className,
   style,
   ...props
@@ -890,7 +891,10 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
     className={className}
     style={style}
   >
-    <TabsList>
+    <TabsList
+      hidden={display === "panels"}
+      className={display === "panels" ? "hidden" : undefined}
+    >
       {items.map((item) => (
         <TabsTrigger
           key={item.value}
@@ -903,7 +907,19 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
       ))}
     </TabsList>
     {items.map((item) => (
-      <TabsContent key={item.value} value={String(item.value)}>
+      <TabsContent
+        key={item.value}
+        value={String(item.value)}
+        forceMount={item.keepMounted || display === "panels" ? true : undefined}
+        {...(display === "panels"
+          ? { role: "region", hidden: false, tabIndex: undefined }
+          : item.keepMounted
+            ? {
+                hidden: item.value !== value,
+                className: item.value !== value ? "hidden" : undefined,
+              }
+            : {})}
+      >
         {item.content}
       </TabsContent>
     ))}

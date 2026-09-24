@@ -20,6 +20,7 @@ import {
   resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { useAgentChatActivity } from "./agent-chat-activity.js";
 import {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
@@ -106,6 +107,7 @@ interface PendingSend {
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  turnId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
@@ -146,6 +148,7 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
         ? { submitMessageId: send.submitMessageId }
         : {}),
       ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
+      ...(send.turnId ? { turnId: send.turnId } : {}),
       ...(send.actionScope ? { actionScope: send.actionScope } : {}),
     });
   } else {
@@ -859,10 +862,16 @@ export type MultiTabAssistantChatProps = Omit<
   scope?: ChatThreadScope | null;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
+  /** Bind an authoring surface to its persisted conversation. */
+  fixedThreadId?: string;
+  onThreadReady?: (threadId: string) => void;
   /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
   /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
   agentTeamPollMs?: number;
+  /** Bind host-controlled context to one thread; omit for project-wide context. */
+  composerContextThreadId?: string;
+  onActiveThreadChange?: (threadId: string) => void;
 };
 
 export function MultiTabAssistantChat({
@@ -877,12 +886,17 @@ export function MultiTabAssistantChat({
   threadUrlSync = false,
   scope = null,
   isolateHistoryByScope = false,
+  fixedThreadId,
+  onThreadReady,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   availableModels: hostAvailableModels,
   modelListLoading: hostModelListLoading,
   onModelChange: hostOnModelChange,
+  composerContextThreadId,
+  onActiveThreadChange,
   ...props
 }: MultiTabAssistantChatProps) {
+  const interactionActive = useAgentChatActivity();
   const translate = useT();
   const browserTabId =
     browserTabIdProp ??
@@ -1045,19 +1059,27 @@ export function MultiTabAssistantChat({
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
     browserTabId,
-    routeThreadId: threadUrlSyncEnabled
-      ? urlThreadId
-      : (activeDeepLinkedThreadId ?? undefined),
+    routeThreadId:
+      fixedThreadId ??
+      (threadUrlSyncEnabled
+        ? urlThreadId
+        : (activeDeepLinkedThreadId ?? undefined)),
     isolateHistoryByScope,
+    createMissingRouteThread: Boolean(fixedThreadId),
   });
 
   const switchThread = useCallback(
     (threadId: string, options: { replace?: boolean } = {}) => {
+      if (fixedThreadId && threadId !== fixedThreadId) return;
       switchThreadState(threadId);
-      writeThreadUrl(threadId, options);
+      if (!fixedThreadId) writeThreadUrl(threadId, options);
     },
-    [switchThreadState, writeThreadUrl],
+    [fixedThreadId, switchThreadState, writeThreadUrl],
   );
+
+  useEffect(() => {
+    if (activeThreadId) onActiveThreadChange?.(activeThreadId);
+  }, [activeThreadId, onActiveThreadChange]);
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());
@@ -1889,6 +1911,7 @@ export function MultiTabAssistantChat({
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
+    if (!interactionActive) return;
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
       if (event.data?.type === AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE) {
@@ -1937,6 +1960,11 @@ export function MultiTabAssistantChat({
       }
       const parsed = parseSubmitChatMessage(event);
       if (!parsed) return;
+      if (
+        fixedThreadId &&
+        ((parsed.tabId && parsed.tabId !== fixedThreadId) || parsed.newTab)
+      )
+        return;
       // Dedup the live post against the cold-start replay; first one wins.
       if (!claimAgentChatSubmit(parsed.submitMessageId)) return;
       const {
@@ -1988,6 +2016,7 @@ export function MultiTabAssistantChat({
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
+        ...(parsed.turnId ? { turnId: parsed.turnId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
         ...(actionScope ? { actionScope } : {}),
       };
@@ -2104,6 +2133,8 @@ export function MultiTabAssistantChat({
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, [
+    interactionActive,
+    fixedThreadId,
     availableModels,
     bumpModelSelectionVersion,
     clearContextInTab,
@@ -2121,6 +2152,7 @@ export function MultiTabAssistantChat({
   // Replay submits posted before this lazy panel's listener attached. Dedup in
   // the handler keeps a live + replayed message single.
   useEffect(() => {
+    if (!interactionActive) return;
     const buffered = drainBufferedAgentChatSubmits();
     for (const data of buffered) {
       window.dispatchEvent(
@@ -2131,7 +2163,7 @@ export function MultiTabAssistantChat({
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [interactionActive]);
 
   const flushPendingDeliveries = useCallback(
     (onlyThreadId?: string) => {
@@ -2202,6 +2234,7 @@ export function MultiTabAssistantChat({
   }, []);
 
   const addTab = useCallback(async () => {
+    if (fixedThreadId) return fixedThreadId;
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
@@ -2212,7 +2245,7 @@ export function MultiTabAssistantChat({
       writeThreadUrl(null);
     }
     return id;
-  }, [createThread, setOpenTabIds, writeThreadUrl]);
+  }, [fixedThreadId, createThread, setOpenTabIds, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {
@@ -2353,6 +2386,7 @@ export function MultiTabAssistantChat({
 
   // Keyboard shortcuts dispatched from AgentPanel based on the active mode
   useEffect(() => {
+    if (!interactionActive || fixedThreadId) return;
     const handleCloseCurrent = () => {
       const id = activeThreadIdRef.current;
       if (id) closeTab(id);
@@ -2374,9 +2408,10 @@ export function MultiTabAssistantChat({
       window.removeEventListener("agent-chat:close-all-tabs", handleCloseAll);
       window.removeEventListener("agent-chat:new-chat", handleNewChat);
     };
-  }, [closeTab, closeAllTabs, addTab]);
+  }, [interactionActive, fixedThreadId, closeTab, closeAllTabs, addTab]);
 
   useEffect(() => {
+    if (!interactionActive || fixedThreadId) return;
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
         | {
@@ -2438,7 +2473,13 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-chat:open-thread", handleOpenThread);
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-  }, [createThread, switchThread, writeThreadUrl]);
+  }, [
+    interactionActive,
+    fixedThreadId,
+    createThread,
+    switchThread,
+    writeThreadUrl,
+  ]);
 
   const clearActiveTab = useCallback(() => {
     const tabIdToClear = activeThreadIdRef.current;
@@ -2464,6 +2505,7 @@ export function MultiTabAssistantChat({
 
   // Listen for agent-task-open events (from AgentTaskCard "Open" button)
   useEffect(() => {
+    if (!interactionActive || fixedThreadId) return;
     function handleOpenTask(e: Event) {
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
@@ -2520,18 +2562,26 @@ export function MultiTabAssistantChat({
     }
     window.addEventListener("agent-task-open", handleOpenTask);
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
-  }, [openTabIds, switchThread, refreshThreads, parentMap]);
+  }, [
+    interactionActive,
+    fixedThreadId,
+    openTabIds,
+    switchThread,
+    refreshThreads,
+    parentMap,
+  ]);
 
   // Replay thread/task opens requested before this lazy panel's listeners
   // attached. Live events claim their id; replay drains only unclaimed requests.
   useEffect(() => {
+    if (!interactionActive || fixedThreadId) return;
     const buffered = drainBufferedAgentChatOpenRequests();
     for (const request of buffered) {
       window.dispatchEvent(
         new CustomEvent(request.eventType, { detail: request.detail }),
       );
     }
-  }, []);
+  }, [interactionActive, fixedThreadId]);
 
   // Watch for agent-issued chat-command in application-state. The shared
   // DB-sync transport advances this key-specific version, so the command gets
@@ -2539,6 +2589,7 @@ export function MultiTabAssistantChat({
   const lastChatCommandRef = useRef(0);
   const chatCommandVersion = useChangeVersion("app-state:chat-command");
   useEffect(() => {
+    if (!interactionActive || fixedThreadId) return;
     let stopped = false;
 
     async function readChatCommand() {
@@ -2578,7 +2629,7 @@ export function MultiTabAssistantChat({
     return () => {
       stopped = true;
     };
-  }, [chatCommandVersion, switchThread]);
+  }, [interactionActive, fixedThreadId, chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
@@ -2987,6 +3038,9 @@ export function MultiTabAssistantChat({
             const modelSelection = resolveThreadModelSelection(tabId);
             const modelSelectionPending =
               !hostManagedModels && modelListLoading && !modelSelection;
+            const contextMatchesThread =
+              composerContextThreadId === undefined ||
+              composerContextThreadId === tabId;
             const tabDynamicSuggestions =
               tabId === activeThreadId && !contentHidden
                 ? props.dynamicSuggestions
@@ -3023,11 +3077,29 @@ export function MultiTabAssistantChat({
                 />
                 <AssistantChat
                   {...props}
+                  composerContextItems={
+                    contextMatchesThread ? props.composerContextItems : []
+                  }
+                  composerContextMenuItems={
+                    contextMatchesThread ? props.composerContextMenuItems : []
+                  }
+                  onBeforeComposerSubmit={
+                    contextMatchesThread
+                      ? props.onBeforeComposerSubmit
+                      : () => false
+                  }
                   dynamicSuggestions={tabDynamicSuggestions}
                   ref={(handle) => {
                     if (handle) {
                       chatRefs.current.set(tabId, handle);
                       flushPendingDeliveries(tabId);
+                      if (
+                        interactionActive &&
+                        !isLoading &&
+                        !modelListLoading &&
+                        tabId === activeThreadId
+                      )
+                        onThreadReady?.(tabId);
                     } else {
                       chatRefs.current.delete(tabId);
                     }
@@ -3038,7 +3110,9 @@ export function MultiTabAssistantChat({
                   contextScope={scope}
                   contextNamespace={contextNamespace}
                   isolateHistoryByScope={isolateHistoryByScope}
-                  isActiveComposer={tabId === activeThreadId}
+                  isActiveComposer={
+                    interactionActive && tabId === activeThreadId
+                  }
                   apiUrl={apiUrl}
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
@@ -3082,7 +3156,12 @@ export function MultiTabAssistantChat({
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
                   composerDisabled={
-                    Boolean(parentMap[tabId]) || modelSelectionPending
+                    Boolean(parentMap[tabId]) || props.composerDisabled
+                  }
+                  composerSubmitting={
+                    props.composerSubmitting ||
+                    modelSelectionPending ||
+                    !contextMatchesThread
                   }
                   composerDisabledPlaceholder={
                     parentMap[tabId]

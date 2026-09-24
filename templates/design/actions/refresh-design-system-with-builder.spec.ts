@@ -1,3 +1,10 @@
+vi.mock("@agent-native/core/server/builder-dsi-access", () => ({
+  assertBuilderDsiAccess: vi.fn(async () => ({
+    status: "ready",
+    eligible: true,
+  })),
+  getBuilderDsiAccess: vi.fn(async () => ({ status: "ready", eligible: true })),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockHydrate = vi.fn();
@@ -73,6 +80,10 @@ describe("refresh-design-system-with-builder", () => {
       source: "builder",
       builderStatus: "in-progress",
       colors: { primary: "var(--primary)" },
+    });
+    mockAssertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { id: "local-ds-1", data: initialData },
     });
     mockResolveAccess.mockResolvedValueOnce({
       resource: { id: "local-ds-1", data: initialData },
@@ -162,6 +173,27 @@ describe("refresh-design-system-with-builder", () => {
       ),
     });
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("never promotes a prompt-context system when indexing completes", async () => {
+    const data = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+      autoDefault: false,
+    });
+    mockResolveAccess.mockReset();
+    mockResolveAccess.mockResolvedValue({
+      resource: { id: "local-ds-1", data },
+    });
+    await action.run({ id: "local-ds-1" });
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.stringContaining('"autoDefault":false'),
+      }),
+    );
+    expect(mockSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ isDefault: true }),
+    );
   });
 
   it("stops the agent turn when Builder is still processing", async () => {

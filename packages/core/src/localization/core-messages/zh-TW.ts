@@ -1,6 +1,20 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "dsi.connectRequired": "連接你的 Builder 帳戶，以建立和使用設計系統。",
+  "dsi.accessUnavailable": "無法驗證 Builder 存取權限。請重試。",
+  "composer.draftFileRestoreFailed": "無法還原草稿檔案。請在傳送前重新附加。",
+  "composer.draftFileSaveFailed":
+    "無法儲存草稿檔案以供重新載入。請保持此頁面開啟，或稍後重新附加檔案。",
+  "composer.addContext": "新增上下文",
+  "composer.contextActionFailed": "無法新增上下文。",
+  "composer.attachFiles": "附加檔案",
+  "composer.contextBack": "返回",
+  "composer.searchContext": "搜尋上下文…",
+  "composer.noContextResults": "沒有相符的上下文。",
+  "composer.contextPending": "上下文載入中",
+  "composer.contextError": "上下文載入失敗",
+  "composer.retryContext": "重試 {{name}} 上下文",
   "activity.reasoning": "推理",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",

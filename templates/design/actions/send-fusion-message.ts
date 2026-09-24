@@ -60,8 +60,11 @@ export default defineAction({
 
     return {
       sent: result.sent,
+      outcome: result.outcome,
+      doneObserved: result.doneObserved,
       message: result.response,
       error: result.error,
+      diagnostics: result.diagnostics,
     };
   },
 });

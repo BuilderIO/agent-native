@@ -1,7 +1,6 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 import {
   generateTabId,
-  AgentChatSurface,
   buildDynamicAgentSuggestions,
   type AgentDynamicSuggestionContext,
   isAssistantChatHistoryVersion,
@@ -393,6 +392,7 @@ import {
   DesignAccessState,
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
+import { DesignAgentChatSurface } from "@/components/editor/DesignAgentChatSurface";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -489,6 +489,10 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
+import {
+  formatComposerContext,
+  SYSTEM_CONTEXT_KEY,
+} from "@/lib/composer-context";
 import { readDesignClipboardPayloadFromSystem } from "@/lib/design-clipboard";
 import {
   type DesignClipboardPayload,
@@ -503,7 +507,6 @@ import {
   journalDesignSaveOutboxEntry,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   DESIGN_HISTORY_OPEN_EVENT,
   DESIGN_UI_TOGGLE_EVENT,
@@ -1025,6 +1028,7 @@ import {
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
+  normalizeDesignLeftPanel,
   resolveSpaceForwardTransition,
   resolveToolAfterSelection,
   shouldAskOnNewDesignArrival,
@@ -1888,7 +1892,10 @@ function DesignEditor() {
   const reviewFocusNonceRef = useRef(0);
   const openedReviewHashRef = useRef<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] =
-    useState<DesignLeftPanel | null>("file");
+    useState<DesignLeftPanel | null>(
+      () =>
+        normalizeDesignLeftPanel(initialSearchParams.get("panel")) ?? "file",
+    );
   const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
@@ -3479,6 +3486,7 @@ function DesignEditor() {
     const pending = readPendingGeneration(id);
     if (pending?.prompt) {
       setRetryablePrompt({
+        contextItems: pending.contextItems,
         prompt: pending.prompt,
         files: Array.isArray(pending.files) ? pending.files : [],
         model: pending.model,
@@ -3609,6 +3617,7 @@ function DesignEditor() {
       setGenerationChatTabId(runTabId);
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
       patchPendingGeneration(id, {
+        contextItems: pending?.contextItems,
         prompt: pending?.prompt ?? "Continue from answered design questions.",
         files: pending?.files ?? [],
         title: pending?.title,
@@ -3645,7 +3654,12 @@ function DesignEditor() {
       prompt: pending.prompt,
       designSystemId: pending.designSystemId,
       images: imageAttachmentsFromUploadedFiles(files),
-      uploadedFileContext: formatUploadedFileContext(files),
+      uploadedFileContext: [
+        formatUploadedFileContext(files),
+        formatComposerContext(pending.contextItems),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     };
   }, [id]);
   const {
@@ -4679,19 +4693,8 @@ function DesignEditor() {
     [creativeContextState, t],
   );
   const resolvePromptDesignSystemId = useCallback(() => {
-    if (design?.designSystemId) return design.designSystemId;
-    if (
-      defaultSystem &&
-      isDesignSystemUsableForGeneration(defaultSystem.data)
-    ) {
-      return defaultSystem.id;
-    }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
-  }, [defaultSystem, design?.designSystemId, designSystems]);
+    return design?.designSystemId ?? null;
+  }, [design?.designSystemId]);
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined
@@ -4705,7 +4708,7 @@ function DesignEditor() {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
       if (open) {
-        setPromptDesignSystemId(design?.designSystemId ?? undefined);
+        setPromptDesignSystemId(design?.designSystemId ?? null);
       } else {
         setPromptDesignSystemId(undefined);
       }
@@ -4735,7 +4738,7 @@ function DesignEditor() {
   );
 
   const persistPromptDesignSystem = useCallback(
-    (designSystemId: string | null | undefined) => {
+    async (designSystemId: string | null | undefined) => {
       if (
         designSystemId === undefined ||
         !id ||
@@ -4748,13 +4751,14 @@ function DesignEditor() {
         if (!old || typeof old !== "object") return old;
         return { ...old, designSystemId };
       });
-      updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
-        },
-      });
+      try {
+        await updateDesignMutation.mutateAsync({ id, designSystemId } as any);
+      } catch (error) {
+        await queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+        throw error;
+      }
     },
     [
       canEditDesign,
@@ -24942,7 +24946,7 @@ function DesignEditor() {
                 {hostEmbeddedEditor ? (
                   <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
                 ) : canEditDesign ? (
-                  <AgentChatSurface
+                  <DesignAgentChatSurface
                     mode="panel"
                     className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                     chatOnly={true}
@@ -26438,6 +26442,8 @@ function DesignEditor() {
 
       {/* ── Render: prompt popovers ── */}
       <PromptPopover
+        designId={id}
+        draftScope={`design:${id}:generate`}
         scopeDraftsToOrg={isSignedIn}
         open={showPrompt}
         onOpenChange={handlePromptOpenChange}
@@ -26452,7 +26458,12 @@ function DesignEditor() {
             window.parent.postMessage(
               {
                 type: "agentNative.submitChat",
-                data: { message: prompt, submit: true },
+                data: {
+                  message: [prompt, formatComposerContext(options.contextItems)]
+                    .filter(Boolean)
+                    .join("\n\n"),
+                  submit: true,
+                },
               },
               parentOriginRef.current ?? window.location.origin,
             );
@@ -26466,11 +26477,14 @@ function DesignEditor() {
             throw new Error(issue);
           }
           const designSystemId = selectedPromptDesignSystemId;
-          persistPromptDesignSystem(designSystemId);
+          await persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
           const images = imageAttachmentsFromUploadedFiles(files);
-          const designSystemContext =
-            await loadDesignSystemGenerationContext(designSystemId);
+          const designSystemContext = options.contextItems?.some(
+            (item) => item.key === SYSTEM_CONTEXT_KEY,
+          )
+            ? ""
+            : await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
           const intake =
@@ -26492,6 +26506,7 @@ function DesignEditor() {
             designSystemId ? `Design system id: "${designSystemId}"` : "",
             designSystemContext,
             fileContext,
+            formatComposerContext(options.contextItems),
             "",
             ...(shouldExploreVariants
               ? designVariantGenerationDirectives(id, designSystemId)
@@ -26566,7 +26581,10 @@ function DesignEditor() {
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
-        onDesignSystemChange={setPromptDesignSystemId}
+        onDesignSystemChange={(systemId) => {
+          setPromptDesignSystemId(systemId);
+          return persistPromptDesignSystem(systemId);
+        }}
         creativeContexts={creativeContextEnabled ? creativeContextOptions : []}
         creativeContextsLoading={
           creativeContextEnabled && creativeContextsQuery.isLoading
@@ -26585,10 +26603,17 @@ function DesignEditor() {
         }}
       />
       <PromptPopover
+        designId={id}
+        draftScope={`design:${id}:tweaks`}
         scopeDraftsToOrg={isSignedIn}
         open={showTweakPrompt && tweaksEnabled}
         onOpenChange={handleTweakPromptOpenChange}
         title={t("designEditor.tweaksPromptTitle")}
+        selectedDesignSystemId={selectedPromptDesignSystemId}
+        onDesignSystemChange={(systemId) => {
+          setPromptDesignSystemId(systemId);
+          return persistPromptDesignSystem(systemId);
+        }}
         placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}
         loading={false}

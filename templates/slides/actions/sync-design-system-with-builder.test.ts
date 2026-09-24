@@ -1,3 +1,10 @@
+vi.mock("@agent-native/core/server/builder-dsi-access", () => ({
+  assertBuilderDsiAccess: vi.fn(async () => ({
+    status: "ready",
+    eligible: true,
+  })),
+  getBuilderDsiAccess: vi.fn(async () => ({ status: "ready", eligible: true })),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -42,6 +49,10 @@ describe("sync-design-system-with-builder", () => {
     vi.clearAllMocks();
     mocks.getRequestOrgId.mockReturnValue("org-editor-context");
     mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { id: "shared-design-system", data: "{}" },
+    });
     mocks.resolveAccess.mockResolvedValue({
       role: "editor",
       resource: {

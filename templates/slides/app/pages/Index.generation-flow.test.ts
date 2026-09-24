@@ -252,11 +252,13 @@ describe("new deck generation flow", () => {
   });
 
   it("preserves the composer model selection through the reference step", () => {
-    expect(source).toContain("options?: PromptComposerSubmitOptions");
+    expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
     expect(flow).toContain("...modelSelection");
     expect(onboardingSource).toContain("setPromptModelSelection");
-    expect(onboardingSource).toContain("modelSelection: promptModelSelection");
+    expect(onboardingSource).toContain(
+      "modelSelection: submitted?.modelSelection ?? promptModelSelection",
+    );
     expect(onboardingSource).toContain(
       "selectedModel={promptModelSelection?.model}",
     );

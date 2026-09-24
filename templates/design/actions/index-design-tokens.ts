@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import type { DesignSystemData } from "../shared/api.js";
 import {
@@ -208,10 +209,7 @@ export default defineAction({
       // Design systems are their own access boundary (same pattern as
       // get-design-system.ts). A user who can read the design but has no
       // access to the linked design system must NOT receive its tokens.
-      const dsAccess = await resolveAccess(
-        "design-system",
-        design.designSystemId,
-      );
+      const dsAccess = await resolveDesignSystemAccess(design.designSystemId);
 
       const [dsRow] = dsAccess
         ? await db

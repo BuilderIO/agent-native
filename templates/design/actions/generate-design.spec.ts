@@ -149,6 +149,22 @@ const mocks = vi.hoisted(() => {
     },
     getDesignData: () => designData,
     mutateDesignData: vi.fn(),
+    getDesignSystem: vi.fn(
+      async ({
+        id,
+        ownerApp = "design",
+        consumedRevision = 11,
+      }: {
+        id: string;
+        ownerApp?: string;
+        consumedRevision?: number;
+      }) => ({
+        id,
+        title: "Actual system",
+        agentContext: "Actual tokens",
+        reference: { systemId: id, ownerApp, revision: consumedRevision },
+      }),
+    ),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...conditions) => ({ conditions })),
     inArray: vi.fn((column, values) => ({ column, values })),
@@ -268,6 +284,7 @@ vi.mock("../server/db/index.js", () => {
       id: "designs.id",
       title: "designs.title",
       data: "designs.data",
+      designSystemId: "designs.designSystemId",
     },
   };
   mocks.schemaRef.designFiles = schema.designFiles;
@@ -278,8 +295,14 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
-vi.mock("../server/lib/design-data-mutation.js", () => ({
+vi.mock("../server/lib/design-data-mutation.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/design-data-mutation.js")
+  >()),
   mutateDesignData: mocks.mutateDesignData,
+}));
+vi.mock("./get-design-system.js", () => ({
+  default: { run: mocks.getDesignSystem },
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -348,6 +371,120 @@ function setExistingFile(
     },
   ]);
 }
+
+describe("generate-design native consumed references", () => {
+  const reference = {
+    id: "system",
+    ownerApp: "design" as const,
+    consumedRevision: 11,
+  };
+  const input = {
+    designId: "design-1",
+    prompt: "A system screen",
+    files: [
+      {
+        filename: "index.html",
+        fileType: "html" as const,
+        content: "<html><body><button>Continue</button></body></html>",
+      },
+    ],
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.readAppState.mockResolvedValue(null);
+    mocks.getGenerationCreativeContext.mockResolvedValue(null);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+    setExistingFile("<html><body>Before</body></html>");
+    mocks.setDesignRows([
+      {
+        id: "design-1",
+        title: "System screen",
+        data: "{}",
+        designSystemId: null,
+      },
+    ]);
+  });
+  it.each([false, true])(
+    "retains a consumed pin when the local ID is repeated or omitted (%s)",
+    async (repeatId) => {
+      const data = {
+        composerDesignSystemRef: reference,
+        concurrentSibling: { keep: true },
+      };
+      mocks.setDesignData(data);
+      mocks.setDesignRows([
+        {
+          id: "design-1",
+          title: "System screen",
+          data: JSON.stringify(data),
+          designSystemId: "system",
+        },
+      ]);
+      const result = await action.run({
+        ...input,
+        ...(repeatId ? { designSystemId: "system" } : {}),
+      });
+      expect(result.designSystemRef).toEqual(reference);
+      expect(mocks.getDesignSystem).toHaveBeenCalledWith({
+        id: "system",
+        ownerApp: "design",
+        consumedRevision: 11,
+        compact: "true",
+      });
+      expect(mocks.getDesignData()).toMatchObject(data);
+    },
+  );
+  it("persists a foreign reference through the data merge while clearing the local ID column", async () => {
+    const foreign = { ...reference, ownerApp: "slides" as const };
+    const result = await action.run({ ...input, designSystemRef: foreign });
+    expect(result.designSystemRef).toEqual(foreign);
+    expect(mocks.getDesignData()).toMatchObject({
+      composerDesignSystemRef: foreign,
+      concurrentSibling: { keep: true },
+    });
+    expect(mocks.designUpdateChain.set).toHaveBeenCalledWith({
+      designSystemId: null,
+    });
+  });
+  it("pins the actual resolved revision for a legacy linked row", async () => {
+    mocks.setDesignRows([
+      { id: "design-1", data: "{}", designSystemId: "system" },
+    ]);
+    await action.run(input);
+    expect(mocks.getDesignData().composerDesignSystemRef).toEqual(reference);
+  });
+  it("explicit null unlinks without reading the previously selected system", async () => {
+    mocks.setDesignData({ composerDesignSystemRef: reference });
+    mocks.setDesignRows([
+      {
+        id: "design-1",
+        data: JSON.stringify({ composerDesignSystemRef: reference }),
+        designSystemId: "system",
+      },
+    ]);
+    await action.run({ ...input, designSystemRef: null });
+    expect(mocks.getDesignData().composerDesignSystemRef).toBeNull();
+    expect(mocks.getDesignSystem).not.toHaveBeenCalled();
+  });
+  it.each([403, 409])(
+    "rejects forbidden/stale pins before any file or data write (%s)",
+    async (statusCode) => {
+      mocks.getDesignSystem.mockRejectedValueOnce(
+        Object.assign(new Error("Unavailable pin"), { statusCode }),
+      );
+      await expect(
+        action.run({ ...input, designSystemRef: reference }),
+      ).rejects.toMatchObject({ statusCode });
+      expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+      expect(mocks.insert).not.toHaveBeenCalled();
+      expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    },
+  );
+});
 
 describe("generate-design action tool schema", () => {
   it("exposes a lean native-tool schema while retaining Zod validation", () => {

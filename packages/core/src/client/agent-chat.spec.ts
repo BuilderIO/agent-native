@@ -718,6 +718,37 @@ describe("sendToAgentChat", () => {
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });
 
+  it("coalesces an in-flight handoff and retries with the same logical turn after a client-only ACK", async () => {
+    vi.useFakeTimers();
+    const opts = {
+      message: "Ask for direction",
+      submit: true,
+      chatTarget: "local" as const,
+      tabId: "system-thread",
+      submitMessageId: "durable-kickoff",
+      turnId: "durable-kickoff",
+    };
+    const first = sendToAgentChatAndConfirm(opts);
+    const second = sendToAgentChatAndConfirm(opts);
+    expect(first).toBe(second);
+    vi.advanceTimersByTime(0);
+    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
+    expect(payload.data.turnId).toBe("durable-kickoff");
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)?.turnId,
+    ).toBe("durable-kickoff");
+    reportAgentChatSubmitResult("durable-kickoff", true);
+    await expect(first).resolves.toMatchObject({ delivered: true });
+    const retried = sendToAgentChatAndConfirm(opts);
+    expect(retried).not.toBe(first);
+    vi.advanceTimersByTime(0);
+    expect(selfPostMessageSpy.mock.calls.at(-1)?.[0].data.turnId).toBe(
+      "durable-kickoff",
+    );
+    reportAgentChatSubmitResult("durable-kickoff", true);
+    await retried;
+  });
+
   it("preserves an explicit local rejection reason", async () => {
     vi.useFakeTimers();
     const resultPromise = sendToAgentChatAndConfirm({

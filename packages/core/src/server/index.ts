@@ -650,6 +650,8 @@ export {
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
+  resolveBuilderDesignSystemEditor,
+  isBuilderEditorUrl,
   startBuilderDesignSystemIndex,
   startBuilderDesignSystemUpload,
   type BuildBuilderDesignSystemIndexFilesOptions,
@@ -663,6 +665,7 @@ export {
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
   type BuilderDesignSystemRecord,
+  type BuilderDesignSystemEditorResult,
   type BuilderDesignSystemStatus,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,
@@ -674,6 +677,12 @@ export {
   type BuilderDesignSystemProxyReference,
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
+export {
+  assertBuilderDsiAccess,
+  getBuilderDsiAccess,
+  BuilderDsiAccessError,
+  type BuilderDsiAccess,
+} from "./builder-dsi-access.js";
 export {
   createBuilderProject,
   ensureBuilderProject,

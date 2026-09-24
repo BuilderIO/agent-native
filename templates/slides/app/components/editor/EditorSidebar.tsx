@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/tooltip";
 import { defaultSlideContent, type Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -93,7 +94,11 @@ interface EditorSidebarProps {
   /** Submits the add-slide agent request. Owned by the parent (rather than
    *  this component's own useAgentGenerating() call) so the run stays
    *  correctly scoped and trackable across a sidebar remount. */
-  addSlideAgentSubmit: (message: string, context: string) => void;
+  addSlideAgentSubmit: (
+    message: string,
+    context: string,
+    options?: SlidesPromptSubmitOptions,
+  ) => void;
   /** Whether a slide is currently on the cut/copy clipboard, so the rail's
    *  right-click menu can disable Paste when there's nothing to paste. */
   hasSlideClipboard?: boolean;
@@ -1035,7 +1040,7 @@ export default function EditorSidebar({
           activeSlideIndex={describeSlideIndex}
           slideCount={slides.length}
           targetSlideId={describeSlideId}
-          agentSubmit={async (message, context) => {
+          agentSubmit={async (message, context, options) => {
             onAddSlideGeneratingChange?.(true, describeSlideId);
             try {
               await onAwaitAddSlidePersisted?.();
@@ -1056,7 +1061,7 @@ export default function EditorSidebar({
               toast.error(t("editorSidebar.newSlideSaveFailed"));
               return false;
             }
-            addSlideAgentSubmit(message, context);
+            addSlideAgentSubmit(message, context, options);
             return true;
           }}
         />

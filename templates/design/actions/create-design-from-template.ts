@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import {
   extractTemplateFonts,
   redactTemplateDesignData,
@@ -148,10 +149,8 @@ export default defineAction({
     let linkedDesignSystemId =
       designSystemId === undefined ? templateDesignSystemId : designSystemId;
     if (linkedDesignSystemId) {
-      const designSystemAccess = await resolveAccess(
-        "design-system",
-        linkedDesignSystemId,
-      );
+      const designSystemAccess =
+        await resolveDesignSystemAccess(linkedDesignSystemId);
       if (!designSystemAccess) {
         if (designSystemId !== undefined) {
           throw new Error("Design system not found");

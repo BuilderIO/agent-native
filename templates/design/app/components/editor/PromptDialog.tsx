@@ -11,38 +11,36 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import type { Reference } from "@agent-native/toolkit/composer";
 import {
   IconApps,
   IconArtboard,
   IconBrain,
   IconPalette,
-  IconPhoto,
-  IconPlus,
   IconSparkles,
-  IconUpload,
   IconX,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
 import {
-  DesignSystemPickerControl,
   TemplatePickerControl,
   type PromptDesignSystemOption,
   type PromptTemplateOption,
 } from "@/components/editor/design-start-pickers";
+import { DesignContextPicker } from "@/components/editor/DesignContextPicker";
+import { useDesignPromptContext } from "@/components/editor/use-design-prompt-context";
+import { formatComposerReferences } from "@/lib/composer-context";
 
 export type {
   PromptDesignSystemOption,
   PromptTemplateOption,
 } from "@/components/editor/design-start-pickers";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
 } from "@/components/ui/popover";
 import {
   Select,
@@ -51,11 +49,6 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +75,58 @@ const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+
+export async function uploadPromptFilesToServer(
+  files: File[],
+  t: ReturnType<typeof useT>,
+): Promise<UploadedFile[]> {
+  if (files.length === 0) return [];
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
+    );
+  }
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+  const response = await fetch(`${appBasePath()}/api/uploads`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
+    const body = await response.json().catch(() => null);
+    throw new Error(
+      typeof body?.error === "string"
+        ? body.error
+        : `Upload failed (${response.status})`,
+    );
+  }
+  const uploaded = (await response.json()) as UploadedFile[];
+  if (
+    !Array.isArray(uploaded) ||
+    uploaded.length !== files.length ||
+    uploaded.some((file) => !file.path || !file.originalName)
+  ) {
+    throw new Error(t("promptDialog.failedToUploadFile"));
+  }
+  const imageFileCount =
+    files.filter((file) =>
+      CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
+    ).length || 1;
+  const maxImageDataUrlBytes = Math.min(
+    DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+    Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+  );
+  const visualAttachments = await Promise.all(
+    files.map((file) => readChatImageAttachment(file, maxImageDataUrlBytes)),
+  );
+  return uploaded.map((file, index) =>
+    visualAttachments[index]
+      ? { ...file, dataUrl: visualAttachments[index] }
+      : file,
+  );
+}
 const IMAGE_COMPRESSION_PASSES = [
   { maxDimension: 1400, jpegQuality: 0.76 },
   { maxDimension: 1024, jpegQuality: 0.7 },
@@ -334,6 +379,7 @@ function AssetsPickerSkeleton() {
 export type PromptCreationMode = "design" | "app";
 
 interface PromptPopoverProps {
+  designId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -356,7 +402,7 @@ interface PromptPopoverProps {
   designSystems?: PromptDesignSystemOption[];
   designSystemsLoading?: boolean;
   selectedDesignSystemId?: string | null;
-  onDesignSystemChange?: (id: string | null) => void;
+  onDesignSystemChange?: (id: string | null) => void | Promise<void>;
   onCreateDesignSystem?: () => void;
   creativeContexts?: PromptCreativeContextOption[];
   creativeContextsLoading?: boolean;
@@ -402,7 +448,7 @@ function isNestedPromptPopoverTarget(target: EventTarget | null) {
     target instanceof Element &&
     Boolean(
       target.closest(
-        "[data-agent-native-composer-popover],[data-assets-picker-dialog],[data-agent-native-prompt-select],[data-agent-native-template-popover]",
+        "[data-agent-native-composer-popover],[data-assets-picker-dialog],[data-agent-native-prompt-select],[data-agent-native-template-popover],[data-design-context-picker]",
       ),
     )
   );
@@ -431,12 +477,13 @@ function hasOpenNestedPromptPopoverSurface() {
       '[data-agent-native-composer-popover][data-state="open"],' +
         "[data-assets-picker-dialog]," +
         '[data-agent-native-prompt-select][data-state="open"],' +
-        '[data-agent-native-template-popover][data-state="open"]',
+        '[data-agent-native-template-popover][data-state="open"],[data-design-context-picker]',
     ),
   );
 }
 
 export default function PromptPopover({
+  designId,
   open,
   onOpenChange,
   title,
@@ -467,6 +514,13 @@ export default function PromptPopover({
   scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
+  const context = useDesignPromptContext({
+    designId,
+    originScopeKey: draftScope ?? title,
+    selectedSystemId: selectedDesignSystemId,
+    onSystemChange: onDesignSystemChange,
+    enabled: open && scopeDraftsToOrg,
+  });
   // Composer drafts persist to localStorage, which is scoped to the browser
   // origin, not to the signed-in account — switching orgs is a client-side
   // transition with no reload and no storage clear (see useSwitchOrg). Fold
@@ -571,49 +625,7 @@ export default function PromptPopover({
   }, [open]);
 
   const uploadFilesToServer = useCallback(
-    async (files: File[]): Promise<UploadedFile[]> => {
-      if (files.length === 0) return [];
-      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-      if (totalBytes > MAX_UPLOAD_BYTES) {
-        throw new Error(
-          t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
-        );
-      }
-      const formData = new FormData();
-      files.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
-        const body = await res.json().catch(() => null);
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : `Upload failed (${res.status})`,
-        );
-      }
-      const uploaded = (await res.json()) as UploadedFile[];
-      const imageFileCount =
-        files.filter((file) =>
-          CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
-        ).length || 1;
-      const maxImageDataUrlBytes = Math.min(
-        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
-        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
-      );
-      const visualAttachments = await Promise.all(
-        files.map((file) =>
-          readChatImageAttachment(file, maxImageDataUrlBytes),
-        ),
-      );
-      return uploaded.map((file, index) =>
-        visualAttachments[index]
-          ? { ...file, dataUrl: visualAttachments[index] }
-          : file,
-      );
-    },
+    (files: File[]) => uploadPromptFilesToServer(files, t),
     [t],
   );
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
@@ -670,30 +682,11 @@ export default function PromptPopover({
     [selectedUploadFiles, syncFiles, t, uploadFiles],
   );
 
-  const handleUploadFiles = useCallback(
-    (files: File[]) => {
-      setSelectedUploadFiles((current) => [...current, ...files]);
-      syncFiles([
-        ...composerFilesRef.current,
-        ...selectedUploadFiles,
-        ...files,
-      ]);
-      void uploadFiles(files).catch((error) => {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("promptDialog.failedToUploadFile"),
-        );
-      });
-    },
-    [selectedUploadFiles, syncFiles, t, uploadFiles],
-  );
-
   const handleSubmit = useCallback(
     async (
       text: string,
       files: File[],
-      _references: unknown,
+      references: Reference[],
       options: PromptComposerSubmitOptions,
     ) => {
       const allFiles = [...files, ...selectedUploadFiles];
@@ -720,7 +713,14 @@ export default function PromptPopover({
       }
       try {
         retainFiles(allFiles);
-        await onSubmit(text, [...uploaded, ...pickedAssets], options);
+        await context.flush();
+        await onSubmit(
+          [text, formatComposerReferences(references)]
+            .filter(Boolean)
+            .join("\n\n"),
+          [...uploaded, ...pickedAssets],
+          options,
+        );
         commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
@@ -750,6 +750,7 @@ export default function PromptPopover({
       selectedUploadFiles,
       t,
       uploadFiles,
+      context,
     ],
   );
 
@@ -1011,13 +1012,11 @@ export default function PromptPopover({
             draftScope={orgScopedDraftScope}
             initialText={restoredPromptText}
             initialTextKey={restoredPromptKey}
-            attachButton={
-              <PromptAttachmentMenu
-                disabled={loading || uploading || submitting}
-                onUploadFiles={handleUploadFiles}
-                onPickAsset={() => setAssetsPickerOpen(true)}
-              />
-            }
+            contextItems={context.contextItems}
+            contextMenuItems={context.contextMenuItems}
+            onRemoveContextItem={context.onRemoveContextItem}
+            onInspectContextItem={context.onInspectContextItem}
+            onRetryContextItem={context.onRetryContextItem}
           />
         </div>
         {!showStartChoice &&
@@ -1036,44 +1035,6 @@ export default function PromptPopover({
                     onChange={onTemplateChange}
                   />
                   <span aria-hidden="true" className="size-9" />
-                </>
-              ) : null}
-              {onDesignSystemChange || onCreateDesignSystem ? (
-                <>
-                  <DesignSystemPickerControl
-                    designSystems={designSystems}
-                    loading={designSystemsLoading}
-                    selectedId={selectedDesignSystemId ?? null}
-                    onChange={(id) => onDesignSystemChange?.(id)}
-                    onSelectClosed={markNestedSelectJustClosed}
-                  />
-                  {onCreateDesignSystem ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="size-9 shrink-0"
-                          onClick={() => {
-                            trackEvent("design_system_creator_opened", {
-                              app_name: "design",
-                              template_name: "design",
-                            });
-                            onCreateDesignSystem();
-                          }}
-                          aria-label={t("promptDialog.createDesignSystem")}
-                        >
-                          <IconPlus className="size-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("promptDialog.createDesignSystem")}
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span aria-hidden="true" className="size-9" />
-                  )}
                 </>
               ) : null}
               {showCreativeContextPicker ? (
@@ -1199,6 +1160,11 @@ export default function PromptPopover({
           </div>
         )}
 
+        <DesignContextPicker
+          controller={context}
+          selectedSystemId={selectedDesignSystemId}
+          onSystemChange={onDesignSystemChange}
+        />
         <AssetsPickerDialog
           open={assetsPickerOpen}
           onOpenChange={setAssetsPickerOpen}
@@ -1206,100 +1172,6 @@ export default function PromptPopover({
           onReady={handleAssetsPickerReady}
           onMessage={handleAssetsPickerMessage}
         />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function PromptAttachmentMenu({
-  disabled,
-  onUploadFiles,
-  onPickAsset,
-}: {
-  disabled?: boolean;
-  onUploadFiles: (files: File[]) => void;
-  onPickAsset: () => void;
-}) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          if (files.length > 0) {
-            trackEvent("design_attachment_source_selected", {
-              app_name: "design",
-              template_name: "design",
-              source: "upload",
-              attachment_count: Math.min(files.length, 10),
-            });
-          }
-          onUploadFiles(files);
-          event.target.value = "";
-          setOpen(false);
-        }}
-      />
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label={t("promptDialog.addAttachment")}
-        >
-          <IconPlus className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        data-agent-native-composer-popover
-        className="w-52 p-1"
-      >
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
-          onClick={() => inputRef.current?.click()}
-        >
-          <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>
-            <span className="block font-medium text-foreground">
-              {t("promptDialog.uploadFile")}
-            </span>
-            <span className="block text-[10px] text-muted-foreground">
-              {t("promptDialog.uploadFileDescription")}
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
-          onClick={() => {
-            trackEvent("design_attachment_source_selected", {
-              app_name: "design",
-              template_name: "design",
-              source: "asset_picker",
-            });
-            setOpen(false);
-            onPickAsset();
-          }}
-        >
-          <IconPhoto className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>
-            <span className="block font-medium text-foreground">
-              {t("promptDialog.pickAsset")}
-            </span>
-            <span className="block text-[10px] text-muted-foreground">
-              {t("promptDialog.pickAssetDescription")}
-            </span>
-          </span>
-        </button>
       </PopoverContent>
     </Popover>
   );

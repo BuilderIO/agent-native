@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { resolveAccess, assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import {
+  assertDesignSystemAccess,
+  resolveDesignSystemAccess,
+} from "../server/lib/design-system-dsi-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -15,9 +18,9 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designSystemId }) => {
-    await assertAccess("design-system", designSystemId, "viewer");
+    await assertDesignSystemAccess(designSystemId, "viewer");
 
-    const access = await resolveAccess("design-system", designSystemId);
+    const access = await resolveDesignSystemAccess(designSystemId);
     if (!access) {
       throw new Error("Design system not found");
     }

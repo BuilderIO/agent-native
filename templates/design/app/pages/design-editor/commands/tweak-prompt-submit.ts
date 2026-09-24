@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { formatComposerContext } from "@/lib/composer-context";
 import { TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE } from "@/pages/design-editor/editor-constants";
 import {
   formatTweakDefinitionsContext,
@@ -64,6 +65,7 @@ export function runTweakPromptSubmit(
     "Current selected tweak values:",
     currentSelections,
     fileContext,
+    formatComposerContext(options.contextItems),
     "",
     "Add or update live tweak controls for this design. Keep existing useful tweak controls unless the user explicitly asks to replace them.",
     "If a requested control needs a new CSS custom property, first read the live design with `get-design-snapshot`, update the relevant HTML/CSS so the property is used, then persist the complete updated tweak definition list through `generate-design`.",

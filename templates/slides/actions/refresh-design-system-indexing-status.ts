@@ -3,11 +3,11 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemAccess } from "../server/lib/design-system-dsi-access.js";
 import { getDesignSystemIndexingStatus } from "../shared/design-system-validation.js";
 
 export default defineAction({
@@ -22,7 +22,7 @@ export default defineAction({
     id: z.string().min(1).describe("Local design system id"),
   }),
   run: async ({ id }) => {
-    const access = await assertAccess("design-system", id, "viewer");
+    const access = await assertDesignSystemAccess(id, "viewer");
     const reference = parseBuilderDesignSystemProxyReference(
       access.resource.data,
     );

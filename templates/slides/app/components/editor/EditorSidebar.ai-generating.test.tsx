@@ -11,6 +11,10 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Slide } from "@/context/DeckContext";
+vi.mock("./SlidesComposerContext", async () => {
+  const composer = await import("@agent-native/core/client/composer");
+  return { SlidesPromptComposer: composer.PromptComposer };
+});
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -18,6 +22,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: vi.fn(),
   getBrowserTabId: () => "test-tab",
   useAvatarUrl: () => null,
 }));

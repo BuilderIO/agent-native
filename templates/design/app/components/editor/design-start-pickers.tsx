@@ -19,6 +19,13 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -215,34 +222,94 @@ export function DesignSystemPickerControl({
   selectedId,
   onChange,
   onSelectClosed,
+  variant = "default",
 }: {
   designSystems: PromptDesignSystemOption[];
   loading: boolean;
   selectedId: string | null;
   onChange: (id: string | null) => void;
   onSelectClosed?: () => void;
+  variant?: "default" | "toolbar";
 }) {
   const t = useT();
   const selected =
     designSystems.find((system) => system.id === selectedId) ?? null;
-  return loading ? (
-    <Skeleton className="h-9 w-full rounded-md" />
-  ) : designSystems.length > 0 ? (
+  const choose = (value: string) => {
+    trackEvent("design_system_selected", {
+      app_name: "design",
+      template_name: "design",
+      has_design_system: value !== "none",
+    });
+    onChange(value === "none" ? null : value);
+  };
+
+  if (loading) {
+    return (
+      <Skeleton className={variant === "toolbar" ? "h-9 w-24" : "h-9 w-full"} />
+    );
+  }
+
+  if (variant === "toolbar") {
+    return (
+      <DropdownMenu
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) onSelectClosed?.();
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost-inset" size="sm">
+            <IconComponents />
+            {selected?.title ?? t("promptDialog.designSystem")}
+            <IconChevronDown />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuRadioGroup
+            value={selectedId ?? "none"}
+            onValueChange={choose}
+          >
+            <DropdownMenuRadioItem value="none">
+              {t("promptDialog.noDesignSystem")}
+            </DropdownMenuRadioItem>
+            {designSystems.map((system) => (
+              <DropdownMenuRadioItem key={system.id} value={system.id}>
+                <span className="flex min-w-0 items-center gap-2.5">
+                  {system.colors && system.colors.length > 0 ? (
+                    <span
+                      className="flex shrink-0 items-center gap-1"
+                      data-design-system-swatches
+                    >
+                      {system.colors.map((color, index) => (
+                        <span
+                          key={`${system.id}-${index}-${color}`}
+                          className="size-3 rounded-full border border-border/60"
+                          style={{ background: color }}
+                        />
+                      ))}
+                    </span>
+                  ) : null}
+                  <span className="min-w-0 truncate">{system.title}</span>
+                </span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  return (
     <Select
       value={selectedId ?? "none"}
-      onValueChange={(value) => {
-        trackEvent("design_system_selected", {
-          app_name: "design",
-          template_name: "design",
-          has_design_system: value !== "none",
-        });
-        onChange(value === "none" ? null : value);
-      }}
+      onValueChange={choose}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) onSelectClosed?.();
       }}
     >
-      <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+      <SelectTrigger
+        className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto"
+        data-design-system-picker-variant={variant}
+      >
         <IconComponents className="size-4 shrink-0 text-muted-foreground" />
         <span
           className="min-w-0 flex-1 truncate text-start"
@@ -282,11 +349,6 @@ export function DesignSystemPickerControl({
         ))}
       </SelectContent>
     </Select>
-  ) : (
-    <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
-      <IconComponents className="size-4 shrink-0" />
-      <span className="truncate">{t("promptDialog.noDesignSystem")}</span>
-    </div>
   );
 }
 

@@ -53,6 +53,18 @@ async function requestUploadSlots(files: File[]): Promise<UploadSlot[]> {
   if (slots.length !== files.length) {
     throw new Error("Upload could not be started for all files.");
   }
+  if (
+    slots.some(
+      (slot, index) =>
+        slot?.idx !== index ||
+        typeof slot.uploadUrl !== "string" ||
+        !slot.uploadUrl.trim() ||
+        typeof slot.uploadToken !== "string" ||
+        !slot.uploadToken.trim(),
+    )
+  ) {
+    throw new Error("Invalid upload slots returned.");
+  }
   return slots;
 }
 
@@ -96,7 +108,11 @@ async function queryCommittedOffset(
     headers: { "Content-Range": `bytes */${total}` },
   });
   if (response.status === 200 || response.status === 201) return total;
-  if (response.status === 308) return committedOffsetFromRange(response) ?? 0;
+  if (response.status === 308) {
+    const offset = committedOffsetFromRange(response) ?? 0;
+    if (offset < total) return offset;
+    throw new Error("Upload has not finalized.");
+  }
   throw new Error(`Failed to query upload status (${response.status})`);
 }
 
@@ -157,10 +173,12 @@ async function streamFileToStorage(
         body: file.slice(offset, end),
       });
       if (response.status === 200 || response.status === 201) {
+        if (!isLast)
+          throw new Error("Upload completed before all bytes were sent.");
         offset = total;
       } else if (!isLast && response.status === 308) {
         const nextOffset = committedOffsetFromRange(response) ?? offset;
-        if (nextOffset <= offset) {
+        if (nextOffset <= offset || nextOffset > end) {
           throw new Error(`Upload stalled at byte ${offset}`);
         }
         offset = nextOffset;
@@ -184,20 +202,23 @@ async function streamFileToStorage(
 }
 
 export interface UploadAndIndexOptions {
+  autoDefault?: boolean;
   projectName?: string;
   onProgress?: (fraction: number) => void;
 }
 
 /**
- * Streams `.fig`/design files straight to storage in resumable chunks, then
- * finalizes Builder DSI indexing with the resulting upload tokens. No file
- * bytes pass through the app server, so arbitrarily large Figma files work.
+ * Streams files to Builder storage without starting an indexing job. Returns
+ * references only after every upload completes, for one later batched action.
  */
-export async function uploadAndIndexFigmaFiles(
+export async function uploadBuilderDesignSystemFiles(
   files: File[],
-  options: UploadAndIndexOptions = {},
-): Promise<BuilderIndexResult> {
+  options: { onProgress?: (fraction: number) => void } = {},
+): Promise<Array<{ name: string; uploadToken: string }>> {
   if (files.length === 0) throw new Error("No files to upload.");
+  if (files.some((file) => file.size === 0)) {
+    throw new Error("Empty files cannot be uploaded.");
+  }
 
   const slots = await requestUploadSlots(files);
 
@@ -211,12 +232,24 @@ export async function uploadAndIndexFigmaFiles(
     });
   }
 
+  return slots.map((slot, index) => ({
+    name: files[index].name,
+    uploadToken: slot.uploadToken,
+  }));
+}
+
+export async function uploadAndIndexFigmaFiles(
+  files: File[],
+  options: UploadAndIndexOptions = {},
+): Promise<BuilderIndexResult> {
+  const uploadedFiles = await uploadBuilderDesignSystemFiles(files, options);
   const res = await fetch(appApiPath("/api/index-design-system-sources"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       projectName: options.projectName,
-      uploadTokens: slots.map((slot) => slot.uploadToken),
+      autoDefault: options.autoDefault,
+      uploadTokens: uploadedFiles.map((file) => file.uploadToken),
     }),
   });
   const json = await readJson(res);

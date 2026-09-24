@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   createBuilderDesignSystemProxyFields,
   localBuilderDesignSystemId,
@@ -19,6 +20,7 @@ export async function upsertBuilderProxyDesignSystem({
   sourceKind,
   githubSources,
   localDesignSystemId: requestedLocalDesignSystemId,
+  makeDefaultIfFirst = true,
 }: {
   result: BuilderDesignSystemIndexResult;
   ownerEmail: string;
@@ -28,6 +30,7 @@ export async function upsertBuilderProxyDesignSystem({
   sourceKind?: BuilderDesignSystemSourceKind;
   githubSources?: BuilderDesignSystemGitHubSource[];
   localDesignSystemId?: string;
+  makeDefaultIfFirst?: boolean;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -48,6 +51,7 @@ export async function upsertBuilderProxyDesignSystem({
       id: schema.designSystems.id,
       ownerEmail: schema.designSystems.ownerEmail,
       orgId: schema.designSystems.orgId,
+      data: schema.designSystems.data,
     })
     .from(schema.designSystems)
     .where(
@@ -65,7 +69,15 @@ export async function upsertBuilderProxyDesignSystem({
       ? `${baseLocalDesignSystemId}-${nanoid(8)}`
       : (requestedLocalDesignSystemId ?? baseLocalDesignSystemId);
   if (existingBelongsToScope) {
-    await db
+    if (JSON.parse(existing.data).authoring !== undefined)
+      fail(
+        "This system has native authored content. Use write-design-system-artifact instead of replacing it with a Builder proxy.",
+        {
+          errorCode: "design_system_target_revision_required",
+          statusCode: 409,
+        },
+      );
+    const changed = await db
       .update(schema.designSystems)
       .set({
         title: proxyFields.title,
@@ -75,7 +87,18 @@ export async function upsertBuilderProxyDesignSystem({
         customInstructions: proxyFields.customInstructions,
         updatedAt: now,
       })
-      .where(eq(schema.designSystems.id, existing.id));
+      .where(
+        and(
+          eq(schema.designSystems.id, existing.id),
+          eq(schema.designSystems.data, existing.data),
+        ),
+      )
+      .returning({ id: schema.designSystems.id });
+    if (changed.length !== 1)
+      fail(
+        "The design system changed while Builder indexing was running. Read its latest state before retrying.",
+        { errorCode: "design_system_revision_conflict", statusCode: 409 },
+      );
   } else {
     const [ownedSystem] = await db
       .select({ id: schema.designSystems.id })
@@ -99,7 +122,7 @@ export async function upsertBuilderProxyDesignSystem({
       data: proxyFields.data,
       assets: "[]",
       customInstructions: proxyFields.customInstructions,
-      isDefault: !ownedSystem,
+      isDefault: makeDefaultIfFirst && !ownedSystem,
       ownerEmail,
       orgId: orgId ?? null,
       visibility: orgId ? "org" : "private",

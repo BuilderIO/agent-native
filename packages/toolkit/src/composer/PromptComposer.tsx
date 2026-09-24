@@ -36,12 +36,15 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
+import type { ComposerContextSnapshot } from "./context-items.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
   type EngineModelGroup,
+  type AgentChatContextItem,
   type ReasoningEffort,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
@@ -75,9 +78,15 @@ export interface PromptComposerSubmitOptions {
   engine?: string;
   effort?: ReasoningEffort;
   attachments?: ReadonlyArray<unknown>;
+  contextItems?: ComposerContextSnapshot;
 }
 
 export interface PromptComposerProps {
+  contextItems?: readonly AgentChatContextItem[];
+  onRemoveContextItem?: (key: string) => void;
+  onInspectContextItem?: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
   onSubmit: (
     text: string,
@@ -280,10 +289,8 @@ function formatInlineTextFile(name: string, text: string): string {
 }
 
 /**
- * Only a confirmed-missing engine that also has a setup component to render
- * may block typing: a disabled composer with no way out is never an acceptable
- * terminal state, and `unknown`/`unavailable` mean the status check has not
- * answered — not that no provider is configured.
+ * Setup accompanies the editable draft; provider readiness gates submission,
+ * not local typing or context selection. Unresolved status is not missing.
  */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
@@ -519,6 +526,11 @@ function PromptAttachmentStrip() {
 
 function PromptComposerInner({
   onSubmit,
+  contextItems,
+  onRemoveContextItem,
+  onInspectContextItem,
+  onRetryContextItem,
+  contextMenuItems,
   placeholder,
   ariaLabel,
   disabled,
@@ -578,7 +590,6 @@ function PromptComposerInner({
   composerRef,
 }: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
-  const t = adapters.translate!;
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
   const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
@@ -666,6 +677,10 @@ function PromptComposerInner({
     ),
   });
   const ensureEngineReadyBeforeSubmit = useCallback(async () => {
+    if (agentEngineConfigured.state === "missing") {
+      bounceMissingKeySetup();
+      return false;
+    }
     if (agentEngineConfigured.state !== "unknown") return true;
     const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
       timeoutMs: 5_000,
@@ -678,7 +693,7 @@ function PromptComposerInner({
   }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
 
   useEffect(() => {
-    if (!autoFocus || gateComposer) return;
+    if (!autoFocus) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -687,7 +702,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, gateComposer, handleRef]);
+  }, [autoFocus, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -712,6 +727,9 @@ function PromptComposerInner({
         engine: composerEngine,
         effort: composerEffort,
         attachments,
+        ...(submitOptions?.contextItems === undefined
+          ? {}
+          : { contextItems: submitOptions.contextItems }),
       });
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
@@ -738,7 +756,6 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          gateComposer && "cursor-pointer",
           (gateComposer || onDisabledClick) &&
             "agent-composer-area--attached-above",
           className,
@@ -747,30 +764,24 @@ function PromptComposerInner({
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={
-          gateComposer
-            ? bounceMissingKeySetup
-            : onDisabledClick
-              ? () => onDisabledClick()
-              : undefined
-        }
+        onClick={onDisabledClick}
       >
         <PromptAttachmentStrip />
         <TiptapComposer
+          contextItems={contextItems}
+          onRemoveContextItem={onRemoveContextItem}
+          onInspectContextItem={onInspectContextItem}
+          onRetryContextItem={onRetryContextItem}
+          contextMenuItems={contextMenuItems}
+          attachmentsEnabled={attachmentsEnabled}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
-          disabled={disabled || gateComposer}
+          disabled={disabled}
           submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
-          placeholder={
-            gateComposer
-              ? t("agentChat.composer.connectAbove", {
-                  defaultValue: "Connect AI above to continue...",
-                })
-              : placeholder
-          }
+          placeholder={placeholder}
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}

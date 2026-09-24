@@ -8,13 +8,15 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemDsiAccess } from "../server/lib/design-system-dsi-access.js";
 import { missingDesignSystemDataFields } from "../shared/design-system-validation.js";
 
 export default defineAction({
   description:
     "Create a new design system with brand colors, typography, spacing, and other design tokens. " +
-    "If this is the first design system for the user, it is automatically set as the default.",
+    "The first system becomes the default unless makeDefaultIfFirst is false. Use false when creating from a prompt's context picker.",
   schema: z.object({
+    makeDefaultIfFirst: z.boolean().optional(),
     title: z.string().describe("Design system name (e.g. 'Acme Corp Brand')"),
     description: z
       .string()
@@ -36,7 +38,14 @@ export default defineAction({
         "Free-form guidance the agent should follow whenever it generates slides using this design system (tone, voice, layout preferences, dos and don'ts).",
       ),
   }),
-  run: async ({ title, description, data, assets, customInstructions }) => {
+  run: async ({
+    title,
+    description,
+    data,
+    assets,
+    customInstructions,
+    makeDefaultIfFirst = true,
+  }) => {
     let parsedData: unknown;
     try {
       parsedData = JSON.parse(data);
@@ -58,6 +67,7 @@ export default defineAction({
       }
     }
 
+    await assertDesignSystemDsiAccess(parsedData);
     const db = getDb();
     const id = nanoid();
     const now = new Date().toISOString();
@@ -84,7 +94,7 @@ export default defineAction({
       )
       .limit(1);
 
-    const isDefault = existing.length === 0;
+    const isDefault = makeDefaultIfFirst && existing.length === 0;
 
     await db.insert(schema.designSystems).values({
       id,

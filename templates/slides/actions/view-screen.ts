@@ -12,7 +12,10 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  resolveDeckDesignSystemId,
+  resolveDeckDesignSystemReference,
+} from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
@@ -237,6 +240,7 @@ export default defineAction({
       const designSystem = await loadAgentDesignSystemContext(
         resolveDeckDesignSystemId(rows[0], deck),
         getDesignSystem,
+        { reference: resolveDeckDesignSystemReference(deck) },
       );
       // Counts show the palette, not the composition; one real sibling
       // shows spacing, element order, and sizes to mirror. A class-styled

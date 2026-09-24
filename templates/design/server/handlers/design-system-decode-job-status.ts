@@ -1,9 +1,11 @@
+import { ActionContractError } from "@agent-native/core/action";
 import {
   FeatureNotConfiguredError,
   fetchBuilderDesignSystemDecodeJobStatus,
   getSession,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { assertBuilderDsiAccess } from "@agent-native/core/server/builder-dsi-access";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
 /**
@@ -27,9 +29,16 @@ export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
   try {
     return await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
-      () => fetchBuilderDesignSystemDecodeJobStatus(jobId.trim()),
+      async () => {
+        await assertBuilderDsiAccess();
+        return fetchBuilderDesignSystemDecodeJobStatus(jobId.trim());
+      },
     );
   } catch (err) {
+    if (err instanceof ActionContractError) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {

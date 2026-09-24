@@ -9,6 +9,11 @@ import { eq, desc } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../db";
+import { assertDesignSystemDsiAccess } from "../lib/design-system-dsi-access.js";
+import {
+  resolveDesignSystemAccess,
+  assertDesignSystemAccess,
+} from "../lib/design-system-dsi-access.js";
 import { withSlidesRequestContext } from "./request-auth-context.js";
 
 /**
@@ -70,7 +75,7 @@ export const getDesignSystem = defineEventHandler(async (event) => {
   }
 
   return withSlidesRequestContext(event, async () => {
-    const access = await resolveAccess("design-system", id);
+    const access = await resolveDesignSystemAccess(id);
     if (!access) {
       // Return 404 (not 403) so we don't leak existence of design
       // systems the caller has no access to.
@@ -112,6 +117,7 @@ export const createDesignSystem = defineEventHandler(async (event) => {
     const db = getDb();
     const now = new Date().toISOString();
 
+    await assertDesignSystemDsiAccess(body.data);
     await db.insert(schema.designSystems).values({
       id: body.id,
       title: body.title || "Untitled",
@@ -156,11 +162,12 @@ export const updateDesignSystem = defineEventHandler(async (event) => {
       // assertAccess loads the row and verifies the caller has editor+
       // role on this resource — it must run BEFORE the update (and in
       // the same scope) so we don't leak existence to non-editors.
-      await assertAccess("design-system", id, "editor");
+      await assertDesignSystemAccess(id, "editor");
 
       const db = getDb();
       const now = new Date().toISOString();
 
+      await assertDesignSystemDsiAccess(body.data);
       const updates: Record<string, unknown> = { updatedAt: now };
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined)
@@ -209,7 +216,7 @@ export const deleteDesignSystem = defineEventHandler(async (event) => {
       // role on this resource — it must run BEFORE the delete (and in
       // the same scope) so we don't leak existence to callers who lack
       // access.
-      await assertAccess("design-system", id, "admin");
+      await assertDesignSystemAccess(id, "admin");
       const db = getDb();
       const result = await db
         .delete(schema.designSystems)
