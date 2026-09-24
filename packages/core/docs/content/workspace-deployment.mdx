@@ -5,7 +5,7 @@ description: "Ship every app in an agent-native workspace to one origin with a s
 
 # Workspace Deployment
 
-If your project is a [workspace](/docs/multi-app-workspace) with more than one app, you can deploy every app to a single origin instead of managing separate deployments per app. This page covers the managed one-command path and a self-hosted Docker Compose alternative. See [Deployment](/docs/deployment) for picking a database, a preset, and a platform first.
+If your project is a [workspace](/docs/multi-app-workspace) with more than one app, you can deploy every app to a single origin instead of managing separate deployments per app. Multi-app workspaces can show a directory page at `/`. Otherwise, the root redirects to the first app. This page covers the managed one-command path and a self-hosted Docker Compose alternative. See [Deployment](/docs/deployment) for picking a database, a preset, and a platform first.
 
 ## One Origin, Many Apps {#workspace-deploy}
 
@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. Cloudflare Pages routes through a generated **dispatcher worker**, a small script at `dist/_worker.js` that reads the incoming path and forwards the request to the matching app. Netlify uses one function per app plus generated redirects. Vercel writes a workspace-level `.vercel/output` using the Build Output API.
+Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. Cloudflare Pages routes through a generated **dispatcher worker**, a small script at `dist/_worker.js` that reads the incoming path and forwards the request to the matching app. Netlify uses one function per app plus generated redirects, and routes app data requests to the matching handler. Vercel writes a workspace-level `.vercel/output` using the Build Output API and routes app data requests to the matching handler.
 
 </Callout>
 
