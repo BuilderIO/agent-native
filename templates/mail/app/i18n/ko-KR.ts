@@ -527,6 +527,7 @@ const messages = {
       previewButton: "미리보기 실행",
       previewRunning: "최근 받은편지함 메일 확인 중…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 일치 확률 {{percent}}%",
       feedbackLabel: "포함하지 않을 일치 항목을 선택하세요",
       notSpamShort: "스팸 아님",
       notMatchShort: "일치하지 않음",

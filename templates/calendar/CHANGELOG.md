@@ -9,6 +9,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Calendar opens faster by loading translated catalogs only when you need them.
 
+### Fixed
+
+- Bookings no longer confirm without their configured Zoom meeting
+- Release a booking slot when Zoom creation never starts
+- Zoom booking timeouts keep the slot reserved to prevent duplicate meetings.
+
 ## 2026-09-22
 
 ### Improved

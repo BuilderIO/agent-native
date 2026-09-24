@@ -31,7 +31,7 @@ export const BUILDER_SPACE_SETTINGS_URL =
 export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
-const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
+const ADD_CREDITS_IN_BUILDER_LABEL = "Add credits in Builder";
 const BUILDER_AUTHENTICATION_ERROR =
   "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
 /**
@@ -123,7 +123,7 @@ export function formatChatErrorText(
   const normalized = normalizeChatError(errorMessage, errorCode);
   if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
     return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
-      ? `${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`
+      ? `${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`
       : normalized.message;
   }
   if (
@@ -145,7 +145,7 @@ export function formatChatErrorText(
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }
-  return `Error: ${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
+  return `Error: ${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`;
 }
 
 export interface NormalizedChatError {
@@ -269,7 +269,7 @@ const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
     "agentChat.errorMessages.openBuilderSpaceSettings",
   ],
   ["Start new chat", "agentChat.errorMessages.startNewChat"],
-  ["Upgrade at builder.io", "agentChat.errorMessages.upgradeAtBuilder"],
+  ["Add credits in Builder", "agentChat.errorMessages.addCreditsInBuilder"],
 ]);
 
 /** Localize only Core's own normalized error copy; preserve provider details. */

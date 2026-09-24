@@ -510,6 +510,7 @@ const messages = {
       previewButton: "執行預覽",
       previewRunning: "正在檢查最近的收件匣郵件…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 符合機率 {{percent}}%",
       feedbackLabel: "勾選不應包含的符合項目",
       notSpamShort: "不是垃圾郵件",
       notMatchShort: "不符合",

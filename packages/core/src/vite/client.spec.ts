@@ -8,6 +8,7 @@ import { createServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
+import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -24,6 +25,7 @@ import {
   _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
   _nitroStartupRecovery,
+  _persistent5xxRecovery,
   agentNative,
   defaultViteWatchIgnored,
   defineConfig,
@@ -45,6 +47,53 @@ vi.mock("../server/dev-action-bridge.js", () => ({
 }));
 
 describe("Nitro dev startup recovery", () => {
+  it("requires a continuous 5xx streak before restarting after a long idle", () => {
+    let time = 0;
+    let middleware:
+      | ((req: unknown, res: unknown, next: () => void) => void)
+      | undefined;
+    const exit = vi.fn();
+    _persistent5xxRecovery({
+      enabled: true,
+      now: () => time,
+      exit,
+    }).configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const request = { headers: { accept: "text/html" }, method: "GET" };
+    const next = vi.fn();
+    const response = (statusCode: number) => {
+      const res = Object.assign(new EventEmitter(), { statusCode });
+      middleware?.(request, res, next);
+      res.emit("finish");
+    };
+
+    response(200);
+    time = 100_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 100_001;
+    response(200);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 200_000;
+    response(503);
+    time = 275_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 275_001;
+    response(503);
+    expect(exit).toHaveBeenCalledWith(DEV_SERVER_RECOVERY_EXIT_CODE);
+    expect(next).toHaveBeenCalledTimes(6);
+  });
+
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
     const repositoryRoot = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),

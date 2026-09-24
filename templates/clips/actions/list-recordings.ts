@@ -450,6 +450,7 @@ export default defineAction({
 
     const recordings = rows.map((row) => {
       const r = row.recording;
+      const edits = parseEdits(r.editsJson);
       return {
         id: r.id,
         title: r.title,
@@ -468,10 +469,7 @@ export default defineAction({
         durationMs: r.durationMs,
         // Edited length, not the original recorded length — matches what
         // the clip page itself shows once trims/cuts are applied.
-        effectiveDurationMs: effectiveDuration(
-          r.durationMs,
-          parseEdits(r.editsJson),
-        ),
+        effectiveDurationMs: effectiveDuration(r.durationMs, edits),
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
@@ -486,8 +484,7 @@ export default defineAction({
         // Redactions drawn but not burned into the file. The library needs it
         // to hold sharing back from the card menu — every route to a share
         // link has to refuse, or the guard is decoration.
-        pendingRedactions: parseRedactions(parseEdits(r.editsJson).overlays)
-          .length,
+        pendingRedactions: parseRedactions(edits.overlays).length,
         viewCount: viewsByRec[r.id] ?? 0,
         agentViewCount: agentViewsByRec[r.id] ?? 0,
         createdAt: r.createdAt,
