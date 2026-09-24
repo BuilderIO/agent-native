@@ -99,7 +99,7 @@ const SHIP_FALSE_OPT_OUT_AFTER_RE =
 const SHIP_FALSE_OPT_OUT_CLAIM_RE =
   /\b(?:(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)|(?:i|we)\s+asked\s+for\s+(?:the\s+)?opposite)\b/i;
 const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
-  /^(?:(?:but|although|however|which)\s+)?(?:(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s+(?:ask|tell|say|request)\b|[.!?,;]?\s*$)|(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)\b|(?:i|we)\s+(?:asked|told|requested)\s+(?:for\s+)?(?:the\s+)?opposite\b)/i;
+  /^\s*[,;]?\s*(?:(?:but|although|however|which)\s+)?(?:(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s+(?:ask|tell|say|request)\b|[.!?,;]?\s*$)|(?:i|we)\s+(?:never|didn['’]?t|did not)\s+(?:authoriz\w*|approv\w*)\s+(?:that|it)\b|(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)\b|(?:i|we)\s+(?:asked|told|requested)\s+(?:for\s+)?(?:the\s+)?opposite\b)/i;
 
 const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
   String.raw`(?:${[
@@ -203,7 +203,7 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
     const prs = prNumbersNearMatch(text, match);
     const refersBackToShipment =
       previousShipmentPrs.size === 1 &&
-      /\bleave\s+(?:it|(?:the\s+)?(?:PR|pull request))\s+(?:open|unmerged)\b/i.test(
+      /(?:\bleave\s+(?:it|(?:the\s+)?(?:PR|pull request))\s+(?:open|unmerged)\b|\b(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)/i.test(
         match[0],
       );
     return {
@@ -248,6 +248,7 @@ function hasFalseOptOutDenial(
   return (
     SHIP_FALSE_OPT_OUT_AFTER_RE.test(denialTail) ||
     SHIP_FALSE_OPT_OUT_CLAIM_RE.test(denialTail) ||
+    SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(denialTail) ||
     ((sameShipment(afterOptOutPrs, optOut.prs) ||
       (afterOptOutPrs.size === 0 && optOut.prs.size === 1)) &&
       SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(afterOptOut))
@@ -604,6 +605,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "The agent stopped /ship with PR #123 unmerged because I said don’t merge PR #123.",
   ],
   [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly opted out of merging.",
+  ],
+  [
     true,
     "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, but I did not.",
   ],
@@ -670,6 +675,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with PR #123 unmerged because it claimed I explicitly asked to leave PR #123 open, but that was false.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I asked to leave PR #123 open, but I never authorized that.",
   ],
   [
     true,
