@@ -138,6 +138,7 @@ const PR_REVIEW_HANDOFF_CORRECTIONS = [
   String.raw`didn['’]?t|did not|missed|forgot|failed to|left out|left off|omitted|should have waited|(?:sent|posted|drafted|added|left) another|commented again|replied again|followed up again`,
   String.raw`(?:marked|called|classified)[^.!?\n]{0,80}(?:despite|although|without|ignoring|in spite of)`,
   String.raw`(?:do not|don't|never|avoid)\s+(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author-facing\s+)?(?:comment|reply|follow[- ]?up)`,
+  String.raw`(?:do not|don't|never|avoid)\s+(?:post|draft|send|leave)\s+(?:a\s+)?follow[- ]?up`,
   String.raw`(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author-facing\s+)?(?:comment|reply|follow[- ]?up)`,
   String.raw`(?:post|draft|send|leave)\s+(?:a\s+)?follow[- ]?up`,
 ].join("|");
@@ -160,7 +161,7 @@ const PR_REVIEW_HANDOFF_OMISSIONS = [
 ].join("|");
 const PR_REVIEW_HANDOFF_ANCHORS = String.raw`(?:you|we|the handoff|the (?:recap|summary|report|output)|(?:do not|don't|never|avoid)(?=[^.!?\n]{0,220}\b(?:prior|previous|earlier|outstanding|unanswered)\b)(?=[^.!?\n]{0,220}\b(?:request|comment|ask)\b))`;
 const PR_REVIEW_HANDOFF_RE = new RegExp(
-  String.raw`\b${PR_REVIEW_HANDOFF_ANCHORS}\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=(?:[^.!?\n]{1,280}[.!?]\s*)?[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
+  String.raw`\b${PR_REVIEW_HANDOFF_ANCHORS}\b(?![^.!?\n]{0,32}\b(?:should|could|would|may|can)\s+(?:post|draft|send|leave)\b)(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=(?:[^.!?\n]{1,280}[.!?]\s*)?[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
   "i",
 );
 
@@ -210,6 +211,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "Don't draft author replies for internal PRs; include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You should draft a follow-up after the contributor addresses Steve's prior request and include screenshot status in the recap.",
   ],
   [
     false,
