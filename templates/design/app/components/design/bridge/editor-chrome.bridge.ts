@@ -4437,6 +4437,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "paddingRight",
     "paddingBottom",
     "paddingLeft",
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
     "alignItems",
     "alignContent",
     "justifyItems",
@@ -4629,6 +4633,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-contrast-color)"
       : "var(--design-editor-accent-contrast-color)";
+  }
+
+  function marginValueIsAuto(
+    el: Element,
+    side: string,
+    computedValue: string,
+  ): boolean {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap === "function") {
+      var typedValue = typedElement.computedStyleMap().get("margin-" + side);
+      if (String(typedValue).trim().toLowerCase() === "auto") return true;
+    }
+    var inlineValue = (el as HTMLElement).style.getPropertyValue(
+      "margin-" + side,
+    );
+    return (
+      inlineValue.trim().toLowerCase() === "auto" ||
+      computedValue.trim().toLowerCase() === "auto"
+    );
   }
 
   function collectComputedStyles(
@@ -5049,6 +5074,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         computed.resolvedLineHeightPx = resolvedLineHeightPx;
       }
     }
+    if (marginValueIsAuto(el, "top", cs.marginTop)) computed.marginTop = "auto";
+    if (marginValueIsAuto(el, "right", cs.marginRight))
+      computed.marginRight = "auto";
+    if (marginValueIsAuto(el, "bottom", cs.marginBottom))
+      computed.marginBottom = "auto";
+    if (marginValueIsAuto(el, "left", cs.marginLeft))
+      computed.marginLeft = "auto";
     return {
       ...computed,
       "--an-vector-stroke-position":
@@ -5606,7 +5638,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     edge.setAttribute("data-agent-native-edge-handle", pos);
     var cursor = pos === "n" || pos === "s" ? "ns-resize" : "ew-resize";
     edge.style.cssText =
-      "position:absolute;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:2;pointer-events:auto;cursor:" +
       cursor +
       ";background:transparent;";
     if (pos === "n") {
@@ -6441,17 +6473,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
   } | null = null;
   var spacingDrag: {
-    key: string;
-    groupKey: string;
-    property: string;
-    oppositeProperty: string;
-    side: string;
-    orientation: string;
-    baseValue: number;
-    baseOppositeValue: number;
-    startX: number;
-    startY: number;
-    el: Element;
+    handle: { key: string; groupKey: string; kind: string };
+    currentValue: number;
+    mirrorOpposite: boolean;
+    syncAllSides: boolean;
   } | null = null;
   var lockedSelectors: string[] = [];
   var hiddenSelectors: string[] = [];
@@ -8217,10 +8242,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function clampSpacingValue(value: number): number {
+  function clampSpacingValue(value: number, allowNegative: boolean): number {
     var rounded = Math.round(value);
     if (!Number.isFinite(rounded)) return 0;
-    return Math.max(0, Math.min(999, rounded));
+    return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
   }
 
   // Figma-style handle hit area: only the small handle *line* itself (plus a
@@ -8260,6 +8285,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function hitRectForMarginHandle(
+    line: { x: number; y: number; width: number; height: number },
+    tolerance: number,
+    side: string,
+    elementRect: { width: number; height: number },
+  ): { x: number; y: number; width: number; height: number } {
+    var hit = {
+      x: line.x - tolerance,
+      y: line.y - tolerance,
+      width: line.width + tolerance * 2,
+      height: line.height + tolerance * 2,
+    };
+    var inwardReach =
+      side === "top" || side === "bottom"
+        ? clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.height)
+        : clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.width);
+    if (side === "top") {
+      var bottom = Math.min(hit.y + hit.height, inwardReach);
+      hit.y = Math.min(hit.y, bottom - 1);
+      hit.height = Math.max(1, bottom - hit.y);
+    } else if (side === "bottom") {
+      var originalBottom = hit.y + hit.height;
+      var top = Math.max(hit.y, elementRect.height - inwardReach);
+      hit.y = top;
+      hit.height = Math.max(1, originalBottom - top);
+    } else if (side === "left") {
+      var right = Math.min(hit.x + hit.width, inwardReach);
+      hit.x = Math.min(hit.x, right - 1);
+      hit.width = Math.max(1, right - hit.x);
+    } else if (side === "right") {
+      var originalRight = hit.x + hit.width;
+      var left = Math.max(hit.x, elementRect.width - inwardReach);
+      hit.x = left;
+      hit.width = Math.max(1, originalRight - left);
+    }
+    return hit;
+  }
+
   function makeSpacingHandle(config: {
     key: string;
     groupKey?: string;
@@ -8269,6 +8332,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     side?: string;
     orientation: string;
     value: number;
+    valueLabel?: string;
+    elementRect?: { width: number; height: number };
     region: { x: number; y: number; width: number; height: number };
     line?: { x: number; y: number; width: number; height: number };
   }): unknown {
@@ -8287,7 +8352,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             roundedRegion,
             PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
           )
-        : roundedRegion;
+        : config.kind === "margin"
+          ? hitRectForMarginHandle(
+              config.line,
+              PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
+              config.side || "",
+              config.elementRect || { width: 0, height: 0 },
+            )
+          : roundedRegion;
     return {
       key: config.key,
       groupKey: config.groupKey || config.key,
@@ -8296,7 +8368,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       oppositeProperty: config.oppositeProperty || "",
       side: config.side || "",
       orientation: config.orientation,
-      value: clampSpacingValue(config.value),
+      value: clampSpacingValue(config.value, config.kind === "margin"),
+      valueLabel: config.valueLabel || "",
       region: roundedRegion,
       hit: hit,
       line: config.line,
@@ -8465,6 +8538,135 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return handles.filter(Boolean);
   }
 
+  function buildMarginSpacingHandles(
+    el: Element,
+    rect: DOMRect,
+    cs: CSSStyleDeclaration,
+  ): unknown[] {
+    var line = chromeLineScale();
+    var tickLength =
+      Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
+      line;
+    var marginHandleClearance = 6 * Math.max(1, line);
+    var top = clampSpacingValue(readPx(cs.marginTop), true);
+    var right = clampSpacingValue(readPx(cs.marginRight), true);
+    var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
+    var left = clampSpacingValue(readPx(cs.marginLeft), true);
+
+    return [
+      makeSpacingHandle({
+        key: "margin:top",
+        kind: "margin",
+        property: "marginTop",
+        oppositeProperty: "marginBottom",
+        side: "top",
+        orientation: "horizontal",
+        value: top,
+        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        elementRect: rect,
+        region: {
+          x: 0,
+          y: Math.min(0, -top),
+          width: rect.width,
+          height: Math.max(1, Math.abs(top)),
+        },
+        line: {
+          x: rect.width / 2 - tickLength / 2,
+          y:
+            (top >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(top) / 2) -
+            line / 2,
+          width: tickLength,
+          height: line,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:right",
+        kind: "margin",
+        property: "marginRight",
+        oppositeProperty: "marginLeft",
+        side: "right",
+        orientation: "vertical",
+        value: right,
+        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
+          ? "auto"
+          : "",
+        elementRect: rect,
+        region: {
+          x: rect.width + Math.min(0, right),
+          y: 0,
+          width: Math.max(1, Math.abs(right)),
+          height: rect.height,
+        },
+        line: {
+          x:
+            rect.width +
+            (right >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(right) / 2) -
+            line / 2,
+          y: rect.height / 2 - tickLength / 2,
+          width: line,
+          height: tickLength,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:bottom",
+        kind: "margin",
+        property: "marginBottom",
+        oppositeProperty: "marginTop",
+        side: "bottom",
+        orientation: "horizontal",
+        value: bottom,
+        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
+          ? "auto"
+          : "",
+        elementRect: rect,
+        region: {
+          x: 0,
+          y: rect.height + Math.min(0, bottom),
+          width: rect.width,
+          height: Math.max(1, Math.abs(bottom)),
+        },
+        line: {
+          x: rect.width / 2 - tickLength / 2,
+          y:
+            rect.height +
+            (bottom >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(bottom) / 2) -
+            line / 2,
+          width: tickLength,
+          height: line,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:left",
+        kind: "margin",
+        property: "marginLeft",
+        oppositeProperty: "marginRight",
+        side: "left",
+        orientation: "vertical",
+        value: left,
+        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        elementRect: rect,
+        region: {
+          x: Math.min(0, -left),
+          y: 0,
+          width: Math.max(1, Math.abs(left)),
+          height: rect.height,
+        },
+        line: {
+          x:
+            (left >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(left) / 2) -
+            line / 2,
+          y: rect.height / 2 - tickLength / 2,
+          width: line,
+          height: tickLength,
+        },
+      }),
+    ].filter(Boolean);
+  }
+
   function buildGapSpacingHandles(
     el: Element,
     rect: DOMRect,
@@ -8572,14 +8774,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   } | null)[] {
     if (!el || !document.documentElement.contains(el)) return [];
     if (Math.abs(currentRotation(el)) > 0.01) return [];
-    var children = visibleLayoutChildren(el);
-    if (children.length === 0) return [];
     var rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return [];
     var cs = window.getComputedStyle(el);
-    return buildPaddingSpacingHandles(el, rect, cs).concat(
-      buildGapSpacingHandles(el, rect, cs),
-    );
+    return buildPaddingSpacingHandles(el, rect, cs)
+      .concat(buildMarginSpacingHandles(el, rect, cs))
+      .concat(buildGapSpacingHandles(el, rect, cs));
   }
 
   // Figma-style live value readout for the padding handle: shown while
@@ -8600,6 +8800,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       side: string;
       orientation: string;
       value: number;
+      valueLabel?: string;
       region: { x: number; y: number; width: number; height: number };
       line: { x: number; y: number; width: number; height: number } | undefined;
     } | null,
@@ -8628,7 +8829,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       x = rect.left + handle.region.x + handle.region.width / 2;
       y = rect.top + handle.region.y + handle.region.height / 2;
     }
-    spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
+    spacingBadge.textContent =
+      handle.kind === "margin" &&
+      handle.valueLabel === "auto" &&
+      value === handle.value
+        ? "auto"
+        : String(clampSpacingValue(value, handle.kind === "margin")) + "px";
     spacingBadge.style.display = "block";
     spacingBadge.style.background = spacingColor(handle.kind);
     spacingBadge.style.fontSize = 10 * line + "px";
@@ -8687,7 +8893,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // compensates for the host's iframe scale (matches spacingFill's scaled
     // stripe stops — a fixed 6px tile would clip the scaled pattern).
     var hatchTile = 6 * chromeLineScale() + "px";
-    if (handle.kind === "padding") {
+    if (handle.kind === "padding" || handle.kind === "margin") {
       var hatchNode = document.createElement("span");
       hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
       hatchNode.style.position = "absolute";
@@ -8714,10 +8920,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     regionNode.style.display = "block";
     regionNode.style.boxSizing = "border-box";
     regionNode.style.pointerEvents = "auto";
+    regionNode.style.zIndex =
+      handle.kind === "padding" ? "3" : handle.kind === "margin" ? "1" : "0";
     regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-    var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+    var hitRect =
+      handle.kind === "padding" || handle.kind === "margin"
+        ? handle.hit
+        : handle.region;
     regionNode.style.left = hitRect.x + "px";
     regionNode.style.top = hitRect.y + "px";
     regionNode.style.width = hitRect.width + "px";
@@ -8727,11 +8938,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // the hatch on this node — buildSpacingHandles' dedicated hatchNode above
     // owns that so it can stay outside the (now much smaller) hit area.
     regionNode.style.background =
-      handle.kind !== "padding" && active
+      handle.kind !== "padding" && handle.kind !== "margin" && active
         ? spacingFill(handle.kind, handle.orientation)
         : "transparent";
     regionNode.style.outline =
-      handle.kind !== "padding" && active
+      handle.kind !== "padding" && handle.kind !== "margin" && active
         ? "1px solid " + spacingColor(handle.kind)
         : "0";
     regionNode.style.outlineOffset = "-1px";
@@ -8771,7 +8982,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
       var regionNode = spacingHandleNodesByKey[handle.key];
       if (regionNode) {
-        var gapHighlighted = handle.kind !== "padding" && active;
+        var gapHighlighted =
+          handle.kind !== "padding" && handle.kind !== "margin" && active;
         (regionNode as HTMLElement).style.background = gapHighlighted
           ? spacingFill(handle.kind, handle.orientation)
           : "transparent";
@@ -8806,7 +9018,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (
       spacingDrag &&
       spacingDrag.mirrorOpposite &&
-      activeHandle.kind === "padding" &&
+      (activeHandle.kind === "padding" || activeHandle.kind === "margin") &&
       activeHandle.oppositeProperty
     ) {
       handles.forEach(function (handle) {
@@ -13282,12 +13494,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var delta =
       handle.orientation === "vertical" ? clientX - startX : clientY - startY;
     if (
-      handle.kind === "padding" &&
-      (handle.side === "right" || handle.side === "bottom")
+      (handle.kind === "padding" &&
+        (handle.side === "right" || handle.side === "bottom")) ||
+      (handle.kind === "margin" &&
+        (handle.side === "left" || handle.side === "top"))
     ) {
       delta = -delta;
     }
-    return clampSpacingValue(originValue + delta);
+    return clampSpacingValue(originValue + delta, handle.kind === "margin");
   }
 
   var paddingProperties = [
@@ -13296,6 +13510,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "paddingBottom",
     "paddingLeft",
   ];
+  var marginProperties = [
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
+  ];
+
+  function propertiesForSpacingHandle(handle) {
+    if (handle.kind === "margin") return marginProperties;
+    if (handle.kind === "padding") return paddingProperties;
+    return [handle.property];
+  }
 
   function applySpacingDragValue(
     target: Element,
@@ -13313,18 +13539,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
-    syncAllPadding: boolean,
+    syncAllSides: boolean,
   ): void {
     if (!target || !handle) return;
-    if (handle.kind === "padding" && syncAllPadding) {
-      for (var i = 0; i < 4; i += 1) {
-        target.style[paddingProperties[i]] = value + "px";
+    var properties = propertiesForSpacingHandle(handle);
+    if (syncAllSides) {
+      for (var i = 0; i < properties.length; i += 1) {
+        target.style[properties[i]] = value + "px";
       }
       return;
     }
     target.style[handle.property] = value + "px";
     if (
-      handle.kind === "padding" &&
+      (handle.kind === "padding" || handle.kind === "margin") &&
       mirrorOpposite &&
       handle.oppositeProperty
     ) {
@@ -13347,14 +13574,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlinePaddingValues = {};
-    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-      var paddingProperty = paddingProperties[paddingIndex];
-      originInlinePaddingValues[paddingProperty] = (
+    var spacingProperties = propertiesForSpacingHandle(handle);
+    var originInlineSpacingValues = {};
+    for (
+      var propertyIndex = 0;
+      propertyIndex < spacingProperties.length;
+      propertyIndex += 1
+    ) {
+      var spacingProperty = spacingProperties[propertyIndex];
+      originInlineSpacingValues[spacingProperty] = (
         dragEl as HTMLElement
-      ).style[paddingProperty];
+      ).style[spacingProperty];
     }
-    var syncAllPadding = !!e.shiftKey;
+    var syncAllSides = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -13363,16 +13595,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
-      syncAllPadding: syncAllPadding,
-      touchedAllPadding: syncAllPadding,
+      syncAllSides: syncAllSides,
     };
-    applySpacingDragValue(
-      dragEl,
-      handle,
-      originValue,
-      !!e.altKey,
-      syncAllPadding,
-    );
+    if (syncAllSides) {
+      applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
+    }
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
@@ -13381,31 +13608,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function updateSpacingDragState(
       mirrorOpposite: boolean,
-      syncAllPadding: boolean,
+      syncAllSides: boolean,
     ) {
       if (!spacingDrag) return;
       if (
         spacingDrag.mirrorOpposite === mirrorOpposite &&
-        spacingDrag.syncAllPadding === syncAllPadding
+        spacingDrag.syncAllSides === syncAllSides
       ) {
         return;
       }
-      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
-      if (syncAllPadding) {
-        applySpacingDragValue(
-          dragEl,
-          handle,
-          spacingDrag.currentValue,
-          mirrorOpposite,
-          true,
-        );
+      for (
+        var propertyIndex = 0;
+        propertyIndex < spacingProperties.length;
+        propertyIndex += 1
+      ) {
+        var spacingProperty = spacingProperties[propertyIndex];
+        (dragEl as HTMLElement).style[spacingProperty] =
+          originInlineSpacingValues[spacingProperty];
       }
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        spacingDrag.currentValue,
+        mirrorOpposite,
+        syncAllSides,
+      );
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
-        syncAllPadding: syncAllPadding,
-        touchedAllPadding: touchedAllPadding,
+        syncAllSides: syncAllSides,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -13421,10 +13653,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-          var paddingProperty = paddingProperties[paddingIndex];
-          (dragEl as HTMLElement).style[paddingProperty] =
-            originInlinePaddingValues[paddingProperty];
+        for (
+          var propertyIndex = 0;
+          propertyIndex < spacingProperties.length;
+          propertyIndex += 1
+        ) {
+          var spacingProperty = spacingProperties[propertyIndex];
+          (dragEl as HTMLElement).style[spacingProperty] =
+            originInlineSpacingValues[spacingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -13459,15 +13695,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
-      var syncAllPadding = !!ev.shiftKey;
-      var touchedAllPadding =
-        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
+      var syncAllSides = !!ev.shiftKey;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
-        syncAllPadding: syncAllPadding,
-        touchedAllPadding: touchedAllPadding,
+        syncAllSides: syncAllSides,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
       applySpacingDragValue(
@@ -13475,7 +13708,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         handle,
         nextValue,
         !!ev.altKey,
-        syncAllPadding,
+        syncAllSides,
       );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
@@ -13492,32 +13725,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      var syncAllPadding = spacingDrag
-        ? spacingDrag.syncAllPadding
-        : !!ev.shiftKey;
-      var touchedAllPadding = spacingDrag
-        ? spacingDrag.touchedAllPadding
-        : syncAllPadding;
-      var commitAllPadding =
-        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      var syncAllSides = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
+      var commitAllSides =
+        (handle.kind === "padding" || handle.kind === "margin") && syncAllSides;
+      if (finalValue === originValue && !commitAllSides) {
+        restoreSpacingDragValue();
+        return;
+      }
       applySpacingDragValue(
         dragEl,
         handle,
         finalValue,
         mirrorOpposite,
-        commitAllPadding,
+        commitAllSides,
       );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      if (commitAllPadding) {
-        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+      if (commitAllSides) {
+        for (
+          var propertyIndex = 0;
+          propertyIndex < spacingProperties.length;
+          propertyIndex += 1
+        ) {
+          styles[spacingProperties[propertyIndex]] = finalValue + "px";
         }
       } else {
         styles[handle.property] = finalValue + "px";
         if (
-          handle.kind === "padding" &&
+          (handle.kind === "padding" || handle.kind === "margin") &&
           mirrorOpposite &&
           handle.oppositeProperty
         ) {

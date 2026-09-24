@@ -3872,6 +3872,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       "paddingRight",
       "paddingBottom",
       "paddingLeft",
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
       "alignItems",
       "alignContent",
       "justifyItems",
@@ -4022,6 +4026,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function chromeContrastColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-contrast-color)" : "var(--design-editor-accent-contrast-color)";
+    }
+    function marginValueIsAuto(el, side, computedValue) {
+      var typedElement = el;
+      if (typeof typedElement.computedStyleMap === "function") {
+        var typedValue = typedElement.computedStyleMap().get("margin-" + side);
+        if (String(typedValue).trim().toLowerCase() === "auto") return true;
+      }
+      var inlineValue = el.style.getPropertyValue(
+        "margin-" + side
+      );
+      return inlineValue.trim().toLowerCase() === "auto" || computedValue.trim().toLowerCase() === "auto";
     }
     function collectComputedStyles(cs, paintCs, strokeCs = paintCs) {
       var backgroundClip = cs.backgroundClip;
@@ -4351,6 +4366,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           computed.resolvedLineHeightPx = resolvedLineHeightPx;
         }
       }
+      if (marginValueIsAuto(el, "top", cs.marginTop)) computed.marginTop = "auto";
+      if (marginValueIsAuto(el, "right", cs.marginRight))
+        computed.marginRight = "auto";
+      if (marginValueIsAuto(el, "bottom", cs.marginBottom))
+        computed.marginBottom = "auto";
+      if (marginValueIsAuto(el, "left", cs.marginLeft))
+        computed.marginLeft = "auto";
       return {
         ...computed,
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || "",
@@ -4698,7 +4720,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var edge = document.createElement("span");
       edge.setAttribute("data-agent-native-edge-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : "ew-resize";
-      edge.style.cssText = "position:absolute;pointer-events:auto;cursor:" + cursor + ";background:transparent;";
+      edge.style.cssText = "position:absolute;z-index:2;pointer-events:auto;cursor:" + cursor + ";background:transparent;";
       if (pos === "n") {
         edge.style.left = "0";
         edge.style.right = "0";
@@ -6208,10 +6230,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var scale = chromeLineScale();
       return "repeating-linear-gradient(" + angle + ", " + stripe + " 0 " + 1 * scale + "px, " + tint + " " + 1 * scale + "px " + 4 * scale + "px, transparent " + 4 * scale + "px " + 7 * scale + "px)";
     }
-    function clampSpacingValue(value) {
+    function clampSpacingValue(value, allowNegative) {
       var rounded = Math.round(value);
       if (!Number.isFinite(rounded)) return 0;
-      return Math.max(0, Math.min(999, rounded));
+      return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
     }
     var PADDING_HANDLE_HIT_TOLERANCE_BASE = 4;
     function hitRectForPaddingHandle(line, region, tolerance) {
@@ -6231,6 +6253,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         height: Math.max(1, hitBottom - hitY)
       };
     }
+    function hitRectForMarginHandle(line, tolerance, side, elementRect) {
+      var hit = {
+        x: line.x - tolerance,
+        y: line.y - tolerance,
+        width: line.width + tolerance * 2,
+        height: line.height + tolerance * 2
+      };
+      var inwardReach = side === "top" || side === "bottom" ? clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.height) : clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.width);
+      if (side === "top") {
+        var bottom = Math.min(hit.y + hit.height, inwardReach);
+        hit.y = Math.min(hit.y, bottom - 1);
+        hit.height = Math.max(1, bottom - hit.y);
+      } else if (side === "bottom") {
+        var originalBottom = hit.y + hit.height;
+        var top = Math.max(hit.y, elementRect.height - inwardReach);
+        hit.y = top;
+        hit.height = Math.max(1, originalBottom - top);
+      } else if (side === "left") {
+        var right = Math.min(hit.x + hit.width, inwardReach);
+        hit.x = Math.min(hit.x, right - 1);
+        hit.width = Math.max(1, right - hit.x);
+      } else if (side === "right") {
+        var originalRight = hit.x + hit.width;
+        var left = Math.max(hit.x, elementRect.width - inwardReach);
+        hit.x = left;
+        hit.width = Math.max(1, originalRight - left);
+      }
+      return hit;
+    }
     function makeSpacingHandle(config) {
       var region = config.region;
       if (!region || region.width <= 0 || region.height <= 0) return null;
@@ -6244,6 +6295,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         config.line,
         roundedRegion,
         PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale()
+      ) : config.kind === "margin" ? hitRectForMarginHandle(
+        config.line,
+        PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
+        config.side || "",
+        config.elementRect || { width: 0, height: 0 }
       ) : roundedRegion;
       return {
         key: config.key,
@@ -6253,7 +6309,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         oppositeProperty: config.oppositeProperty || "",
         side: config.side || "",
         orientation: config.orientation,
-        value: clampSpacingValue(config.value),
+        value: clampSpacingValue(config.value, config.kind === "margin"),
+        valueLabel: config.valueLabel || "",
         region: roundedRegion,
         hit,
         line: config.line
@@ -6394,6 +6451,109 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return handles.filter(Boolean);
     }
+    function buildMarginSpacingHandles(el, rect, cs) {
+      var line = chromeLineScale();
+      var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
+      var marginHandleClearance = 6 * Math.max(1, line);
+      var top = clampSpacingValue(readPx(cs.marginTop), true);
+      var right = clampSpacingValue(readPx(cs.marginRight), true);
+      var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
+      var left = clampSpacingValue(readPx(cs.marginLeft), true);
+      return [
+        makeSpacingHandle({
+          key: "margin:top",
+          kind: "margin",
+          property: "marginTop",
+          oppositeProperty: "marginBottom",
+          side: "top",
+          orientation: "horizontal",
+          value: top,
+          valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: 0,
+            y: Math.min(0, -top),
+            width: rect.width,
+            height: Math.max(1, Math.abs(top))
+          },
+          line: {
+            x: rect.width / 2 - tickLength / 2,
+            y: (top >= 0 ? -1 : 1) * Math.max(marginHandleClearance, Math.abs(top) / 2) - line / 2,
+            width: tickLength,
+            height: line
+          }
+        }),
+        makeSpacingHandle({
+          key: "margin:right",
+          kind: "margin",
+          property: "marginRight",
+          oppositeProperty: "marginLeft",
+          side: "right",
+          orientation: "vertical",
+          value: right,
+          valueLabel: marginValueIsAuto(el, "right", cs.marginRight) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: rect.width + Math.min(0, right),
+            y: 0,
+            width: Math.max(1, Math.abs(right)),
+            height: rect.height
+          },
+          line: {
+            x: rect.width + (right >= 0 ? 1 : -1) * Math.max(marginHandleClearance, Math.abs(right) / 2) - line / 2,
+            y: rect.height / 2 - tickLength / 2,
+            width: line,
+            height: tickLength
+          }
+        }),
+        makeSpacingHandle({
+          key: "margin:bottom",
+          kind: "margin",
+          property: "marginBottom",
+          oppositeProperty: "marginTop",
+          side: "bottom",
+          orientation: "horizontal",
+          value: bottom,
+          valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: 0,
+            y: rect.height + Math.min(0, bottom),
+            width: rect.width,
+            height: Math.max(1, Math.abs(bottom))
+          },
+          line: {
+            x: rect.width / 2 - tickLength / 2,
+            y: rect.height + (bottom >= 0 ? 1 : -1) * Math.max(marginHandleClearance, Math.abs(bottom) / 2) - line / 2,
+            width: tickLength,
+            height: line
+          }
+        }),
+        makeSpacingHandle({
+          key: "margin:left",
+          kind: "margin",
+          property: "marginLeft",
+          oppositeProperty: "marginRight",
+          side: "left",
+          orientation: "vertical",
+          value: left,
+          valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: Math.min(0, -left),
+            y: 0,
+            width: Math.max(1, Math.abs(left)),
+            height: rect.height
+          },
+          line: {
+            x: (left >= 0 ? -1 : 1) * Math.max(marginHandleClearance, Math.abs(left) / 2) - line / 2,
+            y: rect.height / 2 - tickLength / 2,
+            width: line,
+            height: tickLength
+          }
+        })
+      ].filter(Boolean);
+    }
     function buildGapSpacingHandles(el, rect, cs) {
       var children = visibleLayoutChildren(el);
       if (children.length < 2) return [];
@@ -6478,14 +6638,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     function buildSpacingHandles(el) {
       if (!el || !document.documentElement.contains(el)) return [];
       if (Math.abs(currentRotation(el)) > 0.01) return [];
-      var children = visibleLayoutChildren(el);
-      if (children.length === 0) return [];
       var rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return [];
       var cs = window.getComputedStyle(el);
-      return buildPaddingSpacingHandles(el, rect, cs).concat(
-        buildGapSpacingHandles(el, rect, cs)
-      );
+      return buildPaddingSpacingHandles(el, rect, cs).concat(buildMarginSpacingHandles(el, rect, cs)).concat(buildGapSpacingHandles(el, rect, cs));
     }
     function showSpacingBadgeForHandle(handle, value, cursorPoint) {
       if (!selectedEl || !handle) {
@@ -6504,7 +6660,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         x = rect.left + handle.region.x + handle.region.width / 2;
         y = rect.top + handle.region.y + handle.region.height / 2;
       }
-      spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
+      spacingBadge.textContent = handle.kind === "margin" && handle.valueLabel === "auto" && value === handle.value ? "auto" : String(clampSpacingValue(value, handle.kind === "margin")) + "px";
       spacingBadge.style.display = "block";
       spacingBadge.style.background = spacingColor(handle.kind);
       spacingBadge.style.fontSize = 10 * line + "px";
@@ -6532,7 +6688,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       lineNode.style.background = spacingColor(handle.kind);
       spacingOverlay.appendChild(lineNode);
       var hatchTile = 6 * chromeLineScale() + "px";
-      if (handle.kind === "padding") {
+      if (handle.kind === "padding" || handle.kind === "margin") {
         var hatchNode = document.createElement("span");
         hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
         hatchNode.style.position = "absolute";
@@ -6556,15 +6712,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       regionNode.style.display = "block";
       regionNode.style.boxSizing = "border-box";
       regionNode.style.pointerEvents = "auto";
+      regionNode.style.zIndex = handle.kind === "padding" ? "3" : handle.kind === "margin" ? "1" : "0";
       regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
       regionNode.style.cursor = handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-      var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+      var hitRect = handle.kind === "padding" || handle.kind === "margin" ? handle.hit : handle.region;
       regionNode.style.left = hitRect.x + "px";
       regionNode.style.top = hitRect.y + "px";
       regionNode.style.width = hitRect.width + "px";
       regionNode.style.height = hitRect.height + "px";
-      regionNode.style.background = handle.kind !== "padding" && active ? spacingFill(handle.kind, handle.orientation) : "transparent";
-      regionNode.style.outline = handle.kind !== "padding" && active ? "1px solid " + spacingColor(handle.kind) : "0";
+      regionNode.style.background = handle.kind !== "padding" && handle.kind !== "margin" && active ? spacingFill(handle.kind, handle.orientation) : "transparent";
+      regionNode.style.outline = handle.kind !== "padding" && handle.kind !== "margin" && active ? "1px solid " + spacingColor(handle.kind) : "0";
       regionNode.style.outlineOffset = "-1px";
       regionNode.addEventListener(
         "pointerdown",
@@ -6591,7 +6748,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
         var regionNode = spacingHandleNodesByKey[handle.key];
         if (regionNode) {
-          var gapHighlighted = handle.kind !== "padding" && active;
+          var gapHighlighted = handle.kind !== "padding" && handle.kind !== "margin" && active;
           regionNode.style.background = gapHighlighted ? spacingFill(handle.kind, handle.orientation) : "transparent";
           regionNode.style.outline = gapHighlighted ? "1px solid " + spacingColor(handle.kind) : "0";
         }
@@ -6605,7 +6762,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var activeGroupKeys = {};
       if (!activeHandle) return activeGroupKeys;
       activeGroupKeys[activeHandle.groupKey] = true;
-      if (spacingDrag && spacingDrag.mirrorOpposite && activeHandle.kind === "padding" && activeHandle.oppositeProperty) {
+      if (spacingDrag && spacingDrag.mirrorOpposite && (activeHandle.kind === "padding" || activeHandle.kind === "margin") && activeHandle.oppositeProperty) {
         handles.forEach(function(handle) {
           if (!handle) return;
           if (handle.property === activeHandle.oppositeProperty) {
@@ -9777,10 +9934,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function spacingValueFromPointer(handle, originValue, startX, startY, clientX, clientY) {
       var delta = handle.orientation === "vertical" ? clientX - startX : clientY - startY;
-      if (handle.kind === "padding" && (handle.side === "right" || handle.side === "bottom")) {
+      if (handle.kind === "padding" && (handle.side === "right" || handle.side === "bottom") || handle.kind === "margin" && (handle.side === "left" || handle.side === "top")) {
         delta = -delta;
       }
-      return clampSpacingValue(originValue + delta);
+      return clampSpacingValue(originValue + delta, handle.kind === "margin");
     }
     var paddingProperties = [
       "paddingTop",
@@ -9788,16 +9945,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       "paddingBottom",
       "paddingLeft"
     ];
-    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllPadding) {
+    var marginProperties = [
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft"
+    ];
+    function propertiesForSpacingHandle(handle) {
+      if (handle.kind === "margin") return marginProperties;
+      if (handle.kind === "padding") return paddingProperties;
+      return [handle.property];
+    }
+    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllSides) {
       if (!target || !handle) return;
-      if (handle.kind === "padding" && syncAllPadding) {
-        for (var i = 0; i < 4; i += 1) {
-          target.style[paddingProperties[i]] = value + "px";
+      var properties = propertiesForSpacingHandle(handle);
+      if (syncAllSides) {
+        for (var i = 0; i < properties.length; i += 1) {
+          target.style[properties[i]] = value + "px";
         }
         return;
       }
       target.style[handle.property] = value + "px";
-      if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+      if ((handle.kind === "padding" || handle.kind === "margin") && mirrorOpposite && handle.oppositeProperty) {
         target.style[handle.oppositeProperty] = value + "px";
       }
     }
@@ -9816,12 +9985,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var dragEl = selectedEl;
       var originValue = handle.value;
-      var originInlinePaddingValues = {};
-      for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-        var paddingProperty = paddingProperties[paddingIndex];
-        originInlinePaddingValues[paddingProperty] = dragEl.style[paddingProperty];
+      var spacingProperties = propertiesForSpacingHandle(handle);
+      var originInlineSpacingValues = {};
+      for (var propertyIndex = 0; propertyIndex < spacingProperties.length; propertyIndex += 1) {
+        var spacingProperty = spacingProperties[propertyIndex];
+        originInlineSpacingValues[spacingProperty] = dragEl.style[spacingProperty];
       }
-      var syncAllPadding = !!e.shiftKey;
+      var syncAllSides = !!e.shiftKey;
       var startX = e.clientX;
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
@@ -9830,39 +10000,34 @@ export const editorChromeBridgeScript: string = `"use strict";
         handle,
         currentValue: originValue,
         mirrorOpposite: !!e.altKey,
-        syncAllPadding,
-        touchedAllPadding: syncAllPadding
+        syncAllSides
       };
-      applySpacingDragValue(
-        dragEl,
-        handle,
-        originValue,
-        !!e.altKey,
-        syncAllPadding
-      );
+      if (syncAllSides) {
+        applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
+      }
       updateSpacingOverlay(selectedEl);
       showSpacingBadgeForHandle(handle, originValue);
-      function updateSpacingDragState(mirrorOpposite, syncAllPadding2) {
+      function updateSpacingDragState(mirrorOpposite, syncAllSides2) {
         if (!spacingDrag) return;
-        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllPadding === syncAllPadding2) {
+        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllSides === syncAllSides2) {
           return;
         }
-        var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding2;
-        if (syncAllPadding2) {
-          applySpacingDragValue(
-            dragEl,
-            handle,
-            spacingDrag.currentValue,
-            mirrorOpposite,
-            true
-          );
+        for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+          var spacingProperty2 = spacingProperties[propertyIndex2];
+          dragEl.style[spacingProperty2] = originInlineSpacingValues[spacingProperty2];
         }
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          syncAllSides2
+        );
         spacingDrag = {
           handle,
           currentValue: spacingDrag.currentValue,
           mirrorOpposite,
-          syncAllPadding: syncAllPadding2,
-          touchedAllPadding
+          syncAllSides: syncAllSides2
         };
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -9876,9 +10041,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function restoreSpacingDragValue() {
         if (dragEl && document.documentElement.contains(dragEl)) {
-          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
-            var paddingProperty2 = paddingProperties[paddingIndex2];
-            dragEl.style[paddingProperty2] = originInlinePaddingValues[paddingProperty2];
+          for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+            var spacingProperty2 = spacingProperties[propertyIndex2];
+            dragEl.style[spacingProperty2] = originInlineSpacingValues[spacingProperty2];
           }
           selectedEl = dragEl;
           positionOverlay(selectionOverlay, dragEl);
@@ -9910,14 +10075,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
-        var syncAllPadding2 = !!ev.shiftKey;
-        var touchedAllPadding = spacingDrag && spacingDrag.touchedAllPadding || syncAllPadding2;
+        var syncAllSides2 = !!ev.shiftKey;
         spacingDrag = {
           handle,
           currentValue: nextValue,
           mirrorOpposite: !!ev.altKey,
-          syncAllPadding: syncAllPadding2,
-          touchedAllPadding
+          syncAllSides: syncAllSides2
         };
         lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
         applySpacingDragValue(
@@ -9925,7 +10088,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           handle,
           nextValue,
           !!ev.altKey,
-          syncAllPadding2
+          syncAllSides2
         );
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, nextValue);
@@ -9939,26 +10102,29 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
         var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
-        var syncAllPadding2 = spacingDrag ? spacingDrag.syncAllPadding : !!ev.shiftKey;
-        var touchedAllPadding = spacingDrag ? spacingDrag.touchedAllPadding : syncAllPadding2;
-        var commitAllPadding = handle.kind === "padding" && (syncAllPadding2 || touchedAllPadding);
+        var syncAllSides2 = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
+        var commitAllSides = (handle.kind === "padding" || handle.kind === "margin") && syncAllSides2;
+        if (finalValue === originValue && !commitAllSides) {
+          restoreSpacingDragValue();
+          return;
+        }
         applySpacingDragValue(
           dragEl,
           handle,
           finalValue,
           mirrorOpposite,
-          commitAllPadding
+          commitAllSides
         );
         selectedEl = dragEl;
         spacingDrag = null;
         var styles = {};
-        if (commitAllPadding) {
-          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
-            styles[paddingProperties[paddingIndex2]] = finalValue + "px";
+        if (commitAllSides) {
+          for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+            styles[spacingProperties[propertyIndex2]] = finalValue + "px";
           }
         } else {
           styles[handle.property] = finalValue + "px";
-          if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+          if ((handle.kind === "padding" || handle.kind === "margin") && mirrorOpposite && handle.oppositeProperty) {
             styles[handle.oppositeProperty] = finalValue + "px";
           }
         }

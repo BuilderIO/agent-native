@@ -13145,7 +13145,7 @@ function DesignEditor() {
   // instead of once for the whole call.
   const commitRelativeStyleDeltaToSelectedLayers = useCallback(
     (
-      property: string,
+      property: string | string[],
       operation: number | ScrubRelativeExpression,
       pendingUndoGestureId?: string,
     ) => {
