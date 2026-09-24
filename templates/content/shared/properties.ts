@@ -35,6 +35,24 @@ export const DOCUMENT_PROPERTY_TYPES = [
   ...COMPUTED_DOCUMENT_PROPERTY_TYPES,
 ] as const;
 
+/** Most rows one relation value may link to. */
+export const MAX_RELATION_TARGETS = 100;
+
+/** Trim, drop empties and non-strings, and dedupe relation IDs, keeping order. */
+export function normalizeRelationIds(value: unknown): string[] {
+  const items = Array.isArray(value) ? value : value == null ? [] : [value];
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "text",
   "number",
@@ -49,6 +67,7 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "url",
   "email",
   "phone",
+  "relation",
   "blocks",
   "id",
   "created_time",

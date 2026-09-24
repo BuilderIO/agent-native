@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -39,6 +40,7 @@ import {
   optionsForNewProperty,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
+import { assertRelationTargetDatabase } from "./_relation-values.js";
 
 const legacyConfigureDocumentPropertySchema = z
   .object({
@@ -155,7 +157,7 @@ export default defineAction({
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
     const propertyId = args.id ?? nanoid();
-    const optionsJson = optionsForNewProperty(type, args.options as any);
+    let optionsJson = optionsForNewProperty(type, args.options as any);
     const database = await resolvePropertyDatabaseForDocument(
       document,
       args.databaseId,
@@ -165,6 +167,18 @@ export default defineAction({
       throw new Error(
         "Properties belong to databases. Create or open a database before adding properties.",
       );
+    }
+    const relationTarget =
+      type === "relation"
+        ? await assertRelationTargetDatabase(db, {
+            sourceDatabase: database,
+            targetDatabaseId: args.options?.relation?.databaseId,
+          })
+        : null;
+    if (relationTarget) {
+      optionsJson = serializePropertyOptions({
+        relation: { databaseId: relationTarget.id },
+      });
     }
     if (args.naturalKey === true && type !== "text") {
       throw new Error(
@@ -238,6 +252,20 @@ export default defineAction({
         const lockedOptions = parsePropertyOptions(
           lockedDefinition.optionsJson,
         );
+        const lockedRelationTarget =
+          lockedDefinition.type === "relation"
+            ? (lockedOptions.relation?.databaseId ?? null)
+            : null;
+        if (
+          relationTarget &&
+          lockedRelationTarget &&
+          lockedRelationTarget !== relationTarget.id
+        ) {
+          throw new ActionContractError(
+            "Create a new relation property to link a different database.",
+            { errorCode: "RELATION_TARGET_IMMUTABLE", statusCode: 400 },
+          );
+        }
         const lockedIsPrimaryBlocks =
           isBlocksPropertyType(lockedDefinition.type as DocumentPropertyType) &&
           isPrimaryBlocksField(lockedOptions);

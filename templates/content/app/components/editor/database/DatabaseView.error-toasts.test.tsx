@@ -174,6 +174,7 @@ vi.mock("@/hooks/use-content-database", () => ({
   },
   useAddDatabaseItem: () => addItemMutation,
   useAddContentDatabaseSourceFieldProperty: () => benignMutation,
+  useContentDatabases: () => ({ data: undefined, isLoading: false }),
   useAttachContentDatabaseSource: () => attachSourceMutation,
   useBuilderCmsAttachPreview: () => ({
     data: undefined,
@@ -215,6 +216,7 @@ vi.mock("@/hooks/use-content-database", () => ({
 
 vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => benignMutation,
+  useContentDatabaseRowSearch: () => ({ data: undefined, isLoading: false }),
   useConfigureDocumentProperty: () => benignMutation,
   useUpdateDatabaseItems: () => benignMutation,
 }));

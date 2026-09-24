@@ -18,6 +18,7 @@ import {
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
 import { nanoid } from "./_property-utils.js";
+import { assertRelationTargetDatabase } from "./_relation-values.js";
 
 export const ordinaryPropertyTypes = [
   "text",
@@ -34,6 +35,9 @@ export const ordinaryPropertyTypes = [
   "email",
   "phone",
 ] as const;
+
+/** Types an agent can create through property setup. */
+export const setupPropertyTypes = [...ordinaryPropertyTypes, "relation"] as const;
 
 const optionPropertyTypes = ["select", "multi_select", "status"] as const;
 const nonOptionPropertyTypes = [
@@ -90,6 +94,17 @@ const createDefinitionSchema = z.discriminatedUnion("type", [
     .strict(),
   propertyDefinitionBase
     .extend({ type: z.enum(nonOptionPropertyTypes) })
+    .strict(),
+  propertyDefinitionBase
+    .extend({
+      type: z.literal("relation"),
+      relatedDatabaseId: z
+        .string()
+        .min(1)
+        .describe(
+          "Exact ID of the collection this relation links to, in the same Content space (may be this collection)",
+        ),
+    })
     .strict(),
 ]);
 
@@ -441,8 +456,21 @@ export async function runConfigureDocumentProperty(
       if (input.operation === "create") {
         const propertyId = nanoid();
         const definition = input.definition;
-        const options =
-          "options" in definition ? { options: definition.options ?? [] } : {};
+        const options: DocumentPropertyOptions =
+          definition.type === "relation"
+            ? {
+                relation: {
+                  databaseId: (
+                    await assertRelationTargetDatabase(tx, {
+                      sourceDatabase: context.database,
+                      targetDatabaseId: definition.relatedDatabaseId,
+                    })
+                  ).id,
+                },
+              }
+            : "options" in definition
+              ? { options: definition.options ?? [] }
+              : {};
         if ("options" in definition) validateOptions(definition.options ?? []);
         const [maxPosition] = await tx
           .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
