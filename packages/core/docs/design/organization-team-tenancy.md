@@ -75,8 +75,10 @@ organization ownership or a new scope.
 
 `orgId` alone records an existing organization association. It is not
 organization ownership or a new scope. Team membership and active-team
-selection do not alter existing ACLs. Team-principal grants apply only to new
-organization- and team-scoped resources. There is no legacy team principal.
+selection do not alter existing ACLs. Team-principal grants apply only to
+resources created in organization or team scope after family enablement, or
+explicitly moved into those scopes under Scope Moves. Pre-existing rows retain
+their legacy ACL until such a move. There is no legacy team principal.
 
 Organization and team scope require `orgId`. Only team scope has a nonnull
 `teamId`. That team must belong to the `orgId`.
@@ -151,9 +153,10 @@ explicit editor can edit. An explicit resource admin can edit and manage shares
 and visibility. That admin cannot move scope or delete using that grant alone.
 
 Organization owners and admins can read, edit, manage shares and visibility,
-delete, and move every organization or team resource. They do not need team
-membership. Team leads retain only membership-management authority and normal
-resource grants.
+and delete every organization or team resource. They can authorize moves only
+for supported authored resource families under the Scope Moves rules. They do
+not need team membership. Team leads retain only membership-management
+authority and normal resource grants.
 
 Creator and explicit-share access to an organization or team resource requires
 current membership in its owning organization. All organization-derived access,
@@ -169,8 +172,9 @@ revocation.
 
 Organization visibility gives read access to every organization member. This
 includes all team members, regardless of active team. Selected team readership
-uses team-principal grants on a private organization resource. These grants add
-their granted read or write role. They never subtract organization visibility.
+uses team-principal grants on an eligible private organization resource. These
+grants add their granted read or write role. They never subtract organization
+visibility.
 
 Membership is checked at access time. Team configuration can add or override
 its own configuration. It cannot mutate organization defaults.
