@@ -34,6 +34,7 @@ export interface ModeChangeArgs {
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  overviewInteractScreenId: string | null;
   setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
@@ -57,6 +58,7 @@ export function runModeChange(
     setMode,
     setPinMode,
     setSelectedElement,
+    overviewInteractScreenId,
     setOverviewInteractScreenId,
     t,
     viewModeRef,
@@ -104,6 +106,9 @@ export function runModeChange(
     if (options?.targetFileId) setActiveFileId(options.targetFileId);
     enterOverviewFromZoom(next);
     return;
+  }
+  if (next === "interact" && overviewInteractScreenId) {
+    setOverviewInteractScreenId(nextActiveFile!.id);
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
   setMode(next);

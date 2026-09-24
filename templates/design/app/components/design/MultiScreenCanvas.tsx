@@ -13875,6 +13875,7 @@ const Screen = memo(function Screen({
             fullViewVisible && "opacity-100",
           )}
           style={{
+            display: focusedInteract ? "none" : undefined,
             maxWidth: fullViewMaxWidth,
             transform: `translate(-50%, -50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "center center",

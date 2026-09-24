@@ -18617,6 +18617,7 @@ function DesignEditor() {
           setMode,
           setPinMode,
           setSelectedElement,
+          overviewInteractScreenId,
           setOverviewInteractScreenId,
           t,
           viewModeRef,
@@ -18636,6 +18637,7 @@ function DesignEditor() {
       requestPendingVisualStyleRevert,
       t,
       files,
+      overviewInteractScreenId,
     ],
   );
   // Frame-button entry uses the same mode guard as the toolbar and screen list.

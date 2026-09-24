@@ -57,9 +57,12 @@ async function enterInteractAndSampleImmediately(
   await expect(
     page.getByRole("button", { name: "Exit responsive preview" }),
   ).toBeVisible();
+  await expect(screenShell.locator("[data-frame-full-view]")).toBeHidden();
   expect(
     await previewIframeHandle.evaluate((before) =>
       Boolean(
+        before.isConnected &&
+        document.contains(before) &&
         before
           .closest("[data-screen-shell]")
           ?.querySelector("iframe[data-design-preview-iframe]") === before,
