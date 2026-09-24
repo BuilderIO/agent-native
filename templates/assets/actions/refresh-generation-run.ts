@@ -11,7 +11,11 @@ import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { normalizeCallerAppId } from "../shared/api.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
-import { upsertVariantSlot } from "./variant-slots.js";
+import {
+  failMissingVariantRun,
+  readVariantState,
+  upsertVariantSlot,
+} from "./variant-slots.js";
 
 // Must stay comfortably above the managed generation budget: the default 300s
 // request window plus up to ~4 minutes of idempotent in-flight polling. Otherwise
@@ -64,6 +68,7 @@ async function syncImageVariantSlot(
     threadId,
     variantScopeId,
     prompt: run.prompt,
+    ownerEmail: run.ownerEmail,
     slotId,
     status,
     assetId: serialized?.id,
@@ -143,18 +148,56 @@ async function refreshImageRun(
 
 export default defineAction({
   description:
-    "Refresh a generation run. Use this to poll async video runs, and to reconcile an interrupted or stale pending image slot by runId before retrying generation.",
+    "Refresh a generation run. Use this to poll async video runs, and to reconcile an interrupted, stale, or missing pending image slot by runId before retrying generation.",
   schema: z.object({
     runId: z.string(),
+    threadId: z.string().nullable().optional(),
   }),
-  run: async ({ runId }, ctx?: ActionRunContext) => {
+  run: async ({ runId, threadId }, ctx?: ActionRunContext) => {
     const db = getDb();
     const [run] = await db
       .select()
       .from(schema.assetGenerationRuns)
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
-    if (!run) throw new Error("Generation run not found.");
+    if (!run) {
+      const scopeId = threadId ?? ctx?.threadId;
+      const state = await readVariantState(scopeId);
+      const slot = state?.slots.find(
+        (candidate) =>
+          candidate.runId === runId && candidate.status === "pending",
+      );
+      const timestamp = Date.parse(slot?.createdAt ?? slot?.updatedAt ?? "");
+      if (
+        state &&
+        slot &&
+        Number.isFinite(timestamp) &&
+        Date.now() - timestamp >= STALE_IMAGE_RUN_MS
+      ) {
+        // Legacy slots have no owner field, but their app state is request-scoped.
+        await assertCanDraftAuthoredBy(
+          state.libraryId,
+          slot.ownerEmail ?? ctx?.userEmail,
+          "A generation run",
+        );
+        const reconciled = await failMissingVariantRun({
+          runId,
+          libraryId: state.libraryId,
+          scopeId,
+          staleBefore: Date.now() - STALE_IMAGE_RUN_MS,
+          error: INTERRUPTED_IMAGE_RUN_ERROR,
+        });
+        if (reconciled) {
+          return {
+            run: null,
+            assets: [],
+            missingRun: true,
+            slotReconciled: true,
+          };
+        }
+      }
+      throw new Error("Generation run not found.");
+    }
     // Reconciling mutates the run row (status, error, outputs), so a
     // below-editor caller may only refresh a run they started.
     const draftAccess = await assertCanDraftAuthoredBy(

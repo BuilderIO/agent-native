@@ -149,7 +149,12 @@ export function runTextContentChange(
   const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    ? (resolveCodeLayerNodeFromElementInfo(projection, targetInfo) ??
+      (elementInfo?.sourceLayerIdentity?.screenId === activeFile.id
+        ? (projection.nodes.find(
+            (node) => node.id === elementInfo.sourceLayerIdentity?.nodeId,
+          ) ?? null)
+        : null))
     : resolveCodeLayerNodeFromBridge(projection, selector);
   // An x-text row shows a value from the collection, so its text has one home:
   // the item. A markup edit changes nothing — the next render puts the data
@@ -350,6 +355,9 @@ export function runTextContentChange(
           selector: selectedNode
             ? preferredCodeLayerSelector(selectedNode)
             : selector,
+          sourceLayerIdentity: selectedNode
+            ? { screenId: activeFile.id, nodeId: selectedNode.id }
+            : base.sourceLayerIdentity,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }

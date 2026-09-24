@@ -15,10 +15,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createOAuth2Client,
+  gmailBatchGetMessages,
   gmailBatchGetThreads,
   gmailGetProfile,
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
+  gmailListHistory,
   gmailListThreads,
   googleFetch,
 } from "./google-api.js";
@@ -32,6 +34,8 @@ import {
   getConnectedAccounts,
   getConnectedAccountsWithErrors,
   getClientsWithErrors,
+  invalidateHistoryCacheForAccount,
+  invalidateListCacheForOwner,
   isConnected,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -633,6 +637,130 @@ describe("listGmailMessages", () => {
       maxResults: 3,
       pageToken: undefined,
     });
+  });
+
+  it("does not reuse or cache an in-flight response invalidated by a mutation", async () => {
+    let releaseFirst!: (value: unknown) => void;
+    const firstProviderResponse = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    vi.mocked(gmailListThreads)
+      .mockImplementationOnce(() => firstProviderResponse as any)
+      .mockResolvedValueOnce({ threads: [{ id: "new-thread" }] } as any);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: { messages: [{ id: `${id}-message`, threadId: id }] },
+        })) as any,
+    );
+
+    const first = listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    await vi.waitFor(() => expect(gmailListThreads).toHaveBeenCalledTimes(1));
+
+    invalidateListCacheForOwner("inflight-owner@example.com");
+    const second = listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    await vi.waitFor(() => expect(gmailListThreads).toHaveBeenCalledTimes(2));
+
+    await expect(second).resolves.toMatchObject({
+      messages: [{ threadId: "new-thread" }],
+    });
+    releaseFirst({ threads: [{ id: "old-thread" }] });
+    await expect(first).resolves.toMatchObject({
+      messages: [{ threadId: "old-thread" }],
+    });
+
+    const third = await listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    expect(third.messages).toEqual([
+      expect.objectContaining({ threadId: "new-thread" }),
+    ]);
+    expect(gmailListThreads).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a stale history window and its in-flight completion after a mutation", async () => {
+    const owner = "history-owner@example.com";
+    const account = "connected@example.com";
+    const makeMessage = (id: string) => ({
+      id,
+      threadId: id,
+      internalDate: id === "old-message" ? "1" : "2",
+      labelIds: ["INBOX"],
+    });
+    invalidateHistoryCacheForAccount(account);
+    vi.mocked(gmailGetProfile).mockResolvedValue({ historyId: "10" } as any);
+    vi.mocked(gmailBatchGetMessages).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({ id, data: makeMessage(id) })) as any,
+    );
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({ messages: [{ id: "old-message" }] } as any)
+      .mockResolvedValueOnce({ messages: [{ id: "new-message" }] } as any);
+
+    await listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+
+    let releaseHistory!: (value: unknown) => void;
+    vi.mocked(gmailListHistory)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseHistory = resolve;
+          }) as any,
+      )
+      .mockResolvedValue({ history: [], historyId: "11" } as any);
+    invalidateListCacheForOwner(owner);
+    const stale = listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+    await vi.waitFor(() => expect(gmailListHistory).toHaveBeenCalledTimes(1));
+
+    invalidateHistoryCacheForAccount(account);
+    invalidateListCacheForOwner(owner);
+    const fresh = listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+    await expect(fresh).resolves.toMatchObject({
+      messages: [{ id: "new-message" }],
+    });
+
+    releaseHistory({
+      history: [],
+      historyId: "11",
+      nextPageToken: "too-many-changes",
+    });
+    await expect(stale).resolves.toMatchObject({ messages: [] });
+
+    invalidateListCacheForOwner(owner);
+    const afterLateCompletion = await listGmailMessages(
+      undefined,
+      3,
+      owner,
+      undefined,
+      { mode: "messages" },
+    );
+    expect(afterLateCompletion.messages).toEqual([
+      expect.objectContaining({ id: "new-message" }),
+    ]);
+    expect(gmailListMessagesApi).toHaveBeenCalledTimes(3);
   });
 });
 

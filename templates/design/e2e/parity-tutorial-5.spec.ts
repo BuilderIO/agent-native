@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { e2eBaseURL } from "./base-url";
 import {
   createFixtureDesign,
@@ -275,13 +276,11 @@ function styleOf(html: string, nodeId: string): Record<string, string> {
 }
 
 function layerNameOf(html: string, nodeId: string): string | null {
-  const marker = `data-agent-native-node-id="${nodeId}"`;
-  const openIndex = html.indexOf(marker);
-  if (openIndex < 0) return null;
-  const tagStart = html.lastIndexOf("<", openIndex);
-  const tagEnd = html.indexOf(">", openIndex);
-  const tag = html.slice(tagStart, tagEnd + 1);
-  return /data-agent-native-layer-name="([^"]*)"/.exec(tag)?.[1] ?? null;
+  return (
+    buildCodeLayerProjection(html).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === nodeId,
+    )?.layerName ?? null
+  );
 }
 
 function hasNode(html: string, nodeId: string): boolean {
@@ -430,6 +429,25 @@ async function renameLayerViaPanel(
   await input.fill(nextName);
   await input.press("Enter");
   await searchInput.fill("");
+}
+
+function layerRowByName(page: Page, name: string): Locator {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) })
+    .first();
+}
+
+async function expectLayerSelectedByName(
+  page: Page,
+  name: string,
+): Promise<void> {
+  const button = layerRowByName(page, name);
+  await expect(button).toBeVisible();
+  await expect(
+    button.locator('xpath=ancestor::*[@role="treeitem"]'),
+  ).toHaveAttribute("aria-selected", "true");
 }
 
 test.describe("parity: Figma Tutorial 5 - interactive button component (in-screen build)", () => {
@@ -598,7 +616,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     ).toBe(true);
   });
 
-  test("step 2 (no equivalent): Enter does not open a vector edit / point-add mode on a shape", async ({
+  test("step 2: Enter opens vector edit mode and Escape preserves the shape", async ({
     page,
     request,
   }) => {
@@ -614,17 +632,14 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await drawShape(page, "r", card.x + 40, card.y + 40, 40, 40);
     await page.waitForTimeout(300);
 
-    const before = await page.evaluate(() => document.title);
+    const before = await fileContent(page, "index.html");
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(300);
-    // No vector-edit affordance exists in this app; confirm no dedicated mode
-    // banner/toolbar appears (closest observable signal: no aria-pressed
-    // "Vector edit" style tool button exists at all).
-    const vectorEditButton = page.locator(
-      'button[aria-label*="vector" i], button[aria-label*="Edit points" i]',
-    );
-    expect(await vectorEditButton.count()).toBe(0);
-    expect(await page.evaluate(() => document.title)).toBe(before);
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await expect(page.locator("[data-vector-anchor]")).toHaveCount(4);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-vector-edit-overlay]")).toHaveCount(0);
+    expect(await fileContent(page, "index.html")).toBe(before);
   });
 
   test("step 2b: Cmd+Opt+K annotates a frame as a component (closest equivalent; no component/variant system)", async ({
@@ -726,16 +741,35 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await placeText(page, card, "Save");
 
     const textId = await waitForTextPrimitiveNodeId(page, "index.html", "Save");
-
-    // The just-placed text stays selected after placeText commits, so
-    // Shift+A applies directly without a redundant reselect (re-clicking
-    // an already-selected node does not always refire element-select).
+    const originalHtml = await fileContent(page, "index.html");
+    const originalParentId = await parentIdOf(page, originalHtml, textId);
+    expect(originalParentId, "new text needs its original parent").toBeTruthy();
+    // Figma keeps newly-created text selected after Escape exits text editing;
+    // this direct sequence catches a stale Screen selection before Shift+A.
+    await expectLayerSelectedByName(page, "Save");
     await page.keyboard.press("Shift+A");
-    await page.waitForTimeout(400);
 
     let html = await fileContent(page, "index.html");
-    const wrapperId = await parentIdOf(page, html, textId);
-    expect(wrapperId, "expected Shift+A to introduce a wrapper").toBeTruthy();
+    let wrapperId: string | null = null;
+    await expect
+      .poll(
+        async () => {
+          html = await fileContent(page, "index.html");
+          wrapperId = await parentIdOf(page, html, textId);
+          return wrapperId === originalParentId ? null : wrapperId;
+        },
+        {
+          timeout: 15_000,
+          message:
+            "Shift+A should persist a new parent around the selected text",
+        },
+      )
+      .toBeTruthy();
+    expect(
+      wrapperId,
+      "Shift+A should wrap only the selected new text layer",
+    ).not.toBe(originalParentId);
+    expect(styleOf(html, wrapperId!)!.display).toBe("flex");
     const wrapperName = layerNameOf(html, wrapperId!) ?? "Group";
 
     await renameLayerViaPanel(page, wrapperName, "button/default/unsaved");
@@ -763,11 +797,11 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     // Build the "button" auto-layout frame (text -> Shift+A).
     await placeText(page, card, "Save");
     const textId = await waitForTextPrimitiveNodeId(page, "index.html", "Save");
-    // The just-placed text stays selected after placeText commits, so
-    // Shift+A applies directly without a redundant reselect (re-clicking
-    // an already-selected node does not always refire element-select).
+    const initialHtml = await fileContent(page, "index.html");
+    const initialParentId = await parentIdOf(page, initialHtml, textId);
+    expect(initialParentId, "new text needs its original parent").toBeTruthy();
+    await expectLayerSelectedByName(page, "Save");
     await page.keyboard.press("Shift+A");
-    await page.waitForTimeout(400);
     let html = await fileContent(page, "index.html");
     let buttonFrameIdCandidate: string | null = null;
     await expect
@@ -775,7 +809,9 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
         async () => {
           html = await fileContent(page, "index.html");
           buttonFrameIdCandidate = await parentIdOf(page, html, textId);
-          return buttonFrameIdCandidate;
+          return buttonFrameIdCandidate === initialParentId
+            ? null
+            : buttonFrameIdCandidate;
         },
         {
           timeout: 15_000,
@@ -784,6 +820,8 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       )
       .toBeTruthy();
     const buttonFrameId = buttonFrameIdCandidate!;
+    expect(buttonFrameId).not.toBe(initialParentId);
+    expect(styleOf(html, buttonFrameId).display).toBe("flex");
 
     // Build a small standalone "icon" frame elsewhere on the same screen.
     const iconOrigin = { x: card.x + 60, y: card.y + 60 };

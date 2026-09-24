@@ -50,8 +50,15 @@ interface DeclarationValueSpan {
   start: number;
 }
 
-const STYLE_ATTRIBUTE_PATTERN =
-  /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
+const SVG_PRESENTATION_COLOR_ATTRIBUTES = new Set([
+  "color",
+  "fill",
+  "flood-color",
+  "lighting-color",
+  "solid-color",
+  "stop-color",
+  "stroke",
+]);
 
 function maskCssComments(css: string): string {
   const masked = css.split("");
@@ -97,6 +104,12 @@ interface HtmlTagSpan {
   value: string;
 }
 
+interface HtmlAttributeSpan {
+  name: string;
+  value: string;
+  valueStart: number;
+}
+
 interface StyleBlockSpan {
   start: number;
   value: string;
@@ -140,6 +153,47 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
     }
   }
   return tags;
+}
+
+function htmlAttributeSpans(tag: string, offset: number): HtmlAttributeSpan[] {
+  const attributes: HtmlAttributeSpan[] = [];
+  let cursor = tag.indexOf("<") + 1;
+  if (tag[cursor] === "/") cursor += 1;
+  while (/[\w:-]/.test(tag[cursor] ?? "")) cursor += 1;
+
+  while (cursor < tag.length) {
+    while (/\s|\//.test(tag[cursor] ?? "")) cursor += 1;
+    if (!tag[cursor] || tag[cursor] === ">") break;
+
+    const nameStart = cursor;
+    while (!/[\s=/>]/.test(tag[cursor] ?? "")) cursor += 1;
+    const name = tag.slice(nameStart, cursor).toLowerCase();
+    if (!name) {
+      cursor += 1;
+      continue;
+    }
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    if (tag[cursor] !== "=") continue;
+
+    cursor += 1;
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    const quote = tag[cursor] === '"' || tag[cursor] === "'" ? tag[cursor] : "";
+    if (quote) cursor += 1;
+    const valueStart = cursor;
+    if (quote) {
+      while (cursor < tag.length && tag[cursor] !== quote) cursor += 1;
+    } else {
+      while (cursor < tag.length && !/[\s>]/.test(tag[cursor] ?? ""))
+        cursor += 1;
+    }
+    attributes.push({
+      name,
+      value: tag.slice(valueStart, cursor),
+      valueStart: offset + valueStart,
+    });
+    if (quote && tag[cursor] === quote) cursor += 1;
+  }
+  return attributes;
 }
 
 function styleBlockSpans(content: string): StyleBlockSpan[] {
@@ -477,19 +531,25 @@ function colorTokenSpansInCss(
   declarationValueSpans(maskedCss, offset).forEach(
     ({ property, value, start }) => {
       if (properties && !properties.has(property)) return;
-      const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
-      for (const match of value.matchAll(matcher)) {
-        const token = match[0];
-        const relativeStart = match.index ?? 0;
-        if (isInsideExcludedColorFunction(value, relativeStart)) continue;
-        tokens.push({
-          value: token,
-          start: start + relativeStart,
-          end: start + relativeStart + token.length,
-        });
-      }
+      tokens.push(...colorTokenSpansInValue(value, start));
     },
   );
+  return tokens;
+}
+
+function colorTokenSpansInValue(value: string, offset = 0): ColorTokenSpan[] {
+  const tokens: ColorTokenSpan[] = [];
+  const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
+  for (const match of value.matchAll(matcher)) {
+    const token = match[0];
+    const relativeStart = match.index ?? 0;
+    if (isInsideExcludedColorFunction(value, relativeStart)) continue;
+    tokens.push({
+      value: token,
+      start: offset + relativeStart,
+      end: offset + relativeStart + token.length,
+    });
+  }
   return tokens;
 }
 
@@ -501,15 +561,46 @@ function colorTokenSpansInHtml(
   const maskedContent = maskNonRenderedHtml(content);
   const styleBlocks = styleBlockSpans(maskedContent);
   const tokens: ColorTokenSpan[] = [];
+  let svgDepth = 0;
 
   for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {
     if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) continue;
-    for (const attribute of tag.matchAll(STYLE_ATTRIBUTE_PATTERN)) {
-      const value = attribute[1] ?? attribute[2] ?? attribute[3] ?? "";
-      const valueOffset =
-        tagOffset + (attribute.index ?? 0) + attribute[0].indexOf(value);
-      tokens.push(...colorTokenSpansInCss(value, valueOffset, properties));
+    const tagName = htmlStartTagName(tag);
+    const closesSvg = /^<\/\s*svg\b/i.test(tag);
+    const opensSvg = tagName === "svg" && !closesSvg;
+    const insideSvg = svgDepth > 0 || opensSvg;
+    if (opensSvg && !/\/\s*>$/.test(tag)) svgDepth += 1;
+    if (tagName && !closesSvg) {
+      const attributes = htmlAttributeSpans(tag, tagOffset);
+      const styledProperties = new Set<string>();
+      for (const attribute of attributes) {
+        if (attribute.name !== "style") continue;
+        declarationValueSpans(maskCssComments(attribute.value)).forEach(
+          ({ property }) => styledProperties.add(property),
+        );
+      }
+      for (const attribute of attributes) {
+        if (attribute.name === "style") {
+          tokens.push(
+            ...colorTokenSpansInCss(
+              attribute.value,
+              attribute.valueStart,
+              properties,
+            ),
+          );
+        } else if (
+          insideSvg &&
+          SVG_PRESENTATION_COLOR_ATTRIBUTES.has(attribute.name) &&
+          !styledProperties.has(attribute.name)
+        ) {
+          if (properties && !properties.has(attribute.name)) continue;
+          tokens.push(
+            ...colorTokenSpansInValue(attribute.value, attribute.valueStart),
+          );
+        }
+      }
     }
+    if (closesSvg) svgDepth = Math.max(0, svgDepth - 1);
   }
 
   if (options.includeStyleBlocks !== false) {
@@ -813,6 +904,26 @@ function mergeSelectionColorRanges(
   return merged;
 }
 
+function colorTokenSpansWithinRanges(
+  content: string,
+  ranges: SelectionColorRange[],
+  properties?: ReadonlySet<string>,
+  options: { includeStyleBlocks?: boolean } = {},
+): ColorTokenSpan[] {
+  const mergedRanges = mergeSelectionColorRanges(ranges);
+  let rangeIndex = 0;
+  return colorTokenSpansInHtml(content, properties, options).filter((token) => {
+    while (
+      rangeIndex < mergedRanges.length &&
+      (mergedRanges[rangeIndex]?.end ?? 0) <= token.start
+    ) {
+      rangeIndex += 1;
+    }
+    const range = mergedRanges[rangeIndex];
+    return !!range && token.start >= range.start && token.end <= range.end;
+  });
+}
+
 export function selectionColorScopeRanges(
   scopes: SelectionColorScope[],
 ): Map<string, SelectionColorRange[]> {
@@ -876,17 +987,15 @@ function replaceScopedColorTokensInHtml(
   const ranges = mergedScopeRanges(scopes, true, content);
   if (!ranges || ranges.length === 0) return null;
   let next = content;
-  for (let index = ranges.length - 1; index >= 0; index -= 1) {
-    const range = ranges[index];
-    if (!range) continue;
-    let segment = content.slice(range.start, range.end);
-    const tokens = colorTokenSpansInHtml(segment, properties);
-    for (let tokenIndex = tokens.length - 1; tokenIndex >= 0; tokenIndex -= 1) {
-      const token = tokens[tokenIndex];
-      if (!token || colorKey(token.value) !== target) continue;
-      segment = `${segment.slice(0, token.start)}${to}${segment.slice(token.end)}`;
-    }
-    next = `${next.slice(0, range.start)}${segment}${next.slice(range.end)}`;
+  const tokens = colorTokenSpansWithinRanges(
+    content,
+    ranges,
+    properties,
+  ).filter(({ value }) => colorKey(value) === target);
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (!token) continue;
+    next = `${next.slice(0, token.start)}${to}${next.slice(token.end)}`;
   }
   return next;
 }
@@ -918,11 +1027,15 @@ export function selectionColorValues(
   }
   for (const groups of scanGroups.values()) {
     for (const group of groups) {
-      for (const range of mergeSelectionColorRanges(group.ranges)) {
-        const content = group.content.slice(range.start, range.end);
-        colorTokenSpansInHtml(content, undefined, {
+      for (const { value: token } of colorTokenSpansWithinRanges(
+        group.content,
+        group.ranges,
+        undefined,
+        {
           includeStyleBlocks: false,
-        }).forEach(({ value: token }) => addColorValue(values, "color", token));
+        },
+      )) {
+        addColorValue(values, "color", token);
       }
     }
   }

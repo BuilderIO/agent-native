@@ -320,6 +320,18 @@ export default {
       perspectiveHint: "원근감 (비어 있음/0 = 없음)",
       customTransform: "사용자 지정 변환 — X/Y/Z 회전으로 편집할 수 없음",
       shaderEffectType: "셰이더",
+      imageScaleMode: "이미지 크기 조정 모드",
+      imageAdjustments: "이미지 조정",
+      imageExposure: "노출",
+      imageContrast: "대비",
+      imageSaturation: "채도",
+      imageScaleFill: "채우기",
+      imageScaleFit: "맞춤",
+      imageScaleCrop: "자르기",
+      noMirroring: "미러링 없음",
+      vector: "벡터",
+      mirrorAngle: "각도 미러링",
+      mirrorAngleAndLength: "각도 및 길이 미러링",
     },
     shaders: {
       fillsTitle: "셰이더 채우기",
@@ -541,6 +553,22 @@ export default {
         adUnit: "광고 단위",
       },
     },
+    scale: {
+      title: "크기 조정",
+      exit: "크기 조정 종료",
+      factor: "배율",
+      presets: "배율 프리셋",
+      anchor: "기준점",
+      topLeft: "왼쪽 위",
+      topCenter: "가운데 위",
+      topRight: "오른쪽 위",
+      middleLeft: "왼쪽 가운데",
+      center: "가운데",
+      middleRight: "오른쪽 가운데",
+      bottomLeft: "왼쪽 아래",
+      bottomCenter: "가운데 아래",
+      bottomRight: "오른쪽 아래",
+    },
   },
   designEditor: {
     vectorEndpoints: {
@@ -559,11 +587,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "{{modifier}}를 누른 채 클릭하면 내부 레이어를 선택할 수 있습니다.",
-      dismiss: "레이어 선택 팁 닫기",
-    },
     autoLayoutSuggestion: {
       menuLabel: "오토 레이아웃 제안…",
       title: "오토 레이아웃 제안",
@@ -776,6 +799,8 @@ export default {
       figmaPasteTarget: "캔버스에 붙여넣기",
       figmaPasteApiKeyHint:
         "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
+      figmaPasteAccessDenied:
+        '연결된 Figma 토큰으로 이 파일에 액세스할 수 없습니다. 파일 권한과 토큰에 "File content" 범위가 포함되어 있는지 확인하세요.',
       figmaPasteMatchGuidance:
         "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
       figmaPasteUnreadable:
@@ -1071,6 +1096,7 @@ export default {
         ungroup: "그룹 해제",
         frameSelection: "선택 영역 프레임화",
         autoLayout: "자동 레이아웃",
+        imageVideo: "이미지/동영상...",
       },
     },
     undo: "끄르다",
@@ -1352,6 +1378,10 @@ export default {
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
         "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
+      imageUploading: "이미지 업로드 중…",
+      pasteReplaceFailed: "해당 레이어를 바꿀 수 없습니다",
+      swapFillStrokeLayeredFill:
+        "여러 채우기나 이미지 채우기는 아직 선으로 옮길 수 없습니다",
     },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",

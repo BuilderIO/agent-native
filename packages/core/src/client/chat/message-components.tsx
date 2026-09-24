@@ -2106,6 +2106,20 @@ export function shouldShowInlineRunError({
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 
+export function withoutBanneredRunErrorSummary(
+  text: string,
+  runError: RunErrorInfo | null,
+  bannerRunErrorKey: string | null | undefined,
+): string | null {
+  if (!runError || runErrorKey(runError) !== bannerRunErrorKey) return text;
+  const summary = runError.message.trim();
+  for (const prefix of [`Error: ${summary}`, summary]) {
+    if (text === prefix) return null;
+    if (text.startsWith(`${prefix}\n\n`)) return text.slice(prefix.length + 2);
+  }
+  return text;
+}
+
 export function InlineRunErrorNotice({
   info,
   durationMs,
@@ -2623,7 +2637,12 @@ export function AssistantMessage() {
                       />
                     );
                   }
-                  return <MarkdownText />;
+                  const text = withoutBanneredRunErrorSummary(
+                    part.text,
+                    messageRunError,
+                    isUserStoppedRun ? null : messageActions?.bannerRunErrorKey,
+                  );
+                  return text === null ? null : <MarkdownText text={text} />;
                 case "reasoning":
                   return <ReasoningMessagePart />;
                 case "tool-call":

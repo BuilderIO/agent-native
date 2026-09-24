@@ -1,5 +1,22 @@
 # @agent-native/skills
 
+## 0.3.0
+
+### Minor Changes
+
+- 6ce7517: Let users choose an installer group, then install all or a selected subset.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [69ecbfb]
+- Updated dependencies [6ce7517]
+- Updated dependencies [e383d8d]
+- Updated dependencies [67cf8bb]
+- Updated dependencies
+- Updated dependencies [be380fa]
+  - @agent-native/core@0.186.0
+
 ## 0.2.732
 
 ### Patch Changes
@@ -1446,12 +1463,5 @@
 
 - Updated dependencies [c58cd6e]
   - @agent-native/core@0.164.4
-
-## 0.2.633
-
-### Patch Changes
-
-- Updated dependencies [f790010]
-  - @agent-native/core@0.164.3
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

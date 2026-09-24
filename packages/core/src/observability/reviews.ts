@@ -1,15 +1,19 @@
 import { resolveThreadsAccess } from "../chat-threads/store.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import {
   getFeedback,
   getInstructionUpdates,
+  getTraceSummary,
   getTraceSummaries,
 } from "./store.js";
 import type {
   FeedbackEntry,
   InstructionUpdate,
-  OutputReviewRow,
+  OutputReviewListRow,
   TraceSummary,
 } from "./types.js";
+
+const MAX_INLINE_APP_TITLE_LENGTH = 120;
 
 function unwrapMessage(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -18,6 +22,33 @@ function unwrapMessage(value: unknown): Record<string, unknown> | null {
   return nested && typeof nested === "object" && !Array.isArray(nested)
     ? (nested as Record<string, unknown>)
     : record;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function inlineMcpApp(value: unknown): AgentMcpAppPayload | null {
+  const app = record(value);
+  const resource = record(app?.resource);
+  if (
+    !app ||
+    typeof app.serverId !== "string" ||
+    typeof app.toolName !== "string" ||
+    typeof app.originalToolName !== "string" ||
+    typeof app.resourceUri !== "string" ||
+    !record(app.toolInput) ||
+    !record(app.toolResult) ||
+    typeof resource?.uri !== "string" ||
+    typeof resource.mimeType !== "string" ||
+    !resource.mimeType.toLowerCase().startsWith("text/html") ||
+    (typeof resource.text !== "string" && typeof resource.blob !== "string")
+  ) {
+    return null;
+  }
+  return value as AgentMcpAppPayload;
 }
 
 function messageText(value: unknown): string {
@@ -61,6 +92,7 @@ function readThreadMessages(threadData: string): Array<{
   role: "user" | "assistant";
   text: string;
   runId?: string;
+  inlineApps: AgentMcpAppPayload[];
 }> {
   try {
     const repository = JSON.parse(threadData);
@@ -83,8 +115,21 @@ function readThreadMessages(threadData: string): Array<{
         return [];
       }
       const text = messageText(content).trim();
-      return text
-        ? [{ role: message.role, text, runId: messageRunId(message) }]
+      const inlineApps = Array.isArray(content)
+        ? content.flatMap((part) => {
+            const app = inlineMcpApp(record(part)?.mcpApp);
+            return app ? [app] : [];
+          })
+        : [];
+      return text || inlineApps.length > 0
+        ? [
+            {
+              role: message.role,
+              text,
+              runId: messageRunId(message),
+              inlineApps,
+            },
+          ]
         : [];
     });
   } catch (error) {
@@ -97,7 +142,7 @@ function readThreadMessages(threadData: string): Array<{
 function askAndAnswer(
   summary: TraceSummary,
   threadData: string | null,
-): { ask: string; answer: string } {
+): { ask: string; answer: string; inlineApp?: AgentMcpAppPayload } {
   if (!threadData) return { ask: "", answer: "" };
   const messages = readThreadMessages(threadData);
   const askIndex = messages.findIndex(
@@ -122,6 +167,42 @@ function askAndAnswer(
   return {
     ask: resolvedAskIndex >= 0 ? messages[resolvedAskIndex]!.text : "",
     answer: answerIndex >= 0 ? messages[answerIndex]!.text : "",
+    ...(answerIndex >= 0 && messages[answerIndex]!.inlineApps.length > 0
+      ? { inlineApp: messages[answerIndex]!.inlineApps.at(-1) }
+      : {}),
+  };
+}
+
+function inlineAppTitle(app: AgentMcpAppPayload): string | undefined {
+  const title =
+    app.tool?.title?.trim() || app.tool?.name?.trim() || app.toolName.trim();
+  return title ? title.slice(0, MAX_INLINE_APP_TITLE_LENGTH) : undefined;
+}
+
+function getInlineAppForRun(
+  summary: TraceSummary,
+  threadData: string | null,
+): AgentMcpAppPayload | null {
+  return askAndAnswer(summary, threadData).inlineApp ?? null;
+}
+
+export async function getOutputReviewAppForRun(opts: {
+  runId: string;
+  userId: string;
+}): Promise<
+  { found: false } | { found: true; app: AgentMcpAppPayload | null }
+> {
+  const summary = await getTraceSummary(opts.runId, { userId: opts.userId });
+  if (!summary) return { found: false };
+  if (!summary.threadId) return { found: true, app: null };
+
+  const threads = await resolveThreadsAccess(opts.userId, [summary.threadId]);
+  const thread = threads.get(summary.threadId);
+  if (!thread) return { found: false };
+
+  return {
+    found: true,
+    app: getInlineAppForRun(summary, thread.threadData ?? null),
   };
 }
 
@@ -129,7 +210,7 @@ export async function listOutputReviews(opts: {
   sinceMs: number;
   limit: number;
   userId: string;
-}): Promise<OutputReviewRow[]> {
+}): Promise<OutputReviewListRow[]> {
   const summaries = await getTraceSummaries({
     sinceMs: opts.sinceMs,
     limit: opts.limit,
@@ -164,19 +245,25 @@ export async function listOutputReviews(opts: {
         ? (threads.get(summary.threadId) ?? null)
         : null;
       if (summary.threadId && !thread) return null;
-      const { ask, answer } = askAndAnswer(summary, thread?.threadData ?? null);
+      const { ask, answer, inlineApp } = askAndAnswer(
+        summary,
+        thread?.threadData ?? null,
+      );
+      const title = inlineApp ? inlineAppTitle(inlineApp) : undefined;
       return {
         runId: summary.runId,
         threadId: summary.threadId,
         ask,
         answer,
+        hasInlineApp: Boolean(inlineApp),
+        ...(title ? { inlineAppTitle: title } : {}),
         model: summary.model,
         createdAt: summary.createdAt,
         feedback: feedbackByRun.get(summary.runId) ?? [],
         instructionUpdate: updateByRun.get(summary.runId) ?? null,
-      } satisfies OutputReviewRow;
+      } satisfies OutputReviewListRow;
     })
-    .filter((row): row is OutputReviewRow => row !== null);
+    .filter((row): row is OutputReviewListRow => row !== null);
 }
 
 function groupByRun(entries: FeedbackEntry[]): Map<string, FeedbackEntry[]> {

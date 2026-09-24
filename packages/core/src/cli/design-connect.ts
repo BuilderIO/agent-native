@@ -1746,7 +1746,9 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-const MAX_LIVE_EDIT_PENDING_BYTES = 512 * 1024;
+const MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH = 64 * 1024;
+const MAX_LIVE_EDIT_PENDING_BYTES =
+  MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH + 8 * 1024;
 
 class LiveEditPendingRequestTooLargeError extends Error {}
 
@@ -1757,7 +1759,7 @@ async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
     declaredLength > MAX_LIVE_EDIT_PENDING_BYTES
   ) {
     throw new LiveEditPendingRequestTooLargeError(
-      "Pending visual edit payload exceeds the 512 KB limit.",
+      "Pending visual edit payload exceeds the 64 KB prompt limit.",
     );
   }
   return new Promise<string>((resolve, reject) => {
@@ -1777,7 +1779,7 @@ async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
       if (tooLarge) {
         reject(
           new LiveEditPendingRequestTooLargeError(
-            "Pending visual edit payload exceeds the 512 KB limit.",
+            "Pending visual edit payload exceeds the 64 KB prompt limit.",
           ),
         );
         return;
@@ -2961,10 +2963,10 @@ export async function startDesignConnectBridge(
               });
               return;
             }
-            if (candidate.prompt.length > 512_000) {
+            if (candidate.prompt.length > MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH) {
               sendJson(res, 413, {
                 ok: false,
-                error: "pending prompt exceeds the 512 KB limit",
+                error: "pending prompt exceeds the 64 KB limit",
               });
               return;
             }

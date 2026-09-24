@@ -134,6 +134,8 @@ export interface FigmaSvgShadow {
 export interface FigmaSvgBorder {
   widthPx: number;
   color: string;
+  /** A gradient drawn by a `background-clip: border-area` layer. */
+  paint?: FigmaSvgFillLayer;
   dashed?: boolean;
   /** Set when the source had non-uniform per-side width/color/style and we
    *  fell back to one representative side — surfaced as "approximated". */
@@ -1047,6 +1049,16 @@ function wrapGroup(
   return `<g ${attrs.join(" ")}>${markup}</g>`;
 }
 
+function borderPaintLayer(raw: {
+  borderPaintImage?: string;
+}): FigmaSvgFillLayer | undefined {
+  if (!raw.borderPaintImage) return undefined;
+  return buildFillLayersFromComputedStyle(
+    "rgba(0, 0, 0, 0)", // guard:allow-raw-color — transparent base so only the stroke gradient is read
+    raw.borderPaintImage,
+  )[0];
+}
+
 function resolveFillPaint(
   fill: FigmaSvgFillLayer,
   node: FigmaSvgNode,
@@ -1588,9 +1600,12 @@ function boxPaintMarkup(node: FigmaSvgNode, ctx: RenderCtx): string {
     const dash = node.border.dashed
       ? ` stroke-dasharray="${n(node.border.widthPx * 2)} ${n(node.border.widthPx)}"`
       : "";
+    const strokePaint = node.border.paint
+      ? resolveFillPaint(node.border.paint, node, ctx)
+      : node.border.color;
     body += isUniformRadius(insetRadii)
-      ? `<rect x="${n(insetRect.x)}" y="${n(insetRect.y)}" width="${n(insetRect.width)}" height="${n(insetRect.height)}"${insetRadii.tl ? ` rx="${n(insetRadii.tl)}"` : ""} fill="none" ${paintAttributes("stroke", node.border.color)} stroke-width="${n(node.border.widthPx)}"${dash}/>`
-      : `<path d="${roundedRectPath(insetRect, insetRadii)}" fill="none" ${paintAttributes("stroke", node.border.color)} stroke-width="${n(node.border.widthPx)}"${dash}/>`;
+      ? `<rect x="${n(insetRect.x)}" y="${n(insetRect.y)}" width="${n(insetRect.width)}" height="${n(insetRect.height)}"${insetRadii.tl ? ` rx="${n(insetRadii.tl)}"` : ""} fill="none" ${paintAttributes("stroke", strokePaint)} stroke-width="${n(node.border.widthPx)}"${dash}/>`
+      : `<path d="${roundedRectPath(insetRect, insetRadii)}" fill="none" ${paintAttributes("stroke", strokePaint)} stroke-width="${n(node.border.widthPx)}"${dash}/>`;
     if (node.border.nonUniform) {
       ctx.report.approximated.push({
         node: node.name || node.id,
@@ -1915,6 +1930,8 @@ export interface RawFigmaSvgNode {
   contentShadow?: string;
   borderWidthPx: number;
   borderColor: string;
+  /** Computed `background-clip`; a `border-area` layer is the border's paint. */
+  backgroundClip?: string;
   borderStyle: string;
   borderNonUniform: boolean;
   /** `overflow` clips children, the CSS equivalent of Figma's clipsContent. */
@@ -2138,6 +2155,47 @@ function gradientLayerHasUnreadableStop(layer: string): boolean {
   return false;
 }
 
+/** Design's gradient stroke is the one layer clipped to `border-area`. */
+export function splitBorderAreaLayer(style: {
+  backgroundImage: string;
+  backgroundSize: string;
+  backgroundPosition: string;
+  backgroundRepeat: string;
+  backgroundClip: string;
+}): {
+  backgroundImage: string;
+  backgroundSize: string;
+  backgroundPosition: string;
+  backgroundRepeat: string;
+  borderPaintImage?: string;
+} {
+  const images = splitTopLevelCommas(style.backgroundImage || "");
+  const clips = splitTopLevelCommas(style.backgroundClip || "");
+  const index = images.findIndex(
+    (_, i) => clips[i % Math.max(clips.length, 1)]?.trim() === "border-area",
+  );
+  if (index < 0) {
+    return {
+      backgroundImage: style.backgroundImage,
+      backgroundSize: style.backgroundSize,
+      backgroundPosition: style.backgroundPosition,
+      backgroundRepeat: style.backgroundRepeat,
+    };
+  }
+  const without = (value: string) => {
+    const parts = splitTopLevelCommas(value || "");
+    const aligned = images.map((_, i) => parts[i % Math.max(parts.length, 1)]);
+    return aligned.filter((_, i) => i !== index).join(", ");
+  };
+  return {
+    backgroundImage: without(style.backgroundImage) || "none",
+    backgroundSize: without(style.backgroundSize),
+    backgroundPosition: without(style.backgroundPosition),
+    backgroundRepeat: without(style.backgroundRepeat),
+    borderPaintImage: images[index],
+  };
+}
+
 export function buildFillLayersFromComputedStyle(
   backgroundColor: string,
   backgroundImage: string,
@@ -2265,7 +2323,17 @@ function buildBorderSides(
 }
 
 /** Pure hydration: `RawFigmaSvgNode` (browser-extracted computed strings + geometry) -> `FigmaSvgNode`. */
-export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
+export function hydrateRawFigmaSvgNode(
+  captured: RawFigmaSvgNode,
+): FigmaSvgNode {
+  const layers = splitBorderAreaLayer({
+    backgroundImage: captured.backgroundImage,
+    backgroundSize: captured.backgroundSize ?? "",
+    backgroundPosition: captured.backgroundPosition ?? "",
+    backgroundRepeat: captured.backgroundRepeat ?? "",
+    backgroundClip: captured.backgroundClip ?? "",
+  });
+  const raw = { ...captured, ...layers };
   const rotationDeg = raw.rotationDeg ? raw.rotationDeg : undefined;
   const reflection = raw.reflection;
   const opacity = raw.opacity !== 1 ? raw.opacity : undefined;
@@ -2355,6 +2423,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
           ? {
               widthPx: raw.borderWidthPx,
               color: raw.borderColor,
+              paint: borderPaintLayer(raw),
               dashed:
                 raw.borderStyle === "dashed" || raw.borderStyle === "dotted",
               nonUniform: raw.borderNonUniform || undefined,
@@ -2421,6 +2490,7 @@ export function hydrateRawFigmaSvgNode(raw: RawFigmaSvgNode): FigmaSvgNode {
       ? {
           widthPx: raw.borderWidthPx,
           color: raw.borderColor,
+          paint: borderPaintLayer(raw),
           dashed: raw.borderStyle === "dashed" || raw.borderStyle === "dotted",
           nonUniform: raw.borderNonUniform || undefined,
           sides: buildBorderSides(raw),
@@ -3379,6 +3449,7 @@ export function collectRawFigmaSvgScene(
       backgroundSize: style.backgroundSize,
       backgroundPosition: style.backgroundPosition,
       backgroundRepeat: style.backgroundRepeat,
+      backgroundClip: style.backgroundClip,
       boxShadow: style.boxShadow,
       // `el.style`, not the computed value: a custom property INHERITS, so
       // `getComputedStyle` hands every descendant its ancestor's shadow. The

@@ -2,6 +2,7 @@ import {
   type DesignClipboardPayload,
   parseDesignClipboardMarker,
 } from "./design-import";
+import { extractSvgMarkup } from "./svg-paste";
 
 interface ClipboardItemLike {
   types: readonly string[];
@@ -40,6 +41,12 @@ export interface ReadDesignClipboardPayload {
   markerText: string;
   plainText: string;
 }
+
+export type ReadDesignClipboardPayloadFromSystemResult =
+  | { status: "found"; value: ReadDesignClipboardPayload }
+  | { status: "empty" }
+  | { status: "unavailable" }
+  | { status: "unreadable"; errors: unknown[] };
 
 function browserClipboardEnvironment(): DesignClipboardEnvironment {
   return {
@@ -109,8 +116,7 @@ export function getDesignClipboardTrustToken(): string | null {
     window.localStorage.setItem(DESIGN_CLIPBOARD_TRUST_TOKEN_KEY, token);
     return token;
   } catch {
-    // If durable origin storage is unavailable, rich external marker parsing
-    // is disabled. Same-editor copy/paste still works through in-memory refs.
+    // coercion-ok: storage denial disables the trust token, so external marker parsing fails closed.
     return null;
   }
 }
@@ -201,9 +207,11 @@ export function readDesignClipboardPayloadFromDataTransfer(
 
 export async function readDesignClipboardPayloadFromSystem(
   environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
-): Promise<ReadDesignClipboardPayload | null> {
+): Promise<ReadDesignClipboardPayloadFromSystemResult> {
   const clipboard = environment.clipboard;
-  if (!clipboard) return null;
+  if (!clipboard) return { status: "unavailable" };
+
+  const errors: unknown[] = [];
 
   if (clipboard.read) {
     try {
@@ -219,26 +227,123 @@ export async function readDesignClipboardPayloadFromSystem(
             markerText,
             environment.trustToken,
           );
-          if (payload) return { payload, markerText, plainText };
+          if (payload) {
+            return {
+              status: "found",
+              value: { payload, markerText, plainText },
+            };
+          }
         }
       }
-    } catch {
-      // Fall back to readText below. It also understands clipboards written by
-      // older Design versions that stored the marker in text/plain.
+    } catch (error) {
+      errors.push(error);
     }
   }
 
-  if (!clipboard.readText) return null;
+  if (!clipboard.readText) {
+    return errors.length > 0
+      ? { status: "unreadable", errors }
+      : { status: "empty" };
+  }
   try {
     const markerText = await clipboard.readText();
     const payload = parseDesignClipboardMarker(
       markerText,
       environment.trustToken,
     );
-    return payload ? { payload, markerText, plainText: markerText } : null;
+    return payload
+      ? {
+          status: "found",
+          value: { payload, markerText, plainText: markerText },
+        }
+      : { status: "empty" };
+  } catch (error) {
+    errors.push(error);
+    return { status: "unreadable", errors };
+  }
+}
+
+export interface SystemClipboardContents {
+  design: ReadDesignClipboardPayload | null;
+  /** Images and SVG code, as files the image paste path inserts. */
+  files: File[];
+  /** Item representations that failed while other clipboard data was readable. */
+  readErrors?: unknown[];
+}
+
+/**
+ * Design layers and pasteable images from one clipboard read: Safari and
+ * Firefox prompt on every `clipboard.read()`. Null means it could not be read.
+ */
+export async function readSystemClipboard(
+  environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
+): Promise<SystemClipboardContents | null> {
+  const clipboard = environment.clipboard;
+  if (!clipboard?.read) {
+    const result = await readDesignClipboardPayloadFromSystem(environment);
+    if (result.status === "found") {
+      return { design: result.value, files: [] };
+    }
+    return result.status === "empty" ? { design: null, files: [] } : null;
+  }
+  let items: ClipboardItemLike[];
+  try {
+    items = await clipboard.read();
+    // coercion-ok: null is "unreadable" (denied), distinct from an empty clipboard
   } catch {
     return null;
   }
+  let design: ReadDesignClipboardPayload | null = null;
+  const files: File[] = [];
+  const readErrors: unknown[] = [];
+  for (const item of items) {
+    try {
+      const text = async (type: string) => {
+        if (!item.types.includes(type)) return "";
+        try {
+          return await (await item.getType(type)).text();
+        } catch (error) {
+          readErrors.push(error);
+          return "";
+        }
+      };
+      const plainText = await text("text/plain");
+      for (const markerText of [await text("text/html"), plainText]) {
+        const payload = parseDesignClipboardMarker(
+          markerText,
+          environment.trustToken,
+        );
+        if (payload && !design) design = { payload, markerText, plainText };
+      }
+      const svg = design ? null : extractSvgMarkup(plainText);
+      if (svg) {
+        files.push(new File([svg], "", { type: "image/svg+xml" }));
+        continue;
+      }
+      const imageType =
+        item.types.find((type) => type === "image/svg+xml") ??
+        item.types.find((type) => type.startsWith("image/"));
+      if (imageType) {
+        try {
+          files.push(
+            new File([await item.getType(imageType)], "", { type: imageType }),
+          );
+        } catch (error) {
+          readErrors.push(error);
+          // Try the next clipboard item when this representation is denied.
+        }
+      }
+    } catch (error) {
+      readErrors.push(error);
+      // A denied representation must not discard clipboard items that follow it.
+    }
+  }
+  if (readErrors.length > 0 && !design && files.length === 0) return null;
+  return {
+    design,
+    files,
+    ...(readErrors.length > 0 ? { readErrors } : {}),
+  };
 }
 
 export function plainTextFromDesignHtml(htmlFragments: string[]): string {

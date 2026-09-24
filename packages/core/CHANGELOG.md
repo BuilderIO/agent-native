@@ -51,6 +51,24 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.186.0
+
+### Minor Changes
+
+- 6ce7517: Let users choose an installer group, then install all or a selected subset.
+
+### Patch Changes
+
+- 69ecbfb: Derive Builder design-system readiness from the indexed document count instead of the drifting `builderStatus` field. `hydrateBuilderDesignSystemReference` now reads `docCount` from `/design-systems/v1/:id?includeDocumentCount=true`, and a count that cannot be read fails loudly instead of being reported as zero. Adds `fetchBuilderDesignSystemDocumentCount` and `isBuilderDesignSystemReadyByCount`.
+- e383d8d: Fix user-controlled Labs toggles by exposing the mutation through the shared action HTTP surface and sharing registrations across development module instances.
+- 67cf8bb: Expose lazy-chunk recovery helpers and the AgentSidebar entrypoint for deferred app surfaces.
+- Release all public npm packages with a patch version bump.
+- be380fa: Allow Ollama endpoints on the local network (not just localhost), fetch real installed models instead of a static suggestion list everywhere Ollama models are shown, and silently strip a copy-pasted `/v1` suffix from Ollama addresses.
+- Updated dependencies
+  - @agent-native/agentkit@0.2.8
+  - @agent-native/recap-cli@0.5.38
+  - @agent-native/toolkit@0.20.8
+
 ## 0.185.0
 
 ### Minor Changes
@@ -3050,11 +3068,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
-
-## 0.164.3
-
-### Patch Changes
-
-- f790010: Keep the current-main merge tree formatter-clean for shared agent runtime sources.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
