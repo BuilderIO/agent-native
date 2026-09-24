@@ -95,7 +95,7 @@ One panel, five ways to bring in outside content:
     ],
     [
       "Upload .fig",
-      "Upload a .fig file directly. A separate, design-level import, distinct from importing a .fig into a design system.",
+      "Upload a .fig file directly. Large files open with less editor freezing and save faster. This is a design-level import, distinct from importing a .fig into a design system.",
     ],
     [
       "Import HTML",
@@ -166,7 +166,10 @@ A separate three-way switch next to the tools:
   in this mode.
 - **Annotate**: the mode Draw and Pin Comment need to be active in.
 - **Interact**: a distinct mode for the canvas, kept separate from Edit
-  and Annotate.
+  and Annotate. In overview, clicks inside a live screen stay in Interact
+  mode instead of selecting the frame. In live visual-edit mode, you can
+  select and edit screen elements, then drag layers between the canvas and
+  screen to insert or return them.
 
 ### Design tab {#design-tab}
 
@@ -311,12 +314,11 @@ logos, that Design applies to every prototype linked to it.
 
 ### View and share design systems {#view-and-share}
 
-The Design Systems page is a grid: a "New design system" card first, then
-one card per system with a color-swatch preview, a **Default** badge on
-whichever one is your default, and a visibility badge (private, org, or
-public). Every card has a real **Share** button with viewer, editor, or
-admin roles, the same sharing model templates use. A header **Select**
-toggle enables multi-select with bulk delete.
+The Design Systems page is a grid. The first card creates a new design system. Each remaining card represents one design system and shows a color preview, a **Default** badge when it is your default, and a visibility badge for private, organization, or public access.
+
+Each card has a **Share** button. You can give someone viewer, editor, or admin access. The **Select** toggle in the header lets you select multiple design systems and delete them together.
+
+Design-system indexing status is based on the number of published documents. When you reach your tier's limit, Design shows a limit message and upgrade options.
 
 ### New design system {#new-design-system}
 
