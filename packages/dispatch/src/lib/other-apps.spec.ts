@@ -11,12 +11,14 @@ describe("filterOtherApps", () => {
             id: "slides",
             name: "Slides",
             url: "https://slides.agent-native.com",
+            source: "custom",
           },
           {
             id: "analytics",
             name: "Analytics",
             description: "Explore data",
             url: "https://analytics.agent-native.com",
+            source: "custom",
           },
           {
             id: "coach",
@@ -38,11 +40,13 @@ describe("filterOtherApps", () => {
         name: "Analytics",
         description: "Explore data",
         url: "https://analytics.agent-native.com",
+        source: "custom",
       },
       {
         id: "slides",
         name: "Slides",
         url: "https://slides.agent-native.com",
+        source: "custom",
       },
     ]);
   });
@@ -55,13 +59,20 @@ describe("filterOtherApps", () => {
             id: "analytics",
             name: "Analytics",
             url: "https://analytics.agent-native.com",
+            source: "custom",
           },
           {
             id: "Analytics",
             name: "Analytics duplicate",
             url: "https://duplicate.example.com",
+            source: "custom",
           },
-          { id: "relative", name: "Relative", url: "/relative" },
+          {
+            id: "relative",
+            name: "Relative",
+            url: "/relative",
+            source: "custom",
+          },
         ],
         [],
       ),
@@ -70,6 +81,7 @@ describe("filterOtherApps", () => {
         id: "analytics",
         name: "Analytics",
         url: "https://analytics.agent-native.com",
+        source: "custom",
       },
     ]);
   });
@@ -92,6 +104,7 @@ describe("filterOtherApps", () => {
             id: "mail",
             name: "Mail",
             url: "https://mail.agent-native.com",
+            source: "custom",
           },
         ],
         [],
@@ -101,6 +114,7 @@ describe("filterOtherApps", () => {
         id: "mail",
         name: "Mail",
         url: "https://mail.agent-native.com",
+        source: "custom",
       },
     ]);
   });
@@ -113,11 +127,13 @@ describe("filterOtherApps", () => {
             id: "chat",
             name: "Chat",
             url: "https://chat.agent-native.com",
+            source: "builtin",
           },
           {
             id: "mail",
             name: "Mail",
             url: "https://mail.agent-native.com",
+            source: "custom",
           },
         ],
         [],
@@ -127,6 +143,47 @@ describe("filterOtherApps", () => {
         id: "mail",
         name: "Mail",
         url: "https://mail.agent-native.com",
+        source: "custom",
+      },
+    ]);
+  });
+
+  it("hides builtin, workspace, and unknown sources from external app launchers", () => {
+    expect(
+      filterOtherApps(
+        [
+          {
+            id: "account-tiering",
+            name: "Account Tiering",
+            url: "https://account-tiering.agent-native.com",
+            source: "builtin",
+          },
+          {
+            id: "workspace-app",
+            name: "Workspace app",
+            url: "https://workspace.example.com/app",
+            source: "workspace",
+          },
+          {
+            id: "unknown-source",
+            name: "Unknown source",
+            url: "https://unknown.example.com",
+          },
+          {
+            id: "connected-agent",
+            name: "Connected agent",
+            url: "https://agent.example.com",
+            source: "custom",
+          },
+        ],
+        [],
+      ),
+    ).toEqual([
+      {
+        id: "connected-agent",
+        name: "Connected agent",
+        url: "https://agent.example.com",
+        source: "custom",
       },
     ]);
   });

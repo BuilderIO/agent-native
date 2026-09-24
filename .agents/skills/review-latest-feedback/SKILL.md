@@ -35,6 +35,12 @@ blocks progress.
 The proposed remedy may be wrong while the bug is real. Trace the failure to
 its owning boundary; do not reject it because the suggestion is unsuitable.
 
+For a parent with multiple symptoms, record a disposition for each symptom
+before reacting. A subjective or out-of-scope suggestion does not close a
+separate defect: keep `👀` while any objective symptom is being fixed, and do
+not use `:done:` or `✅` until every actionable defect in the parent is
+terminal.
+
 Do not claim unclear ownership or defects, reporter-blocked reports,
 unendorsed preferences, or work owned elsewhere. If investigation needs
 reporter input, remove `👀` while waiting and re-add it when work resumes.

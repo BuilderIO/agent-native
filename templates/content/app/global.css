@@ -851,12 +851,6 @@
 }
 
 /* Tables */
-.notion-editor table colgroup,
-.notion-editor table col {
-  display: none !important;
-  width: auto !important;
-}
-
 .tableWrapper {
   overflow-x: auto;
   margin: 1.5em 0;
