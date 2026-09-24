@@ -134,8 +134,20 @@ const FEEDBACK_EYES_REGEX_CASES = [
   [false, "Fixed, add a checkmark."],
 ];
 
-const PR_REVIEW_HANDOFF_RE =
-  /\b(?:you|we|the handoff)\b(?=[^.!?\n]{0,80}\b(?:didn['’]?t|did not|missed|forgot|failed to|left out|left off)\b)(?=[^.!?\n]{0,260}\b(?:which PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?|merge[- ]readiness|(?:draft|write|prepare)\s+(?:an?\s+)?(?:author\s+)?(?:reply|comment)|(?:author\s+)?(?:reply|comment)\s+drafts?|(?:request|include|ask(?:ing)?\s+for)\s+(?:a\s+)?screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)|(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)|(?:UI|UX)\s+screenshots?\s+(?:status|presence|availability|evidence)|screenshot\s+status|screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface))\b)[^.!?\n]{1,280}/i;
+const PR_REVIEW_HANDOFF_CORRECTIONS = String.raw`didn['’]?t|did not|missed|forgot|failed to|left out|left off|omitted|marked|called|classified`;
+const PR_REVIEW_HANDOFF_OMISSIONS = [
+  String.raw`which PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?|merge[- ]readiness(?:\s+recommendation)?`,
+  String.raw`(?:draft|write|prepare)\s+(?:an?\s+)?(?:author\s+)?(?:reply|comment)|(?:author\s+)?(?:reply|comment)\s+drafts?`,
+  String.raw`(?:request|include|ask(?:ing)?\s+for)\s+(?:a\s+)?screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
+  String.raw`(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
+  String.raw`(?:UI|UX)\s+screenshots?\s+(?:status|presence|availability|evidence|disposition)|screenshot\s+(?:status|disposition)`,
+  String.raw`screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
+  String.raw`ready(?:\s+to\s+merge)?[^.!?\n]{0,80}(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)`,
+].join("|");
+const PR_REVIEW_HANDOFF_RE = new RegExp(
+  String.raw`\b(?:you|we|the handoff)\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
+  "i",
+);
 
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
@@ -150,6 +162,9 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "You did not say which PRs were ready to merge."],
   [true, "You didn't say whether the UI screenshots were present."],
   [true, "You left out the screenshot status."],
+  [true, "You omitted the merge-readiness recommendation."],
+  [true, "The handoff left out the screenshot disposition."],
+  [true, "You marked it ready despite an unresolved human change request."],
   [false, "Please tell me which PRs are ready to merge and draft replies."],
   [false, "This PR updates the UI and includes screenshots."],
   [false, "I would like screenshots for new UX changes."],

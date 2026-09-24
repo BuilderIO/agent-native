@@ -249,9 +249,11 @@ remain ineligible for approval.
 Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
 **Ready on code and CI; screenshot requested**, or **Cannot assess**. Recommend
 ready only when the current head looks sound, every required check has passed,
-and actionable automated review findings have a verified fix or an evidence-
-backed terminal disposition. Do not treat missing human approval or
-`reviewDecision: REVIEW_REQUIRED` alone as a blocker to Steve's readiness
+and actionable human or automated review findings have a verified fix or an
+evidence-backed terminal disposition. An active human `CHANGES_REQUESTED`
+review or unresolved actionable human request blocks readiness; resolved,
+superseded, or non-actionable threads do not. Do not treat missing human
+approval or `reviewDecision: REVIEW_REQUIRED` alone as a blocker to Steve's readiness
 recommendation. Report separately if GitHub's branch protection still blocks
 the actual merge. Conflicts, pending or failed required checks, active
 actionable bot findings, credible safety concerns, or an otherwise material
