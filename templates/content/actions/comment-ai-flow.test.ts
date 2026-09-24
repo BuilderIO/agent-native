@@ -461,6 +461,8 @@ describe("apply-and-resolve partial failure recovery", () => {
 
     expect(state.request.result).toEqual({
       editApplied: true,
+      changes: [{ before: "Before", after: "After" }],
+      undoable: true,
       commentId: "ai-receipt-1",
     });
     expect(mocks.addComment).toHaveBeenCalledOnce();

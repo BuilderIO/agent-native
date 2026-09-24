@@ -887,13 +887,13 @@ export const parityMatrix: ParityRow[] = [
     id: "comments.ai-intents",
     surface: "comments",
     label:
-      "Mention AI in a comment to reply, suggest an edit, or apply it and resolve feedback",
+      "Mention AI in a comment to reply, suggest an edit, or apply it and resolve feedback, then undo an applied change",
     uiEntrypoints: [
       "app/components/editor/CommentsSidebar.tsx",
       "app/components/editor/comment-ai.tsx",
     ],
     durableEffect:
-      "Requests retain the submitted mode, selected provider and model, source feedback, and document revisions. Auto persists one classified intent before a separately scoped execution run records the reply, suggestion, or verified edit receipt.",
+      "Requests retain the submitted mode, selected provider and model, source feedback, and document revisions. Auto persists one classified intent before a separately scoped execution run records the reply, suggestion, or verified edit receipt. An applied edit keeps a bounded before/after preview, and its requester can reverse the exact edits and reopen the thread.",
     uiImplementation:
       "A structured AI recipient in the Comment composer starts the request through the shared action surface. Auto classification can submit only a finite intent; execution can call only the context action and the operation bound to that persisted intent.",
     status: "action-backed",
@@ -906,6 +906,7 @@ export const parityMatrix: ParityRow[] = [
       "reply-to-comment-ai-request",
       "start-comment-ai-request",
       "submit-comment-ai-classification",
+      "undo-comment-ai-request",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -914,6 +915,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/comment-ai-flow.test.ts",
+      "actions/undo-comment-ai-request.db.test.ts",
       "app/components/editor/comment-ai.test.tsx",
       "server/lib/comment-ai-progress.test.ts",
     ],

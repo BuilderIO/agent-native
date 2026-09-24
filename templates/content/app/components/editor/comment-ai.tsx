@@ -16,6 +16,7 @@ import type {
   CommentAiSessionStatus,
   StartCommentAiResult,
 } from "@shared/comment-ai";
+import { IconCircleCheck } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -31,6 +32,7 @@ import {
   commentAiModelLabel,
   modelDisplayName,
 } from "./agent-identity";
+import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentAgentBadge, CommentRow } from "./CommentRow";
 
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
@@ -41,6 +43,8 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "refreshing",
 ]);
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
+/** A result this recent on first load still counts as just finished. */
+const FRESH_RESOLUTION_WINDOW_MS = 2 * 60_000;
 const CONTINUATION_CONTEXT_TURN_LIMIT = 8;
 const CONTINUATION_CONTEXT_CHARACTER_LIMIT = 12_000;
 const CONTINUATION_ANCHOR_CHARACTER_LIMIT = 4_000;
@@ -136,6 +140,75 @@ export interface CommentAiController {
   resume(request: CommentAiRequest): Promise<void>;
   stop(request: CommentAiRequest): Promise<void>;
   open(request: CommentAiRequest): void;
+  /** Reverse an applied change and reopen its thread. */
+  undo(request: CommentAiRequest): Promise<void>;
+  /**
+   * Threads AI resolved with an applied change while this Page was open,
+   * keyed by thread, until the person dismisses the result.
+   */
+  freshResolutions: ReadonlyMap<string, CommentAiRequest>;
+  dismissResolution(threadId: string): void;
+}
+
+function isAppliedResolution(request: CommentAiRequest) {
+  return (
+    request.status === "resolved" &&
+    Boolean(request.result?.editApplied) &&
+    !request.result?.undone
+  );
+}
+
+/**
+ * Keeps a thread that AI just resolved in view until the person is done with
+ * it, instead of letting it vanish from the margin mid-read.
+ */
+export function useFreshAiResolutions(
+  requests: CommentAiRequest[],
+  now: () => number = Date.now,
+) {
+  const knownRef = useRef(new Map<string, CommentAiRequest["status"]>());
+  const [freshIds, setFreshIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  useEffect(() => {
+    const added: string[] = [];
+    for (const request of requests) {
+      const prior = knownRef.current.get(request.operationId);
+      knownRef.current.set(request.operationId, request.status);
+      if (!isAppliedResolution(request)) continue;
+      const finishedWhileOpen =
+        prior !== undefined && ACTIVE_STATUSES.has(prior);
+      const finishedJustBefore =
+        prior === undefined &&
+        now() - Date.parse(request.updatedAt) < FRESH_RESOLUTION_WINDOW_MS;
+      if (finishedWhileOpen || finishedJustBefore)
+        added.push(request.operationId);
+    }
+    if (added.length) {
+      setFreshIds((current) => new Set([...current, ...added]));
+    }
+  }, [now, requests]);
+  const freshResolutions = useMemo(() => {
+    const byThread = new Map<string, CommentAiRequest>();
+    for (const request of requests) {
+      if (freshIds.has(request.operationId) && isAppliedResolution(request)) {
+        byThread.set(request.threadId, request);
+      }
+    }
+    return byThread;
+  }, [freshIds, requests]);
+  const dismissResolution = useCallback(
+    (threadId: string) =>
+      setFreshIds((current) => {
+        const next = new Set(current);
+        for (const request of requests) {
+          if (request.threadId === threadId) next.delete(request.operationId);
+        }
+        return next.size === current.size ? current : next;
+      }),
+    [requests],
+  );
+  return { freshResolutions, dismissResolution };
 }
 
 export function startCommentAiSubmission(
@@ -894,6 +967,15 @@ export function useCommentAiRequests(
     ],
   );
 
+  const undo = useCallback<CommentAiController["undo"]>(async (request) => {
+    await callAction("undo-comment-ai-request", {
+      requestId: request.operationId,
+    });
+    await refetchRef.current();
+  }, []);
+  const { freshResolutions, dismissResolution } =
+    useFreshAiResolutions(requests);
+
   const open = useCallback(
     (request: CommentAiRequest) => {
       if (!request.agentThreadId) return;
@@ -918,6 +1000,9 @@ export function useCommentAiRequests(
       resume: resumeConversation,
       stop,
       open,
+      undo,
+      freshResolutions,
+      dismissResolution,
     }),
     [
       requests,
@@ -931,6 +1016,9 @@ export function useCommentAiRequests(
       resumeConversation,
       stop,
       open,
+      undo,
+      freshResolutions,
+      dismissResolution,
     ],
   );
 }
@@ -948,7 +1036,10 @@ function requestStatusLabel(
   if (request.status === "cancelled") return t("comments.aiCancelled");
   if (request.status === "needs-review") return t("comments.aiNeedsReview");
   if (request.status === "suggested") return t("comments.aiSuggestionReady");
-  if (request.status === "resolved") return t("comments.aiChangesApplied");
+  if (request.status === "resolved")
+    return request.result?.undone
+      ? t("comments.aiChangeUndone")
+      : t("comments.aiChangesApplied");
   return t("comments.aiReplied");
 }
 
@@ -958,14 +1049,31 @@ export function CommentAiRequestStatus({
   stopping = false,
   onRetry,
   onStop,
+  onUndo,
+  onDone,
 }: {
   request: CommentAiRequest;
   continuation?: CommentAiContinuationState;
   stopping?: boolean;
   onRetry: () => Promise<void>;
   onStop: () => Promise<void>;
+  onUndo?: () => Promise<void>;
+  onDone?: () => void;
 }) {
   const t = useT();
+  if (
+    !continuation &&
+    isAppliedResolution(request) &&
+    request.result?.changes?.length
+  ) {
+    return (
+      <CommentAiAppliedChanges
+        request={request}
+        onUndo={onUndo}
+        onDone={onDone}
+      />
+    );
+  }
   const active =
     ACTIVE_STATUSES.has(request.status) ||
     continuation?.status === "queued" ||
@@ -1029,6 +1137,116 @@ export function CommentAiRequestStatus({
           {t("comments.retry")}
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The result of Apply changes and resolve: what changed, with Undo, and Done
+ * to put the resolved thread away.
+ */
+function CommentAiAppliedChanges({
+  request,
+  onUndo,
+  onDone,
+}: {
+  request: CommentAiRequest;
+  onUndo?: () => Promise<void>;
+  onDone?: () => void;
+}) {
+  const t = useT();
+  const [undoing, setUndoing] = useState(false);
+  const changes = request.result?.changes ?? [];
+  const first = changes[0];
+  const segments = useMemo(
+    () => (first ? trimDiffContext(wordDiff(first.before, first.after)) : []),
+    [first],
+  );
+  const undoable = request.result?.undoable !== false;
+  return (
+    <div className="grid gap-2" data-comment-ai-applied>
+      <div
+        className="flex min-h-7 min-w-0 items-center gap-2.5"
+        data-comment-ai-status={request.status}
+      >
+        <AgentAvatar model={request.model} className="size-7" />
+        <div
+          role="status"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-muted-foreground"
+        >
+          <IconCircleCheck size={15} aria-hidden className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {t("comments.aiAppliedAndResolved")}
+          </span>
+        </div>
+      </div>
+      <div className="ms-9.5 grid gap-2">
+        <p
+          className="break-words rounded-lg bg-muted/60 px-3 py-2 text-sm leading-6"
+          data-comment-ai-change
+        >
+          {segments.map((segment, index) =>
+            segment.kind === "removed" ? (
+              <del
+                key={index}
+                className="text-muted-foreground decoration-muted-foreground/70"
+              >
+                {segment.text}
+              </del>
+            ) : segment.kind === "added" ? (
+              <ins
+                key={index}
+                className="text-[hsl(var(--suggestion))] no-underline"
+              >
+                {segment.text}
+              </ins>
+            ) : (
+              <span key={index}>{segment.text}</span>
+            ),
+          )}
+          {changes.length > 1 ? (
+            <span className="block text-xs text-muted-foreground">
+              {t("comments.aiMoreChanges", { count: changes.length - 1 })}
+            </span>
+          ) : null}
+        </p>
+        {onUndo || onDone ? (
+          <div className="flex items-center gap-1">
+            {onUndo ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!undoable || undoing}
+                title={undoable ? undefined : t("comments.aiUndoUnavailable")}
+                onClick={async () => {
+                  setUndoing(true);
+                  try {
+                    await onUndo();
+                  } finally {
+                    setUndoing(false);
+                  }
+                }}
+                data-comment-ai-undo
+              >
+                {undoing ? <Spinner aria-hidden className="size-3.5" /> : null}
+                {t("comments.aiUndo")}
+              </Button>
+            ) : null}
+            {onDone ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onDone}
+                data-comment-ai-done
+              >
+                {t("comments.aiDone")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

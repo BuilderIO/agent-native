@@ -14,6 +14,7 @@ import {
   updateCommentAiRequest,
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
+import type { CommentAiAppliedChange } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
   documentRevisionToken,
@@ -40,6 +41,23 @@ const payloadSchema = z.object({
     .max(2000)
     .describe("Concise receipt explaining the applied change"),
 });
+
+const CHANGE_PREVIEW_LIMIT = 600;
+const CHANGE_PREVIEW_COUNT = 5;
+
+/** Bounded before/after text so the resolved thread can show what changed. */
+export function appliedChangePreview(
+  edits: Array<{ find: string; replace: string }>,
+): CommentAiAppliedChange[] {
+  return edits.slice(0, CHANGE_PREVIEW_COUNT).map(({ find, replace }) => ({
+    before: find.slice(0, CHANGE_PREVIEW_LIMIT),
+    after: replace.slice(0, CHANGE_PREVIEW_LIMIT),
+    ...(find.length > CHANGE_PREVIEW_LIMIT ||
+    replace.length > CHANGE_PREVIEW_LIMIT
+      ? { truncated: true }
+      : {}),
+  }));
+}
 
 function targetError(kind: "missing" | "ambiguous" | "overlapping") {
   return new CommentAiOperationError(
@@ -96,7 +114,14 @@ export default defineAction({
             false,
           );
         }
-        result = { ...result, editApplied: true };
+        result = {
+          ...result,
+          editApplied: true,
+          changes: appliedChangePreview(payload.edits),
+          // Undo finds each replacement again, so an empty one (a pure
+          // deletion) has nothing to find.
+          undoable: payload.edits.every((edit) => edit.replace.length > 0),
+        };
         await updateCommentAiRequest(request, { status: "running", result });
       }
 

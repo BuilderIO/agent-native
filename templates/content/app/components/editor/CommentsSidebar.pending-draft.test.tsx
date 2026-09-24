@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 
@@ -10,12 +11,16 @@ import { CommentDraftProvider } from "./comment-drafts";
 
 function createRoot(container: Parameters<typeof createReactRoot>[0]) {
   const root = createReactRoot(container);
+  // The sidebar refetches the Page after an AI undo, so it needs a client.
+  const queryClient = new QueryClient();
   const render = root.render.bind(root);
   root.render = (children) =>
     render(
-      <CommentDraftProvider documentId="test-page">
-        {children}
-      </CommentDraftProvider>,
+      <QueryClientProvider client={queryClient}>
+        <CommentDraftProvider documentId="test-page">
+          {children}
+        </CommentDraftProvider>
+      </QueryClientProvider>,
     );
   return root;
 }

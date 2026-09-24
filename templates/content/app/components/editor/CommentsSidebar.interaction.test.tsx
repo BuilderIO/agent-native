@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { CommentAiRequest } from "@shared/comment-ai";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -8,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
+import type { CommentAiController } from "./comment-ai";
 import {
   richEditor,
   richEditorValue,
@@ -137,6 +139,8 @@ function SidebarOwner({
     key?: string;
     pending?: boolean;
     onPendingDone?: (threadId?: string) => void;
+    commentAi?: CommentAiController;
+    onActivateThread?: (threadId: string) => void;
   };
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
@@ -165,6 +169,8 @@ function SidebarOwner({
       alignToAnchors={false}
       forceVisible
       presentation={presentation}
+      commentAi={options.commentAi}
+      onActivateThread={options.onActivateThread}
     />
   );
 }
@@ -205,6 +211,8 @@ describe("comment review interactions", () => {
       key?: string;
       pending?: boolean;
       onPendingDone?: (threadId?: string) => void;
+      commentAi?: CommentAiController;
+      onActivateThread?: (threadId: string) => void;
     } = {},
   ) {
     if (!container) {
@@ -258,6 +266,81 @@ describe("comment review interactions", () => {
       ).toBeNull();
     },
   );
+
+  it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
+    const applied: CommentAiRequest = {
+      operationId: "request-one",
+      requestId: "request-one",
+      documentId: "fixture",
+      threadId: "one",
+      rootCommentId: "one-root",
+      intent: "apply-resolve",
+      status: "resolved",
+      attemptId: null,
+      attemptCount: 1,
+      runId: null,
+      agentThreadId: null,
+      agentTurnId: null,
+      model: "claude-sonnet-5",
+      engine: "anthropic",
+      result: {
+        editApplied: true,
+        resolved: true,
+        undoable: true,
+        changes: [{ before: "soft labels", after: "blurry labels" }],
+      },
+      errorCode: null,
+      error: null,
+      createdAt: "2026-09-04T12:00:00Z",
+      updatedAt: "2026-09-04T12:01:00Z",
+    };
+    const dismissResolution = vi.fn();
+    const onActivateThread = vi.fn();
+    const commentAi = {
+      requests: [applied],
+      startingThreadIds: new Set<string>(),
+      stoppingRequestIds: new Set<string>(),
+      continuations: new Map(),
+      transcriptRevision: 0,
+      start: vi.fn(),
+      continue: vi.fn(),
+      retry: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      open: vi.fn(),
+      undo: vi.fn(),
+      freshResolutions: new Map([["one", applied]]),
+      dismissResolution,
+    } satisfies CommentAiController;
+    const resolved = [thread("one", true)];
+
+    render(null, resolved, "inline", { commentAi, onActivateThread });
+    const mark = container.querySelector<HTMLButtonElement>(
+      '[data-comment-ai-resolved-mark="one"]',
+    );
+    expect(mark?.textContent).toContain("comments.aiResolvedByAi");
+    act(() => mark!.click());
+    expect(onActivateThread).toHaveBeenCalledWith("one");
+    act(() => {
+      mark!.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+    expect(dismissResolution).toHaveBeenCalledWith("one");
+
+    render("one", resolved, "inline", { commentAi, onActivateThread });
+    expect(
+      container.querySelector("[data-comment-ai-resolved-mark]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-comment-ai-change]")?.textContent,
+    ).toContain("blurry");
+    dismissResolution.mockClear();
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>("[data-comment-ai-done]")!
+        .click(),
+    );
+    expect(dismissResolution).toHaveBeenCalledWith("one");
+  });
 
   it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
     render("one");

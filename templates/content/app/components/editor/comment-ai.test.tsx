@@ -17,6 +17,7 @@ import {
   CommentAiRequestStatus,
   type CommentAiController,
   useCommentAiRequests,
+  useFreshAiResolutions,
 } from "./comment-ai";
 
 const api = vi.hoisted(() => ({
@@ -211,6 +212,159 @@ describe("comment AI controls", () => {
         .click(),
     );
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("shows what an applied change replaced, with Undo and Done", async () => {
+    const applied = request({
+      intent: "apply-resolve",
+      status: "resolved",
+      errorCode: null,
+      error: null,
+      result: {
+        editApplied: true,
+        resolved: true,
+        undoable: true,
+        changes: [
+          { before: "the labels are soft.", after: "the labels blur." },
+          { before: "Alpha", after: "Beta" },
+        ],
+      },
+    });
+    const onUndo = vi.fn().mockResolvedValue(undefined);
+    const onDone = vi.fn();
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: applied,
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+          onUndo,
+          onDone,
+        }),
+      );
+    });
+
+    const change = document.querySelector("[data-comment-ai-change]")!;
+    expect(change.querySelector("del")?.textContent).toBe("are soft.");
+    expect(change.querySelector("ins")?.textContent).toBe("blur.");
+    expect(change.textContent).toContain("comments.aiMoreChanges");
+    expect(
+      document.querySelector('[data-comment-ai-status="resolved"]')
+        ?.textContent,
+    ).toContain("comments.aiAppliedAndResolved");
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>("[data-comment-ai-undo]")!
+        .click(),
+    );
+    expect(onUndo).toHaveBeenCalledOnce();
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>("[data-comment-ai-done]")!
+        .click(),
+    );
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it("offers no Undo for a deletion and reports an undone change plainly", async () => {
+    const deletion = request({
+      intent: "apply-resolve",
+      status: "resolved",
+      errorCode: null,
+      error: null,
+      result: {
+        editApplied: true,
+        undoable: false,
+        changes: [{ before: "Remove me", after: "" }],
+      },
+    });
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: deletion,
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+          onUndo: vi.fn(),
+        }),
+      );
+    });
+    expect(
+      document.querySelector<HTMLButtonElement>("[data-comment-ai-undo]")
+        ?.disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: {
+            ...deletion,
+            result: { ...deletion.result, undone: true },
+          },
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+          onUndo: vi.fn(),
+        }),
+      );
+    });
+    expect(document.querySelector("[data-comment-ai-change]")).toBeNull();
+    expect(document.body.textContent).toContain("comments.aiChangeUndone");
+  });
+
+  it("keeps a just-resolved thread until it is dismissed", async () => {
+    const now = () => Date.parse("2026-09-08T13:00:00.000Z");
+    let latest: ReturnType<typeof useFreshAiResolutions> | undefined;
+    function Harness({ requests }: { requests: CommentAiRequest[] }) {
+      latest = useFreshAiResolutions(requests, now);
+      return null;
+    }
+    const running = request({
+      intent: "apply-resolve",
+      status: "running",
+      errorCode: null,
+      error: null,
+    });
+    const resolved = {
+      ...running,
+      status: "resolved" as const,
+      result: { editApplied: true, resolved: true },
+    };
+    // Finished long before this Page opened: not fresh.
+    const old = {
+      ...resolved,
+      operationId: "request-old",
+      threadId: "thread-old",
+    };
+
+    await act(async () =>
+      root.render(createElement(Harness, { requests: [running, old] })),
+    );
+    expect(latest!.freshResolutions.size).toBe(0);
+    await act(async () =>
+      root.render(createElement(Harness, { requests: [resolved, old] })),
+    );
+    expect([...latest!.freshResolutions.keys()]).toEqual(["thread-1"]);
+
+    await act(async () => latest!.dismissResolution("thread-1"));
+    expect(latest!.freshResolutions.size).toBe(0);
+  });
+
+  it("undoes through the dedicated action and refreshes requests", async () => {
+    let controller: CommentAiController | undefined;
+    function Harness() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => root.render(createElement(Harness)));
+    api.callAction.mockResolvedValueOnce({});
+    await act(async () =>
+      controller!.undo(
+        request({ intent: "apply-resolve", status: "resolved" }),
+      ),
+    );
+    expect(api.callAction).toHaveBeenCalledWith("undo-comment-ai-request", {
+      requestId: "request-1",
+    });
+    expect(api.refetch).toHaveBeenCalled();
   });
 
   it("keeps exact recovery available after a partial apply or uncertain continuation", async () => {

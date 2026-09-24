@@ -17,6 +17,7 @@ import {
   IconFilter,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Fragment,
   useState,
@@ -719,6 +720,7 @@ export function CommentsSidebar({
   const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment({ email: currentUserEmail });
   const resolveComment = useResolveComment();
+  const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
   const draftStore = useCommentDraftContext();
   const { isResolving, startResolution, finishResolution } =
@@ -788,7 +790,9 @@ export function CommentsSidebar({
       threads?.filter(
         (thread) =>
           !thread.resolved ||
-          (presentation === "inline" && thread.threadId === selectedThreadId),
+          (presentation === "inline" &&
+            (thread.threadId === selectedThreadId ||
+              commentAi?.freshResolutions.has(thread.threadId))),
       ) ?? [];
     return visibleThreadId
       ? open.filter((thread) => thread.threadId === visibleThreadId)
@@ -800,15 +804,21 @@ export function CommentsSidebar({
     alignToAnchors,
     activeSuggestionId,
     selectedThreadId,
+    commentAi?.freshResolutions,
   ]);
+  // A suggestion whose text is gone has nothing to point at in the margin; it
+  // stays reviewable in the comments panel.
   const inlineSuggestions = useMemo(
     () =>
       suggestions.filter(
         (suggestion) =>
           suggestion.status === "pending" &&
-          (alignToAnchors || suggestion.id === activeSuggestionId),
+          (alignToAnchors || suggestion.id === activeSuggestionId) &&
+          (suggestion.id === activeSuggestionId ||
+            !anchoredSuggestionIds ||
+            anchoredSuggestionIds.includes(suggestion.id)),
       ),
-    [suggestions, alignToAnchors, activeSuggestionId],
+    [suggestions, alignToAnchors, activeSuggestionId, anchoredSuggestionIds],
   );
   const inlineDraftSuggestions = useMemo(
     () =>
@@ -1255,6 +1265,46 @@ export function CommentsSidebar({
     const continuation = aiRequest
       ? commentAi?.continuations.get(aiRequest.operationId)
       : undefined;
+    const freshResolution =
+      thread.resolved && commentAi?.freshResolutions.has(thread.threadId);
+    if (
+      freshResolution &&
+      presentation === "inline" &&
+      selectedThreadId !== thread.threadId
+    ) {
+      return (
+        <ResolvedByAiMark
+          key={thread.threadId}
+          threadId={thread.threadId}
+          marginTop={marginTop}
+          onHeightChange={handleThreadCardHeightChange}
+          onOpen={() => onActivateThread?.(thread.threadId)}
+          onFaded={() => commentAi?.dismissResolution(thread.threadId)}
+          t={t}
+        />
+      );
+    }
+    const undoAi = async () => {
+      if (!commentAi || !aiRequest) return;
+      try {
+        await commentAi.undo(aiRequest);
+        commentAi.dismissResolution(thread.threadId);
+        // This tab's own writes don't come back as refresh signals, so fetch
+        // the restored Page body and reopened thread directly.
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-document", { id: documentId }],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-comments", { documentId }],
+          }),
+        ]);
+      } catch (error) {
+        toast.error(t("comments.aiUndoFailed"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      }
+    };
     const submitAi = async (selection: CommentAiSubmitPayload) => {
       if (!commentAi || !thread.comments[0]) return;
       const instructions = replyDrafts.get(thread.threadId).text.trim();
@@ -1391,6 +1441,15 @@ export function CommentsSidebar({
                 )}
                 onRetry={() => commentAi.retry(aiRequest)}
                 onStop={stopAi}
+                onUndo={canResolve ? undoAi : undefined}
+                onDone={
+                  freshResolution
+                    ? () => {
+                        commentAi.dismissResolution(thread.threadId);
+                        onSelectedThreadChange?.(null);
+                      }
+                    : undefined
+                }
               />
             </>
           ) : undefined
@@ -1781,6 +1840,47 @@ export function CommentsSidebar({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * What a thread AI resolved folds into once the person moves on. It fades out
+ * on its own; hovering holds it, and clicking reopens the result.
+ */
+function ResolvedByAiMark({
+  threadId,
+  marginTop,
+  onHeightChange,
+  onOpen,
+  onFaded,
+  t,
+}: {
+  threadId: string;
+  marginTop: number;
+  onHeightChange: (threadId: string, height: number) => void;
+  onOpen: () => void;
+  onFaded: () => void;
+  t: ReturnType<typeof useT>;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element)
+      onHeightChange(threadId, element.getBoundingClientRect().height);
+  }, [onHeightChange, threadId]);
+  return (
+    <div ref={ref} style={{ marginTop }} className="flex">
+      <button
+        type="button"
+        onClick={onOpen}
+        onAnimationEnd={onFaded}
+        className="comment-ai-resolved-mark inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-comment-card transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-comment-ai-resolved-mark={threadId}
+      >
+        <IconCircleCheck size={14} aria-hidden />
+        {t("comments.aiResolvedByAi")}
+      </button>
     </div>
   );
 }

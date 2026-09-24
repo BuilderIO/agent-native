@@ -2623,6 +2623,24 @@ audio.media-block__content {
   height: 12px;
 }
 
+/* A thread AI resolved folds into this mark, which holds briefly and fades. */
+@keyframes comment-ai-resolved-mark-fade {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.comment-ai-resolved-mark {
+  animation: comment-ai-resolved-mark-fade 8s ease-in forwards;
+}
+.comment-ai-resolved-mark:hover,
+.comment-ai-resolved-mark:focus-visible {
+  animation-play-state: paused;
+}
+
 /* ===== Slash Command Menu ===== */
 .slash-command-menu {
   background: hsl(var(--popover));

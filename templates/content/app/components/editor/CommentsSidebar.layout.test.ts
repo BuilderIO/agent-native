@@ -52,7 +52,7 @@ describe("comments sidebar layout", () => {
     );
     expect(history).toContain("threads, selectedThreadId]");
     expect(source).toContain(
-      'presentation === "inline" && thread.threadId === selectedThreadId',
+      '(presentation === "inline" &&\n            (thread.threadId === selectedThreadId ||',
     );
     const resolve = source.slice(
       source.indexOf("const handleResolve ="),

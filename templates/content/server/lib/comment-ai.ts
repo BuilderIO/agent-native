@@ -101,6 +101,17 @@ const resultSchema = z.object({
   suggestionId: z.string().optional(),
   editApplied: z.boolean().optional(),
   resolved: z.boolean().optional(),
+  changes: z
+    .array(
+      z.object({
+        before: z.string(),
+        after: z.string(),
+        truncated: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  undoable: z.boolean().optional(),
+  undone: z.boolean().optional(),
 });
 type RequestRow = typeof schema.commentAiRequests.$inferSelect;
 export type CommentAiAttemptRow = typeof schema.commentAiAttempts.$inferSelect;

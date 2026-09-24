@@ -45,11 +45,25 @@ export type CommentAiErrorCode =
   | "run_unavailable"
   | null;
 
+/** A bounded preview of one applied edit, shown on the resolved thread. */
+export interface CommentAiAppliedChange {
+  before: string;
+  after: string;
+  /** Either side was cut to fit the preview. */
+  truncated?: boolean;
+}
+
 export interface CommentAiOperationResult {
   commentId?: string;
   suggestionId?: string;
   editApplied?: boolean;
   resolved?: boolean;
+  /** What Apply changes and resolve replaced, for the thread's receipt. */
+  changes?: CommentAiAppliedChange[];
+  /** Every applied edit can be reversed by exact text replacement. */
+  undoable?: boolean;
+  /** The requester reversed the applied edit and reopened the thread. */
+  undone?: boolean;
 }
 
 export interface CommentAiRequest {
