@@ -283,7 +283,8 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain('from "@/components/ui/breadcrumb"');
     expect(route).toContain('to: "/library"');
     expect(route).toContain('to: "/spaces"');
-    expect(route).toContain("recordingFolder.spaceId");
+    expect(route).toContain("folder.spaceId");
+    expect(route).toContain("folder: recordingFolder");
     expect(route).toContain("{recordingActions}");
     expect(route).toContain("fallback={ownerInitial}");
     expect(route).toContain("{recording.description}");
