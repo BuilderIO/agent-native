@@ -114,6 +114,35 @@ describe("CommentComposer rich recipient", () => {
 
   const editor = () => container.querySelector<HTMLElement>(".ProseMirror")!;
 
+  it("opens the mention menu from the @ button", async () => {
+    await act(async () => {
+      editor().focus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const [, mentionButton] = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        "[data-comment-composer-tools] button",
+      ),
+    ];
+    expect(mentionButton).toBeDefined();
+    await act(async () => {
+      mentionButton!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // "Review this" ends in a word, so the button adds a space before the @.
+    expect(editor().textContent).toContain("Review this @");
+    const options = [
+      ...document.querySelectorAll(
+        '[data-agent-native-composer-popover="true"] [data-mention-index]',
+      ),
+    ].map((option) => option.textContent);
+    expect(options.some((option) => option?.includes("Claude Sonnet 5"))).toBe(
+      true,
+    );
+    expect(options.some((option) => option?.includes("Alice"))).toBe(true);
+  });
+
   it("renders the controlled AI recipient as a selectable inline atom", async () => {
     await act(async () =>
       root.render(

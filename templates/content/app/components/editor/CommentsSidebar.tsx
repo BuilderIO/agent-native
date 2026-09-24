@@ -984,8 +984,11 @@ export function CommentsSidebar({
     return () => clearTimeout(timer);
   }, [pendingFocus, presentation]);
 
-  const handlePendingSubmit = async () => {
-    if (!canComment) return;
+  const handlePendingSubmit = async (): Promise<{
+    id: string;
+    threadId: string;
+  } | null> => {
+    if (!canComment) return null;
     if (
       !pendingComment ||
       !pendingText.trim() ||
@@ -993,7 +996,7 @@ export function CommentsSidebar({
       !pendingTargetValid ||
       ambiguousCreate()
     )
-      return;
+      return null;
     const id = pendingComment.id;
     const clientOperationId = crypto.randomUUID();
     const submitted = pendingDraft.markSubmitted(clientOperationId);
@@ -1011,10 +1014,36 @@ export function CommentsSidebar({
       });
       pendingDraft.clearIfUnchanged(submitted);
       onPendingDone(id, result.threadId);
+      return { id: result.id, threadId: result.threadId };
     } catch (error) {
       onPendingChange(id, () => ({ submitting: false }));
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
+
+  // A new comment that mentions AI is posted first, then AI works on it as
+  // the root of its own thread, exactly as it would for a reply.
+  const handlePendingAiSubmit = async (selection: CommentAiSubmitPayload) => {
+    if (!commentAi) return;
+    const instructions = pendingText.trim();
+    const created = await handlePendingSubmit();
+    if (!created) return;
+    try {
+      await startCommentAiSubmission(commentAi, {
+        threadId: created.threadId,
+        rootCommentId: created.id,
+        submittedMode: selection.intent,
+        instructions,
+        provider: selection.provider,
+        model: selection.model,
+        engine: selection.engine,
+      });
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
       });
     }
   };
@@ -1698,11 +1727,6 @@ export function CommentsSidebar({
       className="relative flow-root w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
     >
-      {!hasContent && !isLoading ? (
-        <div className="px-4 py-8 text-sm text-muted-foreground">
-          {t("comments.empty")}
-        </div>
-      ) : null}
       {isLoading ? (
         <div className="space-y-3 px-2 pt-3" aria-hidden="true">
           {[0, 1].map((item) => (
@@ -1772,7 +1796,15 @@ export function CommentsSidebar({
                     mentions: [...draft.mentions, mention],
                   }))
                 }
-                onSubmit={handlePendingSubmit}
+                onSubmit={() => void handlePendingSubmit()}
+                onAiSubmit={
+                  commentAi
+                    ? (selection) => void handlePendingAiSubmit(selection)
+                    : undefined
+                }
+                aiDraft={pendingDraft.draft.aiDraft}
+                onAiDraftChange={pendingDraft.setAiDraft}
+                aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
                 onCancel={handlePendingCancel}
                 onEscape={() => {
                   if (!pendingText.trim()) handlePendingCancel();

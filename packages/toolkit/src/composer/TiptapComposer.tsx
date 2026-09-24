@@ -3244,9 +3244,37 @@ export function TiptapComposer({
     insertTextAtCursor(text: string) {
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.focus();
-      if (!document.execCommand("insertText", false, text)) {
-        editor.commands.insertContent(text);
+      // An inserted "@" (an @ toolbar button) opens the mention menu just as
+      // typing it does; after a word it needs a space to count as a trigger.
+      const mention = text === "@";
+      let inserted = text;
+      if (mention) {
+        const { from } = editor.state.selection;
+        const before = editor.state.doc.textBetween(
+          Math.max(0, from - 1),
+          from,
+        );
+        if (from > 1 && before !== "" && !/\s/.test(before)) inserted = ` @`;
       }
+      if (
+        typeof document.execCommand !== "function" ||
+        !document.execCommand("insertText", false, inserted)
+      ) {
+        editor.commands.insertContent(inserted);
+      }
+      if (!mention) return;
+      const view = editor.view;
+      const startPos = view.state.selection.from;
+      const position = getComposerPopoverAnchorPosition(view, startPos - 1);
+      if (!position) return;
+      const state: PopoverState = {
+        type: "@",
+        position,
+        startPos,
+        query: "",
+      };
+      popoverStateRef.current = state;
+      setPopover(state);
     },
     setText(text: string) {
       if (!isComposerEditorUsable(editor)) return;

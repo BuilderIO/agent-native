@@ -4550,9 +4550,15 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
+  // A suggestion whose text is gone lives in the comments panel only, so it
+  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
-    savedSuggestions.some((suggestion) => suggestion.status === "pending") ||
-    draftSuggestions.length > 0;
+    savedSuggestions.some(
+      (suggestion) =>
+        suggestion.status === "pending" &&
+        (!anchoredSuggestionIds ||
+          anchoredSuggestionIds.includes(suggestion.id)),
+    ) || draftSuggestions.length > 0;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
     (threads?.some((thread) => thread.threadId === selectedThreadId) ?? false);
