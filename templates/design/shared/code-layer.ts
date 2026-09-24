@@ -6352,10 +6352,65 @@ function applyStyleEdit(
 
 const OPEN_PEN_PATH_FILL_OPACITY = "data-an-open-fill-opacity";
 
+type OpenPenPathFillOpacitySnapshot = {
+  version: 2;
+  attributeValue: string | null;
+  restoreAttribute: boolean;
+  styleValue: string | null;
+  stylePriority: string;
+};
+
 type OpenPenPathFillOpacityUpdate =
   | { kind: "unmarked" }
   | { kind: "invalid" }
   | { kind: "updated"; content: string };
+
+function readOpenPenPathFillOpacitySnapshot(
+  marker: string,
+  element: ParsedElement,
+): OpenPenPathFillOpacitySnapshot | null {
+  if (marker === "absent" || marker.startsWith("value:")) {
+    const opacity = parseStyleDeclarations(
+      attributeValue(element, "style") ?? "",
+    ).declarations.find(
+      (declaration) => cssPropertyKey(declaration.prop) === "fill-opacity",
+    );
+    return {
+      version: 2,
+      attributeValue:
+        marker === "absent" ? null : marker.slice("value:".length),
+      restoreAttribute: true,
+      styleValue: opacity?.value ?? null,
+      stylePriority: opacity?.important ? "important" : "",
+    };
+  }
+
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(marker);
+  } catch {
+    // coercion-ok: malformed persisted metadata is returned as invalid and rejected by the caller.
+    return null;
+  }
+  if (
+    typeof snapshot === "object" &&
+    snapshot !== null &&
+    "version" in snapshot &&
+    snapshot.version === 2 &&
+    "restoreAttribute" in snapshot &&
+    typeof snapshot.restoreAttribute === "boolean" &&
+    "attributeValue" in snapshot &&
+    (snapshot.attributeValue === null ||
+      typeof snapshot.attributeValue === "string") &&
+    "styleValue" in snapshot &&
+    (snapshot.styleValue === null || typeof snapshot.styleValue === "string") &&
+    "stylePriority" in snapshot &&
+    typeof snapshot.stylePriority === "string"
+  ) {
+    return snapshot as OpenPenPathFillOpacitySnapshot;
+  }
+  return null;
+}
 
 function updateOpenPenPathFillOpacity(
   html: string,
@@ -6366,29 +6421,8 @@ function updateOpenPenPathFillOpacity(
   const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
   if (marker === null) return { kind: "unmarked" };
 
-  let snapshot: unknown;
-  try {
-    snapshot = JSON.parse(marker);
-  } catch {
-    return { kind: "invalid" };
-  }
-  if (
-    typeof snapshot !== "object" ||
-    snapshot === null ||
-    !("version" in snapshot) ||
-    snapshot.version !== 2 ||
-    !("restoreAttribute" in snapshot) ||
-    typeof snapshot.restoreAttribute !== "boolean" ||
-    !("attributeValue" in snapshot) ||
-    (snapshot.attributeValue !== null &&
-      typeof snapshot.attributeValue !== "string") ||
-    !("styleValue" in snapshot) ||
-    (snapshot.styleValue !== null && typeof snapshot.styleValue !== "string") ||
-    !("stylePriority" in snapshot) ||
-    typeof snapshot.stylePriority !== "string"
-  ) {
-    return { kind: "invalid" };
-  }
+  const snapshot = readOpenPenPathFillOpacitySnapshot(marker, element);
+  if (!snapshot) return { kind: "invalid" };
 
   const declaration = value
     ? parseStyleDeclarations(`fill-opacity: ${value}`).declarations[0]
@@ -6407,6 +6441,22 @@ function updateOpenPenPathFillOpacity(
       }),
     ),
   };
+}
+
+function updateOpenPenPathFillOpacityAttribute(
+  element: ParsedElement,
+  value: string,
+): string | null | undefined {
+  if (element.tag !== "path") return undefined;
+  const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
+  if (marker === null) return undefined;
+  const snapshot = readOpenPenPathFillOpacitySnapshot(marker, element);
+  if (!snapshot) return null;
+  return JSON.stringify({
+    ...snapshot,
+    attributeValue: value,
+    restoreAttribute: false,
+  });
 }
 
 const BORDER_RADIUS_PROPERTY = /^border(-[a-z]+)*-radius$/;
@@ -7360,8 +7410,16 @@ function applyAttributeEdit(
     return "unsupported";
   }
   if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
+  const attributes: Record<string, string | null> = {
+    [intent.name]: intent.value,
+  };
+  if (intent.name.toLowerCase() === "fill-opacity") {
+    const marker = updateOpenPenPathFillOpacityAttribute(element, intent.value);
+    if (marker === null) return "unsupported";
+    if (marker !== undefined) attributes[OPEN_PEN_PATH_FILL_OPACITY] = marker;
+  }
   return {
-    content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
+    content: patchElementAttributes(html, [{ element, attributes }]),
     capability: {
       kind: "attribute",
       operations: ["set"],

@@ -149,6 +149,85 @@ describe("runSaveFileContent source version", () => {
     expect(entries.size).toBe(0);
   });
 
+  it("does not claim an offline save will retry when journaling failed", async () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-unavailable-outbox",
+      content: "<main>saved</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: "base",
+    };
+    const warnChangesWillRetry = vi.fn();
+    const errorToast = vi
+      .spyOn(toast, "error")
+      .mockImplementation(() => "test-toast");
+    vi.stubGlobal("navigator", { onLine: false });
+    const mutateAsync = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry: vi.fn(async () => {}),
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => null),
+      fileSaveChainsRef: { current: {} },
+      journalOutboxEntry: vi.fn(async () => false),
+      latestFileSaveForUnloadRef: { current: {} },
+      rollbackPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync,
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry,
+    };
+
+    try {
+      await expect(runSaveFileContent(args, pending)).resolves.toBe("failed");
+      expect(mutateAsync).toHaveBeenCalledOnce();
+      expect(warnChangesWillRetry).not.toHaveBeenCalled();
+      expect(errorToast).toHaveBeenCalledWith("common.genericError", {
+        id: `design-save-error:${pending.id}`,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      errorToast.mockRestore();
+    }
+  });
+
+  it("reuses the queued outbox promise for pagehide keepalive saves", () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-queued-keepalive",
+      content: "<main>saved</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: "base",
+    };
+    const journalOutboxEntry = vi.fn(async () => true);
+    const sendKeepalive = vi.fn(() => ({
+      accepted: true as const,
+      completion: Promise.reject(new TypeError("Failed to fetch")),
+    }));
+
+    runFileContentSaveKeepalive(
+      {
+        acknowledgeOutboxEntry: vi.fn(async () => {}),
+        createFileSaveOutboxEntry: vi.fn(() => ({}) as never),
+        journalOutboxEntry,
+        latestFileSaveForUnloadRef: { current: { [pending.id]: pending } },
+        outboxJournalPromise: Promise.resolve(true),
+        sendKeepalive,
+      },
+      pending,
+    );
+
+    expect(journalOutboxEntry).not.toHaveBeenCalled();
+    expect(sendKeepalive).toHaveBeenCalledOnce();
+  });
+
   it("replays from the oldest base when a successor keepalive races a missing predecessor", async () => {
     const baseContent = "<main>original</main>";
     const predecessorContent = "<main>predecessor</main>";

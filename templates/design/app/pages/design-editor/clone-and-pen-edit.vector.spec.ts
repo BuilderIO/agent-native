@@ -462,6 +462,53 @@ describe("nested Pen path commits", () => {
 });
 
 describe("continuing a committed open Pen path", () => {
+  it("keeps an explicit fill-opacity attribute edit through a legacy marker close", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="legacy-open" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="legacy-open-path" data-an-pen-nodes="${serializePenNodes(openPath)}"
+        d="${serializePenPath(openPath)}" fill="#000000" fill-opacity="0"
+        data-an-open-fill-opacity="value:0.4" />
+    </svg>`;
+    const opened = writeBackVectorEditedPenPath(
+      html,
+      "legacy-open-path",
+      openPath,
+    )!;
+    const attributeEdit = applyVisualEdit(opened, {
+      kind: "attribute",
+      target: { nodeId: "legacy-open-path" },
+      name: "fill-opacity",
+      value: "0",
+    });
+
+    expect(attributeEdit.result.status).toBe("applied");
+    const openElement = new DOMParser()
+      .parseFromString(attributeEdit.content, "text/html")
+      .querySelector("path")!;
+    expect(
+      JSON.parse(openElement.getAttribute("data-an-open-fill-opacity")!),
+    ).toMatchObject({ restoreAttribute: false });
+
+    const closed = writeBackVectorEditedPenPath(
+      attributeEdit.content,
+      "legacy-open-path",
+      closePenPath(openPath),
+    )!;
+    const closedElement = new DOMParser()
+      .parseFromString(closed, "text/html")
+      .querySelector("path");
+
+    expect(closedElement?.getAttribute("fill-opacity")).toBe("0");
+  });
+
   it("preserves authored zero fill opacity when closing an open path", () => {
     const openPath: PenPath = {
       closed: false,

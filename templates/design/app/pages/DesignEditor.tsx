@@ -750,6 +750,7 @@ import { runRedo } from "./design-editor/commands/redo";
 import { runRenderPngBlob } from "./design-editor/commands/render-png-blob";
 import {
   runFileContentSaveKeepalive,
+  runQueueFileContentSave,
   runSaveFileContent,
 } from "./design-editor/commands/save-file-content";
 import { runScreenElementSelect } from "./design-editor/commands/screen-element-select";
@@ -866,7 +867,6 @@ import {
   TAB_ID,
 } from "./design-editor/editor-session";
 import {
-  coalescePendingFileContentSave,
   createPendingLocalFileContent,
   type FileContentSaveRequest,
   type PendingLocalFileContent,
@@ -4523,6 +4523,9 @@ function DesignEditor() {
   const latestFileSaveForUnloadRef = useRef<
     Record<string, FileContentSaveRequest>
   >({});
+  const fileSaveOutboxJournalPromisesRef = useRef(
+    new WeakMap<FileContentSaveRequest, Promise<boolean>>(),
+  );
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
@@ -4637,30 +4640,6 @@ function DesignEditor() {
     };
   }, [retryDesignSaveOutbox, sessionResolved]);
 
-  const createFileContentSaveRequest = useCallback(
-    (
-      fileId: string,
-      content: string,
-      syncCollab: boolean,
-      expectedVersionHash: string,
-      identityMigrationSourceContent?: string,
-    ): FileContentSaveRequest => {
-      const operationRevision =
-        (fileSaveOperationRevisionRef.current[fileId] ?? 0) + 1;
-      fileSaveOperationRevisionRef.current[fileId] = operationRevision;
-      return {
-        id: fileId,
-        content,
-        syncCollab,
-        operationSource: designSaveOperationSourceRef.current,
-        operationRevision,
-        expectedVersionHash,
-        identityMigrationSourceContent,
-      };
-    },
-    [],
-  );
-
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {
       // The shell has no design row, so a queued save would retry forever.
@@ -4721,6 +4700,7 @@ function DesignEditor() {
           createFileSaveOutboxEntry,
           designId: id,
           fileSaveChainsRef,
+          fileSaveOutboxJournalPromisesRef,
           journalOutboxEntry,
           latestFileSaveForUnloadRef,
           rollbackPendingLocalFileContent,
@@ -4758,75 +4738,28 @@ function DesignEditor() {
         identityMigrationSourceContent?: string;
       },
     ) => {
-      if (!canEditDesignRef.current) return Promise.resolve(false);
-      const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
-      const latestIdentityMigration =
-        latestFileSaveForUnloadRef.current[fileId];
-      const identityMigrationIsInFlight =
-        options.identityMigrationSourceContent === undefined &&
-        queuedIdentityMigration === undefined &&
-        latestIdentityMigration?.identityMigrationSourceContent !== undefined;
-      const expectedVersionHash = identityMigrationIsInFlight
-        ? sourceContentHash(latestIdentityMigration.content)
-        : options.expectedVersionHash;
-      // Allocate the revision when the edit ENTERS the queue, not when its
-      // debounce fires. A pagehide keepalive and the ordinary chained save
-      // therefore carry the same idempotency key, while any newer queued edit
-      // is guaranteed to have a higher revision even if requests arrive at
-      // the server out of order.
-      const nextPending = coalescePendingFileContentSave(
-        createFileContentSaveRequest(
-          fileId,
-          content,
-          options.syncCollab ?? true,
-          expectedVersionHash,
-          options.identityMigrationSourceContent,
-        ),
-        pendingFileSavesRef.current[fileId],
-      );
-      const pending = {
-        ...nextPending,
-        unloadExpectedVersionHash:
-          pendingFileSavesRef.current[fileId]?.unloadExpectedVersionHash ??
-          latestFileSaveForUnloadRef.current[fileId]
-            ?.unloadExpectedVersionHash ??
-          nextPending.expectedVersionHash,
-      };
-      markPendingLocalFileContent(
+      return runQueueFileContentSave(
+        {
+          canEditDesignRef,
+          createFileSaveOutboxEntry,
+          fileSaveOperationRevisionRef,
+          fileSaveOutboxJournalPromisesRef,
+          fileSaveTimersRef,
+          journalOutboxEntry,
+          latestFileSaveForUnloadRef,
+          markPendingLocalFileContent,
+          operationSource: designSaveOperationSourceRef.current,
+          pendingFileSavesRef,
+          saveFileContent,
+          setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+          clearTimer: (timerId) => window.clearTimeout(timerId),
+        },
         fileId,
         content,
-        undefined,
-        options.identityMigrationSourceContent,
+        options,
       );
-      latestFileSaveForUnloadRef.current[fileId] = pending;
-      const outboxEntry = createFileSaveOutboxEntry(pending);
-      const outboxJournalPromise = outboxEntry
-        ? journalOutboxEntry(outboxEntry)
-        : Promise.resolve(false);
-      if (options.immediate) {
-        const timer = fileSaveTimersRef.current[fileId];
-        if (timer) {
-          window.clearTimeout(timer);
-          delete fileSaveTimersRef.current[fileId];
-        }
-        delete pendingFileSavesRef.current[fileId];
-        return saveFileContent(pending, outboxJournalPromise);
-      }
-      pendingFileSavesRef.current[fileId] = pending;
-      const timer = fileSaveTimersRef.current[fileId];
-      if (timer) {
-        window.clearTimeout(timer);
-      }
-      fileSaveTimersRef.current[fileId] = window.setTimeout(() => {
-        const pending = pendingFileSavesRef.current[fileId];
-        delete pendingFileSavesRef.current[fileId];
-        delete fileSaveTimersRef.current[fileId];
-        if (!pending) return;
-        saveFileContent(pending, outboxJournalPromise);
-      }, 400);
     },
     [
-      createFileContentSaveRequest,
       createFileSaveOutboxEntry,
       journalOutboxEntry,
       markPendingLocalFileContent,
@@ -4900,6 +4833,8 @@ function DesignEditor() {
           createFileSaveOutboxEntry,
           journalOutboxEntry,
           latestFileSaveForUnloadRef,
+          outboxJournalPromise:
+            fileSaveOutboxJournalPromisesRef.current.get(pending),
           sendKeepalive: (payload) =>
             tryCallActionKeepalive("update-file", payload as any),
         },
