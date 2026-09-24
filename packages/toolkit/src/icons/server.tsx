@@ -3,6 +3,9 @@ import * as React from "react";
 import { cn } from "../utils.js";
 import type { ResourceIconProps } from "./ResourceIcon.js";
 
+export * from "./recents.js";
+export * from "./types.js";
+
 export function ResourceIcon({
   value,
   size = 20,
