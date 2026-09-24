@@ -151,6 +151,11 @@ interruptible waits until a stop condition is reached.
    condition: the 10-minute clean merge gate is a trigger to merge, and the
    task-scoped watcher remains active until the PR merges or closes.
 
+After an actionable fix or push, reset the applicable clock: the 30-minute
+quiet-green timer for standalone babysitting, or `/ship`'s 10-minute merge soak.
+The `/ship` soak starts only after every merge condition below is simultaneously
+true; it never waits for 30 minutes of quiet.
+
 ### Loop discipline — read this, it is the part people get wrong
 
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
@@ -307,14 +312,14 @@ in the recap rather than treating it as no findings.
    - Run `pnpm run prep` to verify locally
    - Run `corepack pnpm ship:push` to publish the complete fix snapshot
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
-   - Reset the 30-min timer
+   - Reset the applicable clock described above
 
 4. **If GitHub Actions CI is failing** (lint, test, typecheck, build):
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
    - Run `corepack pnpm ship:push` to publish the complete fix snapshot
-   - Reset the 30-min timer
+   - Reset the applicable clock described above
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
    ```md
@@ -329,9 +334,13 @@ in the recap rather than treating it as no findings.
 
 5. **If only external CI fails** (Cloudflare Workers, Netlify, etc.) and GitHub Actions passes:
    - Note the failure but don't block on it — these may need dashboard config changes
-   - Do NOT reset the 30-min timer for external-only failures
+   - Do not reset the standalone 30-minute clock for external-only failures. Under
+     `/ship`, these checks are outside the merge gate and do not reset its
+     10-minute soak.
 
-6. **If everything green + no new feedback for 30 min**: cancel the loop, report done
+6. **Standalone only:** if everything is green and no new feedback arrives for
+   30 minutes, cancel the loop and report done. Under `/ship`, keep the watcher
+   active and merge when the 10-minute gate holds.
 
 ## Responding to feedback
 

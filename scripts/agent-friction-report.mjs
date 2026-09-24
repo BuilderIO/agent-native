@@ -86,10 +86,12 @@ const STALE_PR_WATCHER_RE = new RegExp(
 
 const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
   [
-    String.raw`(?:^|[^\w])(?:\/ship|ship-watchdog)\b[^.!?\n]{0,180}\b(?:stop(?:ped|s)?|open|unmerged|babysit(?:ting)?|watch(?:er|ing)?|merge|every day|every morning)\b`,
-    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:left open|still open|unmerged|not merged|didn['’]?t merge)\b[^.!?\n]{0,100}\b(?:\/ship|told|asked|stopped|stop)\b`,
-    String.raw`\b(?:don['’]?t|do not|never) stop\b[^.!?\n]{0,100}\buntil\b[^.!?\n]{0,60}\b(?:the )?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
-    String.raw`\b(?:they|you|agents?)\b[^.!?\n]{0,60}\b(?:just )?stop\b[^.!?\n]{0,80}\b(?:PR|pull request)\b`,
+    String.raw`\b(?:i|we)\s+(?:still\s+)?(?:have|had)\s+to\s+(?:run|use|invoke)\s+\/ship-watchdog\b`,
+    String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}\/ship\b[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
+    String.raw`(?:\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,100}|\/ship\b[^.!?\n]{0,100})\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,100}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b`,
+    String.raw`\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,100}\b(?:\/ship\b[^.!?\n]{0,50})?until\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
+    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:left open|still open|unmerged|not merged|didn['’]?t merge)\b[^.!?\n]{0,100}\b(?:\/ship|told|asked|stopped|stop|ended)\b`,
   ].join("|"),
   "i",
 );
@@ -197,9 +199,19 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "They just stop after opening the PR; keep checking CI and review until merged.",
   ],
   [true, "Do not stop /ship until the PR is merged."],
+  [true, "The agent ended /ship before the PR was merged."],
+  [
+    true,
+    "I had to remind the agent to keep /ship running until the PR merged.",
+  ],
+  [true, "/ship stopped while the PR is still open."],
+  [true, "I have to run /ship-watchdog every day."],
+  [false, "Please run /ship and merge once CI is green."],
   [false, "Run /ship on the remaining changes."],
   [false, "The pull request is still open while CI runs."],
   [false, "Ship the feature and stop when its tests pass."],
+  [false, "/ship should merge the PR once all required checks pass."],
+  [false, "The agent can stop after the PR has merged."],
 ];
 
 if (process.argv.includes("--self-test")) {
@@ -245,7 +257,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
