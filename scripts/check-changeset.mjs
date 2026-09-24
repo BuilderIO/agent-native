@@ -129,7 +129,13 @@ function packagesCoveredBy(changesetPath) {
   const content = fs.readFileSync(changesetPath, "utf8");
   // Frontmatter is between two `---` lines at the top.
   const m = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!m) return [];
+  if (!m) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": missing YAML frontmatter",
+    );
+  }
   return m[1]
     .split("\n")
     .map((line) => line.trim())

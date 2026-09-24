@@ -7,6 +7,7 @@ import { parse } from "yaml";
 import {
   DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
   NPM_PUBLISH_PACKAGE_NAMES,
+  isAlreadyStaged,
 } from "./changeset-publish-sequential.ts";
 
 type Workflow = Record<string, unknown>;
@@ -119,6 +120,21 @@ describe("npm package release workflow", () => {
     assert.match(
       publisherSource,
       /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
+    );
+  });
+
+  it("waits for npm staged versions to become fetchable before tagging", () => {
+    const stagedConflict =
+      'npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@agent-native%2fdispatch - Cannot publish over previously staged version "0.38.7".';
+
+    assert.equal(isAlreadyStaged(stagedConflict), true);
+    assert.equal(
+      isAlreadyStaged("npm error code E409\nnpm error 409 Conflict"),
+      false,
+    );
+    assert.match(
+      publisherSource,
+      /if \(isAlreadyStaged\(output\)\)[\s\S]*?return true;/,
     );
   });
 
