@@ -226,7 +226,7 @@ ChatGPT は、`window.openai` を通じて専用の互換性パスを取得し�
 
 Claude は、デフォルトで単一フレーム移植パスを使用します。ホストのモジュール読み込み動作をデバッグするときに、`embedMode: "transplant"` または `frame: "transplant"` を使用して他のホストで強制することもできます。 `embedMode: "iframe"`、`renderMode: "iframe"`、`nested: true`、または `frame: "iframe"` を使用して、ネストされた診断 iframe を強制できます。 iframe がブロックされている場合、`embedApp()` はそれをオープンアプリのフォールバックに置き換えます。ユーザーはインラインで再試行するか、ホスト経由で新たに生成された埋め込みセッションを開くか、表示可能なルート URL を使用できます。アクションの `link` ターゲットは、依然として万能の脱出ハッチであるため、単独で有用なままにしておきます。
 
-ngrok を通じて Claude をテストする場合は、実稼働ビルド (`npx @agent-native/core@latest build`、次に `npx @agent-native/core@latest start`) またはデプロイされたプレビュー/実稼働 URL を使用します。 Claude の単一フレーム移植パスは、実稼働アセット チャンクで動作します。 `/app/root.tsx` などの生の Vite 開発モジュールはアプリ認証によって保護され、Claude リソース オリジンからの動的インポートに失敗する可能性があります。
+ngrok を通じて Claude をテストする場合は、実稼働ビルド (`pnpm build`、次に `npx @agent-native/core@latest start`) またはデプロイされたプレビュー/実稼働 URL を使用します。 Claude の単一フレーム移植パスは、実稼働アセット チャンクで動作します。 `/app/root.tsx` などの生の Vite 開発モジュールはアプリ認証によって保護され、Claude リソース オリジンからの動的インポートに失敗する可能性があります。
 
 ## ホストブリッジ API {#host-bridge}
 

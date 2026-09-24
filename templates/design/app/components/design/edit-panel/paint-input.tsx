@@ -1,0 +1,82 @@
+import {
+  alphaToOpacity,
+  parseCssColor,
+  rgbaToCss,
+  withColorOpacity,
+} from "@shared/color-utils";
+
+import { DesignColorPicker, type DesignPaintType } from "../inspector";
+import { parseGradientLayer } from "./fill-gradient-helpers";
+import type { StyleChangeMeta } from "./style-change-types";
+
+export const BOX_STROKE_PAINT_TYPES: DesignPaintType[] = [
+  "solid",
+  "linear",
+  "radial",
+  "angular",
+  "diamond",
+];
+
+/** SVG paint servers exist for linear and radial gradients only. */
+export const SVG_PAINT_TYPES: DesignPaintType[] = ["solid", "linear", "radial"];
+
+/** First stop of a gradient as a solid, so Solid keeps the visible colour. */
+export function gradientSolidFallback(gradient: string): string {
+  const parsed = parseGradientLayer(gradient);
+  const stop = parsed?.stops[0];
+  const color = stop ? parseCssColor(stop.color) : null;
+  if (!color) return "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
+  const opacity =
+    ((stop?.opacity ?? alphaToOpacity(color.a)) * (parsed?.opacity ?? 100)) /
+    100;
+  return rgbaToCss(withColorOpacity(color, opacity));
+}
+
+/**
+ * One paint that is either a solid colour or a single CSS gradient: the
+ * stroke rows and an SVG vector's fill.
+ */
+export function PaintInput({
+  solidColor,
+  gradient,
+  supportedPaintTypes,
+  open,
+  onOpenChange,
+  onSolidChange,
+  onGradientChange,
+}: {
+  solidColor: string;
+  gradient: string | null;
+  supportedPaintTypes: DesignPaintType[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onSolidChange: (color: string, meta?: StyleChangeMeta) => void;
+  onGradientChange: (gradient: string) => void;
+}) {
+  const parsed = gradient ? parseGradientLayer(gradient) : null;
+  return (
+    <DesignColorPicker
+      open={open}
+      onOpenChange={onOpenChange}
+      value={gradient ?? solidColor}
+      paintType={parsed ? parsed.type : "solid"}
+      gradientType={parsed?.type}
+      supportedPaintTypes={supportedPaintTypes}
+      onChange={(next) => {
+        if (parseCssColor(next)) onSolidChange(next, { phase: "preview" });
+      }}
+      onChangeComplete={(next) => {
+        if (parseCssColor(next)) onSolidChange(next, { phase: "commit" });
+      }}
+      onPaintValueChange={(next) => {
+        if (parseGradientLayer(next)) onGradientChange(next);
+        else if (parseCssColor(next)) onSolidChange(next);
+      }}
+      onPaintTypeChange={(type) => {
+        if (type !== "solid" || !gradient) return false;
+        onSolidChange(gradientSolidFallback(gradient));
+        return true;
+      }}
+    />
+  );
+}

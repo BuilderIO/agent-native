@@ -96,9 +96,12 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
 ) {
+  const normalizedArgs = Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value != null),
+  );
   return useActionQuery<number>(
     "list-recordings",
-    { ...args, countOnly: true } as any,
+    { ...normalizedArgs, countOnly: true } as any,
     {
       select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
       retry: false,
@@ -209,20 +212,30 @@ export function useTagRecording() {
 
 // ── Folders / spaces / organizations ──────────────────────────────────────────
 // Derived from `list-organization-state` which ships with the template. All
-// three hooks hit the same endpoint and slice — React Query dedupes identical
-// keys.
+// three hooks hit the same endpoint and slice.
 
 export function useOrganizationState(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
-  return useActionQuery<any>(
+  const enabled = options.enabled ?? true;
+  // Callers usually pass the id they just read from the active-org result, so
+  // an explicit `{ organizationId }` key would refetch the same org as a
+  // second, serial request. Serve the active query unless a different org is
+  // asked for.
+  const active = useActionQuery<any>("list-organization-state", undefined, {
+    enabled,
+  });
+  const needsOtherOrganization =
+    Boolean(organizationId) &&
+    active.isFetched &&
+    active.data?.organization?.id !== organizationId;
+  const other = useActionQuery<any>(
     "list-organization-state",
-    organizationId ? { organizationId } : undefined,
-    {
-      enabled: options.enabled ?? true,
-    },
+    { organizationId },
+    { enabled: enabled && needsOtherOrganization },
   );
+  return needsOtherOrganization ? other : active;
 }
 
 export function useFolders(

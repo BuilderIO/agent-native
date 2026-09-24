@@ -666,7 +666,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(modeHandler).toContain('if (routing === "enter-overview")');
     expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
-    expect(source).toContain("setOverviewInteractScreenId((current)");
+    expect(source).toContain("setOverviewInteractScreenId(screenId)");
     expect(source).toContain("interactScreenId={overviewInteractScreenId}");
     // Two-view model: the infinite canvas is the editing view. Per-screen
     // Interact is an in-place bridge mode, so the iframe stays mounted.
@@ -681,7 +681,15 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    expect(frameAction).toContain("setOverviewInteractScreenId((current)");
+    // Toggling the per-frame Interact target still lives here, gated the
+    // same way runModeChange gates the toolbar path (see the pending live
+    // edits describe block below) so re-clicking the active frame always
+    // leaves Interact and only entering it can be blocked.
+    expect(frameAction).toContain(
+      "overviewInteractScreenIdRef.current === screenId",
+    );
+    expect(frameAction).toContain("setOverviewInteractScreenId(null)");
+    expect(frameAction).toContain("setOverviewInteractScreenId(screenId)");
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

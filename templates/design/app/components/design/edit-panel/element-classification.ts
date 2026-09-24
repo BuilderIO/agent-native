@@ -35,6 +35,9 @@ export function inspectorObjectTitle(element: ElementInfo): string {
   if (element.isGroup) return "Group";
   const tag = normalizedElementTagName(element.tagName);
   if (isTextElement(element)) return "Text";
+  if (tag === "img" || tag === "picture") return "Image";
+  if (tag === "svg") return "Vector";
+  if (element.primitiveKind === "frame") return "Frame";
   return tag;
 }
 

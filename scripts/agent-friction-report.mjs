@@ -154,6 +154,163 @@ const FEEDBACK_EYES_REGEX_CASES = [
   [false, "Fixed, add a checkmark."],
 ];
 
+const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:(?:your|our|this|my|the)\s+)?(?:handoff|recap|summary|report|output|review)`;
+const PR_REVIEW_HANDOFF_DETAILS = [
+  String.raw`which\s+(?:PRs?|pull\s+requests?)\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:(?:the|a|an)\s+)?merge[- ]readiness(?:\s+(?:recommendation|status))?`,
+  String.raw`(?:(?:the|an?)\s+)?(?:(?:drafts?\s+)?(?:(?:author[- ]facing|author)\s+)?repl(?:y|ies)(?:\s+drafts?)?|drafts?\s+(?:(?:author[- ]facing)\s+)?comments?(?:\s+drafts?)?|author[- ]facing\s+comments?(?:\s+drafts?)?)`,
+  String.raw`(?:the\s+)?(?:(?:UI|UX)\s+)?screenshots?(?:\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:changed\s+)?(?:UI|UX)|changes?|updated interface|changed interface))?`,
+  String.raw`(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
+  String.raw`(?:whether|if)\s+(?:(?:the|a|any|all|which|these|those)\s+)?(?:PRs?|pull\s+requests?)\s+(?:were|are|was|is)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:the\s+)?review\s+(?:disposition|status)|(?:the\s+)?approval\s+status|(?:whether|if)\s+(?:(?:the|a)\s+)?(?:PRs?|pull\s+requests?)\s+(?:were|are|was|is)\s+(?:approved|not approved|skipped)`,
+  String.raw`(?:the\s+)?screenshot(?:s)?\s+(?:availability|presence|status|disposition|evidence|available|present|attached|included)`,
+].join("|");
+const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
+  String.raw`(?:didn['’]?t|did not)\s+(?:say|state|report|mention|include|note)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`(?:didn['’]?t|did not)\s+(?:ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`missed\s+(?:asking\s+for|saying|reporting|mentioning|including|requesting|drafting|writing|preparing|providing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`(?:forgot|failed)\s+to\s+(?:say|state|report|mention|include|note|ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+].join("|");
+const PR_REVIEW_HANDOFF_RE = new RegExp(
+  [
+    String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
+    String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
+    String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
+    String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
+    String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
+    String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding)`,
+    String.raw`\b(?:do\s+not|don't|never|avoid)\s+(?:post|draft|send|leave)\s+(?:(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|a\s+follow[- ]?up)[^.!?]{0,120}(?:until|while)[^.!?]{0,100}(?:contributor|author|they)[^.!?]{0,80}(?:update|respond|reply|address)[^.!?]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
+    String.raw`\b(?:you|we)\s+should\s+have\s+waited[^.!?]{0,120}(?:contributor|author|they)[^.!?]{0,80}(?:update|respond|reply|address)[^.!?]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)[^.!?]{0,80}(?:before|for)\s+(?:a\s+)?follow[- ]?up`,
+    String.raw`\b(?:the\s+)?(?:UI\s+)?screenshots?\s+(?:status|availability|presence|disposition)\s+(?:was|were|is|are)\s+(?:omitted|missing|not\s+(?:reported|included|mentioned))\b`,
+    String.raw`\b(?:the\s+)?(?:${PR_REVIEW_HANDOFF_DETAILS})\s+(?:was|were|is|are)\s+(?:omitted|missing|not\s+(?:reported|included|mentioned))\b`,
+  ].join("|"),
+  "i",
+);
+
+const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    true,
+    "You didn't say which PRs were ready to merge or draft replies for the updates.",
+  ],
+  [true, "You missed asking for screenshots of the UI changes."],
+  [true, "You left out screenshots of the UX."],
+  [true, "The handoff forgot to say which PRs were ready to merge."],
+  [true, "You didn't request screenshots for the UI changes."],
+  [true, "You didn't draft an author reply."],
+  [true, "You didn't draft author replies."],
+  [true, "The handoff omitted the draft reply."],
+  [true, "You forgot to draft a reply."],
+  [true, "You didn't include a merge-readiness recommendation."],
+  [true, "You failed to report a merge-readiness status."],
+  [true, "You didn't include screenshots of the changed UI."],
+  [true, "You failed to include screenshots of changed UX."],
+  [true, "The recap omitted the review disposition."],
+  [true, "You didn't report whether the PR was approved."],
+  [true, "You didn't say which pull requests were ready to merge."],
+  [true, "You did not say which PRs were ready to merge."],
+  [true, "You didn't say whether the UI screenshots were present."],
+  [true, "You omitted whether screenshots were present."],
+  [true, "You left out screenshot availability."],
+  [true, "You forgot to mention whether the screenshots were attached."],
+  [true, "You left out the screenshot status."],
+  [true, "You omitted the merge-readiness recommendation."],
+  [true, "The handoff left out the screenshot disposition."],
+  [true, "You marked it ready despite an unresolved human change request."],
+  [true, "You sent another comment while my prior request was unanswered."],
+  [
+    true,
+    "Do not post another author-facing reply until the contributor addresses Steve's outstanding request.",
+  ],
+  [
+    true,
+    "Do not post a follow-up until the contributor addresses Steve's outstanding request.",
+  ],
+  [
+    true,
+    "You should have waited for the author to address my previous request before a follow-up.",
+  ],
+  [true, "You commented again even though my prior ask was still unaddressed."],
+  [true, "You forgot to include the UI screenshots."],
+  [true, "You didn't ask for UI screenshots."],
+  [true, "You didn't provide screenshots."],
+  [true, "You forgot to say whether the PR was ready to merge."],
+  [true, "You failed to report whether PRs were ready to merge."],
+  [true, "You omitted the author-facing reply draft."],
+  [true, "You failed to report screenshot availability."],
+  [true, "The recap omitted the merge-readiness recommendation."],
+  [true, "The recap did not say whether screenshots were present."],
+  [true, "You didn't explain the blocker. The screenshot status was omitted."],
+  [
+    true,
+    "You failed to wait for Steve's request. The handoff omitted screenshot status.",
+  ],
+  [
+    true,
+    "You failed to wait for Steve's request. The handoff was missing screenshot status.",
+  ],
+  [true, "Your recap omitted the merge-readiness recommendation."],
+  [true, "The review failed to report screenshot availability."],
+  [true, "The handoff was missing screenshot status."],
+  [true, "The recap was missing the merge-readiness recommendation."],
+  [true, "Handoff omitted which PRs were ready to merge."],
+  [true, "Handoff was missing screenshot status."],
+  [true, "Review omitted the merge-readiness status."],
+  [
+    true,
+    "You missed:\n- which PRs were ready to merge\n- the author-facing reply draft",
+  ],
+  [false, "Please tell me which PRs are ready to merge and draft replies."],
+  [false, "This PR updates the UI and includes screenshots."],
+  [false, "Please provide screenshots with your PR."],
+  [
+    false,
+    "You didn't include comments from the review thread in the issue summary.",
+  ],
+  [false, "I would like screenshots for new UX changes."],
+  [
+    false,
+    "Don't draft author replies for internal PRs; include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You should draft a follow-up after the contributor addresses Steve's prior request and include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You need to draft a follow-up after the contributor addresses Steve's request. Include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You didn't fix the failing test. Please tell me which PRs are ready to merge.",
+  ],
+  [
+    false,
+    "You didn't fix the failing test, and please tell me which PRs are ready to merge.",
+  ],
+  [
+    false,
+    "You forgot the release note, but please provide screenshots with your PR.",
+  ],
+  [
+    false,
+    "Please wait for the contributor to update before drafting another comment.",
+  ],
+  [false, "The author addressed my prior request in a new commit."],
+  [
+    false,
+    "You drafted another reply after Steve's prior request was addressed in the latest commit.",
+  ],
+  [
+    false,
+    "Do not post a follow-up after the contributor addressed Steve's request.",
+  ],
+  [
+    false,
+    "You classified the PR as ready to merge and included screenshot status.",
+  ],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -303,12 +460,17 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
+      ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -470,8 +632,20 @@ const PATTERNS = [
     key: "feedback-reply-tone",
     label:
       "Reported duplicate feedback clarification or missing thank-first reply",
-    fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
+    fixedBy:
+      ".agents/skills/address-feedback* + .agents/skills/review-prs (first-contact thanks, 2026-09-24)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    // Added 2026-09-24 to measure omissions in non-auto-approved PR handoffs.
+    // Match corrective feedback only; ordinary first-time review requests are
+    // not user friction.
+    key: "pr-review-handoff",
+    label:
+      "Had to ask for PR handoff detail or stop repeated external follow-ups",
+    fixedBy:
+      ".agents/skills/review-prs (external replies and follow-up wait gate, 2026-09-24)",
+    re: PR_REVIEW_HANDOFF_RE,
   },
   {
     key: "feedback-eyes-missed",

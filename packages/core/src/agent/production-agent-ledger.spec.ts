@@ -604,6 +604,105 @@ describe("tool-call result ledger", () => {
     expect(action.run).toHaveBeenCalledOnce();
   });
 
+  it("records a write tool rejected by a run abort as interrupted, not failed", async () => {
+    // The request may already have reached the provider when the run stops
+    // waiting on it. An "Error running" result tells the resuming chunk the
+    // write did not happen, and it re-dispatches it.
+    const controller = new AbortController();
+    const action = makeWriteAction();
+    (action.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      throw new Error("socket closed");
+    });
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: controller.signal,
+    }).catch(() => {});
+
+    expect(action.run).toHaveBeenCalledOnce();
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.result).toBe(
+      "Interrupted before this tool returned a result.",
+    );
+    expect(toolDone?.completedSideEffect).not.toBe(true);
+  });
+
+  it("does not count an aborted write toward the repeated-error breaker", async () => {
+    // Two earlier chunks of this turn recorded the same abort as an error
+    // (the pre-fix history shape). A third identical error trips the breaker;
+    // an interruption is not an error and must not.
+    const priorAbort = [
+      { type: "tool_start", tool: "save-data", input: { content: "x" } },
+      {
+        type: "tool_done",
+        tool: "save-data",
+        input: { content: "x" },
+        result: "Error running save-data: Run aborted",
+        isError: true,
+      },
+    ];
+    currentTurnEventsMock.mockResolvedValue([...priorAbort, ...priorAbort]);
+    const controller = new AbortController();
+    const action = makeWriteAction();
+    (action.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      throw new Error("Run aborted");
+    });
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: controller.signal,
+      threadId: "thread-abort-breaker",
+    }).catch(() => {});
+
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.result).toBe(
+      "Interrupted before this tool returned a result.",
+    );
+  });
+
+  it("still records a per-tool timeout as a failure", async () => {
+    const action: ActionEntry = {
+      ...makeWriteAction(),
+      timeoutMs: 20,
+      run: vi.fn(
+        () => new Promise((resolve) => setTimeout(() => resolve("late"), 200)),
+      ),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("timed out after");
+    expect(toolDone?.result).not.toContain("Interrupted before");
+  });
+
   it("never consults the ledger for read-only tools", async () => {
     // Even if readLedger were to return something, read-only tools should
     // bypass the ledger entirely — they have no side effects to protect.

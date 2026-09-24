@@ -141,6 +141,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "resources", column: "owner", mode: "owner" },
   { table: "agent_review_comments", column: "author_email" },
   { table: "agent_review_comments", column: "owner_email" },
+  { table: "agent_review_notification_deliveries", column: "recipient_email" },
   { table: "agent_review_statuses", column: "updated_by" },
   { table: "agent_review_statuses", column: "owner_email" },
   { table: "agent_review_comment_reactions", column: "actor_email" },

@@ -79,16 +79,36 @@ const resolvedComment = vi.hoisted(
 
 vi.mock("./use-review.js", () => ({
   useReviewComments: (...args: unknown[]) => reviewComments(...args),
-  useCreateReviewComment: () => ({ mutate, isPending: false }),
-  useDeleteReviewComment: () => ({ mutate, isPending: false }),
-  useReplyReviewComment: () => ({ mutate, isPending: false }),
+  useCreateReviewComment: () => ({
+    mutate,
+    mutateAsync: mutate,
+    isPending: false,
+  }),
+  useDeleteReviewComment: () => ({
+    mutate,
+    mutateAsync: mutate,
+    isPending: false,
+  }),
+  useReplyReviewComment: () => ({
+    mutate,
+    mutateAsync: mutate,
+    isPending: false,
+  }),
   useReactToReviewComment: () => ({
     mutate,
     isPending: false,
     variables: undefined,
   }),
-  useUpdateReviewComment: () => ({ mutate, isPending: false }),
-  useResolveReviewThread: () => ({ mutate, isPending: false }),
+  useUpdateReviewComment: () => ({
+    mutate,
+    mutateAsync: mutate,
+    isPending: false,
+  }),
+  useResolveReviewThread: () => ({
+    mutate,
+    mutateAsync: mutate,
+    isPending: false,
+  }),
   useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
@@ -108,6 +128,19 @@ function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.dispatchEvent(new Event("change", { bubbles: true }));
   });
+}
+
+function deferredMutation() {
+  let resolve!: (value: ReviewComment) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<ReviewComment>(
+    (resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    },
+  );
+  mutate.mockReturnValueOnce(promise);
+  return { promise, resolve, reject };
 }
 
 describe("ReviewThreadPanel sidebar layout", () => {
@@ -144,6 +177,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     delete comment.resolutionNote;
     discussion.threadPreferences = {};
     mutate.mockReset();
+    mutate.mockResolvedValue(rootComment);
     reviewComments.mockReset();
     writeClipboardText.mockReset();
     vi.unstubAllGlobals();
@@ -226,7 +260,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(container.textContent).toContain("Unread feedback");
   });
 
-  it("uses a flat container and progressively discloses reply and narrow actions", () => {
+  it("uses a flat container and progressively discloses reply and narrow actions", async () => {
     act(() => {
       root.render(
         <ReviewThreadPanel
@@ -288,7 +322,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     const agentButton = composerButtons.find(
       (button) => button.textContent?.trim() === "Send to agent",
     );
-    act(() => commentButton?.click());
+    await act(async () => commentButton?.click());
     expect(mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         targetId: "screen-2",
@@ -299,12 +333,11 @@ describe("ReviewThreadPanel sidebar layout", () => {
         metadata: { layerName: "Hero title", tagName: "H1" },
         resolutionTarget: "human",
       }),
-      expect.any(Object),
     );
+    setTextareaValue(composer!, "Send this to the agent");
     act(() => agentButton?.click());
     expect(mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({ resolutionTarget: "agent" }),
-      expect.any(Object),
     );
 
     const resolveButton = container.querySelector<HTMLButtonElement>(
@@ -377,9 +410,325 @@ describe("ReviewThreadPanel sidebar layout", () => {
         body: "Human review note",
         resolutionTarget: "human",
       }),
-      expect.any(Object),
     );
     expect(container.textContent).not.toContain("Send to agent");
+  });
+
+  it("clears a submitted comment immediately and restores it only when the draft is still untouched", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Leave feedback"]',
+    );
+    setTextareaValue(composer!, "First draft");
+    const failedSubmission = deferredMutation();
+    const commentButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Comment",
+    );
+    act(() => commentButton?.click());
+
+    expect(composer?.value).toBe("");
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "First draft",
+        clientOperationId: expect.any(String),
+      }),
+    );
+    await act(async () => {
+      failedSubmission.reject(new Error("offline"));
+      await failedSubmission.promise.catch(() => undefined);
+    });
+    expect(composer?.value).toBe("First draft");
+
+    const staleFailure = deferredMutation();
+    act(() => commentButton?.click());
+    setTextareaValue(composer!, "Newer draft");
+    await act(async () => {
+      staleFailure.reject(new Error("still offline"));
+      await staleFailure.promise.catch(() => undefined);
+    });
+    expect(composer?.value).toBe("Newer draft");
+    const failedCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-create]",
+    );
+    expect(failedCard?.textContent).toContain("First draft");
+    const failedOperationId = failedCard?.dataset.reviewFailedCreate;
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-2"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+    expect(container.querySelector("[data-review-failed-create]")).toBeNull();
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+    const restoredCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-create]",
+    );
+    await act(async () => restoredCard?.querySelector("button")?.click());
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "First draft",
+        clientOperationId: failedOperationId,
+      }),
+    );
+    expect(composer?.value).toBe("Newer draft");
+    expect(container.querySelector("[data-review-failed-create]")).toBeNull();
+  });
+
+  it("preserves a failed reply separately from newer reply text", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
+        ?.click(),
+    );
+    const input = () =>
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="Reply to this thread"]',
+      );
+    setTextareaValue(input()!, "Submitted reply");
+    const failedReply = deferredMutation();
+    act(() =>
+      input()?.closest("form")?.querySelector("button[type=submit]")?.click(),
+    );
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
+        ?.click(),
+    );
+    setTextareaValue(input()!, "Newer reply");
+    await act(async () => {
+      failedReply.reject(new Error("offline"));
+      await failedReply.promise.catch(() => undefined);
+    });
+    expect(input()?.value).toBe("Newer reply");
+    const failedCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-reply]",
+    );
+    expect(failedCard?.textContent).toContain("Submitted reply");
+    const failedOperationId = failedCard?.dataset.reviewFailedReply;
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-2"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    expect(container.querySelector("[data-review-failed-reply]")).toBeNull();
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    const restoredCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-reply]",
+    );
+    await act(async () => restoredCard?.querySelector("button")?.click());
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "Submitted reply",
+        clientOperationId: failedOperationId,
+      }),
+    );
+    expect(input()?.value).toBe("Newer reply");
+    expect(container.querySelector("[data-review-failed-reply]")).toBeNull();
+  });
+
+  it("hands a submitted reply to the optimistic thread and restores it after a definite failure", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
+        ?.click(),
+    );
+    const replyComposer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Reply to this thread"]',
+    );
+    setTextareaValue(replyComposer!, "A quick reply");
+    const replySubmit = replyComposer
+      ?.closest("form")
+      ?.querySelector<HTMLButtonElement>('button[type="submit"]');
+    const failedReply = deferredMutation();
+    act(() => replySubmit?.click());
+
+    expect(
+      container.querySelector('textarea[placeholder="Reply to this thread"]'),
+    ).toBeNull();
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "A quick reply",
+        clientOperationId: expect.any(String),
+      }),
+    );
+    await act(async () => {
+      failedReply.reject(new Error("offline"));
+      await failedReply.promise.catch(() => undefined);
+    });
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="Reply to this thread"]',
+      )?.value,
+    ).toBe("A quick reply");
+  });
+
+  it("restores the delete dialog when dismissal races with a failed optimistic delete", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canDeleteComment
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="More actions"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const deleteItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Delete comment");
+    await act(async () => deleteItem?.click());
+
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog).not.toBeNull();
+    const confirmDelete = Array.from(
+      dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    ).find((button) => button.textContent?.trim() === "Delete");
+    const failedDelete = deferredMutation();
+    act(() => {
+      confirmDelete?.click();
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    await act(async () => {
+      failedDelete.reject(new Error("offline"));
+      await failedDelete.promise.catch(() => undefined);
+    });
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+  });
+
+  it("releases each thread control after overlapping resolution requests settle", async () => {
+    const secondOpenComment: ReviewComment = {
+      ...resolvedComment,
+      status: "open",
+      resolvedBy: null,
+      resolvedAt: null,
+    };
+    reviewComments.mockReturnValue({
+      data: {
+        comments: [rootComment, secondOpenComment],
+        reviewStatus: { status: "draft" },
+        discussion,
+      },
+      isLoading: false,
+    });
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canResolve
+        />,
+      );
+    });
+
+    const firstResolution = deferredMutation();
+    const secondResolution = deferredMutation();
+    const resolveButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Resolve"]',
+      ),
+    );
+    act(() => {
+      resolveButtons[0]?.click();
+      resolveButtons[0]?.click();
+      resolveButtons[1]?.click();
+    });
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(resolveButtons[0]?.disabled).toBe(true);
+    expect(resolveButtons[1]?.disabled).toBe(true);
+
+    await act(async () => {
+      firstResolution.reject(new Error("offline"));
+      await firstResolution.promise.catch(() => undefined);
+    });
+    expect(resolveButtons[0]?.disabled).toBe(false);
+    expect(resolveButtons[1]?.disabled).toBe(true);
+
+    await act(async () => {
+      secondResolution.resolve(secondOpenComment);
+      await secondResolution.promise;
+    });
+    expect(resolveButtons[1]?.disabled).toBe(false);
   });
 
   it("fails closed when reply, resolve, and delete capabilities are omitted", () => {
@@ -443,6 +792,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     const save = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Save",
     );
+    const failedEdit = deferredMutation();
     await act(async () => save?.click());
 
     expect(mutate).toHaveBeenLastCalledWith(
@@ -450,8 +800,19 @@ describe("ReviewThreadPanel sidebar layout", () => {
         body: "Ping @Alice updated",
         mentions: [mention],
       }),
-      expect.any(Object),
     );
+    expect(
+      document.querySelector('textarea[aria-label="Edit comment"]'),
+    ).toBeNull();
+    await act(async () => {
+      failedEdit.reject(new Error("offline"));
+      await failedEdit.promise.catch(() => undefined);
+    });
+    expect(
+      document.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Edit comment"]',
+      )?.value,
+    ).toBe("Ping @Alice updated");
   });
 
   it("shows only the controls authorized for the current viewer", () => {
