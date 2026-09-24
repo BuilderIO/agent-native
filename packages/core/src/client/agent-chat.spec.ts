@@ -600,6 +600,55 @@ describe("sendToAgentChat", () => {
     expect(payload.data.attachments).toEqual(attachments);
   });
 
+  it.each([
+    ["type", { type: "code" as const }],
+    ["requiresCode", { requiresCode: true }],
+  ])("keeps rich MCP App %s requests in the local app chat", (_kind, code) => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const attachments = [
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ];
+    const images = ["data:image/png;base64,abc"];
+    const referenceImagePaths = ["https://cdn.example.test/reference.png"];
+    const uploadedReferenceImages = ["https://cdn.example.test/uploaded.png"];
+    const actionScope = { kind: "record-enrichment", recordId: "record-1" };
+
+    const tabId = sendToAgentChat({
+      message: "update this record from the references",
+      submit: true,
+      ...code,
+      attachments,
+      images,
+      referenceImagePaths,
+      uploadedReferenceImages,
+      usageLabel: "crm:enrich-record",
+      actionScope,
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = selfPostMessageSpy.mock.calls[0];
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.attachments).toEqual(attachments);
+    expect(payload.data.images).toEqual(images);
+    expect(payload.data.referenceImagePaths).toEqual(referenceImagePaths);
+    expect(payload.data.uploadedReferenceImages).toEqual(
+      uploadedReferenceImages,
+    );
+    expect(payload.data.usageLabel).toBe("crm:enrich-record");
+    expect(payload.data.actionScope).toEqual(actionScope);
+  });
+
   it("does not duplicate MCP App prompts through both the direct bridge and wrapper relay", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";

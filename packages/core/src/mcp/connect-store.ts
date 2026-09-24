@@ -11,10 +11,10 @@
  *     the OAuth 2.0 device-authorization-style CLI flow. Single-use
  *     (`consumed_at`), rate-limited at creation.
  *
- * Mirrors `application-state/store.ts`: lazy `ensureTable()`, `getDbExec()`,
- * `isConnectionError()` swallow so a transient Neon WS drop never 500s.
- * `CREATE TABLE IF NOT EXISTS` only — strictly additive, never DROP / ALTER
- * (shared prod DB rule).
+ * Mirrors `application-state/store.ts`: lazy `ensureTable()` and `getDbExec()`.
+ * Device-code reads propagate connection errors so unreadable cannot look
+ * like an absent authorization. `CREATE TABLE IF NOT EXISTS` only — strictly
+ * additive, never DROP / ALTER (shared prod DB rule).
  */
 
 import { randomBytes, randomUUID } from "node:crypto";
@@ -505,37 +505,27 @@ function mapDeviceRow(r: any): DeviceCodeRow {
 export async function getDeviceCode(
   deviceCode: string,
 ): Promise<DeviceCodeRow | null> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM mcp_device_codes WHERE device_code = ?`,
-      args: [deviceCode],
-    });
-    if (rows.length === 0) return null;
-    return mapDeviceRow(rows[0]);
-  } catch (err) {
-    if (isConnectionError(err)) return null;
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM mcp_device_codes WHERE device_code = ?`,
+    args: [deviceCode],
+  });
+  if (rows.length === 0) return null;
+  return mapDeviceRow(rows[0]);
 }
 
 export async function getDeviceCodeByUserCode(
   userCode: string,
 ): Promise<DeviceCodeRow | null> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM mcp_device_codes WHERE user_code = ?`,
-      args: [userCode],
-    });
-    if (rows.length === 0) return null;
-    return mapDeviceRow(rows[0]);
-  } catch (err) {
-    if (isConnectionError(err)) return null;
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM mcp_device_codes WHERE user_code = ?`,
+    args: [userCode],
+  });
+  if (rows.length === 0) return null;
+  return mapDeviceRow(rows[0]);
 }
 
 /**

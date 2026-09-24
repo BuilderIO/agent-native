@@ -667,12 +667,16 @@ describe("handleMcpConnect", () => {
       expect(payload.catalog_scope).toBe("full");
     });
 
-    it("poll returns a dev-open localhost entry without A2A_SECRET", async () => {
+    it("preserves full catalog scope in a dev-open localhost entry", async () => {
       delete process.env.A2A_SECRET;
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       await handleMcpConnect(
-        ev({ method: "POST", host: "localhost:4321" }),
+        ev({
+          method: "POST",
+          host: "localhost:4321",
+          body: { fullCatalog: true },
+        }),
         "/device/start",
       );
       const dc = deviceRows[0].deviceCode;
@@ -702,6 +706,7 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry.headers).toEqual({
         "X-Agent-Native-Owner-Email": "u@example.com",
+        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
     });
 

@@ -387,7 +387,11 @@ export async function mintOrgServiceToken(params: {
 function mcpResultPayload(
   appUrl: string,
   options: McpConnectRouteOptions,
-  auth: { token?: string; ownerEmail?: string },
+  auth: {
+    token?: string;
+    ownerEmail?: string;
+    catalogScope?: "full" | null;
+  },
 ) {
   const mcpUrl = mcpResourceUrl(appUrl);
   const name = serverName(appUrl, options);
@@ -395,12 +399,12 @@ function mcpResultPayload(
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+    if (auth.catalogScope === "full") {
+      headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
+    }
   }
-  // Intentionally do NOT inject the full-catalog header here. Every connector
-  // used to receive it, which silently forced the ~105-tool full catalog on
-  // every client. Full-catalog intent now lives durably in the token itself
-  // (`catalog_scope: "full"`, minted only by `connect --full-catalog`), so a
-  // normal connection defaults to the compact/connector catalog + tool-search.
+  // Token-backed scope lives in the signed token; dev-open has no token, so
+  // preserve its explicitly requested scope in connector metadata.
   return {
     token: auth.token ?? "",
     mcpUrl,
@@ -1493,6 +1497,7 @@ export async function handleMcpConnect(
         status: "approved",
         ...mcpResultPayload(appUrl, options, {
           ownerEmail: row.ownerEmail,
+          catalogScope: row.catalogScope,
         }),
       });
     }

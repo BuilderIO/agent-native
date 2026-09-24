@@ -35,6 +35,7 @@ let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
 let failNextOrgLookup = false;
+let failNextDeviceCodeLookup = false;
 const executeDdlMock = vi.hoisted(() => vi.fn());
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
@@ -157,10 +158,18 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: [], rowsAffected: 1 };
   }
   if (/^SELECT \* FROM mcp_device_codes WHERE device_code = \?/i.test(sql)) {
+    if (failNextDeviceCodeLookup) {
+      failNextDeviceCodeLookup = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const d = devices.find((r) => r.device_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
   if (/^SELECT \* FROM mcp_device_codes WHERE user_code = \?/i.test(sql)) {
+    if (failNextDeviceCodeLookup) {
+      failNextDeviceCodeLookup = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const d = devices.find((r) => r.user_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
@@ -233,7 +242,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
-  isConnectionError: () => false,
+  isConnectionError: (err: any) => err?.message === "CONNECTION_LOST",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -252,6 +261,7 @@ describe("connect-store", () => {
     devices = [];
     failNextCreateTable = false;
     failNextOrgLookup = false;
+    failNextDeviceCodeLookup = false;
     vi.restoreAllMocks();
   });
 
@@ -527,6 +537,20 @@ describe("connect-store", () => {
       await expect(
         store.getDeviceCodeByUserCode(created.userCode),
       ).resolves.toMatchObject({ catalogScope: "full" });
+    });
+
+    it("propagates unreadable device-code lookups instead of returning missing", async () => {
+      const created = await store.createDeviceCode();
+
+      failNextDeviceCodeLookup = true;
+      await expect(store.getDeviceCode(created.deviceCode)).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
+
+      failNextDeviceCodeLookup = true;
+      await expect(
+        store.getDeviceCodeByUserCode(created.userCode),
+      ).rejects.toThrow("CONNECTION_LOST");
     });
 
     it("rate-limits device code creation within the window", async () => {

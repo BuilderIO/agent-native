@@ -1194,20 +1194,22 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     opts.actionScope === undefined
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
-  const isCodeRequest = routesToCodeFrame(opts);
   const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
+  const hasMcpAppLocalPayload =
+    mcpBridgeEnabled &&
+    Boolean(
+      opts.attachments?.length ||
+      opts.images?.length ||
+      opts.referenceImagePaths?.length ||
+      opts.uploadedReferenceImages?.length ||
+      opts.usageLabel ||
+      actionScope,
+    );
+  const isCodeRequest = routesToCodeFrame(opts) && !hasMcpAppLocalPayload;
   const localChatTarget =
     opts.chatTarget === "local" ||
     keepsApprovalInAppChat(opts) ||
-    (mcpBridgeEnabled &&
-      Boolean(
-        opts.attachments?.length ||
-        opts.images?.length ||
-        opts.referenceImagePaths?.length ||
-        opts.uploadedReferenceImages?.length ||
-        opts.usageLabel ||
-        actionScope,
-      ));
+    hasMcpAppLocalPayload;
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
