@@ -26,15 +26,17 @@ the next task.
   overwrite, rebase, or force-push it.
 - /ship authorizes the merge once the gates below pass, unless the user says
   not to merge.
-- That `/ship` request also authorizes its single post-merge branch rotation,
-  after the merge commit is verified on `origin/main`. Apply `/new-branch`'s
-  naming and safety checks only at that point; do not move branches earlier or
-  touch another checkout.
+- That `/ship` request also authorizes one post-merge branch rotation in a
+  user-owned checkout, after the merge commit is verified on `origin/main`.
+  Platform-assigned Builder.io and Fusion branches stay in place. Apply
+  `/new-branch`'s naming and safety checks only when rotation is allowed; do not
+  move branches earlier or touch another checkout.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
-  is verified, and the branch is rotated, while checking/fixing CI and review
-  feedback and using the guarded squash-admin merge. If the user explicitly
+  is verified, and post-merge branch disposition is complete (rotate only in a
+  user-owned checkout; preserve platform-assigned branches), while checking and
+  fixing CI/review feedback and using the guarded squash-admin merge. If the user explicitly
   opts out of merging, make the goal match that endpoint. Reuse an existing goal
   only when it covers this shipment; never replace an unrelated goal. Complete
   the ship goal with `update_goal` only after its stated endpoint is reached.
@@ -43,12 +45,15 @@ the next task.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
   a session command, not an agent tool; start the ship task with `/goal` and a
   condition that tells Claude to run `/ship` and continue until the PR is
-  merged, `origin/main` contains the merge commit, and branch rotation is
-  complete. A bare `/ship` cannot set this native goal on Claude's behalf. Do
+  merged, `origin/main` contains the merge commit, and post-merge branch
+  disposition is complete: rotate only in a user-owned checkout, while keeping
+  platform-assigned Builder.io and Fusion branches unchanged. A bare `/ship`
+  cannot set this native goal on Claude's behalf. Do
   not replace an unrelated active goal; Claude Code permits one per session.
   The invocation condition is: `Run /ship through the guarded admin merge,
-  verify origin/main contains the merge commit, and rotate the branch; keep
-  fixing CI and review feedback until then.`
+  verify origin/main contains the merge commit, then rotate only if the checkout
+  is user-owned; keep platform-assigned Builder.io and Fusion branches unchanged.
+  Keep fixing CI and review feedback until then.`
   The goal evaluator reads the transcript, so report the live PR state, merge
   SHA, ancestry proof, and rotation result as they happen. If Claude clears the
   goal after judging it impossible or an unrecoverable error, or pauses it
@@ -271,12 +276,13 @@ repo defect; classify it before changing code.
 
 ## 6. Rotate after merge
 
-After the merge, verify that `origin/main` contains the merge commit. Then
-rotate once using `/new-branch`'s naming and safety checks. In a worktree,
-require a clean tree and create the fresh branch from fetched `origin/main`;
-never check out or pull a possibly stale local `main`. Preserve any pre-existing
-stashes. The final state is a fresh branch from current `origin/main`, not a
-detached merged checkout. Only then mark the ship goal complete.
+After the merge, verify that `origin/main` contains the merge commit. In a
+platform-managed Builder.io or Fusion checkout, keep its assigned branch and
+complete the ship goal without rotating. Otherwise, in the current user-owned
+worktree, require a clean tree, fetch `origin/main`, choose a unique name using
+`/new-branch`'s naming rules, and run `git switch -c <branch> origin/main`;
+never check out or pull a possibly stale local `main`. Preserve existing
+stashes. Only then mark the ship goal complete.
 
 ## Deployment boundary
 

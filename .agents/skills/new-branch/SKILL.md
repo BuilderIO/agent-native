@@ -2,8 +2,8 @@
 name: new-branch
 description: >-
   Use when explicitly asked for /new-branch or a fresh git branch. /ship also
-  authorizes one post-merge rotation after origin/main proof. Do not auto-run for
-  normal coding, PR, Builder.io, or Fusion branch workflows.
+  authorizes one post-merge rotation in a user-owned checkout after origin/main
+  proof. Do not rotate platform-assigned Builder.io or Fusion branches.
 user-invocable: true
 scope: dev
 metadata:
@@ -17,9 +17,10 @@ metadata:
 Use this skill when the user explicitly invokes `/new-branch`, mentions this
 skill as the workflow to run, or directly asks you to create a fresh git branch
 from main. The single post-merge rotation required by an active `/ship` is also
-authorized by that `/ship` request, but only after `/ship` verifies its merge
-commit on `origin/main`; it never authorizes moving branches earlier or touching
-another checkout.
+authorized by that `/ship` request in a user-owned checkout, but only after
+`/ship` verifies its merge commit on `origin/main`. Platform-assigned Builder.io
+and Fusion branches stay in place. This never authorizes moving branches earlier
+or touching another checkout.
 
 If neither an explicit new-branch request nor the verified post-merge `/ship`
 exception above applies, **stop here** and continue the original task without
@@ -31,7 +32,7 @@ These are mistakes other agents have made that stranded concurrent work:
 
 - The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push. The only exception is `/ship`'s authorized rotation after its merge is verified on `origin/main`.
 - The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
-- You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI.
+- You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI. This rule also exempts `/ship` from its post-merge rotation in that checkout.
 - The working tree has uncommitted changes. Checkpoint all nonignored local work
   before branching; do not classify changes by authorship or stash them silently.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.

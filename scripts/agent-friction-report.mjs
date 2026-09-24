@@ -86,7 +86,8 @@ const STALE_PR_WATCHER_RE = new RegExp(
 
 const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
   [
-    String.raw`\b(?:i|we)\s+(?:still\s+)?(?:have|had)\s+to\s+(?:run|use|invoke)\s+(?:\/|\[\$)?ship-watchdog\b`,
+    String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,60}\b(?:have|had)\s+to\b[^.!?\n]{0,60}(?:\/|\[\$)?ship-watchdog\b[^.!?\n]{0,80}\b(?:because|since)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|left)\b`,
     String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
     String.raw`(?:\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,100}|(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100})\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,100}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
     String.raw`\bwhy\s+did\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:finish(?:ed)?|stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,80}\b(?:before|without)\b[^.!?\n]{0,60}\b(?:merg(?:e|ed|ing)|PR|pull request)\b`,
@@ -211,7 +212,11 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "I had to remind the agent to keep /ship running until the PR merged.",
   ],
   [true, "/ship stopped while the PR is still open."],
-  [true, "I have to run /ship-watchdog every day."],
+  [false, "I have to run /ship-watchdog every day."],
+  [
+    true,
+    "I have to run /ship-watchdog because /ship stopped after opening the PR.",
+  ],
   [
     true,
     "These are all threads I told to [$ship], yet I have to run [$ship-watchdog] every day.",
