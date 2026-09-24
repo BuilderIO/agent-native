@@ -33,7 +33,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
+import {
+  captureAnchor,
+  trimSelectionRange,
+  type CommentTextAnchor,
+} from "./comment-anchors";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 
 export type CommentRange = { from: number; to: number };
@@ -287,7 +291,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
 
   const createCommentFromSelection = useCallback(() => {
     if (!onComment) return false;
-    const { from, to } = editor.state.selection;
+    const { from, to } = trimSelectionRange(
+      editor.state.doc,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    );
     const text = editor.state.doc.textBetween(from, to, " ");
     if (!text.trim()) return false;
     const anchor = captureAnchor(editor.state.doc, from, to);

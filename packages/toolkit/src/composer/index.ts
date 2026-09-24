@@ -18,10 +18,12 @@ export {
   canSubmitComposerContent,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
+  findExactMentionItem,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
+  type ComposerTextSelection,
   type TiptapComposerProps,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";

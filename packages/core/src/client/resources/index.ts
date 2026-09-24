@@ -20,6 +20,10 @@ export {
 } from "./McpIntegrationDialog.js";
 export { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 export {
+  resolveAgentProviderLogo,
+  type AgentProviderLogo,
+} from "./agent-provider-logo.js";
+export {
   McpAccessSettings,
   type McpAccessSettingsProps,
 } from "./McpAccessSettings.js";

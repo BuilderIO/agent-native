@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { createDbExec } from "@agent-native/core/db";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
@@ -139,6 +142,108 @@ describe("content db.ts migration entries follow the naming convention", () => {
       byName.get("content-comment-ai-active-thread-index"),
     ).toBeGreaterThan(92);
   });
+
+  it.each(["main", "inline-conversations"] as const)(
+    "upgrades the %s Comment AI table variant with PGlite",
+    async (variant) => {
+      const migration = dbTsSource.match(
+        /name: "content-comment-ai-durable-concurrency",\s+sql: `([\s\S]*?)`,\s+},/,
+      )?.[1];
+      expect(migration).toBeTruthy();
+      const directory = mkdtempSync(join(tmpdir(), `content-ai-${variant}-`));
+      const db = await createDbExec({ url: `pglite:${directory}` });
+      const executeSql = async (sql: string) => {
+        for (const statement of sql
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)) {
+          await db.execute(statement);
+        }
+      };
+      try {
+        await executeSql(`CREATE TABLE document_comments (id TEXT PRIMARY KEY);
+          CREATE TABLE comment_ai_requests (
+            id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, requester_email TEXT NOT NULL,
+            document_id TEXT NOT NULL, thread_id TEXT NOT NULL, root_comment_id TEXT NOT NULL,
+            field_id TEXT NOT NULL, intent TEXT NOT NULL, status TEXT NOT NULL,
+            ${variant === "main" ? "thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, base_revision TEXT NOT NULL, suggestion_revision TEXT NOT NULL," : "submitted_thread_digest TEXT NOT NULL, submitted_snapshot_json TEXT NOT NULL, agent_thread_id TEXT NOT NULL,"}
+            run_id TEXT, result_json TEXT, error TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          );`);
+        if (variant === "inline-conversations") {
+          await executeSql(`CREATE TABLE comment_ai_attempts (
+            id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, request_id TEXT NOT NULL,
+            attempt_number INTEGER NOT NULL, status TEXT NOT NULL,
+            source_revision TEXT NOT NULL, suggestion_revision TEXT NOT NULL,
+            thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          );
+          INSERT INTO comment_ai_attempts VALUES
+            ('attempt', 'owner', 'request', 1, 'reasoning', 'base', 'suggestion', 'digest', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+          INSERT INTO comment_ai_requests (
+            id,owner_email,requester_email,document_id,thread_id,root_comment_id,
+            field_id,intent,status,submitted_thread_digest,submitted_snapshot_json,
+            agent_thread_id,created_at,updated_at
+          ) VALUES ('request','owner','owner','doc','thread','root','body','reply','queued','digest','{}','agent',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);`);
+        }
+        await executeSql(migration!);
+        const columns = await db.execute(
+          "SELECT column_name FROM information_schema.columns WHERE table_name = 'comment_ai_requests'",
+        );
+        const names = columns.rows.map((row) => String(row.column_name));
+        expect(names).toEqual(
+          expect.arrayContaining([
+            "thread_digest",
+            "submitted_thread_digest",
+            "base_revision",
+            "agent_turn_id",
+          ]),
+        );
+        if (variant === "inline-conversations") {
+          const attemptColumns = await db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'comment_ai_attempts'",
+          );
+          expect(
+            attemptColumns.rows.map((row) => String(row.column_name)),
+          ).toEqual(
+            expect.arrayContaining([
+              "payload_json",
+              "run_id",
+              "model",
+              "error_code",
+              "error",
+            ]),
+          );
+          const migrated = await db.execute(
+            "SELECT thread_digest,base_revision FROM comment_ai_requests WHERE id = 'request'",
+          );
+          expect(migrated.rows[0]).toMatchObject({
+            thread_digest: "digest",
+            base_revision: "base",
+          });
+          await db.execute(
+            `UPDATE comment_ai_attempts
+              SET payload_json = '{"retained":true}', run_id = 'run', model = 'model',
+                  error_code = 'operation_failed', error = 'failure'
+              WHERE id = 'attempt'`,
+          );
+          const attempt = await db.execute(
+            "SELECT payload_json,run_id,model,error_code,error FROM comment_ai_attempts WHERE id = 'attempt'",
+          );
+          expect(attempt.rows[0]).toMatchObject({
+            payload_json: '{"retained":true}',
+            run_id: "run",
+            model: "model",
+            error_code: "operation_failed",
+            error: "failure",
+          });
+        }
+      } finally {
+        await db.close?.();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("keeps Builder source refresh hot-path indexes in migrations", () => {
     expect(dbTsSource).toContain(

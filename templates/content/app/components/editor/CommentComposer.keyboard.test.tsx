@@ -1,159 +1,508 @@
 // @vitest-environment happy-dom
 
-import { act, useState } from "react";
+import {
+  findExactMentionItem,
+  type MentionItem,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/composer";
+import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CommentComposer } from "./CommentComposer";
+import { typeRichEditorText } from "./comment-composer-test-utils";
+import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
 
-describe("comment mention full keyboard sequences", () => {
+const onModelChange = vi.fn();
+const onAiDraftChange = vi.fn();
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useChatModels: () => ({
+    configuredModels: [
+      {
+        engine: "builder",
+        label: "Builder",
+        configured: true,
+        models: ["gpt-5-6-luna"],
+      },
+      {
+        engine: "anthropic",
+        label: "Anthropic",
+        configured: true,
+        models: ["claude-sonnet-5"],
+      },
+    ],
+    selectedModel: "gpt-5-6-luna",
+    selectedEngine: "builder",
+    selectedEffort: "high",
+    selectionReady: true,
+    unavailableSelection: null,
+    onModelChange,
+    onEffortChange: vi.fn(),
+  }),
+}));
+
+describe("CommentComposer rich recipient", () => {
+  it.each(["AI", "Luna", "Sonnet"])(
+    "commits the exact @%s alias while leaving prose unmatched",
+    (alias) => {
+      const item: MentionItem = {
+        id: alias,
+        label: `Provider · ${alias}`,
+        aliases: [alias],
+        source: "content",
+        refType: "content-comment-ai-recipient",
+      };
+      expect(findExactMentionItem([item], alias)).toBe(item);
+      expect(findExactMentionItem([item], `${alias} please`)).toBeUndefined();
+    },
+  );
   let container: HTMLDivElement;
   let root: Root;
   const submit = vi.fn();
   const escape = vi.fn();
-  const mention = vi.fn();
-  function Owner() {
-    const [value, setValue] = useState("");
+  const aiSubmit = vi.fn();
+  let handle: TiptapComposerHandle | null = null;
+
+  function Owner({
+    initialAi = null,
+    initialValue = "Review this",
+  }: {
+    initialAi?: CommentAiDraft | null;
+    initialValue?: string;
+  }) {
+    const [value, setValue] = useState(initialValue);
+    const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
+    const composer = useRef<TiptapComposerHandle>(null);
+    handle = composer.current;
     return (
       <CommentComposer
+        ref={(next) => {
+          composer.current = next;
+          handle = next;
+        }}
         value={value}
         onChange={setValue}
         onSubmit={submit}
         onEscape={escape}
-        onMentionAdd={mention}
-        members={[
-          { name: "Alpha", email: "alpha@example.test" },
-          { name: "Beta", email: "beta@example.test" },
-          { name: "Gamma", email: "gamma@example.test" },
-        ]}
+        onMentionAdd={vi.fn()}
+        onAiSubmit={aiSubmit}
+        aiDraft={aiDraft}
+        onAiDraftChange={(next) => {
+          onAiDraftChange(next);
+          setAiDraft(next);
+        }}
+        aiModelStorageKey="comment-ai:test"
+        members={[{ name: "Alice", email: "alice@example.test" }]}
       />
     );
   }
+
   beforeEach(async () => {
+    onModelChange.mockClear();
+    onAiDraftChange.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    submit.mockReset();
-    escape.mockReset();
-    mention.mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     await act(async () => root.render(<Owner />));
-    input().focus();
   });
+
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
-    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
-  const input = () => container.querySelector("textarea")!;
-  const buttons = () => [...container.querySelectorAll("button")];
-  const active = () =>
-    buttons().find((button) =>
-      button.className.split(/\s+/).includes("bg-accent"),
-    )?.textContent;
-  const key = async (type: "keydown" | "keyup", name: string) =>
-    act(async () => {
-      input().dispatchEvent(
-        new KeyboardEvent(type, { key: name, bubbles: true, cancelable: true }),
-      );
-    });
-  const press = async (name: string) => {
-    await key("keydown", name);
-    await key("keyup", name);
-  };
-  const text = async (value: string) => {
+
+  const editor = () => container.querySelector<HTMLElement>(".ProseMirror")!;
+
+  it("opens the mention menu from the @ button", async () => {
     await act(async () => {
-      const node = input();
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(node, value);
-      node.setSelectionRange(value.length, value.length);
-      node.dispatchEvent(new Event("input", { bubbles: true }));
+      editor().focus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await key("keyup", value.slice(-1));
-  };
-  const settle = async () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    const [, mentionButton] = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        "[data-comment-composer-tools] button",
+      ),
+    ];
+    expect(mentionButton).toBeDefined();
+    await act(async () => {
+      mentionButton!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-  it("keeps a mention picker dismissed after Escape keyup and routes the next Escape outward", async () => {
-    await text("Reply @");
-    expect(buttons()).toHaveLength(3);
-    await press("Escape");
-    await settle();
-    expect(buttons()).toHaveLength(0);
-    expect(input().value).toBe("Reply @");
-    expect(escape).not.toHaveBeenCalled();
-    await press("Escape");
-    expect(escape).toHaveBeenCalledTimes(1);
+    // "Review this" ends in a word, so the button adds a space before the @.
+    expect(editor().textContent).toContain("Review this @");
+    const options = [
+      ...document.querySelectorAll(
+        '[data-agent-native-composer-popover="true"] [data-mention-index]',
+      ),
+    ].map((option) => option.textContent);
+    expect(options.some((option) => option?.includes("Claude Sonnet 5"))).toBe(
+      true,
+    );
+    expect(options.some((option) => option?.includes("Alice"))).toBe(true);
   });
+
+  it("renders the controlled AI recipient as a selectable inline atom", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="with-ai"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "auto",
+          }}
+        />,
+      ),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
+    expect(handle?.getSelection()).not.toBeNull();
+  });
+
+  it("shows comment recipients with AI first and omits workspace mention search", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await act(async () =>
+      root.render(<Owner key="mentions" initialValue="" />),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    fetchSpy.mockClear();
+
+    await typeRichEditorText(editor(), "@");
+
+    const popover = document.querySelector(
+      '[data-agent-native-composer-popover="true"]',
+    );
+    const options = [...(popover?.querySelectorAll("button") ?? [])];
+    // Each row is its label then its description; people carry a decorative
+    // initial avatar until their photo loads.
+    expect(options.map((option) => option.textContent)).toEqual([
+      "AIGPT-5.6 Luna",
+      "GPT-5.6 LunaBuilder",
+      "Claude Sonnet 5Anthropic",
+      "AAlicealice@example.test",
+    ]);
+    expect(options[0]?.querySelector("img")).not.toBeNull();
+    expect(popover?.textContent).toContain("Alice");
+    expect(popover?.textContent).not.toContain("Files");
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("/_agent-native/agent-chat/mentions"),
+      ),
+    ).toBe(false);
+
+    await typeRichEditorText(editor(), "AI ");
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
+    expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
+  });
+
+  it("keeps the composer settled after clicking the AI mention", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    await act(async () =>
+      root.render(<Owner key="click-ai" initialValue="" />),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    await typeRichEditorText(editor(), "@");
+    const aiOption = document.querySelector<HTMLButtonElement>(
+      '[data-agent-native-composer-popover="true"] [data-mention-index="0"]',
+    );
+    expect(aiOption?.textContent).toContain("AI");
+    onAiDraftChange.mockClear();
+
+    await act(async () => aiOption?.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+
+    expect(onAiDraftChange.mock.calls).toEqual([
+      [
+        {
+          selection: {
+            model: "gpt-5-6-luna",
+            engine: "builder",
+            provider: "Builder",
+          },
+          mode: "auto",
+        },
+      ],
+    ]);
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
+    // The model is changed on the pill itself, not a separate toolbar picker.
+    expect(
+      container.querySelector('[data-agent-composer-slot="model-button"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-comment-ai-send-control]"),
+    ).not.toBeNull();
+    const pill = container.querySelector<HTMLElement>(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pill).not.toBeNull();
+    await act(async () => pill?.click());
+    expect(
+      document.querySelector("[data-comment-ai-model-list]")?.textContent,
+    ).toContain("Claude Sonnet 5");
+    expect(
+      consoleError.mock.calls.some(([message]) =>
+        String(message).includes("Maximum update depth exceeded"),
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves the AI recipient while controlled text is restored", async () => {
+    const initialAi: CommentAiDraft = {
+      selection: {
+        model: "gpt-5-6-luna",
+        engine: "builder",
+        provider: "Builder",
+      },
+      mode: "suggest",
+    };
+    function ControlledOwner({ value }: { value: string }) {
+      const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
+      return (
+        <CommentComposer
+          value={value}
+          onChange={vi.fn()}
+          onSubmit={submit}
+          onEscape={escape}
+          onMentionAdd={vi.fn()}
+          onAiSubmit={aiSubmit}
+          aiDraft={aiDraft}
+          onAiDraftChange={setAiDraft}
+          aiModelStorageKey="comment-ai:controlled"
+          members={[]}
+        />
+      );
+    }
+
+    await act(async () =>
+      root.render(<ControlledOwner value="Original request" />),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () =>
+      root.render(<ControlledOwner value="Restored request" />),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(editor().textContent).toContain("Restored request");
+    expect(editor().textContent).toContain("GPT-5.6 Luna");
+    expect(editor().textContent?.match(/GPT-5.6 Luna/g)).toHaveLength(1);
+    expect(
+      container.querySelector("[data-comment-ai-send-control]"),
+    ).not.toBeNull();
+  });
+
+  it("replaces an existing AI recipient when another model is selected", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="replace-ai"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    onAiDraftChange.mockClear();
+
+    await typeRichEditorText(editor(), "@");
+    const sonnetOption = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[data-agent-native-composer-popover="true"] [data-mention-index]',
+      ),
+    ].find((option) => option.textContent?.includes("Claude Sonnet 5"));
+    expect(sonnetOption).toBeDefined();
+    await act(async () => {
+      sonnetOption?.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+      );
+      sonnetOption?.click();
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(editor().textContent).toContain("Claude Sonnet 5");
+    expect(editor().textContent).not.toContain("GPT-5.6 Luna");
+    expect(editor().textContent?.match(/Claude Sonnet 5/g)).toHaveLength(1);
+    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "anthropic");
+    expect(onAiDraftChange).toHaveBeenLastCalledWith({
+      selection: {
+        model: "claude-sonnet-5",
+        engine: "anthropic",
+        provider: "Anthropic",
+      },
+      mode: "suggest",
+    });
+  });
+
+  it("replaces the AI recipient when a model is typed and chosen with Enter", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="typed-ai"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "auto",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    await typeRichEditorText(editor(), " @");
+    await typeRichEditorText(editor(), "Sonnet");
+    const options = [
+      ...document.querySelectorAll(
+        '[data-agent-native-composer-popover="true"] [data-mention-index]',
+      ),
+    ].map((option) => option.textContent);
+    expect(options[0]).toContain("Claude Sonnet 5");
+    await act(async () => {
+      editor().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const pills = container.querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pills).toHaveLength(1);
+    expect(pills[0]?.textContent).toContain("Claude Sonnet 5");
+    expect(editor().textContent).not.toContain("@Sonnet");
+    expect(aiSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps one AI recipient when a second model pill is inserted", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="single-ai"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "reply",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(
+      container
+        .querySelector("[data-comment-composer]")
+        ?.hasAttribute("data-model-switchable"),
+    ).toBe(true);
+
+    // Paste, drafts, and handle calls skip the mention menu's replacement.
+    await act(async () =>
+      handle?.insertReference({
+        label: "Claude Sonnet 5",
+        source: "content",
+        refType: "content-comment-ai-recipient",
+        refId: "anthropic:claude-sonnet-5",
+        metadata: {
+          selection: {
+            model: "claude-sonnet-5",
+            engine: "anthropic",
+            provider: "Anthropic",
+          },
+        },
+      }),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const pills = container.querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pills).toHaveLength(1);
+    expect(pills[0]?.textContent).toContain("Claude Sonnet 5");
+    expect(onAiDraftChange).toHaveBeenLastCalledWith({
+      selection: {
+        model: "claude-sonnet-5",
+        engine: "anthropic",
+        provider: "Anthropic",
+      },
+      mode: "reply",
+    });
+  });
+
+  it("supports caret selection and controlled recipient removal", async () => {
+    await act(async () =>
+      handle?.replaceReference("content-comment-ai-recipient", {
+        label: "GPT-5.6 Luna",
+        source: "content",
+        refType: "content-comment-ai-recipient",
+        refId: "builder:gpt-5-6-luna",
+      }),
+    );
+    expect(
+      [...container.querySelectorAll("span")].find((node) =>
+        node.textContent?.includes("GPT-5.6 Luna"),
+      ),
+    ).not.toBeNull();
+    const selection = handle?.getSelection();
+    expect(selection).not.toBeNull();
+    await act(async () =>
+      handle?.replaceReference("content-comment-ai-recipient", null),
+    );
+    expect(
+      [...container.querySelectorAll("span")].find((node) =>
+        node.textContent?.includes("GPT-5.6 Luna"),
+      ),
+    ).toBeUndefined();
+  });
+
   it.each([
-    ["ArrowDown", "Beta"],
-    ["ArrowUp", "Gamma"],
-  ] as const)(
-    "keeps %s menu selection through keyup",
-    async (arrow, expected) => {
-      await text("Reply @");
-      await press(arrow);
-      expect(active()).toContain(expected);
-    },
-  );
-  it.each([
-    ["Enter", false],
-    ["Enter", true],
-    ["Tab", false],
-    ["Tab", true],
-  ] as const)(
-    "chooses the navigated member once with %s (RAF before keyup %s)",
-    async (accept, frameFirst) => {
-      await text("Reply @");
-      await press("ArrowDown");
-      await key("keydown", accept);
-      if (frameFirst) await settle();
-      await key("keyup", accept);
-      await settle();
-      expect(input().value).toBe("Reply @Beta ");
-      expect(mention).toHaveBeenCalledExactlyOnceWith({
-        name: "Beta",
-        email: "beta@example.test",
-      });
+    { isComposing: true, keyCode: 0 },
+    { isComposing: false, keyCode: 229 },
+  ])(
+    "does not submit or dismiss during IME candidate keys %#",
+    async ({ isComposing, keyCode }) => {
+      editor().dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true, data: "あ" }),
+      );
+      for (const key of ["Enter", " ", "Escape"]) {
+        editor().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            keyCode,
+            bubbles: true,
+            cancelable: true,
+            isComposing,
+          }),
+        );
+      }
       expect(submit).not.toHaveBeenCalled();
-      expect(buttons()).toHaveLength(0);
-      expect([input().selectionStart, input().selectionEnd]).toEqual([
-        "Reply @Beta ".length,
-        "Reply @Beta ".length,
-      ]);
+      expect(aiSubmit).not.toHaveBeenCalled();
+      expect(escape).not.toHaveBeenCalled();
+      editor().dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true, data: "あ" }),
+      );
     },
   );
-  it("retains repeated menu navigation and wraps in both directions", async () => {
-    await text("Reply @");
-    for (const expected of ["Beta", "Gamma", "Alpha", "Beta"]) {
-      await press("ArrowDown");
-      expect(active()).toContain(expected);
-    }
-    for (const expected of ["Alpha", "Gamma", "Beta", "Alpha"]) {
-      await press("ArrowUp");
-      expect(active()).toContain(expected);
-    }
-    await press("Shift");
-    expect(active()).toContain("Alpha");
-  });
-  it("refreshes a query when ordinary text input or caret navigation changes its source", async () => {
-    await text("Reply @");
-    await press("Escape");
-    await text("Reply @G");
-    expect(active()).toContain("Gamma");
-    await text("Reply @Alpha later");
-    expect(buttons()).toHaveLength(0);
-    await key("keydown", "ArrowLeft");
-    input().setSelectionRange("Reply @Alpha".length, "Reply @Alpha".length);
-    await key("keyup", "ArrowLeft");
-    expect(active()).toContain("Alpha");
-    await key("keydown", "End");
-    input().setSelectionRange(input().value.length, input().value.length);
-    await key("keyup", "End");
-    expect(buttons()).toHaveLength(0);
-  });
 });

@@ -39,6 +39,7 @@ import {
   formatVoiceTranscriptForComposer,
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
+  mentionItemMatchesQuery,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldRenderModelSelector,
@@ -1599,6 +1600,29 @@ describe("TiptapComposer slash commands", () => {
         duration: 1800,
       }),
     );
+  });
+});
+
+describe("mentionItemMatchesQuery", () => {
+  const sonnet = {
+    id: "ai:anthropic:claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Anthropic",
+    aliases: ["Sonnet"],
+    source: "content",
+    refType: "content-comment-ai-recipient",
+  };
+
+  it("matches every host item while the query is empty", () => {
+    expect(mentionItemMatchesQuery(sonnet, "")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "  ")).toBe(true);
+  });
+
+  it("matches label, alias, and description text case-insensitively", () => {
+    expect(mentionItemMatchesQuery(sonnet, "sonn")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "Claude S")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "anthropic")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "opus")).toBe(false);
   });
 });
 

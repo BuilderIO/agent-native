@@ -1,19 +1,9 @@
-import { emailToColor } from "@agent-native/core/client/collab";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
-import { useT, useFormatters } from "@agent-native/core/client/i18n";
-import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/core/client/markdown";
-import { IconDots } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useT } from "@agent-native/core/client/i18n";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import { IconDots, IconExternalLink } from "@tabler/icons-react";
+import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import {
-  Avatar as UserAvatar,
-  AvatarFallback as UserAvatarFallback,
-  AvatarImage as UserAvatarImage,
-} from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,47 +13,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   useCreateComment,
   useEditComment,
+  useReactToComment,
   type Comment,
-  type CommentMention,
 } from "@/hooks/use-comments";
 import type { MentionMember } from "@/hooks/use-mention-members";
 
+import {
+  AgentAvatar,
+  agentDisplayName,
+  modelDisplayName,
+} from "./agent-identity";
 import { useCommentDraft } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
-
-/**
- * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Raw HTML is never interpreted.
- */
-function commentMentionSpans(
-  mentions: CommentMention[],
-): InlineMarkdownProtectedSpan[] {
-  const labels = Array.from(
-    new Set(mentions.map((m) => m.name).filter((n): n is string => !!n)),
-  ).sort((a, b) => b.length - a.length);
-  return labels.map((label) => ({
-    source: `@${label}`,
-    label: `@${label}`,
-    className: "comment-mention",
-  }));
-}
-
-function renderCommentBody(content: string, mentions: CommentMention[]) {
-  return (
-    <InlineMarkdown
-      content={content}
-      inline
-      protectedSpans={commentMentionSpans(mentions)}
-    />
-  );
-}
+import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
+import {
+  CommentAgentBadge,
+  CommentAvatar,
+  CommentIconButton,
+  CommentRow,
+  renderCommentBody,
+  useCommentTimestamp,
+} from "./CommentRow";
 
 /** Mentions whose label still appears in the text, serialized for storage. */
 function mentionsJsonFor(
@@ -78,34 +50,6 @@ function mentionsJsonFor(
   return deduped.length ? JSON.stringify(deduped) : undefined;
 }
 
-function emailToInitial(email: string) {
-  return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
-}
-
-function CommentAvatar({
-  email,
-  name,
-  className = "h-6 w-6",
-}: {
-  email?: string | null;
-  name?: string | null;
-  className?: string;
-}) {
-  const avatarUrl = useAvatarUrl(email);
-  const label = name ?? email ?? "";
-  return (
-    <UserAvatar className={className} title={label}>
-      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
-      <UserAvatarFallback
-        className="text-[11px] font-medium text-primary-foreground"
-        style={{ backgroundColor: emailToColor(email ?? "user") }}
-      >
-        {emailToInitial(label)}
-      </UserAvatarFallback>
-    </UserAvatar>
-  );
-}
-
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
 ): "mcp" | "agent" | null {
@@ -114,9 +58,12 @@ export function getAiCommentSource(
     : null;
 }
 
+/**
+ * "Agent" pill for comments posted through MCP or the in-app agent. The
+ * comment's author is still the accountable person; the tooltip says so.
+ */
 export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const source = getAiCommentSource(comment.submission_source);
   if (!source) return null;
 
@@ -128,38 +75,25 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   const sourceLabel = t(
     source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
   );
+  const modelLabel = comment.author_model
+    ? modelDisplayName(comment.author_model)
+    : null;
 
   return (
-    <Tooltip open={open} onOpenChange={setOpen}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={`${attribution}. ${sourceLabel}`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            setOpen(true);
-          }}
-          className="pointer-events-auto -m-1 inline-flex shrink-0 items-center justify-center rounded p-1 leading-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          data-comment-ai-attribution={source}
-        >
-          <span className="inline-flex h-4 min-w-5 items-center justify-center rounded border border-border bg-muted/50 px-1 text-[10px] font-semibold leading-none tracking-wide">
-            {t("comments.aiBadge")}
+    <span data-comment-ai-attribution={source} className="contents">
+      <CommentAgentBadge
+        ariaLabel={`${attribution}. ${sourceLabel}${modelLabel ? `. ${modelLabel}` : ""}`}
+        details={
+          <span className="grid gap-0.5">
+            {modelLabel ? (
+              <span className="font-medium">{modelLabel}</span>
+            ) : null}
+            <span>{attribution}</span>
+            <span className="text-muted-foreground">{sourceLabel}</span>
           </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="top"
-        align="start"
-        sideOffset={6}
-        className="w-max max-w-60 px-2 py-1.5 text-xs leading-4"
-      >
-        <span className="grid gap-0.5">
-          <span>{attribution}</span>
-          <span className="text-muted-foreground">{sourceLabel}</span>
-        </span>
-      </TooltipContent>
-    </Tooltip>
+        }
+      />
+    </span>
   );
 }
 
@@ -169,6 +103,11 @@ export function CommentEntry({
   currentUserEmail,
   canComment,
   members,
+  headerActions,
+  revealActions = "always",
+  replyAction,
+  footer,
+  onOpenAiConversation,
   onCreatedCommentConfirmed,
 }: {
   comment: Comment;
@@ -176,11 +115,22 @@ export function CommentEntry({
   currentUserEmail?: string;
   canComment: boolean;
   members: MentionMember[];
+  /** Thread-level actions (resolve, accept) shown after this row's menu. */
+  headerActions?: ReactNode;
+  revealActions?: "always" | "hover";
+  /**
+   * The panel feed's inline "Reply" action. When set, Reply and the reaction
+   * picker sit in one row under the comment instead of in the header.
+   */
+  replyAction?: ReactNode;
+  footer?: ReactNode;
+  onOpenAiConversation?: () => void;
   onCreatedCommentConfirmed?: (operationId: string) => void;
 }) {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const timestamp = useCommentTimestamp();
   const edit = useEditComment();
+  const react = useReactToComment();
   const create = useCreateComment({ email: currentUserEmail });
   const [checking, setChecking] = useState(false);
   const [checkedUnresolvedOperationId, setCheckedUnresolvedOperationId] =
@@ -189,13 +139,22 @@ export function CommentEntry({
     comment.parent_id ? `reply:${documentId}:${comment.thread_id}` : "pending",
   );
   const [editing, setEditing] = useState(false);
-  const initialDraft = { text: comment.content, mentions: comment.mentions };
+  const initialDraft = {
+    text: comment.content,
+    mentions: comment.mentions,
+    aiDraft: null,
+  };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
+  const aiSource = getAiCommentSource(comment.submission_source);
+  const aiAuthored = Boolean(aiSource && comment.author_model);
+  const visibleAuthor = aiAuthored
+    ? agentDisplayName(comment.author_model)
+    : (comment.author_name ?? comment.author_email.split("@")[0]);
   const canEdit =
     canComment &&
     !!currentUserEmail &&
@@ -293,138 +252,202 @@ export function CommentEntry({
       });
     }
   };
+  const reactions = comment.reactions ?? [];
+  const canReact =
+    canComment && !pending && comment.mutation?.kind !== "create";
+  const toggleReaction = (reaction: string, active: boolean) =>
+    react.mutate(
+      { documentId, commentId: comment.id, reaction, active },
+      {
+        onError: (error) =>
+          toast.error(t("empty.genericError"), {
+            description: error instanceof Error ? error.message : undefined,
+          }),
+      },
+    );
+  const feedLayout = replyAction !== undefined && revealActions === "always";
+  const hoverOnly =
+    "opacity-0 group-hover/comment:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100";
+  const addReaction =
+    canReact && !editing ? (
+      <AddReactionButton
+        className={
+          feedLayout || revealActions === "hover" ? undefined : hoverOnly
+        }
+        onSelect={(reaction) =>
+          toggleReaction(
+            reaction,
+            !reactions.find((entry) => entry.reaction === reaction)
+              ?.reactedByMe,
+          )
+        }
+      />
+    ) : null;
+  const menu =
+    (canEdit || onOpenAiConversation) && !editing ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <CommentIconButton
+            ref={menuRef}
+            aria-label={t("comments.commentActions")}
+          >
+            <IconDots size={18} />
+          </CommentIconButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" data-comment-menu>
+          <DropdownMenuGroup>
+            {canEdit ? (
+              <DropdownMenuItem onSelect={() => setEditing(true)}>
+                {t("comments.edit")}
+              </DropdownMenuItem>
+            ) : null}
+            {onOpenAiConversation ? (
+              <DropdownMenuItem onSelect={onOpenAiConversation}>
+                <IconExternalLink size={14} />
+                {t("comments.aiOpenConversation")}
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
+  const time = timestamp(comment.created_at);
+  const saveStatus = (
+    <>
+      {pending && showMutationStatus && (
+        <span role="status" className="block text-xs text-muted-foreground">
+          {t("comments.saving")}
+        </span>
+      )}
+      {comment.mutation?.ambiguous && (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={checking}
+            onClick={checkSaved}
+          >
+            {t("comments.checkSaved")}
+          </Button>
+          {checkedUnresolvedOperationId === comment.mutation.operationId && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={checking || !canComment}
+              onClick={retryUnconfirmed}
+            >
+              {t("comments.retry")}
+            </Button>
+          )}
+        </>
+      )}
+      {comment.mutation?.status === "error" && showMutationStatus && (
+        <span role="alert" className="block text-xs text-destructive">
+          {t(
+            comment.mutation.ambiguous
+              ? "comments.saveUnconfirmed"
+              : "empty.genericError",
+          )}
+        </span>
+      )}
+    </>
+  );
+  const hasSaveStatus =
+    (pending && showMutationStatus) ||
+    comment.mutation?.ambiguous ||
+    (comment.mutation?.status === "error" && showMutationStatus);
+
   return (
-    <div
-      className="group/comment mb-3 last:mb-0"
+    <CommentRow
       data-comment-id={comment.id}
       onClick={(event) => {
         if (
           editing ||
           (event.target as HTMLElement).closest(
-            "button, textarea, [role=menuitem]",
+            "button, textarea, [contenteditable=true], [role=menuitem]",
           )
         )
           event.stopPropagation();
       }}
-    >
-      <div className="flex items-center gap-2 mb-1">
-        <CommentAvatar
-          email={comment.author_email}
-          name={comment.author_name ?? comment.author_email}
-        />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-          {comment.author_name ?? comment.author_email.split("@")[0]}
-        </span>
-        <CommentAttributionBadge comment={comment} />
-        <span className="text-xs text-muted-foreground">
-          {formatDate(comment.created_at, { month: "short", day: "numeric" })}
-        </span>
-        {canEdit && !editing && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                ref={menuRef}
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("comments.commentActions")}
-                className="size-7"
-              >
-                <IconDots size={14} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" data-comment-menu>
-              <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => setEditing(true)}>
-                  {t("comments.edit")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-      <div className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
-        {editing ? (
-          <div>
-            <CommentComposer
-              ref={inputRef}
-              ariaLabel={t("comments.edit")}
-              value={draft.draft.text}
-              onChange={draft.setText}
-              members={members}
-              onMentionAdd={(mention) =>
-                draft.setMentions((previous) => [...previous, mention])
-              }
-              onSubmit={save}
-              onEscape={close}
-              autoFocus
-              disabled={edit.isPending}
-            />
-            <div className="mt-1 flex justify-end gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={edit.isPending}
-                onClick={() => {
-                  draft.discard();
-                  close();
-                }}
-              >
-                {t("comments.cancel")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={edit.isPending || !draft.draft.text.trim()}
-                onClick={save}
-              >
-                {t("comments.save")}
-              </Button>
-            </div>
-          </div>
+      avatar={
+        aiAuthored ? (
+          <AgentAvatar model={comment.author_model} />
         ) : (
-          renderCommentBody(comment.content, comment.mentions)
-        )}
-        {pending && showMutationStatus && (
-          <span role="status" className="block text-xs text-muted-foreground">
-            {t("comments.saving")}
-          </span>
-        )}
-        {comment.mutation?.ambiguous && (
+          <CommentAvatar
+            email={comment.author_email}
+            name={comment.author_name ?? comment.author_email}
+          />
+        )
+      }
+      name={visibleAuthor}
+      badge={<CommentAttributionBadge comment={comment} />}
+      timestamp={{ ...time, dateTime: comment.created_at }}
+      actions={
+        (!feedLayout && addReaction) || menu || headerActions ? (
           <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={checking}
-              onClick={checkSaved}
-            >
-              {t("comments.checkSaved")}
-            </Button>
-            {checkedUnresolvedOperationId === comment.mutation.operationId && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={checking || !canComment}
-                onClick={retryUnconfirmed}
-              >
-                {t("comments.retry")}
-              </Button>
-            )}
+            {feedLayout ? null : addReaction}
+            {menu}
+            {headerActions}
           </>
-        )}
-        {comment.mutation?.status === "error" && showMutationStatus && (
-          <span role="alert" className="block text-xs text-destructive">
-            {t(
-              comment.mutation.ambiguous
-                ? "comments.saveUnconfirmed"
-                : "empty.genericError",
+        ) : null
+      }
+      revealActions={revealActions}
+      footer={
+        hasSaveStatus || footer || reactions.length || feedLayout ? (
+          <div className="grid gap-1.5">
+            {saveStatus}
+            {feedLayout ? (
+              <div
+                className="flex flex-wrap items-center gap-1"
+                data-comment-action-row
+              >
+                {replyAction}
+                {addReaction}
+                <CommentReactionChips
+                  reactions={reactions}
+                  canReact={canReact}
+                  onToggle={toggleReaction}
+                />
+              </div>
+            ) : (
+              <CommentReactionChips
+                reactions={reactions}
+                canReact={canReact}
+                onToggle={toggleReaction}
+              />
             )}
-          </span>
-        )}
-      </div>
-    </div>
+            {footer}
+          </div>
+        ) : null
+      }
+    >
+      {editing ? (
+        <div className="mt-1">
+          <CommentComposer
+            ref={inputRef}
+            ariaLabel={t("comments.edit")}
+            value={draft.draft.text}
+            onChange={draft.setText}
+            members={members}
+            onMentionAdd={(mention) =>
+              draft.setMentions((previous) => [...previous, mention])
+            }
+            onSubmit={save}
+            onEscape={close}
+            autoFocus
+            disabled={edit.isPending}
+            submitLabel={t("comments.save")}
+            onCancel={() => {
+              draft.discard();
+              close();
+            }}
+          />
+        </div>
+      ) : (
+        renderCommentBody(comment.content, comment.mentions)
+      )}
+    </CommentRow>
   );
 }

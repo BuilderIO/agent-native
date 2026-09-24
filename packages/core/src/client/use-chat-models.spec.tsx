@@ -9,7 +9,7 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 vi.mock("./use-action.js", () => actionMocks);
 
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
-import { useChatModels } from "./use-chat-models.js";
+import { useChatModels, type UseChatModelsOptions } from "./use-chat-models.js";
 
 /** Serve the three requests refreshEngines makes: engines, env keys, builder. */
 function stubCatalog(options: {
@@ -45,12 +45,18 @@ function ChatModelsProbe({
   enabled,
   storageKey = null,
   id = "probe",
+  unavailableSelectionPolicy,
 }: {
   enabled: boolean;
   storageKey?: string | null;
   id?: string;
+  unavailableSelectionPolicy?: UseChatModelsOptions["unavailableSelectionPolicy"];
 }) {
-  const models = useChatModels({ enabled, storageKey });
+  const models = useChatModels({
+    enabled,
+    storageKey,
+    unavailableSelectionPolicy,
+  });
   return (
     <div>
       <button type="button" onClick={models.refreshEngines}>
@@ -70,6 +76,22 @@ function ChatModelsProbe({
           .map((group) => `${group.engine}:${group.configured}`)
           .join(",")}
       </span>
+      <span data-testid={`${id}-configured-catalog`}>
+        {models.configuredModels
+          .map(
+            (group) =>
+              `${group.label}:${group.engine}:${group.models.join("|")}`,
+          )
+          .join(",")}
+      </span>
+      <span data-testid={`${id}-selection-ready`}>
+        {String(models.selectionReady)}
+      </span>
+      <span data-testid={`${id}-unavailable-selection`}>
+        {models.unavailableSelection
+          ? `${models.unavailableSelection.engine}:${models.unavailableSelection.model}`
+          : ""}
+      </span>
       <span data-testid={`${id}-ollama-models`}>
         {(
           models.availableModels.find(
@@ -87,6 +109,20 @@ describe("useChatModels", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const stored = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: () => stored.clear(),
+        getItem: (key: string) => stored.get(key) ?? null,
+        key: (index: number) => [...stored.keys()][index] ?? null,
+        get length() {
+          return stored.size;
+        },
+        removeItem: (key: string) => stored.delete(key),
+        setItem: (key: string, value: string) => stored.set(key, String(value)),
+      } satisfies Storage,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("{}")),
@@ -193,6 +229,95 @@ describe("useChatModels", () => {
 
     expect(
       container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("");
+  });
+
+  it("requires an explicit replacement when a stored provider model is unavailable", async () => {
+    const storageKey = "comment-ai-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "builder",
+        model: "gpt-retired",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-5.6-sol"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(
+        <ChatModelsProbe
+          enabled
+          storageKey={storageKey}
+          unavailableSelectionPolicy="require-explicit"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("");
+    expect(
+      container.querySelector('[data-testid="probe-selection-ready"]')
+        ?.textContent,
+    ).toBe("false");
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+    expect(
+      container.querySelector('[data-testid="probe-configured-catalog"]')
+        ?.textContent,
+    ).toBe("Claude:anthropic:claude-sonnet-5");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "builder",
+        model: "gpt-retired",
+        effort: "high",
+      },
+    );
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="probe-change-model"]')
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selection-ready"]')
+        ?.textContent,
+    ).toBe("true");
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
         ?.textContent,
     ).toBe("");
   });

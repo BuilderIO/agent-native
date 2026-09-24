@@ -23,17 +23,20 @@ export type { EngineModelGroup } from "./chat-model-groups.js";
 
 export interface UseChatModelsResult {
   availableModels: EngineModelGroup[];
+  configuredModels: EngineModelGroup[];
   defaultModel: string;
   selectedModel: string;
   selectedEngine: string;
   selectedEffort: ReasoningEffort;
   isLoading: boolean;
+  selectionReady: boolean;
+  unavailableSelection: PersistedModelSelection | null;
   onModelChange: (model: string, engine: string) => void;
   onEffortChange: (effort: ReasoningEffort) => void;
   refreshEngines: () => void;
 }
 
-interface Options {
+export interface UseChatModelsOptions {
   /**
    * localStorage key used to persist the user's model + effort selection across
    * page loads. Pass `null` to disable persistence.
@@ -44,6 +47,11 @@ interface Options {
    * model list/state, such as Electron Code.
    */
   enabled?: boolean;
+  /**
+   * Keep an unavailable explicit choice visible for the host to resolve rather
+   * than silently replacing it with a model from another provider.
+   */
+  unavailableSelectionPolicy?: "fallback" | "require-explicit";
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -65,7 +73,7 @@ export const CHAT_MODEL_SELECTION_CHANGED_EVENT =
   "agent-native:chat-model-selection-changed";
 const MODEL_DISCOVERY_RETRY_DELAYS_MS = [250, 1_000] as const;
 
-interface PersistedSelection {
+export interface PersistedModelSelection {
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
@@ -100,17 +108,17 @@ async function fetchEngineCatalog(): Promise<EngineCatalogResult> {
   }
 }
 
-function readPersisted(key: string | null): PersistedSelection {
+function readPersisted(key: string | null): PersistedModelSelection {
   if (!key || typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as PersistedSelection) : {};
+    return raw ? (JSON.parse(raw) as PersistedModelSelection) : {};
   } catch {
     return {};
   }
 }
 
-function writePersisted(key: string | null, value: PersistedSelection) {
+function writePersisted(key: string | null, value: PersistedModelSelection) {
   if (!key || typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
@@ -133,11 +141,19 @@ function writePersisted(key: string | null, value: PersistedSelection) {
 export function useChatModels({
   storageKey = DEFAULT_STORAGE_KEY,
   enabled = true,
-}: Options = {}): UseChatModelsResult {
+  unavailableSelectionPolicy = "fallback",
+}: UseChatModelsOptions = {}): UseChatModelsResult {
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
   const [isLoading, setIsLoading] = useState(enabled);
+  const [unavailableSelection, setUnavailableSelection] =
+    useState<PersistedModelSelection | null>(null);
+  const unavailableSelectionRef = useRef<{
+    selectedModel: string;
+    selectedEngine: string;
+    selectedEffort: ReasoningEffort;
+  } | null>(null);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
 
   const initialPersisted = readPersisted(storageKey);
@@ -210,6 +226,8 @@ export function useChatModels({
   const onModelChange = useCallback(
     (model: string, engine: string) => {
       hasExplicitSelectionRef.current = true;
+      unavailableSelectionRef.current = null;
+      setUnavailableSelection(null);
       const effortOptions = getReasoningEffortOptionsForModel(model);
       setSelectedModel(model);
       setSelectedEngine(engine);
@@ -345,7 +363,8 @@ export function useChatModels({
               });
           }
 
-          const selection = selectionRef.current;
+          const selection =
+            unavailableSelectionRef.current ?? selectionRef.current;
 
           // Default only to a CONFIGURED group, and to nothing when there is
           // none. `DEFAULT_MODEL` is a builder-gateway id that no group carries
@@ -387,23 +406,50 @@ export function useChatModels({
           };
 
           if (!hasExplicitSelectionRef.current) {
+            unavailableSelectionRef.current = null;
+            setUnavailableSelection(null);
             applyFallback(false);
             finish();
             return;
           }
 
-          const selectedGroup = groups.find(
+          const selectableGroups =
+            unavailableSelectionPolicy === "require-explicit"
+              ? configuredGroups
+              : groups;
+          const selectedGroup = selectableGroups.find(
             (group) =>
               group.models.includes(selection.selectedModel) &&
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
           if (selectedGroup) {
+            unavailableSelectionRef.current = null;
+            setUnavailableSelection(null);
             // Heal a selection stored without an engine (or with a stale one) so
             // later submits carry the pair the catalog resolved.
             if (selection.selectedEngine !== selectedGroup.engine) {
               setSelectedEngine(selectedGroup.engine);
             }
+            if (
+              selectionRef.current.selectedModel !== selection.selectedModel
+            ) {
+              setSelectedModel(selection.selectedModel);
+              setSelectedEffort(selection.selectedEffort);
+            }
+            finish();
+            return;
+          }
+          if (unavailableSelectionPolicy === "require-explicit") {
+            const unavailable = {
+              model: selection.selectedModel,
+              engine: selection.selectedEngine,
+              effort: selection.selectedEffort,
+            };
+            unavailableSelectionRef.current = selection;
+            setUnavailableSelection(unavailable);
+            setSelectedModel("");
+            setSelectedEngine("");
             finish();
             return;
           }
@@ -417,7 +463,7 @@ export function useChatModels({
     }
 
     load(0);
-  }, [enabled, storageKey]);
+  }, [enabled, storageKey, unavailableSelectionPolicy]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -452,11 +498,18 @@ export function useChatModels({
 
   return {
     availableModels,
+    configuredModels: availableModels.filter((group) => group.configured),
     defaultModel,
     selectedModel,
     selectedEngine,
     selectedEffort,
     isLoading,
+    selectionReady:
+      !isLoading &&
+      unavailableSelection === null &&
+      selectedModel.length > 0 &&
+      selectedEngine.length > 0,
+    unavailableSelection,
     onModelChange,
     onEffortChange,
     refreshEngines,

@@ -2312,6 +2312,130 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     expect(getEditorMarkdown(captured.editor!)).toBe("# Doc updated by agent");
   });
 
+  it("merges typing that lands after an external reconcile decision before adopting the save baseline", async () => {
+    const { captured, Harness } = makeHarness();
+    vi.useFakeTimers();
+    const base = "Alpha base.\n\nOmega base.";
+    const external = "Alpha from server.\n\nOmega base.";
+    const initial = {
+      value: base,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    };
+
+    render(root, Harness, initial);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    render(root, Harness, {
+      value: external,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+
+    act(() => captured.editor!.commands.insertContentAt(base.length, " LOCAL"));
+    render(root, Harness, {
+      value: external,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    const merged = "Alpha from server.\n\nOmega base LOCAL.";
+    expect(getEditorMarkdown(captured.editor!)).toBe(merged);
+    expect(captured.reconciled).toEqual([
+      { status: "merged", content: merged },
+    ]);
+
+    render(root, Harness, {
+      value: external,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+      acknowledgedLocalSnapshot: {
+        value: merged,
+        revision: "revision-3",
+        updatedAt: "2024-01-01T00:00:03.000Z",
+        sequence: 1,
+      },
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(getEditorMarkdown(captured.editor!)).toBe(merged);
+    expect(captured.reconciled).toHaveLength(1);
+  });
+
+  it("supersedes a pending decision with the newest revision and preserves later typing", async () => {
+    const { captured, Harness } = makeHarness();
+    vi.useFakeTimers();
+    const base = "Alpha base.\n\nOmega base.";
+    render(root, Harness, {
+      value: base,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    render(root, Harness, {
+      value: "Alpha revision 2.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    render(root, Harness, {
+      value: "Alpha revision 3.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+      contentRevision: "revision-3",
+    });
+    act(() => captured.editor!.commands.insertContentAt(base.length, " LOCAL"));
+    render(root, Harness, {
+      value: "Alpha revision 3.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+      contentRevision: "revision-3",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha revision 3.\n\nOmega base LOCAL.",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "merged",
+        content: "Alpha revision 3.\n\nOmega base LOCAL.",
+      },
+    ]);
+  });
+
+  it("reports an overlap after the reconcile decision without replacing local typing", async () => {
+    const { captured, Harness } = makeHarness();
+    vi.useFakeTimers();
+    const base = "Alpha base.\n\nOmega base.";
+    render(root, Harness, {
+      value: base,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    render(root, Harness, {
+      value: "Alpha from server.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    act(() =>
+      captured.editor!.commands.setContent(
+        "Alpha locally typed.\n\nOmega base.",
+      ),
+    );
+    render(root, Harness, {
+      value: "Alpha from server.\n\nOmega base.",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha locally typed.\n\nOmega base.",
+    );
+    expect(captured.reconciled).toEqual([
+      { status: "conflict", content: "Alpha locally typed.\n\nOmega base." },
+    ]);
+  });
+
   it("does not roll back a blurred local mark while its controlled echo is queued", async () => {
     const { captured, Harness } = makeHarness();
     const canonical = "[Link](https://example.com/first) sample.";

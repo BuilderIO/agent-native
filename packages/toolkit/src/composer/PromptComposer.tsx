@@ -49,12 +49,14 @@ import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextSelection,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
+  MentionItem,
   Reference,
   SkillResult,
   SlashCommand,
@@ -183,8 +185,24 @@ export interface PromptComposerProps {
    * host supplies model state and callbacks, otherwise on.
    */
   modelStatusChecksEnabled?: boolean;
+  /**
+   * Whether submitting needs a configured agent engine. Hosts whose prompt is
+   * not sent to an agent, such as a human comment box, pass false so a
+   * missing API key neither gates the editor nor blocks submit.
+   */
+  requireAgentEngine?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  mentionItems?: MentionItem[];
+  /** Row layout for the @ menu; "stacked" puts descriptions under labels. */
+  mentionPopoverDensity?: "default" | "stacked";
+  /** Include shared workspace mention search results. Default: true. */
+  includeDefaultMentionSearch?: boolean;
+  onReferencesChange?: (references: Reference[]) => void;
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
   /** Called whenever the composer resolves a model, engine, or effort choice. */
@@ -570,7 +588,16 @@ function PromptComposerInner({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine = true,
   onTextChange,
+  mentionItems,
+  mentionPopoverDensity,
+  includeDefaultMentionSearch,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
   onAttachmentsChange,
   onModelSelectionChange,
   onConnectProvider,
@@ -643,9 +670,9 @@ function PromptComposerInner({
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
   const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
-    resolvedModelStatusChecksEnabled,
+    requireAgentEngine && resolvedModelStatusChecksEnabled,
   );
-  const missingApiKey = agentEngineConfigured.missing;
+  const missingApiKey = requireAgentEngine && agentEngineConfigured.missing;
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -660,13 +687,14 @@ function PromptComposerInner({
   }, []);
   const useInlineMissingKeySetup = layoutVariant === "compact";
   const gateComposer = shouldGateComposerForMissingEngine({
-    state: agentEngineConfigured.state,
+    state: requireAgentEngine ? agentEngineConfigured.state : "configured",
     hasSetupComponent: Boolean(
       useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
     ),
   });
   const ensureEngineReadyBeforeSubmit = useCallback(async () => {
-    if (agentEngineConfigured.state !== "unknown") return true;
+    if (!requireAgentEngine || agentEngineConfigured.state !== "unknown")
+      return true;
     const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
       timeoutMs: 5_000,
     });
@@ -675,7 +703,12 @@ function PromptComposerInner({
       return false;
     }
     return true;
-  }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
+  }, [
+    agentEngineConfigured.state,
+    bounceMissingKeySetup,
+    modelsAdapter,
+    requireAgentEngine,
+  ]);
 
   useEffect(() => {
     if (!autoFocus || gateComposer) return;
@@ -796,6 +829,14 @@ function PromptComposerInner({
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
+          mentionItems={mentionItems}
+          mentionPopoverDensity={mentionPopoverDensity}
+          includeDefaultMentionSearch={includeDefaultMentionSearch}
+          onReferencesChange={onReferencesChange}
+          onEscape={onEscape}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSelectionChange={onSelectionChange}
           draftScope={draftScope}
           selectedModel={composerModel}
           selectedEngine={composerEngine}

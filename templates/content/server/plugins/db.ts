@@ -1224,6 +1224,136 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_preview_draft_settlements_document_idx
           ON document_preview_draft_settlements (owner_email, org_id, document_id)`,
     },
+    {
+      version: 102,
+      name: "content-comment-ai-durable-concurrency",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS thread_digest TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS snapshot_json TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS base_revision TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS suggestion_revision TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS payload_json TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS agent_turn_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_thread_digest TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_snapshot_json TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS engine TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS active_attempt_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS error_code TEXT;
+      CREATE TABLE IF NOT EXISTS comment_ai_attempts (
+        id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, request_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'reasoning',
+        source_revision TEXT NOT NULL, suggestion_revision TEXT NOT NULL,
+        thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, payload_json TEXT,
+        run_id TEXT, model TEXT, error_code TEXT, error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS payload_json TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS run_id TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS model TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS error_code TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS error TEXT;
+      UPDATE comment_ai_requests AS request
+      SET thread_digest = COALESCE(
+            request.thread_digest,
+            request.submitted_thread_digest,
+            (SELECT attempt.thread_digest FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          ),
+          snapshot_json = COALESCE(
+            request.snapshot_json,
+            request.submitted_snapshot_json,
+            (SELECT attempt.snapshot_json FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          ),
+          base_revision = COALESCE(
+            request.base_revision,
+            (SELECT attempt.source_revision FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          ),
+          suggestion_revision = COALESCE(
+            request.suggestion_revision,
+            (SELECT attempt.suggestion_revision FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          );
+      UPDATE comment_ai_requests SET submitted_thread_digest = thread_digest
+        WHERE submitted_thread_digest IS NULL;
+      UPDATE comment_ai_requests SET submitted_snapshot_json = snapshot_json
+        WHERE submitted_snapshot_json IS NULL;
+      WITH ranked_active AS (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY document_id, root_comment_id
+          ORDER BY created_at ASC, id ASC
+        ) AS active_rank
+        FROM comment_ai_requests
+        WHERE status IN ('queued', 'running', 'refreshing')
+      )
+      UPDATE comment_ai_requests AS request
+      SET status = 'needs-review',
+          error_code = 'operation_failed',
+          error = 'Another Ask AI operation was already active for this comment during the concurrency upgrade',
+          updated_at = CURRENT_TIMESTAMP
+      FROM ranked_active
+      WHERE request.id = ranked_active.id AND ranked_active.active_rank > 1;
+      CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_comment_idx
+        ON comment_ai_requests (document_id, root_comment_id)
+        WHERE status IN ('queued', 'running', 'refreshing');
+      CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_attempts_request_number_unique
+        ON comment_ai_attempts (request_id, attempt_number);
+      CREATE INDEX IF NOT EXISTS comment_ai_attempts_request_idx
+        ON comment_ai_attempts (request_id)`,
+    },
+    {
+      version: 103,
+      name: "content-comment-ai-submitted-mode",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_mode TEXT NOT NULL DEFAULT 'reply';
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS instructions TEXT NOT NULL DEFAULT '';
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_engine TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS classification_thread_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS classification_turn_id TEXT;
+      DROP INDEX IF EXISTS comment_ai_requests_active_thread_idx;
+      DROP INDEX IF EXISTS comment_ai_requests_active_comment_idx;
+      CREATE UNIQUE INDEX comment_ai_requests_active_thread_idx
+        ON comment_ai_requests (document_id, thread_id, requester_email)
+        WHERE status IN ('classifying', 'classified', 'queued', 'running');
+      CREATE UNIQUE INDEX comment_ai_requests_active_comment_idx
+        ON comment_ai_requests (document_id, root_comment_id)
+        WHERE status IN ('classifying', 'classified', 'queued', 'running', 'refreshing')`,
+    },
+    {
+      version: 104,
+      name: "content-comment-ai-continuation",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS continuation_of_request_id TEXT`,
+    },
+    {
+      version: 105,
+      name: "content-comment-ai-submitted-provider",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_provider TEXT`,
+    },
+    {
+      version: 106,
+      name: "content-comment-reactions",
+      sql: `CREATE TABLE IF NOT EXISTS document_comment_reactions (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          comment_id TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          reaction TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_comment_reactions_actor_unique
+          ON document_comment_reactions (comment_id, actor_email, reaction);
+        CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
+          ON document_comment_reactions (owner_email, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

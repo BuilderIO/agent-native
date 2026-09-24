@@ -48,6 +48,11 @@ interface MentionPopoverProps {
   onSelectSkill: (skill: SkillResult) => void;
   onSelectCommand?: (command: SlashCommand) => void;
   onClose: () => void;
+  /**
+   * "stacked" shows a larger avatar with the description under the label, for
+   * people and agent pickers where the description is an identity (an email).
+   */
+  density?: "default" | "stacked";
 }
 
 const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
@@ -159,7 +164,9 @@ export const MentionPopover = forwardRef<
     onSelectSkill,
     onSelectCommand,
     onClose,
+    density = "default",
   } = props;
+  const stacked = density === "stacked";
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -190,6 +197,13 @@ export const MentionPopover = forwardRef<
 
   const itemCount =
     type === "@" ? mentionItems.length : commands.length + skills.length;
+  const itemIdentitySignature =
+    type === "@"
+      ? mentionItems.map((item) => item.id).join("\0")
+      : [
+          ...commands.map((command) => `command:${command.name}`),
+          ...skills.map((skill) => `skill:${skill.path}`),
+        ].join("\0");
 
   // Group mention items by section for @ popover
   const groupedMentions = React.useMemo(() => {
@@ -245,8 +259,8 @@ export const MentionPopover = forwardRef<
 
   // Reset selection when items change
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [commands, mentionItems, skills, query]);
+    setSelectedIndex((current) => (current === 0 ? current : 0));
+  }, [itemIdentitySignature, query]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -332,7 +346,13 @@ export const MentionPopover = forwardRef<
                   let flatIndex = 0;
                   return groupedMentions.map((group) => (
                     <div key={group.section}>
-                      <div className="px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      <div
+                        className={
+                          stacked
+                            ? "px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                            : "px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                        }
+                      >
                         {sectionLabel(group.section)}
                       </div>
                       {group.items.map((item) => {
@@ -341,25 +361,47 @@ export const MentionPopover = forwardRef<
                           <button
                             key={item.id}
                             data-mention-index={idx}
-                            className={`flex min-h-14 w-full items-center gap-4 rounded-xl px-3 py-2.5 text-start ${
+                            data-mention-density={density}
+                            className={`flex w-full items-center text-start ${
+                              stacked
+                                ? "min-h-12 gap-3 rounded-lg px-2.5 py-1.5"
+                                : "min-h-14 gap-4 rounded-xl px-3 py-2.5"
+                            } ${
                               idx === selectedIndex
                                 ? "bg-muted text-foreground"
                                 : "hover:bg-accent/50"
                             }`}
                             onMouseEnter={() => setSelectedIndex(idx)}
+                            onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelectMention(item)}
                           >
                             <MentionItemMedia
                               icon={item.icon}
                               media={item.media}
+                              size={stacked ? "lg" : "md"}
                             />
-                            <span className="truncate text-[15px]">
-                              {item.label}
-                            </span>
-                            {item.description && (
-                              <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
-                                {item.description}
+                            {stacked ? (
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate text-sm font-medium leading-5">
+                                  {item.label}
+                                </span>
+                                {item.description && (
+                                  <span className="truncate text-[13px] leading-4 text-muted-foreground">
+                                    {item.description}
+                                  </span>
+                                )}
                               </span>
+                            ) : (
+                              <>
+                                <span className="truncate text-[15px]">
+                                  {item.label}
+                                </span>
+                                {item.description && (
+                                  <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
+                                    {item.description}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </button>
                         );

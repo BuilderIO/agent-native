@@ -389,6 +389,91 @@ describe("useChatThreads", () => {
     await expect(hook!.searchThreads("chat")).resolves.toEqual([appTwoThread]);
   });
 
+  it("opens an explicitly requested accessible thread outside isolated history", async () => {
+    let commentThreadAvailable = true;
+    const documentThread: ChatThreadSummary = {
+      id: "document-thread",
+      title: "Document chat",
+      preview: "",
+      messageCount: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: { type: "content-document", id: "document-1" },
+    };
+    const commentThread: ChatThreadSummary = {
+      id: "comment-thread",
+      title: "Comment AI conversation",
+      preview: "Reply to the comment",
+      messageCount: 2,
+      createdAt: 2,
+      updatedAt: 3,
+      scope: { type: "content-comment-ai", id: "request-1" },
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (
+        url === "/chat/threads?scopeType=content-document&scopeId=document-1"
+      ) {
+        return jsonResponse({ threads: [documentThread] });
+      }
+      if (url === "/chat/threads/comment-thread") {
+        return commentThreadAvailable
+          ? jsonResponse(commentThread)
+          : new Response(null, { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads(
+        "/chat",
+        "content-chat",
+        { type: "content-document", id: "document-1" },
+        { autoCreate: false, isolateHistoryByScope: true },
+      );
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      expect(await hook!.openThread("comment-thread")).toBe("opened");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads/comment-thread");
+    expect(hook!.threads.map((thread) => thread.id)).toContain(
+      "comment-thread",
+    );
+
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.threads.map((thread) => thread.id)).toContain(
+      "comment-thread",
+    );
+    act(() => {
+      hook!.switchThread("comment-thread");
+    });
+    expect(hook!.activeThreadId).toBe("comment-thread");
+
+    commentThreadAvailable = false;
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.threads.map((thread) => thread.id)).not.toContain(
+      "comment-thread",
+    );
+    expect(hook!.activeThreadId).toBeNull();
+  });
+
   it("removes a detached thread from isolated history and replaces the active tab", async () => {
     const activeThread: ChatThreadSummary = {
       id: "app-one-thread",

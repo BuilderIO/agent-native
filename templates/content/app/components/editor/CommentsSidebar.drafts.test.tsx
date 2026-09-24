@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState, type ComponentProps, type ReactNode } from "react";
 import { createRoot as createReactRoot } from "react-dom/client";
 
@@ -8,18 +9,28 @@ import { CommentDraftProvider } from "./comment-drafts";
 
 function createRoot(container: Parameters<typeof createReactRoot>[0]) {
   const root = createReactRoot(container);
+  // The sidebar refetches the Page after an AI undo, so it needs a client.
+  const queryClient = new QueryClient();
   const render = root.render.bind(root);
   root.render = (children) =>
     render(
-      <CommentDraftProvider documentId="test-page">
-        {children}
-      </CommentDraftProvider>,
+      <QueryClientProvider client={queryClient}>
+        <CommentDraftProvider documentId="test-page">
+          {children}
+        </CommentDraftProvider>
+      </QueryClientProvider>,
     );
   return root;
 }
 import { expect, it, vi } from "vitest";
 
 import {
+  richEditorValue,
+  selectedRichText,
+  setRichEditorSelection,
+} from "./comment-composer-test-utils";
+import {
+  commentAiModelStorageKey,
   CommentsSidebar,
   suggestionTextForDisplay,
   useCommentReplyDrafts,
@@ -27,6 +38,22 @@ import {
 import type { DraftSuggestion } from "./suggestions/draft-session";
 
 const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
+
+it("isolates comment AI model selection by organization and user", () => {
+  expect(
+    commentAiModelStorageKey(" Reviewer@Example.test ", "workspace-a"),
+  ).toBe("model:content-comment-ai:org:workspace-a:reviewer@example.test");
+  expect(
+    commentAiModelStorageKey("reviewer@example.test", "workspace-b"),
+  ).not.toBe(commentAiModelStorageKey("reviewer@example.test", "workspace-a"));
+  expect(
+    commentAiModelStorageKey("other@example.test", "workspace-a"),
+  ).not.toBe(commentAiModelStorageKey("reviewer@example.test", "workspace-a"));
+  expect(commentAiModelStorageKey("reviewer@example.test")).toBe(
+    "model:content-comment-ai:personal:reviewer@example.test",
+  );
+  expect(commentAiModelStorageKey()).toBeUndefined();
+});
 
 it("remembers status across pages and remounts without sharing accounts or persisting reveals", async () => {
   const container = document.createElement("div");
@@ -188,6 +215,16 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   sendToAgentChat: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -279,6 +316,7 @@ vi.mock("@agent-native/core/client/review", () => ({
 }));
 vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
@@ -332,18 +370,6 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onCheckedChange?: (checked: boolean) => void;
   }) => <button onClick={() => onCheckedChange?.(true)}>{children}</button>,
 }));
-vi.mock("./CommentComposer", async () => {
-  const { forwardRef } = await import("react");
-  return {
-    CommentComposer: forwardRef<
-      HTMLTextAreaElement,
-      { value: string; placeholder?: string }
-    >(({ value, placeholder }, ref) => (
-      <textarea ref={ref} value={value} placeholder={placeholder} readOnly />
-    )),
-  };
-});
-
 it("shows semantic markers for whitespace-only saved and draft changes", () => {
   expect(suggestionTextForDisplay("  ")).toBe("··");
   expect(suggestionTextForDisplay("\t")).toBe("⇥");
@@ -710,13 +736,11 @@ it.each([
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 70));
       });
-      const composer = card.querySelector<HTMLTextAreaElement>("textarea")!;
+      const composer = card.querySelector<HTMLElement>(".ProseMirror")!;
       expect(document.activeElement).toBe(composer);
-      const commentHeader = card.querySelector<HTMLElement>(
-        ".group\\/comment > div",
-      )!;
-      expect(commentHeader.className).toContain("pr-16");
-      expect(commentHeader.className).not.toContain("pe-16");
+      // Thread actions sit inline in the first row, so no header space is
+      // reserved for an overlay.
+      expect(card.querySelector("[data-comment-row-actions]")).not.toBeNull();
       let moreActions = card.querySelector<HTMLButtonElement>(
         'button[aria-label="comments.moreActions"]',
       )!;
@@ -763,10 +787,6 @@ it.each([
       expect(moreActions.className).not.toContain("md:opacity-0");
       moreActions.focus();
       expect(document.activeElement).toBe(moreActions);
-      expect(
-        container.querySelector<HTMLElement>(".group\\/comment > div")!
-          .className,
-      ).toContain("pr-16");
     } finally {
       await act(async () => root.unmount());
       container.remove();
@@ -857,31 +877,26 @@ it.each(["ordinary", "suggestion"] as const)(
         drafts.setText(threadId, "First line\nSecond line"),
       );
       await settle();
-      let input = container.querySelector("textarea")!;
-      input.setSelectionRange(3, 15, "backward");
-      input.dispatchEvent(new Event("select"));
+      let input = container.querySelector<HTMLElement>(".ProseMirror")!;
+      await setRichEditorSelection(input, 3, 15, "backward");
       for (const surface of ["sheet", "rail"]) {
         await act(async () => root.render(<Harness surface={surface} />));
         await settle();
-        expect(container.querySelectorAll("textarea")).toHaveLength(1);
-        input = container.querySelector("textarea")!;
-        expect(input.value).toBe("First line\nSecond line");
+        expect(container.querySelectorAll(".ProseMirror")).toHaveLength(1);
+        input = container.querySelector<HTMLElement>(".ProseMirror")!;
+        expect(richEditorValue(input)).toBe("First line\nSecond line");
         expect(document.activeElement).toBe(input);
-        expect([
-          input.selectionStart,
-          input.selectionEnd,
-          input.selectionDirection,
-        ]).toEqual([3, 15, "backward"]);
+        expect(selectedRichText(input)).toBe("st lineSec");
       }
       input.blur();
       await act(async () => root.render(<Harness surface="sheet" />));
       await settle();
       expect(document.activeElement).not.toBe(
-        container.querySelector("textarea"),
+        container.querySelector(".ProseMirror"),
       );
       await act(async () => drafts.setOpenReply(null));
       await act(async () => root.render(<Harness surface="rail" />));
-      expect(container.querySelector("textarea")).toBeNull();
+      expect(container.querySelector(".ProseMirror")).toBeNull();
       expect(drafts.get(threadId).text).toBe("First line\nSecond line");
     } finally {
       await act(async () => root.unmount());
@@ -954,27 +969,22 @@ it("hands focus from a retained inert history rail to the sheet without clearing
       drafts.setText(saved.threadId, "First line\nSecond line"),
     );
     await settle();
-    const oldInput = container.querySelector("textarea")!;
-    oldInput.setSelectionRange(3, 15, "backward");
-    oldInput.dispatchEvent(new Event("select"));
+    const oldInput = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await setRichEditorSelection(oldInput, 3, 15, "backward");
     await act(async () => root.render(<Harness compact />));
     expect(oldInput.isConnected).toBe(true);
     expect(oldInput.closest("[inert]")).not.toBeNull();
     // happy-dom does not dispatch the browser's blur when an ancestor becomes inert.
     oldInput.blur();
     await settle();
-    const input = container.querySelector<HTMLTextAreaElement>(
-      "[data-sheet] textarea",
+    const input = container.querySelector<HTMLElement>(
+      "[data-sheet] .ProseMirror",
     )!;
     expect(document.activeElement).toBe(input);
-    expect(input.value).toBe("First line\nSecond line");
-    expect([
-      input.selectionStart,
-      input.selectionEnd,
-      input.selectionDirection,
-    ]).toEqual([3, 15, "backward"]);
+    expect(richEditorValue(input)).toBe("First line\nSecond line");
+    expect(selectedRichText(input)).toBe("st lineSec");
     expect(
-      [...container.querySelectorAll("textarea")].filter(
+      [...container.querySelectorAll(".ProseMirror")].filter(
         (element) => !element.closest("[inert]"),
       ),
     ).toEqual([input]);
@@ -986,7 +996,7 @@ it("hands focus from a retained inert history rail to the sheet without clearing
     await act(async () => root.render(<Harness />));
     await settle();
     expect(document.activeElement).not.toBe(
-      container.querySelector("textarea"),
+      container.querySelector(".ProseMirror"),
     );
   } finally {
     await act(async () => root.unmount());
@@ -1080,11 +1090,9 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
     const savedCard = container.querySelector(
       `[data-suggestion-id="${saved.id}"] [data-thread-card]`,
     );
-    expect(savedCard?.className).toContain(
-      "bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    expect(savedCard?.className).toContain("ring-foreground/15");
     expect(
-      savedCard?.querySelector('textarea[placeholder="comments.reply"]'),
+      savedCard?.querySelector('.ProseMirror[aria-label="comments.reply"]'),
     ).toBeNull();
 
     const replyButton = [...savedCard!.querySelectorAll("button")].find(
@@ -1233,9 +1241,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
     expect(cards.every(Boolean)).toBe(true);
     expect(new Set(cards.map((card) => card?.className)).size).toBe(1);
     expect(cards[0]?.className).toContain("hover:-translate-x-2");
-    expect(cards[0]?.className).toContain(
-      "hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    expect(cards[0]?.className).toContain("hover:shadow-comment-emphasis");
     expect(cards[0]?.className).toContain("focus-within:-translate-x-2");
     expect(cards[0]?.className).toContain("motion-reduce:hover:translate-x-0");
 
@@ -1243,9 +1249,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
     expect(
       container.querySelector(`[data-thread-card="${thread.threadId}"]`)
         ?.className,
-    ).toContain(
-      "bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
-    );
+    ).toContain("ring-foreground/15");
   } finally {
     await act(async () => root.unmount());
   }
@@ -1458,11 +1462,77 @@ it("materializes a draft Reply from history and focuses the durable thread compo
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
     });
-    const composer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="comments.reply"]',
+    const composer = container.querySelector<HTMLElement>(
+      '.ProseMirror[aria-label="comments.reply"]',
     );
     expect(composer).not.toBeNull();
     expect(document.activeElement).toBe(composer);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("opens an unanchored history thread so its recovery actions remain reachable", async () => {
+  const thread = {
+    threadId: "stale-anchor-thread",
+    quotedText: "Text changed by the partial operation",
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: "stale-anchor-root",
+        document_id: "document-recovery",
+        thread_id: "stale-anchor-thread",
+        parent_id: null,
+        content: "Recover the unfinished operation",
+        quoted_text: "Text changed by the partial operation",
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-09-17T12:00:00.000Z",
+        updated_at: "2026-09-17T12:00:00.000Z",
+        notion_comment_id: null,
+      },
+    ],
+  };
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-recovery");
+    return (
+      <CommentsSidebar
+        documentId="document-recovery"
+        replyDrafts={replyDrafts}
+        threads={[thread]}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    // The feed shows the anchored text and an inline Reply action.
+    expect(container.querySelector("[data-comment-quote]")?.textContent).toBe(
+      "Text changed by the partial operation",
+    );
+    const reply = container.querySelector<HTMLButtonElement>(
+      "[data-comment-reply-action]",
+    );
+    await act(async () => reply?.click());
+    expect(
+      container.querySelector<HTMLElement>(
+        '.ProseMirror[aria-label="comments.reply"]',
+      ),
+    ).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     container.remove();

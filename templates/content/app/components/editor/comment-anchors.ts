@@ -143,6 +143,25 @@ function posToOffset(docText: DocText, pos: number): number {
   return best;
 }
 
+/**
+ * Shrink a selection past whitespace at either edge. Double-clicking a word on
+ * Windows also selects the space after it; the comment should quote and
+ * highlight only the word.
+ */
+export function trimSelectionRange(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+): { from: number; to: number } {
+  const blank = (start: number, end: number) =>
+    /^\s*$/.test(doc.textBetween(start, end, " "));
+  let start = from;
+  let end = to;
+  while (end > start && blank(end - 1, end)) end--;
+  while (start < end && blank(start, start + 1)) start++;
+  return { from: start, to: end };
+}
+
 /** Capture a robust anchor for the current selection range [from, to). */
 export function captureAnchor(
   doc: ProseMirrorNode,

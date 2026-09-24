@@ -208,6 +208,7 @@ export const documentComments = table("document_comments", {
   submissionSource: text("submission_source"),
   submissionRunId: text("submission_run_id"),
   actorKind: text("actor_kind"),
+  authorModel: text("author_model"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -220,6 +221,34 @@ export const documentComments = table("document_comments", {
   notionDiscussionId: text("notion_discussion_id"),
 });
 
+/**
+ * One person's emoji reaction on one Page comment. Access follows the
+ * comment's document; a person reacts with each emoji at most once.
+ */
+export const documentCommentReactions = table(
+  "document_comment_reactions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    commentId: text("comment_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    reaction: text("reaction").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reaction) => [
+    uniqueIndex("document_comment_reactions_actor_unique").on(
+      reaction.commentId,
+      reaction.actorEmail,
+      reaction.reaction,
+    ),
+    index("document_comment_reactions_document_idx").on(
+      reaction.ownerEmail,
+      reaction.documentId,
+    ),
+  ],
+);
+
 export const commentAiRequests = table(
   "comment_ai_requests",
   {
@@ -231,6 +260,14 @@ export const commentAiRequests = table(
     rootCommentId: text("root_comment_id").notNull(),
     fieldId: text("field_id").notNull(),
     intent: text("intent").notNull(),
+    submittedMode: text("submitted_mode").notNull().default("reply"),
+    instructions: text("instructions").notNull().default(""),
+    submittedProvider: text("submitted_provider"),
+    submittedModel: text("submitted_model"),
+    submittedEngine: text("submitted_engine"),
+    classificationThreadId: text("classification_thread_id"),
+    classificationTurnId: text("classification_turn_id"),
+    continuationOfRequestId: text("continuation_of_request_id"),
     status: text("status").notNull().default("queued"),
     threadDigest: text("thread_digest").notNull(),
     snapshotJson: text("snapshot_json").notNull(),
@@ -238,8 +275,16 @@ export const commentAiRequests = table(
     suggestionRevision: text("suggestion_revision").notNull(),
     runId: text("run_id"),
     agentThreadId: text("agent_thread_id"),
+    agentTurnId: text("agent_turn_id"),
+    submittedThreadDigest: text("submitted_thread_digest"),
+    submittedSnapshotJson: text("submitted_snapshot_json"),
+    model: text("model"),
+    engine: text("engine"),
+    activeAttemptId: text("active_attempt_id"),
+    attemptCount: integer("attempt_count").notNull().default(0),
     resultJson: text("result_json"),
     payloadJson: text("payload_json"),
+    errorCode: text("error_code"),
     error: text("error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -247,11 +292,47 @@ export const commentAiRequests = table(
   (request) => [
     uniqueIndex("comment_ai_requests_active_thread_idx")
       .on(request.documentId, request.threadId, request.requesterEmail)
-      .where(sql`${request.status} IN ('queued', 'running')`),
+      .where(
+        sql`${request.status} IN ('classifying', 'classified', 'queued', 'running')`,
+      ),
+    uniqueIndex("comment_ai_requests_active_comment_idx")
+      .on(request.documentId, request.rootCommentId)
+      .where(
+        sql`${request.status} IN ('classifying', 'classified', 'queued', 'running', 'refreshing')`,
+      ),
     index("comment_ai_requests_document_requester_idx").on(
       request.documentId,
       request.requesterEmail,
     ),
+  ],
+);
+
+export const commentAiAttempts = table(
+  "comment_ai_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    requestId: text("request_id").notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    status: text("status").notNull().default("reasoning"),
+    sourceRevision: text("source_revision").notNull(),
+    suggestionRevision: text("suggestion_revision").notNull(),
+    threadDigest: text("thread_digest").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+    payloadJson: text("payload_json"),
+    runId: text("run_id"),
+    model: text("model"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("comment_ai_attempts_request_number_unique").on(
+      attempt.requestId,
+      attempt.attemptNumber,
+    ),
+    index("comment_ai_attempts_request_idx").on(attempt.requestId),
   ],
 );
 

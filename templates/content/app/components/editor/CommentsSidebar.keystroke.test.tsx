@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
+import { richEditor, setRichEditorValue } from "./comment-composer-test-utils";
 import { CommentDraftProvider } from "./comment-drafts";
 import {
   CommentsSidebar,
@@ -27,6 +28,7 @@ vi.mock("@/hooks/use-comments", () => ({
     reconcileAmbiguous: vi.fn(),
   }),
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useResolveComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
@@ -36,6 +38,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   generateTabId: () => "test-tab",
   sendToAgentChat: vi.fn(),
 }));
@@ -129,13 +141,20 @@ describe("comment sidebar keystroke cost", () => {
     mutationObservers = 0;
     mutationDisconnects = 0;
     resizeObservers = 0;
+    const trackedObservers = new WeakSet<MutationObserver>();
     class CountingMutationObserver extends RealMutationObserver {
       constructor(callback: MutationCallback) {
         super(callback);
-        mutationObservers += 1;
+      }
+      observe(target: Node, options?: MutationObserverInit) {
+        if (target === scrollHost) {
+          mutationObservers += 1;
+          trackedObservers.add(this);
+        }
+        super.observe(target, options);
       }
       disconnect() {
-        mutationDisconnects += 1;
+        if (trackedObservers.has(this)) mutationDisconnects += 1;
         super.disconnect();
       }
     }
@@ -194,26 +213,22 @@ describe("comment sidebar keystroke cost", () => {
     });
   }
 
-  function typeCharacters(text: string) {
-    const input = container.querySelector("textarea")!;
+  async function typeCharacters(text: string) {
     for (let index = 0; index < text.length; index += 1) {
-      act(() => {
-        Object.getOwnPropertyDescriptor(
-          HTMLTextAreaElement.prototype,
-          "value",
-        )!.set!.call(input, text.slice(0, index + 1));
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
+      await setRichEditorValue(
+        richEditor(container)!,
+        text.slice(0, index + 1),
+      );
     }
   }
 
-  it("does not rebuild the anchor observers on every character", () => {
+  it("does not rebuild the anchor observers on every character", async () => {
     render([thread("one"), thread("two")]);
     const baselineObservers = mutationObservers;
     const baselineDisconnects = mutationDisconnects;
     const baselineResize = resizeObservers;
 
-    typeCharacters("hello");
+    await typeCharacters("hello");
 
     const rebuilds = mutationObservers - baselineObservers;
     const disconnects = mutationDisconnects - baselineDisconnects;

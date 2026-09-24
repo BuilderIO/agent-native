@@ -324,6 +324,22 @@ export function useCollabReconcile({
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const reportedConflictRevisionRef = useRef<string | null>(null);
+  const reconcileCallbacksRef = useRef({
+    getMarkdown,
+    setContent,
+    parseValue,
+    normalizeValue,
+    isEditorFocused,
+    onBaseAwareReconcile,
+  });
+  reconcileCallbacksRef.current = {
+    getMarkdown,
+    setContent,
+    parseValue,
+    normalizeValue,
+    isEditorFocused,
+    onBaseAwareReconcile,
+  };
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
     revision: string;
@@ -634,6 +650,7 @@ export function useCollabReconcile({
     // change isn't inserted twice (Yjs + setContent → duplicated region).
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
+      const callbacks = reconcileCallbacksRef.current;
       if (contentUpdatedAt) {
         const rollback = acknowledgementBaseRollbackRef.current;
         const conflictsWithAcceptedAcknowledgement =
@@ -820,10 +837,10 @@ export function useCollabReconcile({
         peerWait.deadline = null;
         return;
       }
-      const currentMarkdown = getMarkdown(editor);
+      const currentMarkdown = callbacks.getMarkdown(editor);
       // Compare against the canonical form the editor would emit so a serializer
       // that re-normalizes (Content's NFM) still recognizes "already in sync".
-      const normalizedValue = normalizeValue(value);
+      const normalizedValue = callbacks.normalizeValue(value);
       // Whether the editor still holds exactly what THIS hook last applied (the
       // user hasn't edited since). Only then are the round-trip echo guards
       // below safe: if the user has since edited away from the applied content,
@@ -832,7 +849,7 @@ export function useCollabReconcile({
       const editorUnchangedSinceApply =
         lastAppliedSerializedRef.current !== null &&
         currentMarkdown === lastAppliedSerializedRef.current;
-      const editorFocused = isEditorFocused(editor);
+      const editorFocused = callbacks.isEditorFocused(editor);
       const typingRecently =
         editorFocused && Date.now() - lastTypedAtRef.current < 1500;
 
@@ -960,6 +977,7 @@ export function useCollabReconcile({
 
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
+        const scheduledCallbacks = reconcileCallbacksRef.current;
         peerWait.deadline = null;
         // Re-check doc-equivalence at apply time. Between the decision above and
         // this task a peer/Yjs edit (or our own prior apply) may have made
@@ -967,8 +985,8 @@ export function useCollabReconcile({
         // wasted setContent that, for non-idempotent input, re-triggers the
         // loop. Skip when the editor's current serialization already matches the
         // normalized value, or the value round-trips to what we last produced.
-        const beforeMarkdown = getMarkdown(editor);
-        const normalized = normalizeValue(value);
+        const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
+        const normalized = scheduledCallbacks.normalizeValue(value);
         const unchangedSinceApply =
           lastAppliedSerializedRef.current !== null &&
           beforeMarkdown === lastAppliedSerializedRef.current;
@@ -992,19 +1010,21 @@ export function useCollabReconcile({
         const authoritativeBase = authoritativeBaseRef.current;
         if (
           contentRevision &&
-          onBaseAwareReconcile &&
+          scheduledCallbacks.onBaseAwareReconcile &&
           authoritativeBase &&
           authoritativeBase.revision !== contentRevision
         ) {
           const parse =
-            parseValue === false ? null : (parseValue ?? defaultParseValue);
+            scheduledCallbacks.parseValue === false
+              ? null
+              : (scheduledCallbacks.parseValue ?? defaultParseValue);
           const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
           const serverDoc = parse?.(editor, value) ?? null;
           if (!baseDoc || !serverDoc) {
             isSettingContentRef.current = false;
             if (reportedConflictRevisionRef.current !== contentRevision) {
               reportedConflictRevisionRef.current = contentRevision;
-              onBaseAwareReconcile({
+              scheduledCallbacks.onBaseAwareReconcile({
                 status: "failed",
                 content: beforeMarkdown,
                 serverContent: value,
@@ -1027,7 +1047,7 @@ export function useCollabReconcile({
             isSettingContentRef.current = false;
             if (reportedConflictRevisionRef.current !== contentRevision) {
               reportedConflictRevisionRef.current = contentRevision;
-              onBaseAwareReconcile({
+              scheduledCallbacks.onBaseAwareReconcile({
                 status: reconciled.status,
                 content: beforeMarkdown,
                 serverContent: value,
@@ -1037,7 +1057,7 @@ export function useCollabReconcile({
             }
             return;
           }
-          const merged = getMarkdown(editor);
+          const merged = scheduledCallbacks.getMarkdown(editor);
           isSettingContentRef.current = false;
           authoritativeBaseRef.current = { value, revision: contentRevision };
           reportedConflictRevisionRef.current = null;
@@ -1048,7 +1068,7 @@ export function useCollabReconcile({
           if (contentUpdatedAt)
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
           if (merged !== normalized) {
-            onBaseAwareReconcile({
+            scheduledCallbacks.onBaseAwareReconcile({
               status: "merged",
               content: merged,
               serverContent: value,
@@ -1064,8 +1084,8 @@ export function useCollabReconcile({
         // rewrite. Falls back to the classic whole-document setContent when no
         // parser is available or the targeted transaction cannot be applied.
         let appliedSurgically = false;
-        if (parseValue !== false) {
-          const parse = parseValue ?? defaultParseValue;
+        if (scheduledCallbacks.parseValue !== false) {
+          const parse = scheduledCallbacks.parseValue ?? defaultParseValue;
           const parsedDoc = parse(editor, value);
           if (parsedDoc) {
             const result = applyDocSurgically(editor, parsedDoc);
@@ -1073,14 +1093,17 @@ export function useCollabReconcile({
           }
         }
         if (!appliedSurgically) {
-          setContent(editor, value, { emitUpdate: false, addToHistory: false });
+          scheduledCallbacks.setContent(editor, value, {
+            emitUpdate: false,
+            addToHistory: false,
+          });
         }
         isSettingContentRef.current = false;
         // Capture the SERIALIZED result, not the raw value. For non-idempotent
         // input these differ; recording the serialized output is what lets the
         // next poll (which returns this serialized form) be recognized as our
         // own echo and skipped — stabilizing the doc after exactly one apply.
-        const serialized = getMarkdown(editor);
+        const serialized = scheduledCallbacks.getMarkdown(editor);
         lastEmittedRef.current = serialized;
         pushEmittedRing(recentEmittedRef.current, serialized);
         lastAppliedValueRef.current = value;
@@ -1113,12 +1136,6 @@ export function useCollabReconcile({
     collab,
     collabSynced,
     isLeadClient,
-    getMarkdown,
-    setContent,
-    parseValue,
-    normalizeValue,
-    isEditorFocused,
-    onBaseAwareReconcile,
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,

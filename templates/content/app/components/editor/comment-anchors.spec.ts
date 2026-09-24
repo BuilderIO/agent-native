@@ -6,6 +6,7 @@ import {
   resolveAnchor,
   resolveAnchorPoint,
   buildDocText,
+  trimSelectionRange,
 } from "./comment-anchors";
 
 // Minimal doc/paragraph/text schema — enough to exercise the text-space anchor
@@ -30,6 +31,16 @@ function mkDoc(paragraphs: string[]): PMNode {
 }
 
 describe("comment-anchors", () => {
+  it("trims a double-clicked word's trailing space from the selection", () => {
+    const doc = mkDoc(["in compressed playback now"]);
+    // "playback " — Windows double-click includes the space after the word.
+    const from = 1 + "in compressed ".length;
+    const to = from + "playback ".length;
+    const trimmed = trimSelectionRange(doc, from, to);
+    expect(doc.textBetween(trimmed.from, trimmed.to)).toBe("playback");
+    expect(trimSelectionRange(doc, from - 1, to)).toEqual(trimmed);
+  });
+
   it("includes hard breaks only in the opt-in suggestion text space", () => {
     const richSchema = new Schema({
       nodes: {

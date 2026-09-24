@@ -51,6 +51,17 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("keeps an open comment when its portalled menus are clicked", () => {
+    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
+      encoding: "utf8",
+    });
+    // The @ menu, emoji picker, and model menu render in portals; React still
+    // bubbles their clicks through the page's dismissal handler.
+    expect(source).toContain(
+      "if (target && !event.currentTarget.contains(target)) return;",
+    );
+  });
+
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
       hasUpdates: false,

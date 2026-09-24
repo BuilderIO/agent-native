@@ -899,23 +899,26 @@ export const parityMatrix: ParityRow[] = [
     id: "comments.ai-intents",
     surface: "comments",
     label:
-      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+      "Mention AI in a comment to reply, suggest an edit, or apply it and resolve feedback, then undo an applied change",
     uiEntrypoints: [
       "app/components/editor/CommentsSidebar.tsx",
       "app/components/editor/comment-ai.tsx",
     ],
     durableEffect:
-      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+      "Requests retain the submitted mode, selected provider and model, source feedback, and document revisions. Auto persists one classified intent before a separately scoped execution run records the reply, suggestion, or verified edit receipt. An applied edit keeps a bounded before/after preview, and its requester can reverse the exact edits and reopen the thread.",
     uiImplementation:
-      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+      "A structured AI recipient in the Comment composer starts the request through the shared action surface. Auto classification can submit only a finite intent; execution can call only the context action and the operation bound to that persisted intent.",
     status: "action-backed",
     actions: [
       "apply-comment-ai-request",
       "create-comment-ai-suggestion",
       "get-comment-ai-context",
       "list-comment-ai-requests",
+      "reconcile-comment-ai-session",
       "reply-to-comment-ai-request",
       "start-comment-ai-request",
+      "submit-comment-ai-classification",
+      "undo-comment-ai-request",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -924,9 +927,31 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/comment-ai-flow.test.ts",
+      "actions/undo-comment-ai-request.db.test.ts",
       "app/components/editor/comment-ai.test.tsx",
       "server/lib/comment-ai-progress.test.ts",
     ],
+  },
+  {
+    id: "comments.reactions",
+    surface: "comments",
+    label: "React to a comment or reply with an emoji, or remove your reaction",
+    uiEntrypoints: [
+      "app/components/editor/CommentEntry.tsx",
+      "app/components/editor/CommentReactions.tsx",
+    ],
+    durableEffect:
+      "One row per person, emoji, and comment in document_comment_reactions; list-comments returns per-comment counts with the viewer's own reactions, and deleting a comment removes its reactions.",
+    uiImplementation:
+      "The reaction chips and add-reaction picker call react-to-comment with an optimistic update, and agents use the same action.",
+    status: "action-backed",
+    actions: ["react-to-comment", "list-comments"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/react-to-comment.db.test.ts"],
   },
   {
     id: "comments.threads",
