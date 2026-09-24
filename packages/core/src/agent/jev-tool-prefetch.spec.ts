@@ -96,7 +96,6 @@ describe("preloadJevTools", () => {
     const initialTools = [tool("tool-search", "Find tools")];
 
     const result = await preloadJevTools({
-      apiKey: "jev-test-key",
       personalApiKey: "jev-test-key",
       request: "Write a poem",
       registry: { "search-customers": action("Search customer records") },
@@ -130,7 +129,6 @@ describe("preloadJevTools", () => {
     const initialTools = [tool("tool-search", "Find tools")];
 
     const result = await preloadJevTools({
-      apiKey: "jev-test-key",
       personalApiKey: "jev-test-key",
       request: "Find a customer record",
       registry: {
