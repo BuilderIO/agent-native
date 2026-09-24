@@ -88,6 +88,7 @@ import {
   useSaveState,
 } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useContrastAuditBridge } from "@/hooks/use-contrast-audit-bridge";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
@@ -617,6 +618,7 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+  useContrastAuditBridge(deck);
 
   useEffect(() => {
     setAnimationTarget(null);

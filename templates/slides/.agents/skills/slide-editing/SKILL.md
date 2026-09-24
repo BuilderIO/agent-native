@@ -70,6 +70,17 @@ column. If the source is denser, split it across slides. Never use zoom,
 text must remain at least 16px. Explicitly reduced slide padding is allowed when
 the content still needs the space.
 
+## Contrast
+
+Use `audit-contrast` when the user asks about readability or accessibility, or
+after generating or restyling a deck. Fix failures in one bounded pass that
+stays inside the deck's palette: adjust the offending role (`--deck-muted`,
+`--deck-ink`, a surface) rather than recoloring one element with a new hex, and
+when a design system is linked, report a token that fails instead of silently
+overriding it. Audit once more, then stop and report what remains. Unverified
+text and skipped slides were not checked; say so rather than calling the deck
+accessible.
+
 ## Updating a Slide
 
 To edit a slide's content:
