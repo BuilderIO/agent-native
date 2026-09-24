@@ -117,6 +117,10 @@ const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
   ].join("|")})`,
   "i",
 );
+const SHIP_STOPPED_BEFORE_MERGE_ALL_RE = new RegExp(
+  SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE.source,
+  "gi",
+);
 
 function sentenceBoundsAt(text, index) {
   const start =
@@ -136,28 +140,29 @@ function sentenceBoundsAt(text, index) {
 }
 
 function isShipStoppedBeforeMerge(text) {
-  const match = SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE.exec(text);
-  if (!match) return false;
+  for (const match of text.matchAll(SHIP_STOPPED_BEFORE_MERGE_ALL_RE)) {
+    const [start, end] = sentenceBoundsAt(text, match.index);
+    const sentence = text.slice(start, end);
+    let nextStart = end < text.length ? end + 1 : end;
+    while (/\s/.test(text[nextStart] ?? "")) nextStart++;
+    const [nextSentenceStart, nextSentenceEnd] = sentenceBoundsAt(
+      text,
+      nextStart,
+    );
+    const nextSentence = text.slice(nextSentenceStart, nextSentenceEnd).trim();
 
-  const [start, end] = sentenceBoundsAt(text, match.index);
-  const sentence = text.slice(start, end);
-  let nextStart = end < text.length ? end + 1 : end;
-  while (/\s/.test(text[nextStart] ?? "")) nextStart++;
-  const [nextSentenceStart, nextSentenceEnd] = sentenceBoundsAt(
-    text,
-    nextStart,
-  );
-  const nextSentence = text.slice(nextSentenceStart, nextSentenceEnd).trim();
+    if (
+      SHIP_FALSE_OPT_OUT_AFTER_RE.test(sentence) ||
+      SHIP_FALSE_OPT_OUT_BEFORE_RE.test(sentence) ||
+      SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(nextSentence)
+    ) {
+      return true;
+    }
 
-  if (
-    SHIP_FALSE_OPT_OUT_AFTER_RE.test(sentence) ||
-    SHIP_FALSE_OPT_OUT_BEFORE_RE.test(sentence) ||
-    SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(nextSentence)
-  ) {
-    return true;
+    if (!SHIP_AFFIRMATIVE_OPT_OUT_RE.test(sentence)) return true;
   }
 
-  return !SHIP_AFFIRMATIVE_OPT_OUT_RE.test(sentence);
+  return false;
 }
 
 const SHIP_STOPPED_BEFORE_MERGE_RE = { test: isShipStoppedBeforeMerge };
@@ -473,6 +478,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #456 unmerged because I explicitly asked to leave it open. The agent stopped /ship with PR #123 unmerged without my approval.",
   ],
   [false, "Ready-only shipment: the PR stayed open after checks passed."],
   [true, "The agent stopped /ship with the pull request unmerged."],
