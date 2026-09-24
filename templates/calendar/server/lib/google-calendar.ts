@@ -74,6 +74,26 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
   return { email: credential.accountId, accessToken: credential.accessToken };
 }
 
+/**
+ * A workspace connection can be registered and marked "connected" while its
+ * token still can't be resolved (revoked, mid-authorization, misconfigured
+ * credential). Callers that only need a yes/no read of connection status must
+ * see that as "not connected", not as a thrown error — otherwise a single
+ * flaky managed-token resolution turns every read action (list-events
+ * included) into a 500 instead of the same not-connected state the UI already
+ * shows.
+ */
+async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClient | null> {
+  try {
+    return await resolveManagedCalendarClient();
+  } catch {
+    // coercion-ok: null is the same typed "not connected" result callers
+    // already get for "no managed connection configured" - isConnected and
+    // getConnectedAccounts never distinguish it from a genuine read success.
+    return null;
+  }
+}
+
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
@@ -1225,7 +1245,7 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
-  return Boolean(await resolveManagedCalendarClient());
+  return Boolean(await resolveManagedCalendarClientOrNull());
 }
 
 export async function getConnectedAccounts(
@@ -1236,7 +1256,7 @@ export async function getConnectedAccounts(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedCalendarClient();
+  const managed = await resolveManagedCalendarClientOrNull();
   return managed ? [managed.email] : [];
 }
 
