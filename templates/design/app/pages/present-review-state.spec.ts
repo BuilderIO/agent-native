@@ -137,6 +137,15 @@ describe("present review keyboard state", () => {
     ).toBe("exit-presentation");
   });
 
+  it("keeps Escape inside the review embed when no review UI is active", () => {
+    expect(
+      resolvePresentEscapeAction(
+        { commentsOpen: false, commentMode: false },
+        true,
+      ),
+    ).toBe("stay-in-review-embed");
+  });
+
   it("blocks slide navigation while either review surface is active", () => {
     expect(
       shouldBlockPresentPageNavigation({

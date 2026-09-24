@@ -145,7 +145,13 @@ function safeDesignPreviewUrl(
       /^\/design\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
     );
     if (!match || !DESIGN_ID_PATTERN.test(match[1])) return undefined;
-    return new URL(`/present/${match[1]}?reviewEmbed=1`, url.origin).toString();
+    const mountPath = sameOrigin
+      ? url.pathname.slice(0, -`/${match[1]}`.length)
+      : "";
+    return new URL(
+      `${mountPath}/present/${match[1]}?reviewEmbed=1`,
+      url.origin,
+    ).toString();
     // coercion-ok: malformed untrusted design URLs are intentionally rejected.
   } catch {
     return undefined;

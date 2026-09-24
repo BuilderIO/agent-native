@@ -201,10 +201,13 @@ export default function Present() {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        const action = resolvePresentEscapeAction({
-          commentsOpen,
-          commentMode,
-        });
+        const action = resolvePresentEscapeAction(
+          {
+            commentsOpen,
+            commentMode,
+          },
+          reviewEmbed,
+        );
         if (action === "close-comments") setCommentsOpen(false);
         if (action === "exit-presentation") void navigate(`/design/${id}`);
         // ReviewCanvasPins owns "defer-to-comment-mode" so it can dismiss an
