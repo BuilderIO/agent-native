@@ -6456,7 +6456,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     currentValue: number;
     mirrorOpposite: boolean;
     syncAllSides: boolean;
-    touchedAllSides: boolean;
   } | null = null;
   var lockedSelectors: string[] = [];
   var hiddenSelectors: string[] = [];
@@ -13570,7 +13569,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
       syncAllSides: syncAllSides,
-      touchedAllSides: syncAllSides,
     };
     if (syncAllSides) {
       applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
@@ -13592,33 +13590,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return;
       }
-      if (
-        spacingDrag.mirrorOpposite &&
-        !mirrorOpposite &&
-        !spacingDrag.touchedAllSides &&
-        !syncAllSides &&
-        (handle.kind === "padding" || handle.kind === "margin") &&
-        handle.oppositeProperty
+      for (
+        var propertyIndex = 0;
+        propertyIndex < spacingProperties.length;
+        propertyIndex += 1
       ) {
-        (dragEl as HTMLElement).style[handle.oppositeProperty] =
-          originInlineSpacingValues[handle.oppositeProperty];
+        var spacingProperty = spacingProperties[propertyIndex];
+        (dragEl as HTMLElement).style[spacingProperty] =
+          originInlineSpacingValues[spacingProperty];
       }
-      var touchedAllSides = spacingDrag.touchedAllSides || syncAllSides;
-      if (syncAllSides) {
-        applySpacingDragValue(
-          dragEl,
-          handle,
-          spacingDrag.currentValue,
-          mirrorOpposite,
-          true,
-        );
-      }
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        spacingDrag.currentValue,
+        mirrorOpposite,
+        syncAllSides,
+      );
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
         syncAllSides: syncAllSides,
-        touchedAllSides: touchedAllSides,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -13677,14 +13669,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientY,
       );
       var syncAllSides = !!ev.shiftKey;
-      var touchedAllSides =
-        (spacingDrag && spacingDrag.touchedAllSides) || syncAllSides;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
         syncAllSides: syncAllSides,
-        touchedAllSides: touchedAllSides,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
       applySpacingDragValue(
@@ -13710,12 +13699,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
       var syncAllSides = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
-      var touchedAllSides = spacingDrag
-        ? spacingDrag.touchedAllSides
-        : syncAllSides;
       var commitAllSides =
-        (handle.kind === "padding" || handle.kind === "margin") &&
-        (syncAllSides || touchedAllSides);
+        (handle.kind === "padding" || handle.kind === "margin") && syncAllSides;
       if (finalValue === originValue && !commitAllSides) {
         restoreSpacingDragValue();
         return;

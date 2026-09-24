@@ -156,6 +156,83 @@ describe("padding interaction bridge", () => {
     }
   });
 
+  it("restores untouched margins when Shift is released during a drag", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(MARGIN_MIRROR_LEAF);
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __styleChanges?: Record<string, string>[];
+        };
+        target.__styleChanges = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-style-change") {
+            target.__styleChanges?.push(event.data.styles);
+          }
+        });
+      });
+      await installBridge(page);
+
+      const item = page.locator("#leaf");
+      const margins = () =>
+        item.evaluate((node) => {
+          const style = (node as HTMLElement).style;
+          return [
+            style.marginTop,
+            style.marginRight,
+            style.marginBottom,
+            style.marginLeft,
+          ];
+        });
+      const itemBox = (await item.boundingBox())!;
+      await page.mouse.click(
+        itemBox.x + itemBox.width / 2,
+        itemBox.y + itemBox.height / 2,
+      );
+      const handle = page.locator('[data-spacing-key="margin:top"]');
+      await handle.waitFor({ timeout: 4_000 });
+      const box = (await handle.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.keyboard.down("Shift");
+      await page.mouse.move(x, y - 8, { steps: 4 });
+
+      expect(await margins()).toEqual(["18px", "18px", "18px", "18px"]);
+
+      await page.keyboard.up("Shift");
+      expect(await margins()).toEqual(["18px", "20px", "30px", "40px"]);
+
+      await page.mouse.move(x, y - 12, { steps: 4 });
+      await page.mouse.up();
+      await page.waitForFunction(() =>
+        (
+          window as typeof window & {
+            __styleChanges?: Record<string, string>[];
+          }
+        ).__styleChanges?.some((styles) => styles.marginTop === "22px"),
+      );
+
+      expect(await margins()).toEqual(["22px", "20px", "30px", "40px"]);
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __styleChanges?: Record<string, string>[];
+              }
+            ).__styleChanges?.slice(-1)[0],
+        ),
+      ).toEqual({ marginTop: "22px" });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("Shift-dragging a gap does not write padding", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

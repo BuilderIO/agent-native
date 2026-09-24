@@ -9993,8 +9993,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         handle,
         currentValue: originValue,
         mirrorOpposite: !!e.altKey,
-        syncAllSides,
-        touchedAllSides: syncAllSides
+        syncAllSides
       };
       if (syncAllSides) {
         applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
@@ -10006,25 +10005,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllSides === syncAllSides2) {
           return;
         }
-        if (spacingDrag.mirrorOpposite && !mirrorOpposite && !spacingDrag.touchedAllSides && !syncAllSides2 && (handle.kind === "padding" || handle.kind === "margin") && handle.oppositeProperty) {
-          dragEl.style[handle.oppositeProperty] = originInlineSpacingValues[handle.oppositeProperty];
+        for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+          var spacingProperty2 = spacingProperties[propertyIndex2];
+          dragEl.style[spacingProperty2] = originInlineSpacingValues[spacingProperty2];
         }
-        var touchedAllSides = spacingDrag.touchedAllSides || syncAllSides2;
-        if (syncAllSides2) {
-          applySpacingDragValue(
-            dragEl,
-            handle,
-            spacingDrag.currentValue,
-            mirrorOpposite,
-            true
-          );
-        }
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          syncAllSides2
+        );
         spacingDrag = {
           handle,
           currentValue: spacingDrag.currentValue,
           mirrorOpposite,
-          syncAllSides: syncAllSides2,
-          touchedAllSides
+          syncAllSides: syncAllSides2
         };
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -10073,13 +10069,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientY
         );
         var syncAllSides2 = !!ev.shiftKey;
-        var touchedAllSides = spacingDrag && spacingDrag.touchedAllSides || syncAllSides2;
         spacingDrag = {
           handle,
           currentValue: nextValue,
           mirrorOpposite: !!ev.altKey,
-          syncAllSides: syncAllSides2,
-          touchedAllSides
+          syncAllSides: syncAllSides2
         };
         lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
         applySpacingDragValue(
@@ -10102,8 +10096,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
         var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
         var syncAllSides2 = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
-        var touchedAllSides = spacingDrag ? spacingDrag.touchedAllSides : syncAllSides2;
-        var commitAllSides = (handle.kind === "padding" || handle.kind === "margin") && (syncAllSides2 || touchedAllSides);
+        var commitAllSides = (handle.kind === "padding" || handle.kind === "margin") && syncAllSides2;
         if (finalValue === originValue && !commitAllSides) {
           restoreSpacingDragValue();
           return;
