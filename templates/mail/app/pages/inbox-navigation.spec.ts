@@ -196,12 +196,13 @@ describe("Inbox navigation commands", () => {
     expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
-  it("filters the view-screen snapshot to the active Other partition", () => {
+  it("filters the view-screen snapshot using the resolved inbox tab", () => {
     const source = viewScreenSource();
 
     expect(source).toContain("activeInboxTab?: string");
     expect(source).toContain("activeAccounts?: string[]");
-    expect(source).toContain("activeInboxTab === OTHER_INBOX_TAB_PARAM");
+    expect(source).toContain('activeTab?.kind === "other"');
+    expect(source).toContain("resolveActiveTabId(activeInboxTab, inboxTabs)");
     expect(source).toContain("augmentSelfSentLabels");
     expect(source).toContain("selectedAccountSet");
     expect(source).toContain("accountEmails:");

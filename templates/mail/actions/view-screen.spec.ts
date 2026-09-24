@@ -58,6 +58,7 @@ vi.mock("../server/lib/queued-drafts.js", () => ({
   requireQueuedDraft: vi.fn(),
 }));
 
+import { ALL_TAB_PARAM } from "../shared/inbox-threads.js";
 import action from "./view-screen";
 
 const OWNER = "owner@example.com";
@@ -121,6 +122,49 @@ describe("view-screen Mail preview", () => {
       complete: true,
       failedAccounts: [],
     });
+  });
+
+  it("keeps the default All preview inclusive of triage and saved-filter mail", async () => {
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [{ id: "read", name: "Read", query: "is:read" }],
+      pinnedLabels: ["important"],
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [email("important"), email("ordinary")],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["important", "ordinary"]);
+  });
+
+  it("uses the visible fallback tab when hidden All is requested", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      tab: ALL_TAB_PARAM,
+      activeInboxTab: ALL_TAB_PARAM,
+    });
+    mocks.readSettings.mockResolvedValue({
+      showAllTab: false,
+      savedFilters: [],
+      pinnedLabels: ["important"],
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [
+        { ...email("important"), labelIds: ["agent-native-important"] },
+        email("ordinary"),
+      ],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["important"]);
   });
 
   it("refills after inbox filtering removes the provider sentinel", async () => {

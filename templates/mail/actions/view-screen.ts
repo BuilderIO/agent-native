@@ -3,7 +3,6 @@ import { readAppStateForCurrentTab } from "@agent-native/core/application-state"
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
-import { ALL_TAB_ID, ALL_TAB_PARAM } from "@shared/inbox-threads.js";
 import {
   emailMessageMatchesSearch,
   searchQueryNeedsAttachmentMetadata,
@@ -13,7 +12,6 @@ import { z } from "zod";
 import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
-  OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
   pinnedTriageLabels,
   inboxThreadKey,
@@ -143,34 +141,47 @@ async function fetchEmailList(
     const shouldReadSettings =
       googleConnected ||
       Boolean(requestedFilterId) ||
-      (view === "inbox" &&
-        !search &&
-        (activeInboxTab === OTHER_INBOX_TAB_PARAM ||
-          activeInboxTab === ALL_TAB_PARAM ||
-          activeInboxTab === ALL_TAB_ID ||
-          Boolean(label)));
+      (view === "inbox" && !search);
     const settings = shouldReadSettings
       ? await readSettings(ownerEmail)
       : undefined;
-    const savedFilter = requestedFilterId
-      ? settings?.savedFilters?.find(
-          (filter) => filter.id === requestedFilterId,
-        )
-      : undefined;
-    const effectiveSearch = requestedFilterId ? savedFilter?.query : search;
-    const effectiveView = savedFilter ? "all" : view;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
     const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const inboxTabs =
+      view === "inbox" && !search
+        ? resolveInboxTabs(
+            {
+              pinnedLabels,
+              savedFilters: settings?.savedFilters ?? [],
+              labelAliases: settings?.labelAliases ?? {},
+              combineInbox: settings?.combineInbox === true,
+              showAllTab: settings?.showAllTab,
+            },
+            new Map(),
+          )
+        : [];
+    const activeTabId = resolveActiveTabId(activeInboxTab, inboxTabs);
+    const activeTab = inboxTabs.find((tab) => tab.id === activeTabId);
+    const activeFilterId =
+      requestedFilterId ??
+      (activeTab?.kind === "filter" ? activeTab.id : undefined);
+    const savedFilter = activeFilterId
+      ? settings?.savedFilters?.find((filter) => filter.id === activeFilterId)
+      : undefined;
+    const effectiveSearch = activeFilterId ? savedFilter?.query : search;
+    const effectiveView = savedFilter ? "all" : view;
     const activeTriageTab =
       effectiveView === "inbox" && !effectiveSearch
-        ? activeInboxTab === OTHER_INBOX_TAB_PARAM
+        ? activeTab?.kind === "other"
           ? null
-          : label &&
-              triageLabels.includes(label) &&
-              isInboxScopedAppLabel(label)
-            ? label
-            : undefined
+          : activeTab?.kind === "important" || activeTab?.kind === "label"
+            ? activeTab.id
+            : label &&
+                triageLabels.includes(label) &&
+                isInboxScopedAppLabel(label)
+              ? label
+              : undefined
         : undefined;
     const savedFilterQueries =
       settings?.savedFilters?.map((filter) => filter.query) ?? [];
@@ -223,7 +234,7 @@ async function fetchEmailList(
       if (effectiveView !== "inbox" || effectiveSearch || label) {
         return filtered;
       }
-      if (activeInboxTab === ALL_TAB_PARAM || activeInboxTab === ALL_TAB_ID) {
+      if (activeTab?.kind === "all" || activeTab?.kind === "inbox") {
         return filtered;
       }
       const savedFilterThreads = savedFilterThreadIds(
@@ -555,7 +566,7 @@ export default defineAction({
           nav.view,
           nav.search,
           nav.label,
-          nav.activeInboxTab,
+          nav.tab ?? nav.activeInboxTab ?? nav.label,
           nav.activeAccounts,
           nav.filter,
         );
