@@ -3,6 +3,7 @@ import {
   type ChildProcess,
   type SpawnOptions,
 } from "node:child_process";
+import { constants as osConstants } from "node:os";
 
 export const DEV_SERVER_SUPERVISOR_ENV = "AGENT_NATIVE_DEV_SUPERVISOR";
 export const DEV_SERVER_RECOVERY_EXIT_CODE = 86;
@@ -67,14 +68,13 @@ export function runDevServer(
         stdio: options.stdio,
       }),
     );
-    child.once("exit", (code) => {
+    child.once("exit", (code, signal) => {
       if (code === DEV_SERVER_RECOVERY_EXIT_CODE && !shuttingDown) {
         restartTimer = setTimeout(start, 250);
-        restartTimer.unref();
         return;
       }
       cleanup();
-      exitProcess(code ?? 0);
+      exitProcess(code ?? (signal ? 128 + osConstants.signals[signal] : 0));
     });
   };
 

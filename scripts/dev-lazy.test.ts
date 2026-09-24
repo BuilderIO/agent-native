@@ -384,11 +384,11 @@ describe("dev-lazy stuck-app restart decision", () => {
 });
 
 describe("dev-lazy persistent-5xx restart decision", () => {
-  it("does not restart while a recent non-5xx response exists", () => {
+  it("does not restart on the first 5xx after an old healthy response", () => {
     const now = 1_000_000;
     assert.equal(
       shouldRestartPersistent5xx({
-        lastNon5xxAt: now - 1_000,
+        first5xxAt: now,
         now,
         restartMs: 75_000,
       }),
@@ -402,7 +402,7 @@ describe("dev-lazy persistent-5xx restart decision", () => {
     const now = 1_000_000;
     assert.equal(
       shouldRestartPersistent5xx({
-        lastNon5xxAt: now - 75_001,
+        first5xxAt: now - 75_001,
         now,
         restartMs: 75_000,
       }),
@@ -417,6 +417,7 @@ describe("dev-lazy backoff reset on ready", () => {
       ready: boolean;
       restartAttempts: number;
       lastNon5xxAt: number;
+      persistent5xxSince: number;
     }> = {},
   ) => ({
     id: "test-app",
@@ -434,11 +435,12 @@ describe("dev-lazy backoff reset on ready", () => {
     // Backoff must only reset on an actual successful serve — not on a fixed
     // post-spawn timer — or an app that always fails between 5s and 30s
     // would never escalate its retry delay.
-    const app = makeApp({ restartAttempts: 5 });
+    const app = makeApp({ restartAttempts: 5, persistent5xxSince: 123 });
     const before = Date.now();
     markAppReady(app);
     assert.equal(app.ready, true);
     assert.equal(app.restartAttempts, 0);
+    assert.equal(app.persistent5xxSince, undefined);
     assert.ok(app.lastNon5xxAt !== undefined && app.lastNon5xxAt >= before);
   });
 });

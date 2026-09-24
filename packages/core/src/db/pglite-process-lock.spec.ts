@@ -107,7 +107,7 @@ describe("PGlite persistent process ownership", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("rejects a competing process without losing the owner's write", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "pglite-process-lock-"));

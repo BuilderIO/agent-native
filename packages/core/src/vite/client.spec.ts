@@ -47,7 +47,7 @@ vi.mock("../server/dev-action-bridge.js", () => ({
 }));
 
 describe("Nitro dev startup recovery", () => {
-  it("restarts a supervised dev server stuck on 5xx after a healthy response", () => {
+  it("requires a continuous 5xx streak before restarting after a long idle", () => {
     let time = 0;
     let middleware:
       | ((req: unknown, res: unknown, next: () => void) => void)
@@ -74,14 +74,24 @@ describe("Nitro dev startup recovery", () => {
     };
 
     response(200);
-    time = 75_000;
+    time = 100_000;
     response(503);
     expect(exit).not.toHaveBeenCalled();
 
-    time = 75_001;
+    time = 100_001;
+    response(200);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 200_000;
+    response(503);
+    time = 275_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 275_001;
     response(503);
     expect(exit).toHaveBeenCalledWith(DEV_SERVER_RECOVERY_EXIT_CODE);
-    expect(next).toHaveBeenCalledTimes(3);
+    expect(next).toHaveBeenCalledTimes(6);
   });
 
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {

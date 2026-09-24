@@ -3557,7 +3557,8 @@ function persistent5xxRecovery(
 
       const now = options.now ?? Date.now;
       const exit = options.exit ?? ((code: number) => process.exit(code));
-      let lastHealthyAt: number | undefined;
+      let hasServedHealthyResponse = false;
+      let first5xxAt: number | undefined;
       server.middlewares.use((req, res, next) => {
         if (!isHtmlDocumentRequest(req)) {
           next();
@@ -3566,10 +3567,14 @@ function persistent5xxRecovery(
 
         res.once("finish", () => {
           if ((res.statusCode ?? 500) < 500) {
-            lastHealthyAt = now();
+            hasServedHealthyResponse = true;
+            first5xxAt = undefined;
             return;
           }
-          if (lastHealthyAt === undefined || now() - lastHealthyAt <= 75_000) {
+
+          const failedAt = now();
+          first5xxAt ??= failedAt;
+          if (!hasServedHealthyResponse || failedAt - first5xxAt <= 75_000) {
             return;
           }
 

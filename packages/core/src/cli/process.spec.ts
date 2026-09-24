@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { constants as osConstants } from "node:os";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +38,21 @@ describe("cli process launch options", () => {
         children.shift() as EventEmitter,
     );
     const exitProcess = vi.fn();
+    const realSetTimeout = globalThis.setTimeout;
+    let restartTimer: NodeJS.Timeout | undefined;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      const timer = realSetTimeout(
+        handler as Parameters<typeof setTimeout>[0],
+        delay,
+        ...args,
+      );
+      if (delay === 250) restartTimer = timer;
+      return timer;
+    }) as typeof setTimeout);
 
     runDevServer("vite", ["--host"], {
       env: { FIXTURE: "test" },
@@ -55,11 +71,33 @@ describe("cli process launch options", () => {
       DEV_SERVER_RECOVERY_EXIT_CODE,
       null,
     );
+    expect(restartTimer?.hasRef()).toBe(true);
     await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2));
     expect(exitProcess).not.toHaveBeenCalled();
 
     spawnProcess.mock.results[1]?.value.emit("exit", 0, null);
     expect(exitProcess).toHaveBeenCalledWith(0);
+    for (const signal of signals) {
+      expect(process.listenerCount(signal)).toBe(baseline.get(signal));
+    }
+  });
+
+  it("uses a nonzero exit status when the child exits from a forwarded signal", () => {
+    const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+    const baseline = new Map(
+      signals.map((signal) => [signal, process.listenerCount(signal)]),
+    );
+    const child = new EventEmitter();
+    const exitProcess = vi.fn();
+
+    runDevServer("vite", ["--host"], {
+      spawnProcess: (() => child) as never,
+      exitProcess,
+    });
+
+    child.emit("exit", null, "SIGTERM");
+
+    expect(exitProcess).toHaveBeenCalledWith(128 + osConstants.signals.SIGTERM);
     for (const signal of signals) {
       expect(process.listenerCount(signal)).toBe(baseline.get(signal));
     }
