@@ -603,7 +603,7 @@ export function PageDraftRecovery({
     verifiedScopeKey,
   ]);
 
-  if (releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey)
+  if (releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey && !draft)
     return journalState === "retained" ? (
       <>
         <div role="status">{t("editor.previewDraftSavedToHistory")}</div>

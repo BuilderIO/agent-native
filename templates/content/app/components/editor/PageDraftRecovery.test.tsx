@@ -127,6 +127,25 @@ describe("Page draft recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
+  it("does not keep an already released editor over a newly observed private draft", async () => {
+    await act(async () => render());
+    expect(container.querySelector("textarea")).not.toBeNull();
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    await act(async () => render());
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
+    );
+  });
+
   it("restores an identified draft against its matching canonical base", async () => {
     state.draft = {
       title: "Draft",
