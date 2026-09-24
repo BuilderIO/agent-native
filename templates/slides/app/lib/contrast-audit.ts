@@ -8,11 +8,20 @@ import type {
 } from "@shared/contrast-audit";
 import { deckContrastRenderKey } from "@shared/contrast-audit";
 import { hashSlideContent } from "@shared/slide-fit";
-import type { AxeResults, NodeResult } from "axe-core";
+import type { AxeResults, NodeResult, RunOptions } from "axe-core";
 
 const MAX_TEXT_CHARS = 80;
 const RENDER_WAIT_MS = 4_000;
 const RENDER_POLL_MS = 150;
+
+const CONTRAST_RUN_OPTIONS: RunOptions = {
+  runOnly: { type: "rule", values: ["color-contrast"] },
+  resultTypes: ["violations", "incomplete"],
+  iframes: false,
+  elementRef: true,
+};
+
+type ContrastResults = Pick<AxeResults, "violations" | "incomplete" | "passes">;
 
 export interface AuditableDeck {
   id: string;
@@ -57,7 +66,7 @@ function parseRequiredRatio(value: string | undefined): number {
 }
 
 export function mapAxeContrastResults(
-  results: Pick<AxeResults, "violations" | "incomplete" | "passes">,
+  results: ContrastResults,
   slideId: string,
 ): {
   failures: ContrastFailure[];
@@ -111,6 +120,52 @@ function nextFrame(): Promise<void> {
 
 async function loadAxe() {
   return (await import("axe-core")).default;
+}
+
+// axe reports text as pseudoContent when any ancestor has an absolutely
+// positioned ::before/::after with a background, ignoring opacity — so the
+// thumbnail list's scroll shadow blocks every slide. It reports the nearest
+// such ancestor, so one outside the canvas means nothing in the slide covers
+// the text, and it is safe to re-check with pseudo detection off.
+async function auditCanvas(
+  axe: Awaited<ReturnType<typeof loadAxe>>,
+  canvas: HTMLElement,
+): Promise<ContrastResults> {
+  const results = await axe.run(canvas, CONTRAST_RUN_OPTIONS);
+  const chromeBlocked = new Set(
+    results.incomplete
+      .filter((rule) => rule.id === "color-contrast")
+      .flatMap((rule) => rule.nodes)
+      .filter((node) => {
+        if (checkData(node).messageKey !== "pseudoContent") return false;
+        const owner = node.any[0]?.relatedNodes?.[0]?.element;
+        return !!owner && !canvas.contains(owner);
+      }),
+  );
+  if (chromeBlocked.size === 0) return results;
+
+  // axe accepts per-check options at run time; its typings omit them.
+  const ignorePseudo: RunOptions & {
+    checks: Record<string, { options: Record<string, unknown> }>;
+  } = {
+    ...CONTRAST_RUN_OPTIONS,
+    checks: { "color-contrast": { options: { ignorePseudo: true } } },
+  };
+  const recheck = await axe.run(
+    { include: [...chromeBlocked].map((node) => node.element!) },
+    ignorePseudo,
+  );
+  return {
+    violations: [...results.violations, ...recheck.violations],
+    incomplete: [
+      ...results.incomplete.map((rule) => ({
+        ...rule,
+        nodes: rule.nodes.filter((node) => !chromeBlocked.has(node)),
+      })),
+      ...recheck.incomplete,
+    ],
+    passes: [...results.passes, ...recheck.passes],
+  };
 }
 
 /**
@@ -217,13 +272,10 @@ export async function runContrastAudit(
       continue;
     }
 
-    const results = await axe.run(canvas, {
-      runOnly: { type: "rule", values: ["color-contrast"] },
-      resultTypes: ["violations", "incomplete"],
-      iframes: false,
-      elementRef: true,
-    });
-    const mapped = mapAxeContrastResults(results, target.id);
+    const mapped = mapAxeContrastResults(
+      await auditCanvas(axe, canvas),
+      target.id,
+    );
     // A thumbnail scrolled out of the sidebar comes back as per-text
     // "outsideViewport". That describes the slide's position, not its text,
     // so the slide was not checked rather than full of unverifiable text.
