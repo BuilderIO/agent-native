@@ -547,6 +547,45 @@ describe("LayoutContextProperties interactions", () => {
     },
   );
 
+  it("shows an authored auto margin instead of its resolved pixel value", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "span",
+      primitiveKind: "text",
+      classes: [],
+      computedStyles: {
+        display: "inline",
+        width: "120px",
+        height: "80px",
+        marginLeft: "240px",
+      },
+      inlineStyles: { marginLeft: "auto" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      childElementCount: 0,
+      sourceId: "leaf-auto-margin",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="editPanel.labels.marginLeft"]',
+      )?.value,
+    ).toBe("auto");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("keeps W/H sizing primary and reveals flex CSS fields in a popover", async () => {
     const container = document.createElement("div");
     document.body.append(container);

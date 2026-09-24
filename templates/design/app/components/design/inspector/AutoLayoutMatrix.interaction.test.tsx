@@ -306,4 +306,54 @@ describe("AutoLayoutMatrix Flow interactions", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it("starts mixed margin selections unlinked", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onMarginChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{
+            ...value,
+            margin: { top: 0, right: 0, bottom: 0, left: 0 },
+            marginMixed: { top: true, right: true, bottom: true, left: true },
+          }}
+          showChildLayoutControls
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onMarginChange={onMarginChange}
+          onChildSizingChange={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('button[aria-label="Link margin sides"]'),
+    ).not.toBeNull();
+    const topMargin = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top margin"]',
+    );
+    expect(topMargin).not.toBeNull();
+    await act(async () => {
+      topMargin?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+
+    expect(onMarginChange).toHaveBeenCalledWith(
+      { top: 1, right: 0, bottom: 0, left: 0 },
+      expect.objectContaining({ source: "keyboard", phase: "commit" }),
+      ["top"],
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });

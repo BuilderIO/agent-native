@@ -35,6 +35,17 @@ const MARGIN_LEAF = `<!doctype html><html><body style="margin:0">
   <div id="leaf" data-agent-native-node-id="leaf" style="position:absolute;left:240px;top:180px;width:160px;height:100px;margin:0;background:#c33"></div>
 </body></html>`;
 
+const MARGIN_MIRROR_LEAF = `<!doctype html><html><body style="margin:0">
+  <div id="leaf" data-agent-native-node-id="leaf" style="position:absolute;left:240px;top:180px;width:160px;height:100px;margin:10px 20px 30px 40px;background:#c33"></div>
+</body></html>`;
+
+const MARGIN_AUTO_FLEX_ITEM = `<!doctype html><html><head><style>
+  .row { position:absolute; left:100px; top:100px; display:flex; width:400px; height:80px }
+  .item { width:80px; height:40px; margin-left:auto; background:#c33 }
+</style></head><body style="margin:0">
+  <div class="row"><div id="auto" data-agent-native-node-id="auto" class="item"></div></div>
+</body></html>`;
+
 async function installBridge(page: import("@playwright/test").Page) {
   await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
   await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -154,7 +165,12 @@ describe("padding interaction bridge", () => {
       });
       await installBridge(page);
 
-      await page.mouse.click(260, 190);
+      const item = page.locator("#leaf");
+      const itemBox = (await item.boundingBox())!;
+      await page.mouse.click(
+        itemBox.x + itemBox.width / 2,
+        itemBox.y + itemBox.height / 2,
+      );
       await page.waitForFunction(
         () =>
           document.querySelectorAll('[data-spacing-key^="margin:"]').length ===
@@ -201,6 +217,150 @@ describe("padding interaction bridge", () => {
           }
         ).__styleChanges?.some((styles) => styles.marginTop === "-12px"),
       );
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("shows authored auto margins on canvas and preserves them on a no-op drag", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(MARGIN_AUTO_FLEX_ITEM);
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __styleChanges?: Record<string, string>[];
+        };
+        target.__styleChanges = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-style-change") {
+            target.__styleChanges?.push(event.data.styles);
+          }
+        });
+      });
+      await installBridge(page);
+
+      const item = page.locator("#auto");
+      const itemBox = (await item.boundingBox())!;
+      await page.mouse.click(
+        itemBox.x + itemBox.width / 2,
+        itemBox.y + itemBox.height / 2,
+      );
+      const handle = page.locator('[data-spacing-key="margin:left"]');
+      await handle.waitFor();
+      const handleBox = (await handle.boundingBox())!;
+      const x = handleBox.x + handleBox.width / 2;
+      const y = handleBox.y + handleBox.height / 2;
+
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.waitForFunction(
+        () =>
+          document.querySelector("[data-agent-native-spacing-badge]")
+            ?.textContent === "auto",
+      );
+      await page.mouse.up();
+
+      expect(
+        await item.evaluate((node) => (node as HTMLElement).style.marginLeft),
+      ).toBe("");
+      expect(
+        await item.evaluate((node) => getComputedStyle(node).marginLeft),
+      ).toBe("320px");
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __styleChanges?: Record<string, string>[];
+              }
+            ).__styleChanges,
+        ),
+      ).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("restores a mirrored margin when Alt is released during a drag", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(MARGIN_MIRROR_LEAF);
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __styleChanges?: Record<string, string>[];
+        };
+        target.__styleChanges = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-style-change") {
+            target.__styleChanges?.push(event.data.styles);
+          }
+        });
+      });
+      await installBridge(page);
+
+      const item = page.locator("#leaf");
+      const itemBox = (await item.boundingBox())!;
+      await page.mouse.click(
+        itemBox.x + itemBox.width / 2,
+        itemBox.y + itemBox.height / 2,
+      );
+      const handle = page.locator('[data-spacing-key="margin:top"]');
+      await handle.waitFor({ timeout: 4_000 });
+      const box = (await handle.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.keyboard.down("Alt");
+      await page.mouse.move(x, y - 8, { steps: 4 });
+
+      expect(
+        await page.evaluate(() => {
+          const element = document.getElementById("leaf") as HTMLElement;
+          return [element.style.marginTop, element.style.marginBottom];
+        }),
+      ).toEqual(["18px", "18px"]);
+
+      await page.keyboard.up("Alt");
+      expect(
+        await page.evaluate(() => {
+          const element = document.getElementById("leaf") as HTMLElement;
+          return [element.style.marginTop, element.style.marginBottom];
+        }),
+      ).toEqual(["18px", "30px"]);
+
+      await page.mouse.move(x, y - 12, { steps: 4 });
+      await page.mouse.up();
+      await page.waitForFunction(() =>
+        (
+          window as typeof window & {
+            __styleChanges?: Record<string, string>[];
+          }
+        ).__styleChanges?.some((styles) => styles.marginTop === "22px"),
+      );
+
+      expect(
+        await page.evaluate(() => {
+          const element = document.getElementById("leaf") as HTMLElement;
+          return [element.style.marginTop, element.style.marginBottom];
+        }),
+      ).toEqual(["22px", "30px"]);
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __styleChanges?: Record<string, string>[];
+              }
+            ).__styleChanges?.slice(-1)[0],
+        ),
+      ).toEqual({ marginTop: "22px" });
     } finally {
       await browser.close();
     }

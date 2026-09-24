@@ -372,12 +372,23 @@ export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
   };
 }
 
-function marginValuesForStyles(styles: Record<string, string>) {
+function marginValuesForStyles(
+  styles: Record<string, string>,
+  inlineStyles?: Record<string, string>,
+) {
+  const marginValue = (property: string) => {
+    const authored = inlineStyles?.[property];
+    return (
+      (isMixedValue(authored) || authored?.trim().toLowerCase() === "auto"
+        ? authored
+        : styles[property]) || "0"
+    );
+  };
   const raw = {
-    top: styles.marginTop || "0",
-    right: styles.marginRight || "0",
-    bottom: styles.marginBottom || "0",
-    left: styles.marginLeft || "0",
+    top: marginValue("marginTop"),
+    right: marginValue("marginRight"),
+    bottom: marginValue("marginBottom"),
+    left: marginValue("marginLeft"),
   };
   const value: AutoLayoutMargin = {
     top: parseNumericValue(raw.top),
@@ -467,7 +478,7 @@ function FlexContainerControls({
   const t = useT();
   const styles = element.computedStyles;
   const marginLabels = marginInspectorLabels(t);
-  const marginProperties = marginValuesForStyles(styles);
+  const marginProperties = marginValuesForStyles(styles, element.inlineStyles);
   // The element's CURRENT layout flow as authored in code, read from its own
   // computed `display`: block/flow-root/grid/etc. = "normal flow",
   // flex/inline-flex = auto layout. We forward it so the AutoLayoutMatrix Flow
@@ -1011,7 +1022,10 @@ export function LayoutContextProperties({
   const isContainer = isContainerElement(element);
   const aspectLock = useAspectRatioLock(element);
   const marginLabels = marginInspectorLabels(t);
-  const marginProperties = marginValuesForStyles(element.computedStyles);
+  const marginProperties = marginValuesForStyles(
+    element.computedStyles,
+    element.inlineStyles,
+  );
 
   const childActions =
     flexChild || gridChild ? (

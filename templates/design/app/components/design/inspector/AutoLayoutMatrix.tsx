@@ -1930,6 +1930,7 @@ export function MarginProperties({
   const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
   const [linked, setLinked] = useState(() => {
     const sides = ["top", "right", "bottom", "left"] as const;
+    if (sides.some((side) => mixed?.[side])) return false;
     const first = textValues?.top ?? String(value.top);
     return sides.every(
       (side) => (textValues?.[side] ?? String(value[side])) === first,
