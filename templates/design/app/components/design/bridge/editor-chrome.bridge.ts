@@ -58,6 +58,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var designCanvasContentOffsetY =
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
 
+  function clipboardScreenContext() {
+    return !designCanvasBoardSurface && designCanvasScreenId
+      ? { screenId: designCanvasScreenId }
+      : {};
+  }
+
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
   // re-injecting this script into a document where a previous instance's
   // listeners, overlays, and observers are still alive (e.g. a head-only
@@ -2187,6 +2193,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return root;
   }
 
+  function pastedSvgShapeForHit(
+    hit: Element,
+    svgRoot: Element,
+  ): Element | null {
+    if (
+      !svgRoot.getAttribute ||
+      svgRoot.getAttribute("data-an-primitive") !== "pasted-svg"
+    ) {
+      return null;
+    }
+    var target: Element | null = hit;
+    while (target && target !== svgRoot) {
+      var tag = (target.tagName || "").toLowerCase();
+      if (
+        tag === "path" ||
+        tag === "polygon" ||
+        tag === "polyline" ||
+        tag === "ellipse" ||
+        tag === "circle" ||
+        tag === "rect" ||
+        tag === "line" ||
+        tag === "use"
+      ) {
+        return target;
+      }
+      target = target.parentElement;
+    }
+    return null;
+  }
+
   function isBoardRootMarqueeSurface(el: Element | null): boolean {
     if (!designCanvasBoardSurface || !el) return false;
     if (isDocumentRootElement(el)) return true;
@@ -2489,7 +2525,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // for a horizontal line, and only the outermost <svg> carries the id and a
     // layout box.
     var svgRoot = outermostSvgAncestor(hit);
-    if (svgRoot) return svgRoot;
+    if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
     var textPrimitive = nativeTextPrimitiveForHit(target);
     if (textPrimitive) target = textPrimitive;
@@ -2606,7 +2642,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // data-agent-native-group-wrapper marker as a Group, so that promotion
     // would resolve straight back to selectedEl and click-through would
     // never descend into a selected Frame's children.
-    var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+    var svgRoot = outermostSvgAncestor(hit);
+    var raw =
+      (svgRoot && pastedSvgShapeForHit(hit, svgRoot)) ||
+      svgRoot ||
+      unwrapTextOverlay(hit);
     raw = nativeTextPrimitiveForHit(raw) || raw;
     if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
       return null;
@@ -4251,10 +4291,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "--agent-native-truncate-original-overflow",
     "--an-vector-start-point",
     "--an-vector-end-point",
+    "--an-vector-fill-gradient",
+    "--an-vector-stroke-gradient",
+    "--an-css-border-gradient",
+    "--an-css-border-solid-color",
+    "border",
+    "borderWidth",
+    "borderStyle",
+    "borderColor",
+    "borderTop",
+    "borderRight",
+    "borderBottom",
+    "borderLeft",
+    "borderTopWidth",
+    "borderRightWidth",
+    "borderBottomWidth",
+    "borderLeftWidth",
+    "borderTopStyle",
+    "borderRightStyle",
+    "borderBottomStyle",
+    "borderLeftStyle",
+    "borderTopColor",
+    "borderRightColor",
+    "borderBottomColor",
+    "borderLeftColor",
+    "borderImageSource",
     "whiteSpace",
     "backgroundImage",
     "backgroundColor",
     "color",
+    "objectFit",
     "fill",
     "borderRadius",
     "borderTopLeftRadius",
@@ -4267,13 +4333,62 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var styles: Record<string, string> = {};
     var inline = (el as HTMLElement).style;
     if (!inline) return styles;
+    var authoredProperties = new Set<string>();
+    var styleText = el.getAttribute("style") || "";
+    var declarationStart = 0;
+    var propertyEnd = -1;
+    var quote = "";
+    var nesting = 0;
+    var escaped = false;
+    for (var index = 0; index <= styleText.length; index++) {
+      var character = styleText.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (quote) {
+        if (character === "\\") escaped = true;
+        else if (character === quote) quote = "";
+        continue;
+      }
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (character === '"' || character === "'") {
+        quote = character;
+        continue;
+      }
+      if (character === "(" || character === "[") nesting++;
+      else if ((character === ")" || character === "]") && nesting > 0)
+        nesting--;
+      else if (character === ":" && nesting === 0 && propertyEnd < 0)
+        propertyEnd = index;
+      if ((character === ";" && nesting === 0) || index === styleText.length) {
+        if (propertyEnd >= declarationStart) {
+          authoredProperties.add(
+            styleText.slice(declarationStart, propertyEnd).trim().toLowerCase(),
+          );
+        }
+        declarationStart = index + 1;
+        propertyEnd = -1;
+      }
+    }
     INLINE_STYLE_PROPERTIES.forEach(function (property) {
       var cssProperty =
         property === "webkitBoxOrient"
           ? "-webkit-box-orient"
           : property === "webkitLineClamp"
             ? "-webkit-line-clamp"
-            : property;
+            : normalizeInteractionStateProperty(property);
+      if (
+        /^border(?:Top|Right|Bottom|Left)(?:Width|Style|Color)?$/.test(
+          property,
+        ) &&
+        !authoredProperties.has(cssProperty.toLowerCase())
+      ) {
+        return;
+      }
       var value =
         property.indexOf("--") === 0 || property.indexOf("webkit") === 0
           ? inline.getPropertyValue(cssProperty)
@@ -4439,6 +4554,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       borderWidth: cs.borderWidth,
       borderStyle: cs.borderStyle,
       borderColor: cs.borderColor,
+      borderTopWidth: cs.borderTopWidth,
+      borderRightWidth: cs.borderRightWidth,
+      borderBottomWidth: cs.borderBottomWidth,
+      borderLeftWidth: cs.borderLeftWidth,
+      borderTopStyle: cs.borderTopStyle,
+      borderRightStyle: cs.borderRightStyle,
+      borderBottomStyle: cs.borderBottomStyle,
+      borderLeftStyle: cs.borderLeftStyle,
+      borderTopColor: cs.borderTopColor,
+      borderRightColor: cs.borderRightColor,
+      borderBottomColor: cs.borderBottomColor,
+      borderLeftColor: cs.borderLeftColor,
       borderRadius: cs.borderRadius,
       borderTopLeftRadius: cs.borderTopLeftRadius,
       borderTopRightRadius: cs.borderTopRightRadius,
@@ -4708,6 +4835,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    // A multi-shape pasted SVG has no single paint target. Its wrapper's
+    // computed `fill` is the SVG initial value (black), not an authored fill.
+    // Keep authored wrapper fills visible, while leaving child paints to the
+    // Selection colors inspector.
+    if (
+      el.tagName.toLowerCase() === "svg" &&
+      el.getAttribute("data-an-primitive") === "pasted-svg" &&
+      !vectorPaintTarget(el) &&
+      !el.hasAttribute("fill") &&
+      !(el as HTMLElement).style.getPropertyValue("fill")
+    ) {
+      computed.fill = "";
+    }
     if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
       computed.strokeWidth =
         strokeTarget.getAttribute("data-an-vector-logical-width") ||
@@ -13677,9 +13817,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       kind !== "rect" &&
       kind !== "rectangle" &&
       kind !== "ellipse" &&
-      kind !== "circle"
+      kind !== "circle" &&
+      kind !== "pasted-svg"
     ) {
       return null;
+    }
+    // A pasted SVG may wrap its sole editable shape in <g>. Walk groups only;
+    // never search <defs>, where an arrowhead or gradient geometry can live.
+    if (kind === "pasted-svg") {
+      var pendingShapes = Array.from(el.children);
+      var pastedShape: Element | null = null;
+      while (pendingShapes.length) {
+        var candidate = pendingShapes.pop();
+        if (!candidate) continue;
+        var candidateTag = candidate.tagName.toLowerCase();
+        if (
+          [
+            "path",
+            "polygon",
+            "ellipse",
+            "circle",
+            "rect",
+            "line",
+            "polyline",
+            "use",
+          ].includes(candidateTag)
+        ) {
+          if (pastedShape) return null;
+          pastedShape = candidate;
+        } else if (candidateTag === "g") {
+          Array.from(candidate.children).forEach(function (child) {
+            pendingShapes.push(child);
+          });
+        }
+      }
+      return pastedShape;
     }
     // Direct children only: an arrow's marker <path> sits inside <defs>
     // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
@@ -13981,6 +14153,406 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function vectorGradientPaintTarget(
+    el: Element,
+    paintProperty: "fill" | "stroke",
+  ): {
+    root: SVGSVGElement;
+    target: Element;
+  } | null {
+    var root =
+      el.tagName.toLowerCase() === "svg"
+        ? (el as SVGSVGElement)
+        : (el.closest("svg[data-an-primitive]") as SVGSVGElement | null);
+    if (!root) return null;
+    var target =
+      paintProperty === "stroke"
+        ? vectorStrokeTarget(root)
+        : vectorPaintTarget(root);
+    if (
+      !target &&
+      el !== root &&
+      /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(el.tagName)
+    ) {
+      target = el;
+    }
+    return target ? { root: root, target: target } : null;
+  }
+
+  function vectorGradientDefAttribute(paintProperty: "fill" | "stroke") {
+    return "data-an-vector-" + paintProperty + "-gradient";
+  }
+
+  function vectorGradientMetadataProperty(paintProperty: "fill" | "stroke") {
+    return "--an-vector-" + paintProperty + "-gradient";
+  }
+
+  function normalizeVectorGradientDefs(
+    root: SVGSVGElement,
+    paintProperty: "fill" | "stroke",
+  ): SVGDefsElement | null {
+    var containers = Array.from(
+      root.querySelectorAll(
+        ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]",
+      ),
+    );
+    var canonical = containers[0] || null;
+    if (!canonical) return null;
+    var seenIds: Record<string, boolean> = Object.create(null);
+    Array.from(canonical.children).forEach(function (child) {
+      var id = child.getAttribute("id");
+      if (id) seenIds[id] = true;
+    });
+    containers.slice(1).forEach(function (duplicate) {
+      Array.from(duplicate.children).forEach(function (child) {
+        var id = child.getAttribute("id");
+        if (!id || !seenIds[id]) {
+          canonical!.appendChild(child);
+          if (id) seenIds[id] = true;
+        }
+      });
+      duplicate.remove();
+    });
+    return canonical;
+  }
+
+  function removeVectorGradientPreview(
+    root: SVGSVGElement,
+    target: Element,
+    paintProperty: "fill" | "stroke",
+  ): void {
+    var style = (target as HTMLElement).style.getPropertyValue(paintProperty);
+    var reference = style.match(/^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)$/i);
+    var gradientId = reference ? reference[1] : "";
+    var defsContainers = Array.from(
+      root.querySelectorAll(
+        ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]",
+      ),
+    );
+    defsContainers.forEach(function (defs) {
+      Array.from(defs.children).forEach(function (gradient) {
+        if (gradientId && gradient.getAttribute("id") === gradientId) {
+          gradient.remove();
+        }
+      });
+    });
+    var normalizedDefs = normalizeVectorGradientDefs(root, paintProperty);
+    if (normalizedDefs && normalizedDefs.children.length === 0) {
+      normalizedDefs.remove();
+    }
+    var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+    (target as HTMLElement).style.removeProperty(metadataProperty);
+    root.style.removeProperty(metadataProperty);
+  }
+
+  function vectorFillGradientShapeCount(root: SVGSVGElement): number {
+    var count = 0;
+    function visit(parent: Element): void {
+      Array.from(parent.children).forEach(function (child) {
+        var tag = child.tagName.toLowerCase();
+        if (tag === "defs") return;
+        if (
+          /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)
+        ) {
+          count += 1;
+        } else if (tag === "g") {
+          visit(child);
+        }
+      });
+    }
+    visit(root);
+    return count;
+  }
+
+  function appendSvgGradientStops(
+    gradient: SVGLinearGradientElement | SVGRadialGradientElement,
+    stops: Array<{ color: string; position: number }>,
+  ): boolean {
+    var svgNs = "http://www.w3.org/2000/svg";
+    var appended = 0;
+    stops.forEach(function (stop) {
+      var color = document.createElement("span");
+      color.style.color = stop.color;
+      color.style.position = "absolute";
+      color.style.visibility = "hidden";
+      document.body.appendChild(color);
+      var resolved = window.getComputedStyle(color).color;
+      color.remove();
+      if (!resolved || resolved === "") return;
+      var rgba = resolved.match(/^rgba?\(([^)]+)\)$/i);
+      var colorParts = rgba ? rgba[1]!.split(/[\s,\/]+/).filter(Boolean) : [];
+      if (colorParts.length < 3) return;
+      var svgStop = document.createElementNS(svgNs, "stop");
+      svgStop.setAttribute(
+        "offset",
+        String(Math.max(0, Math.min(100, stop.position))) + "%",
+      );
+      svgStop.setAttribute(
+        "stop-color",
+        // guard:allow-raw-color — serialize the resolved user-selected SVG stop color
+        "rgb(" + colorParts.slice(0, 3).join(" ") + ")",
+      );
+      var alpha = colorParts.length > 3 ? Number(colorParts[3]) : 1;
+      if (Number.isFinite(alpha) && alpha < 1) {
+        svgStop.setAttribute("stop-opacity", String(Math.max(0, alpha)));
+      }
+      gradient.appendChild(svgStop);
+      appended += 1;
+    });
+    return appended >= 2;
+  }
+
+  function applyVectorGradientPreview(
+    el: Element,
+    value: string,
+    paintProperty: "fill" | "stroke",
+  ): boolean {
+    var paint = vectorGradientPaintTarget(el, paintProperty);
+    if (!paint) return false;
+    var linear = parseLinearGradientCss(value);
+    var radialMatch = String(value || "")
+      .trim()
+      .match(/^radial-gradient\s*\(([\s\S]*)\)$/i);
+    var radialParts = radialMatch ? splitGradientTopLevel(radialMatch[1]!) : [];
+    var radialHeader = radialParts[0] || "";
+    var radialStopStart =
+      /^(?:(?:circle|ellipse)\b|(?:closest|farthest)-(?:side|corner)\b|(?:[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)(?:\s|$))|at\s)/i.test(
+        radialHeader,
+      )
+        ? 1
+        : 0;
+    var radialStops = radialParts
+      .slice(radialStopStart)
+      .map(function (segment, index, segments) {
+        var position = segment.match(/(-?\d+(?:\.\d+)?)%\s*$/);
+        return {
+          color: position
+            ? segment.slice(0, position.index).trim()
+            : segment.trim(),
+          position: position
+            ? Number(position[1])
+            : (index / Math.max(1, segments.length - 1)) * 100,
+        };
+      })
+      .filter(function (stop) {
+        return !!stop.color;
+      });
+    var isRadial = !!radialMatch && radialStops.length >= 2;
+    if (!linear && !isRadial) return false;
+    var stops = linear ? linear.stops : radialStops;
+
+    removeVectorGradientPreview(paint.root, paint.target, paintProperty);
+    var baseId =
+      (paint.root.getAttribute("data-agent-native-node-id") || "vector") +
+      "-" +
+      paintProperty +
+      "-gradient";
+    var gradientId = baseId;
+    var suffix = 2;
+    while (document.getElementById(gradientId)) {
+      gradientId = baseId + "-" + suffix;
+      suffix += 1;
+    }
+    var svgNs = "http://www.w3.org/2000/svg";
+    var gradient: SVGLinearGradientElement | SVGRadialGradientElement;
+    if (linear) {
+      var viewBox = paint.root.viewBox.baseVal;
+      var rect = paint.root.getBoundingClientRect();
+      var width = viewBox.width || rect.width;
+      var height = viewBox.height || rect.height;
+      if (viewBox.width && viewBox.height && rect.width && rect.height) {
+        var scaleX = viewBox.width / rect.width;
+        var scaleY = viewBox.height / rect.height;
+        if (Math.abs(scaleX - scaleY) > Math.max(scaleX, scaleY) * 0.001) {
+          return false;
+        }
+      }
+      var segments = splitGradientTopLevel(
+        String(value)
+          .trim()
+          .slice(String(value).indexOf("(") + 1, -1),
+      );
+      var header = segments[0] || "";
+      var angleDegrees = linear.angle;
+      if (/^to\s+/i.test(header)) {
+        var sides =
+          header.toLowerCase().match(/\b(top|bottom|left|right)\b/g) || [];
+        var vertical = sides.find(function (side) {
+          return side === "top" || side === "bottom";
+        });
+        var horizontal = sides.find(function (side) {
+          return side === "left" || side === "right";
+        });
+        if (vertical && horizontal) {
+          var cornerDx = (horizontal === "right" ? 1 : -1) * width;
+          var cornerDy = (vertical === "top" ? -1 : 1) * height;
+          angleDegrees =
+            ((Math.atan2(cornerDx, -cornerDy) * 180) / Math.PI + 360) % 360;
+        } else if (vertical) {
+          angleDegrees = vertical === "top" ? 0 : 180;
+        } else if (horizontal) {
+          angleDegrees = horizontal === "right" ? 90 : 270;
+        }
+      } else if (!/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:deg)?$/i.test(header)) {
+        angleDegrees = 180;
+      }
+      var angle = (angleDegrees * Math.PI) / 180;
+      var dx = Math.sin(angle);
+      var dy = -Math.cos(angle);
+      var length = Math.abs(width * dx) + Math.abs(height * dy);
+      var x = viewBox.width ? viewBox.x : 0;
+      var y = viewBox.height ? viewBox.y : 0;
+      var cx = width / 2;
+      var cy = height / 2;
+      gradient = document.createElementNS(svgNs, "linearGradient");
+      gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+      gradient.setAttribute("x1", String(x + cx - (dx * length) / 2));
+      gradient.setAttribute("y1", String(y + cy - (dy * length) / 2));
+      gradient.setAttribute("x2", String(x + cx + (dx * length) / 2));
+      gradient.setAttribute("y2", String(y + cy + (dy * length) / 2));
+    } else {
+      var viewBox = paint.root.viewBox.baseVal;
+      var rect = paint.root.getBoundingClientRect();
+      var width = viewBox.width || rect.width;
+      var height = viewBox.height || rect.height;
+      if (!(width > 0 && height > 0)) return false;
+      var x = viewBox.width ? viewBox.x : 0;
+      var y = viewBox.height ? viewBox.y : 0;
+      var header = radialStopStart ? radialHeader.trim() : "";
+      var atIndex = header.toLowerCase().indexOf(" at ");
+      var shapeAndSize = (
+        atIndex < 0 ? header : header.slice(0, atIndex)
+      ).trim();
+      var position = atIndex < 0 ? "" : header.slice(atIndex + 4).trim();
+      var isCircle = /^circle\b/i.test(shapeAndSize);
+      shapeAndSize = shapeAndSize.replace(/^(?:circle|ellipse)\b/i, "").trim();
+      var sizeKeyword =
+        shapeAndSize
+          .match(
+            /^(closest-side|farthest-side|closest-corner|farthest-corner)$/i,
+          )?.[1]
+          ?.toLowerCase() || "farthest-corner";
+      var explicitSizes = shapeAndSize.match(
+        /^([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)?)(?:\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)?))?$/i,
+      );
+      var positionParts = position ? position.split(/\s+/) : [];
+      var positionValue = function (axis: "x" | "y"): number {
+        var size = axis === "x" ? width : height;
+        var start = axis === "x" ? x : y;
+        var candidates = positionParts.filter(function (part) {
+          return axis === "x"
+            ? /^(left|right|center|[-+\d.]+%|[-+\d.]+px)$/i.test(part)
+            : /^(top|bottom|center|[-+\d.]+%|[-+\d.]+px)$/i.test(part);
+        });
+        var token =
+          candidates[axis === "x" ? 0 : candidates.length - 1] || "center";
+        if (/^(right|bottom)$/i.test(token)) return start + size;
+        if (/^(left|top)$/i.test(token)) return start;
+        if (/^center$/i.test(token)) return start + size / 2;
+        var number = parseFloat(token);
+        return start + (/%$/.test(token) ? (number / 100) * size : number);
+      };
+      var cx = positionValue("x");
+      var cy = positionValue("y");
+      var left = cx - x;
+      var right = x + width - cx;
+      var top = cy - y;
+      var bottom = y + height - cy;
+      var closestX = Math.max(0, Math.min(left, right));
+      var farthestX = Math.max(left, right);
+      var closestY = Math.max(0, Math.min(top, bottom));
+      var farthestY = Math.max(top, bottom);
+      var rx: number;
+      var ry: number;
+      if (explicitSizes) {
+        var parseRadius = function (
+          raw: string | undefined,
+          axis: "x" | "y",
+        ): number {
+          if (!raw) return 0;
+          var dimension = axis === "x" ? width : height;
+          var number = parseFloat(raw);
+          return /%$/.test(raw) ? (number / 100) * dimension : number;
+        };
+        rx = parseRadius(explicitSizes[1], "x");
+        ry = explicitSizes[2] ? parseRadius(explicitSizes[2], "y") : rx;
+      } else if (
+        sizeKeyword === "closest-side" ||
+        sizeKeyword === "farthest-side"
+      ) {
+        var horizontalRadius =
+          sizeKeyword === "closest-side" ? closestX : farthestX;
+        var verticalRadius =
+          sizeKeyword === "closest-side" ? closestY : farthestY;
+        if (isCircle) {
+          rx = ry =
+            sizeKeyword === "closest-side"
+              ? Math.min(horizontalRadius, verticalRadius)
+              : Math.max(horizontalRadius, verticalRadius);
+        } else {
+          rx = horizontalRadius;
+          ry = verticalRadius;
+        }
+      } else if (isCircle) {
+        var cornerX = sizeKeyword === "closest-corner" ? closestX : farthestX;
+        var cornerY = sizeKeyword === "closest-corner" ? closestY : farthestY;
+        rx = ry = Math.hypot(cornerX, cornerY);
+      } else {
+        rx = sizeKeyword === "closest-corner" ? closestX : farthestX;
+        ry = sizeKeyword === "closest-corner" ? closestY : farthestY;
+      }
+      if (!(rx > 0 && ry > 0)) return false;
+      gradient = document.createElementNS(svgNs, "radialGradient");
+      gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+      gradient.setAttribute("cx", String(cx));
+      gradient.setAttribute("cy", String(cy));
+      if (Math.abs(rx - ry) < 0.001) {
+        gradient.setAttribute("r", String(rx));
+      } else {
+        gradient.setAttribute("r", "1");
+        gradient.setAttribute(
+          "gradientTransform",
+          "translate(" +
+            cx +
+            " " +
+            cy +
+            ") scale(" +
+            rx +
+            " " +
+            ry +
+            ") translate(" +
+            -cx +
+            " " +
+            -cy +
+            ")",
+        );
+      }
+    }
+    gradient.setAttribute("id", gradientId);
+    if (!appendSvgGradientStops(gradient, stops)) return false;
+    var defs = normalizeVectorGradientDefs(paint.root, paintProperty);
+    if (!defs) {
+      defs = document.createElementNS(svgNs, "defs") as SVGDefsElement;
+      defs.setAttribute(vectorGradientDefAttribute(paintProperty), "");
+      paint.root.insertBefore(defs, paint.root.firstChild);
+    }
+    defs.appendChild(gradient);
+    recordSourceSubtree(defs);
+    (paint.target as HTMLElement).style.setProperty(
+      paintProperty,
+      "url(#" + gradientId + ")",
+    );
+    var metadataTarget =
+      vectorFillGradientShapeCount(paint.root) === 1
+        ? paint.root
+        : paint.target;
+    (metadataTarget as HTMLElement).style.setProperty(
+      vectorGradientMetadataProperty(paintProperty),
+      value.trim(),
+    );
+    return true;
+  }
+
   function applyInlineStyleProperty(
     el: HTMLElement | null,
     property: unknown,
@@ -13989,6 +14561,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
+    if (cssProperty === "fill" && typeof value === "string") {
+      if (applyVectorGradientPreview(el, value, "fill")) return true;
+    }
+    if (cssProperty === "stroke" && typeof value === "string") {
+      if (applyVectorGradientPreview(el, value, "stroke")) return true;
+    }
     if (
       cssProperty === "--an-vector-start-point" ||
       cssProperty === "--an-vector-end-point"
@@ -14003,13 +14581,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var useOverlay = false;
     if (isVectorPaintProperty(cssProperty)) {
       var shape = vectorPaintTarget(el);
+      var vectorRoot =
+        el.tagName.toLowerCase() === "svg"
+          ? (el as unknown as SVGSVGElement)
+          : (el.closest(
+              "svg[data-an-primitive]",
+            ) as unknown as SVGSVGElement | null);
+      if (
+        !shape &&
+        vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg" &&
+        /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+          el.tagName,
+        )
+      ) {
+        shape = el;
+      }
       if (shape) {
+        if (cssProperty === "fill" && vectorRoot) {
+          removeVectorGradientPreview(vectorRoot, shape, "fill");
+        }
         strokeOverlay = vectorStrokeTarget(el);
         useOverlay =
           cssProperty.indexOf("stroke") === 0 &&
           !!strokeOverlay &&
           strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
         target = useOverlay ? strokeOverlay! : shape;
+        if (cssProperty === "stroke" && vectorRoot) {
+          removeVectorGradientPreview(vectorRoot, target, "stroke");
+        }
         clearVectorWrapperPaint(el);
         if (useOverlay && cssProperty === "stroke-width") {
           var logicalWidth = String(value);
@@ -22806,6 +23405,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
+    // A live text edit owns pointer selection inside its contenteditable. The
+    // document capture listener must not cancel that native gesture before the
+    // target's own selection machinery sees it; clicks outside still commit
+    // through the shield path below.
+    if (
+      activeTextEditEl &&
+      isTextEditElConnected() &&
+      e.target &&
+      activeTextEditEl.contains(e.target)
+    ) {
+      return;
+    }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // Consume any host handoff at pointerdown; the synthetic event carries
@@ -23648,9 +24259,133 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (content) {
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
-          { type: "figma-clipboard-paste", content: content },
+          {
+            type: "figma-clipboard-paste",
+            content: content,
+            ...clipboardScreenContext(),
+          },
           "*",
         );
+        return;
+      }
+      var svgHtml = e.clipboardData?.getData("text/html") || "";
+      var svgText = e.clipboardData?.getData("text/plain") || "";
+      var svgSource = /<svg\b/i.test(svgHtml)
+        ? svgHtml
+        : /<svg\b/i.test(svgText)
+          ? svgText
+          : "";
+      if (svgSource) {
+        stopNativeInteraction(e);
+        (window.parent as Window).postMessage(
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            svg: svgSource,
+            ...clipboardScreenContext(),
+          },
+          "*",
+        );
+        return;
+      }
+      var clipboardFiles = Array.from(e.clipboardData?.items ?? [])
+        .filter(function (item) {
+          return item.kind === "file";
+        })
+        .map(function (item) {
+          return item.getAsFile();
+        })
+        .filter(function (file): file is File {
+          return Boolean(file);
+        });
+      var svgFiles = clipboardFiles.filter(function (file) {
+        return (
+          file.type.toLowerCase() === "image/svg+xml" ||
+          file.name.toLowerCase().endsWith(".svg")
+        );
+      });
+      var imageFiles = clipboardFiles.filter(function (file) {
+        return (
+          !svgFiles.includes(file) &&
+          (file.type.startsWith("image/") || file.type.startsWith("video/"))
+        );
+      });
+      if (svgFiles.length > 0 || imageFiles.length > 0) {
+        stopNativeInteraction(e);
+        var relayImageFiles = function () {
+          if (imageFiles.length === 0) return;
+          var readPromises = imageFiles.map(function (file) {
+            return new Promise<{
+              dataUrl: string;
+              type: string;
+              name: string;
+            } | null>(function (resolve) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve({
+                  dataUrl:
+                    typeof reader.result === "string" ? reader.result : "",
+                  type: file.type,
+                  name: file.name,
+                });
+              };
+              reader.onerror = function () {
+                resolve(null);
+              };
+              reader.readAsDataURL(file);
+            });
+          });
+          void Promise.all(readPromises).then(function (results) {
+            var valid = results.filter(function (r) {
+              return r && r.dataUrl;
+            });
+            if (valid.length > 0) {
+              (window.parent as Window).postMessage(
+                {
+                  type: "canvas-image-paste",
+                  files: valid,
+                  ...clipboardScreenContext(),
+                },
+                "*",
+              );
+            }
+          });
+        };
+        void Promise.all(
+          svgFiles.map(function (file) {
+            if (file.size > 1000000) {
+              return Promise.resolve({ error: "too-large" as const });
+            }
+            return file
+              .text()
+              .then(function (source) {
+                return { source: source };
+              })
+              .catch(function () {
+                return { error: "unreadable" as const };
+              });
+          }),
+        ).then(function (results) {
+          for (var result of results) {
+            (window.parent as Window).postMessage(
+              result.source
+                ? {
+                    type: "figma-clipboard-paste",
+                    content: "",
+                    svg: result.source,
+                    ...clipboardScreenContext(),
+                  }
+                : {
+                    type: "figma-clipboard-paste",
+                    content: "",
+                    svgFileError: result.error,
+                    ...clipboardScreenContext(),
+                  },
+              "*",
+            );
+          }
+          relayImageFiles();
+        });
         return;
       }
       // Relay image files pasted while the canvas has focus (e.g. "Copy as PNG"
@@ -23658,51 +24393,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // these because paste events inside an iframe don't bubble to the parent
       // document — the bridge reads each file as a data URL and relays it so
       // the parent's handlePastedImageFiles can insert an <img> layer.
-      var imageFiles = Array.from(e.clipboardData?.items ?? [])
-        .filter(function (item) {
-          return item.kind === "file" && item.type.startsWith("image/");
-        })
-        .map(function (item) {
-          return item.getAsFile();
-        })
-        .filter(function (f): f is File {
-          return Boolean(f);
-        });
-      if (imageFiles.length > 0) {
-        stopNativeInteraction(e);
-        var readPromises = imageFiles.map(function (file) {
-          return new Promise<{
-            dataUrl: string;
-            type: string;
-            name: string;
-          } | null>(function (resolve) {
-            var reader = new FileReader();
-            reader.onload = function () {
-              resolve({
-                dataUrl: typeof reader.result === "string" ? reader.result : "",
-                type: file.type,
-                name: file.name,
-              });
-            };
-            reader.onerror = function () {
-              resolve(null);
-            };
-            reader.readAsDataURL(file);
-          });
-        });
-        void Promise.all(readPromises).then(function (results) {
-          var valid = results.filter(function (r) {
-            return r && r.dataUrl;
-          });
-          if (valid.length > 0) {
-            (window.parent as Window).postMessage(
-              { type: "canvas-image-paste", files: valid },
-              "*",
-            );
-          }
-        });
-        return;
-      }
       // A paste carrying nothing importable stays silent, unless it plainly
       // came from Figma — the user expected a screen and must be told why they
       // got nothing. The parent applies the same rule to its own listener, but
@@ -23721,6 +24411,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             content: "",
             html: pastedHtml,
             text: pastedText,
+            ...clipboardScreenContext(),
           },
           "*",
         );
@@ -24767,6 +25458,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.type === "measurement-modifier-release") {
+      hideMeasurements();
+      lastHoverInfoPostedEl = hoveredEl;
+      (window.parent as Window).postMessage(
+        {
+          type: "element-hover",
+          payload: hoveredEl ? getLightElementInfo(hoveredEl) : null,
+        },
+        "*",
+      );
+      return;
+    }
     // The child can finish booting before the parent installs its one-shot
     // ready listener. Let the parent ask again after the iframe load event;
     // this is idempotent and also survives a document remount.
