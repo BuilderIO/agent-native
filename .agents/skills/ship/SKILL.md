@@ -50,13 +50,15 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   The goal records the objective; `/babysit-pr` owns the checks and durable
   wake-ups.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
-  a session command, not an agent tool; start the ship task with `/goal` and a
+  a session command, not an agent tool, so the user must submit it as a separate
+  message before invoking `/ship`; loading the skill cannot set it. Use a
   condition that tells Claude to run `/ship` and continue until the PR is
   merged, `origin/main` contains the merge commit, and post-merge branch
   disposition is complete: rotate only in a user-owned checkout, while keeping
-  platform-assigned Builder.io and Fusion branches unchanged. A bare `/ship`
-  cannot set this native goal on Claude's behalf. Do
-  not replace an unrelated active goal; Claude Code permits one per session.
+  platform-assigned Builder.io and Fusion branches unchanged. Do not replace an
+  unrelated active goal; Claude Code permits one per session. If `/ship` was
+  already invoked without one, keep shipping in the foreground and do not claim
+  the native goal is active or mark the shipment complete.
   The `merge-authorized` invocation condition is: `Run /ship through the guarded admin merge,
   verify origin/main contains the merge commit, then rotate only if the checkout
   is user-owned; keep platform-assigned Builder.io and Fusion branches unchanged.
