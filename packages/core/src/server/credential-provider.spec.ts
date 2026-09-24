@@ -837,15 +837,21 @@ describe("resolveBuilderCredential", () => {
   it("blocks deploy-level LLM keys for hosted background requests without an email", async () => {
     process.env.NODE_ENV = "production";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.VOYAGE_API_KEY = "voyage-deploy-key";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue(undefined);
     mockReadAppSecret.mockResolvedValue(null);
 
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("VOYAGE_API_KEY")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(
       false,
     );
+    expect(canUseDeployCredentialFallbackForRequest("VOYAGE_API_KEY")).toBe(
+      false,
+    );
     expect(readDeployCredentialEnv("OPENAI_API_KEY")).toBeUndefined();
+    expect(readDeployCredentialEnv("VOYAGE_API_KEY")).toBeUndefined();
   });
 
   it("never uses deploy provider keys for synthetic traffic", async () => {

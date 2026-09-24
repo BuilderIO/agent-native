@@ -25,6 +25,7 @@ const mustReject = [
   "OPENROUTER_API_KEY",
   "SLACK_BOT_TOKEN",
   "TYPESAFE_API_KEY",
+  "VOYAGE_API_KEY",
   "VITE_AMPLITUDE_API_KEY",
 ];
 
