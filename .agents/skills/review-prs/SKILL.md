@@ -297,6 +297,10 @@ the missing screenshot without drafting a comment. A generated recap graphic
 or demo clip does not count as a screenshot of the changed UI. If the PR has no
 user-facing UI change, say so rather than requesting screenshots.
 
+If GitHub is unavailable before the diff, body, and conversation can be
+inspected, report UX evidence as **Unknown / unable to inspect**; do not infer
+that the PR has no UI change.
+
 Do not apply these extra author-reply and screenshot asks to PRs that were
 auto-approved under an explicit exception; keep their existing recap and
 approval behavior unchanged.
@@ -336,7 +340,7 @@ Use this shape:
 
 | PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Author-facing reply | Why and evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | No UI / UI; screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```

@@ -134,12 +134,17 @@ const FEEDBACK_EYES_REGEX_CASES = [
   [false, "Fixed, add a checkmark."],
 ];
 
-const PR_REVIEW_HANDOFF_CORRECTIONS = String.raw`didn['’]?t|did not|missed|forgot|failed to|left out|left off|omitted|marked|called|classified|should have waited|(?:sent|posted|drafted|added|left) another|commented again|replied again|followed up again`;
+const PR_REVIEW_HANDOFF_CORRECTIONS = [
+  String.raw`didn['’]?t|did not|missed|forgot|failed to|left out|left off|omitted|should have waited|(?:sent|posted|drafted|added|left) another|commented again|replied again|followed up again`,
+  String.raw`(?:marked|called|classified)[^.!?\n]{0,80}(?:despite|although|without|ignoring|in spite of)`,
+].join("|");
 const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`which PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?|merge[- ]readiness(?:\s+recommendation)?`,
   String.raw`(?:draft|write|prepare)\s+(?:an?\s+)?(?:author\s+)?(?:reply|comment)|(?:author\s+)?(?:reply|comment)\s+drafts?`,
   String.raw`(?:request|include|ask(?:ing)?\s+for)\s+(?:a\s+)?screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
+  String.raw`(?:include|ask(?:ing)?|request(?:ed|ing)?)[^.!?\n]{0,60}(?:(?:the|UI|UX)\s+)*(?:UI|UX)?\s*screenshots?`,
   String.raw`(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
+  String.raw`(?:report|mention|note|say|state)[^.!?\n]{0,60}screenshot(?:s)?[^.!?\n]{0,60}(?:availability|presence|status|available|present|attached|included)`,
   String.raw`(?:UI|UX)\s+screenshots?\s+(?:status|presence|availability|evidence|disposition)|screenshot\s+(?:status|disposition)`,
   String.raw`screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
   String.raw`ready(?:\s+to\s+merge)?[^.!?\n]{0,80}(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)`,
@@ -147,7 +152,7 @@ const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?\n]{0,100}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
 ].join("|");
 const PR_REVIEW_HANDOFF_RE = new RegExp(
-  String.raw`\b(?:you|we|the handoff)\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
+  String.raw`\b(?:you|we|the handoff|the (?:recap|summary|report|output))\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
   "i",
 );
 
@@ -173,6 +178,11 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "You should have waited for the author to address my previous request before a follow-up.",
   ],
   [true, "You commented again even though my prior ask was still unaddressed."],
+  [true, "You forgot to include the UI screenshots."],
+  [true, "You didn't ask for UI screenshots."],
+  [true, "You failed to report screenshot availability."],
+  [true, "The recap omitted the merge-readiness recommendation."],
+  [true, "The recap did not say whether screenshots were present."],
   [false, "Please tell me which PRs are ready to merge and draft replies."],
   [false, "This PR updates the UI and includes screenshots."],
   [false, "I would like screenshots for new UX changes."],
@@ -181,6 +191,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "Please wait for the contributor to update before drafting another comment.",
   ],
   [false, "The author addressed my prior request in a new commit."],
+  [
+    false,
+    "You classified the PR as ready to merge and included screenshot status.",
+  ],
 ];
 
 const SHIPPING_CHURN_REGEX_CASES = [
