@@ -9,6 +9,7 @@ interface DocumentDatabaseProps {
   document: Document;
   canEdit: boolean;
   viewId?: string | null;
+  foreground?: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
@@ -16,6 +17,7 @@ export function DocumentDatabase({
   document,
   canEdit,
   viewId,
+  foreground,
   onExportContextChange,
 }: DocumentDatabaseProps) {
   const databaseId = document.database?.id;
@@ -27,6 +29,7 @@ export function DocumentDatabase({
       databaseDocumentId={document.id}
       canEdit={canEdit}
       viewId={viewId}
+      foreground={foreground}
       onExportContextChange={onExportContextChange}
     />
   );

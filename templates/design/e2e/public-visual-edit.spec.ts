@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import http, { type Server } from "node:http";
 import path from "node:path";
 
@@ -64,7 +65,29 @@ function ownScreenFrame(page: Page) {
 
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
-    visualEditTargetServer = http.createServer((_request, response) => {
+    visualEditTargetServer = http.createServer((request, response) => {
+      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      if (pathname === "/slow") {
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+        });
+        response.end(
+          `<!doctype html><html><body><main><h1>Delayed image frame</h1><img id="delayed-image" src="${visualEditTargetUrl}/slow-image.svg" /></main></body></html>`,
+        );
+        return;
+      }
+      if (pathname === "/slow-image.svg") {
+        response.writeHead(200, {
+          "cache-control": "no-store",
+          "content-type": "image/svg+xml",
+        });
+        setTimeout(() => {
+          response.end(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><circle cx="40" cy="40" r="36" fill="#7c3aed"/></svg>',
+          );
+        }, 5_000);
+        return;
+      }
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
         "<!doctype html><html><body><main><h1>Local visual edit</h1></main></body></html>",
@@ -134,6 +157,185 @@ test.describe.serial("public visual edit", () => {
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
+    }
+  });
+
+  test("reveals the local frame as soon as its editor bridge is ready", async ({
+    page,
+  }) => {
+    let createdDesignId: string | undefined;
+    await page.addInitScript(() => {
+      if (window.top !== window) return;
+      const timing = {
+        mountedAt: null as number | null,
+        readyAt: null as number | null,
+        loadAt: null as number | null,
+      };
+      Object.defineProperty(window, "__visualEditFrameTiming", {
+        configurable: false,
+        value: timing,
+      });
+      const mountTimes = new WeakMap<HTMLIFrameElement, number>();
+      const watchedFrames = new WeakSet<HTMLIFrameElement>();
+      const watchFrame = (element: Element) => {
+        if (
+          !(element instanceof HTMLIFrameElement) ||
+          !element.matches("iframe[data-design-preview-iframe]") ||
+          watchedFrames.has(element)
+        ) {
+          return;
+        }
+        watchedFrames.add(element);
+        mountTimes.set(element, performance.now());
+        element.addEventListener("load", () => {
+          if (element.src.includes("slow")) timing.loadAt ??= performance.now();
+        });
+      };
+      const scan = (node: Node) => {
+        if (!(node instanceof Element)) return;
+        watchFrame(node);
+        node
+          .querySelectorAll("iframe[data-design-preview-iframe]")
+          .forEach(watchFrame);
+      };
+      new MutationObserver((records) => {
+        for (const record of records) {
+          record.addedNodes.forEach(scan);
+          if (
+            record.type === "attributes" &&
+            record.target instanceof HTMLIFrameElement
+          ) {
+            watchFrame(record.target);
+          }
+        }
+      }).observe(document, {
+        attributes: true,
+        attributeFilter: ["src"],
+        childList: true,
+        subtree: true,
+      });
+      window.addEventListener("message", (event) => {
+        if (
+          event.data?.type !== "agent-native:editor-chrome-ready" ||
+          timing.readyAt !== null
+        ) {
+          return;
+        }
+        const frame = [
+          ...document.querySelectorAll<HTMLIFrameElement>(
+            'iframe[data-design-preview-iframe][src*="slow"]',
+          ),
+        ].find((candidate) => candidate.contentWindow === event.source);
+        if (!frame) return;
+        timing.mountedAt = mountTimes.get(frame) ?? performance.now();
+        timing.readyAt = performance.now();
+      });
+    });
+
+    const openedResponse = await page.request.post(
+      appPath("/_agent-native/actions/open-visual-edit"),
+      {
+        data: {
+          title: "Iframe load timing",
+          devServerUrl: visualEditTargetUrl,
+          bridgeUrl: visualEditBridge!.manifest.bridgeUrl,
+          bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+          rootPath: visualEditBridge!.manifest.rootPath,
+          paths: ["/slow"],
+          navigate: false,
+        },
+      },
+    );
+    expect(openedResponse.ok()).toBe(true);
+    const opened = (await openedResponse.json()) as {
+      designId?: string;
+      urlPath?: string;
+    };
+    createdDesignId = opened.designId;
+    if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
+    if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
+
+    try {
+      await page.goto(
+        `${BASE_URL}${opened.urlPath}&editorView=overview&zoom=50`,
+        { waitUntil: "domcontentloaded" },
+      );
+      const editorFrame = page.locator(
+        'iframe[data-design-preview-iframe][src*="live-edit"][src*="slow"]',
+      );
+      await expect(editorFrame).toBeAttached({ timeout: 30_000 });
+      await page.waitForFunction(
+        () => {
+          const timing = (
+            window as Window & {
+              __visualEditFrameTiming?: { readyAt: number | null };
+            }
+          ).__visualEditFrameTiming;
+          return typeof timing?.readyAt === "number";
+        },
+        undefined,
+        { timeout: 30_000 },
+      );
+
+      const localScreen = editorFrame.contentFrame();
+      await expect(
+        localScreen.getByRole("heading", { name: "Delayed image frame" }),
+      ).toBeVisible();
+      expect(
+        await localScreen
+          .locator("#delayed-image")
+          .evaluate((image) => !(image as HTMLImageElement).complete),
+      ).toBe(true);
+      await expect(page.getByText(/prepar.*live editor/i)).toBeHidden();
+
+      const screenshotPath = path.resolve(
+        import.meta.dirname,
+        "../../../.tmp/visual-edit-iframe-ready.png",
+      );
+      await mkdir(path.dirname(screenshotPath), { recursive: true });
+      await page.screenshot({ path: screenshotPath });
+      await page.waitForFunction(
+        () => {
+          const timing = (
+            window as Window & {
+              __visualEditFrameTiming?: { loadAt: number | null };
+            }
+          ).__visualEditFrameTiming;
+          return typeof timing?.loadAt === "number";
+        },
+        undefined,
+        { timeout: 15_000 },
+      );
+      const timing = await page.evaluate(() => {
+        const timing = (
+          window as Window & {
+            __visualEditFrameTiming?: {
+              mountedAt: number | null;
+              readyAt: number | null;
+              loadAt: number | null;
+            };
+          }
+        ).__visualEditFrameTiming;
+        if (
+          !timing ||
+          timing.mountedAt === null ||
+          timing.readyAt === null ||
+          timing.loadAt === null
+        ) {
+          throw new Error("iframe timing events were not all observed");
+        }
+        return {
+          bridgeReadyMs: Math.round(timing.readyAt - timing.mountedAt),
+          fullLoadAfterReadyMs: Math.round(timing.loadAt - timing.readyAt),
+        };
+      });
+      console.info(
+        `[visual-edit-iframe-timing] bridge-ready=${timing.bridgeReadyMs}ms full-load-after-ready=${timing.fullLoadAfterReadyMs}ms`,
+      );
+    } finally {
+      await page.request.post(appPath("/_agent-native/actions/delete-design"), {
+        data: { id: createdDesignId },
+      });
     }
   });
 

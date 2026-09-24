@@ -21,6 +21,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
@@ -204,6 +208,7 @@ export default defineAction({
     const icon = args.icon || null;
     const currentUserEmail = getRequestUserEmail();
     if (!currentUserEmail) throw new Error("no authenticated user");
+    const actor = requireDocumentRequestActor(ctx);
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
@@ -366,6 +371,7 @@ export default defineAction({
             isFavorite: 0,
             hideFromSearch,
             visibility,
+            ...documentCreationAttribution(actor),
             createdAt: now,
             updatedAt: now,
           });

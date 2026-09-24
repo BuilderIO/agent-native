@@ -278,6 +278,7 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
         ),
       )
       .toEqual(["A", "C", "S", "B", "D"]);
+    await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
 
     await pressZ(page, true);
     await expect

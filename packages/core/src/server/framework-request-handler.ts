@@ -15,6 +15,7 @@ import type { EventHandler, H3Event } from "h3";
 import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
 import { AppConfigurationError } from "../app-config/index.js";
+import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import {
@@ -29,6 +30,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
+import { PUBLIC_PATHNAME_CONTEXT_KEY } from "./framework-request-context.js";
 import {
   getFrameworkRoutePrefix,
   internalFrameworkPath,
@@ -59,7 +61,6 @@ const EARLY_FRAMEWORK_PATHS_KEY = "_agentNativeEarlyFrameworkPaths";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
-const PUBLIC_PATHNAME_CONTEXT_KEY = "_frameworkPublicPathname";
 const RETIRED_PATH_CONTEXT_KEY = "_frameworkRetiredPathname";
 
 const CANONICAL_AUTH_EARLY_PATHS = [
@@ -176,11 +177,7 @@ function translatePublicFrameworkRequest(event: H3Event): void {
   }
 }
 
-/** The public pathname the browser requested, when the boundary rewrote it. */
-export function getPublicFrameworkPathname(event: H3Event): string | undefined {
-  const value = (event as any).context?.[PUBLIC_PATHNAME_CONTEXT_KEY];
-  return typeof value === "string" ? value : undefined;
-}
+export { getPublicFrameworkPathname } from "./framework-request-context.js";
 
 /**
  * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API
@@ -267,6 +264,11 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
+    // A real nitroApp instance exists, wiring its H3 app for real requests —
+    // the one cross-platform signal bare Node/Docker has for "this process is
+    // actually serving" (see db/server-runtime.js). A build never reaches
+    // this: it never constructs a real nitroApp.
+    markServerRuntimeStarted();
     // Parse now, decide later. An unknown slot name in `plugins.disabled` is
     // an invalid deployment, not a plugin that failed to start, and the catch
     // below would turn it into an app with every default route missing — so

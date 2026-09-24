@@ -270,9 +270,49 @@ export function isolateSelectedExportElements(
   }
 }
 
+/** html2canvas ignores CSS `filter`, so filtered images export pre-filtered. */
+async function bakeFilteredImages(
+  doc: Document,
+): Promise<Map<Element, string>> {
+  const baked = new Map<Element, string>();
+  const view = doc.defaultView;
+  if (!view) return baked;
+  for (const image of Array.from(doc.querySelectorAll("img"))) {
+    const filter = view.getComputedStyle(image).filter;
+    if (!filter || filter === "none" || !image.naturalWidth) continue;
+    const draw = (source: HTMLImageElement) => {
+      const canvas = doc.createElement("canvas");
+      canvas.width = source.naturalWidth;
+      canvas.height = source.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("2D canvas unavailable");
+      context.filter = filter;
+      context.drawImage(source, 0, 0);
+      return canvas.toDataURL("image/png");
+    };
+    try {
+      baked.set(image, draw(image));
+      continue;
+      // coercion-ok: a cross-origin image taints the canvas; retried with CORS below
+    } catch {}
+    try {
+      const corsImage = new view.Image();
+      corsImage.crossOrigin = "anonymous";
+      corsImage.src = image.currentSrc || image.src;
+      await corsImage.decode();
+      baked.set(image, draw(corsImage));
+      // coercion-ok: without CORS headers the image exports unfiltered, and says so
+    } catch (error) {
+      console.warn("PNG export could not apply an image filter:", error);
+    }
+  }
+  return baked;
+}
+
 function sanitizeHtml2CanvasClone(
   sourceDocument: Document,
   clonedDocument: Document,
+  bakedImages: ReadonlyMap<Element, string>,
 ) {
   const sourceView = sourceDocument.defaultView;
   if (!sourceView) return;
@@ -288,6 +328,12 @@ function sanitizeHtml2CanvasClone(
     const clonedStyle = elementInlineStyle(clonedElements[index]);
     if (!clonedStyle) return;
     const computed = sourceView.getComputedStyle(sourceElement);
+    const bakedSource = bakedImages.get(sourceElement);
+    if (bakedSource) {
+      clonedElements[index]!.setAttribute("src", bakedSource);
+      clonedElements[index]!.removeAttribute("srcset");
+      clonedStyle.setProperty("filter", "none", "important");
+    }
     for (const property of HTML2CANVAS_COLOR_PROPERTIES) {
       const value = computed.getPropertyValue(property);
       if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
@@ -592,6 +638,7 @@ export async function renderExportDocumentCanvas({
   // to exist on both sides or decorations drift away from the text they sit
   // behind. See export-font-mirror.ts.
   const mirroredFonts = await mirrorPreviewWebFonts(doc, iframe.ownerDocument);
+  const bakedImages = await bakeFilteredImages(doc);
   if (mirroredFonts.unreadableStylesheets.length > 0) {
     console.warn(
       "Export font mirroring skipped unreadable stylesheets; text metrics may drift:",
@@ -625,7 +672,7 @@ export async function renderExportDocumentCanvas({
     useCORS: true,
     backgroundColor: null,
     onclone: (clonedDocument: Document) => {
-      sanitizeHtml2CanvasClone(doc, clonedDocument);
+      sanitizeHtml2CanvasClone(doc, clonedDocument, bakedImages);
       isolateSelectedExportElements(
         doc,
         clonedDocument,

@@ -130,15 +130,25 @@ export function inflateCapped(
   return concatBytes(parts, total);
 }
 
-const utf8Encoder = new TextEncoder();
+/** Byte length of `TextEncoder().encode(text)`, without encoding a copy. */
 export function utf8ByteLength(text: string): number {
-  return utf8Encoder.encode(text).length;
-}
-
-export function bytesToHexString(bytes: Uint8Array): string {
-  let out = "";
-  for (const byte of bytes) out += byte.toString(16).padStart(2, "0");
-  return out;
+  let bytes = text.length;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) continue;
+    if (code < 0x800) {
+      bytes += 1;
+      continue;
+    }
+    // A surrogate pair is 2 UTF-16 units and 4 bytes; any other unit,
+    // including a lone surrogate (encoded as U+FFFD), is 3 bytes.
+    bytes += 2;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) i++;
+    }
+  }
+  return bytes;
 }
 
 /**
@@ -163,15 +173,6 @@ export function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64);
   const out = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-export function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.length % 2 === 0 ? hex : hex.slice(0, hex.length - 1);
-  const out = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
-  }
   return out;
 }
 

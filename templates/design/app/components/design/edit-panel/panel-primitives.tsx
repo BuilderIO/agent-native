@@ -5,6 +5,7 @@ import {
 } from "@shared/color-utils";
 import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -73,6 +74,8 @@ export function normalizeLengthValue(
   }
   return trimmed;
 }
+
+const DEFAULT_PAINT_COLOR = "#000000"; // guard:allow-raw-color — valid initial value for an empty solid-paint editor
 
 /**
  * Enter and Escape are the only PropInput keys that manually call `.blur()`
@@ -234,6 +237,7 @@ export function ColorInput({
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
+  singlePaint = false,
   allowDesignHistoryHotkeys = false,
   onChangeCancel,
   documentColors,
@@ -293,6 +297,8 @@ export function ColorInput({
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
+  /** A single SVG paint can be solid or a gradient without being a CSS layer. */
+  singlePaint?: boolean;
   allowDesignHistoryHotkeys?: boolean;
   onChangeCancel?: (value: string) => void;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
@@ -332,13 +338,19 @@ export function ColorInput({
     setDraft(value);
   }, [value]);
 
-  const backgroundLayers = splitCssLayers(backgroundImage || "");
+  const backgroundLayers = singlePaint
+    ? []
+    : splitCssLayers(backgroundImage || "");
   const backgroundSizeLayers = splitCssLayers(backgroundSize || "");
   const backgroundRepeatLayers = splitCssLayers(backgroundRepeat || "");
   const backgroundPositionLayers = splitCssLayers(backgroundPosition || "");
-  const selectedLayerIndex = fillLayerIndex(selectedFillId);
-  const selectedGradient =
-    selectedLayerIndex !== null
+  const selectedLayerIndex = singlePaint
+    ? null
+    : fillLayerIndex(selectedFillId);
+  const singlePaintGradient = singlePaint ? parseGradientLayer(value) : null;
+  const selectedGradient = singlePaint
+    ? singlePaintGradient
+    : selectedLayerIndex !== null
       ? parseGradientLayer(backgroundLayers[selectedLayerIndex] || "")
       : null;
   const fallbackGradientIndex = backgroundLayers.findIndex((layer) =>
@@ -350,8 +362,9 @@ export function ColorInput({
       : fallbackGradientIndex >= 0
         ? fallbackGradientIndex
         : null;
-  const activeGradient =
-    activeGradientIndex !== null
+  const activeGradient = singlePaint
+    ? singlePaintGradient
+    : activeGradientIndex !== null
       ? parseGradientLayer(backgroundLayers[activeGradientIndex] || "")
       : null;
   const activeStopIds =
@@ -396,8 +409,9 @@ export function ColorInput({
     // backgroundColor) and gets silently dropped by the browser — but not
     // before clobbering the last-known-good value in this component's own
     // state. Reject anything that doesn't parse as a plain solid color in
-    // that case instead of forwarding it.
-    if (!supportsLayeredFills && !parseCssColor(next)) return;
+    // that case instead of forwarding it. A native vector's single paint is
+    // the exception: its gradient is stored in the `fill` property itself.
+    if (!supportsLayeredFills && !singlePaint && !parseCssColor(next)) return;
     pendingGestureRef.current = phase === "preview";
     setDraft(next);
     onChange(next, { phase });
@@ -420,6 +434,10 @@ export function ColorInput({
   };
 
   const handlePaintValueChange = (nextValue: string) => {
+    if (singlePaint) {
+      setNext(nextValue, "preview");
+      return;
+    }
     if (!supportsLayeredFills || !onBackgroundImageChange) {
       setNext(nextValue);
       return;
@@ -480,18 +498,26 @@ export function ColorInput({
         }
       : undefined;
 
-  const selectedPaintType: DesignPaintType =
-    selectedFillId !== SOLID_FILL_ID
+  const selectedPaintType: DesignPaintType = singlePaint
+    ? (singlePaintGradient?.type ??
+      (colorHasVisibleAlpha(draft || value) ? "solid" : "none"))
+    : selectedFillId !== SOLID_FILL_ID
       ? selectedGradient
         ? selectedGradient.type
         : "image"
       : colorHasVisibleAlpha(draft || value)
         ? "solid"
         : "none";
-  const pickerValue =
-    selectedLayerIndex !== null
-      ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
-      : draft || "#000000";
+  const pickerValue = singlePaint
+    ? singlePaintGradient
+      ? value
+      : draft || value || DEFAULT_PAINT_COLOR
+    : selectedLayerIndex !== null
+      ? (backgroundLayers[selectedLayerIndex] ??
+        draft ??
+        value ??
+        DEFAULT_PAINT_COLOR)
+      : draft || DEFAULT_PAINT_COLOR;
   const selectedBackgroundLayerValue = (layers: string[]): string | undefined =>
     selectedLayerIndex !== null ? layers[selectedLayerIndex] : undefined;
   const handlePaintTypeChange = (type: DesignPaintType) => {
@@ -502,11 +528,20 @@ export function ColorInput({
       // see solidToGradientPatch below), so on the way back draft/value
       // would be "transparent" and cssColorOrFallback would land on black;
       // the first stop still holds the color the gradient was built from.
-      const removedGradient =
-        selectedLayer !== null
-          ? parseGradientLayer(backgroundLayers[selectedLayer] || "")
-          : null;
-      if (selectedLayer !== null) removeBackgroundLayer(selectedLayer);
+      const selectedLayerIsSynthetic =
+        selectedLayer !== null && selectedLayer >= backgroundLayers.length;
+      const removedGradient = parseGradientLayer(
+        selectedLayer !== null && !selectedLayerIsSynthetic
+          ? backgroundLayers[selectedLayer] || ""
+          : value,
+      );
+      // Vector fills expose one native paint through the same picker, but do
+      // not have a CSS background-layer stack. Their selected layer id is a
+      // synthetic picker id; removing it would emit an intermediate `fill:
+      // none` edit before the solid color and can race the source commit.
+      if (selectedLayer !== null && !selectedLayerIsSynthetic) {
+        removeBackgroundLayer(selectedLayer);
+      }
       setSelectedFillId(SOLID_FILL_ID);
       const firstStopColor = removedGradient?.stops[0]?.color;
       const parsedStop = firstStopColor ? parseCssColor(firstStopColor) : null;
@@ -533,7 +568,7 @@ export function ColorInput({
       setNext("transparent");
       return;
     }
-    if (!onBackgroundImageChange) return;
+    if (!onBackgroundImageChange && !onSolidToGradientChange) return;
 
     if (
       type !== "linear" &&
@@ -544,6 +579,32 @@ export function ColorInput({
       return;
     }
     const nextType: DesignGradientType = type;
+    if (singlePaint) {
+      if (singlePaintGradient) {
+        setNext(
+          buildGradientLayer(
+            nextType,
+            singlePaintGradient.stops,
+            undefined,
+            singlePaintGradient.opacity,
+          ),
+        );
+        return;
+      }
+      const patch = solidToGradientPatch(
+        draft || value || DEFAULT_PAINT_COLOR,
+        {
+          backgroundImage: [],
+          backgroundSize: [],
+          backgroundRepeat: [],
+          backgroundPosition: [],
+        },
+        nextType,
+      );
+      if (onSolidToGradientChange) onSolidToGradientChange(patch);
+      else setNext(patch.backgroundImage);
+      return;
+    }
     if (selectedLayer !== null) {
       const currentGradient = parseGradientLayer(
         backgroundLayers[selectedLayer] || "",
@@ -577,6 +638,7 @@ export function ColorInput({
     if (onSolidToGradientChange) {
       onSolidToGradientChange(patch);
     } else {
+      if (!onBackgroundImageChange) return;
       onBackgroundImageChange(patch.backgroundImage);
       // Clear the solid base fill in the same switch — this is a convert
       // (the mirror of the gradient -> solid branch above), not a stack.
@@ -585,7 +647,7 @@ export function ColorInput({
       // extra row for what the user meant as one paint-type change.
       setNext(patch.backgroundColor);
     }
-    setSelectedFillId(fillLayerId(backgroundLayers.length));
+    if (!singlePaint) setSelectedFillId(fillLayerId(backgroundLayers.length));
     setSelectedStopId("stop-0");
   };
 
@@ -670,7 +732,10 @@ export function PropSelect({
       </InspectorGridCell>
       <InspectorGridCell span={18}>
         <Select value={value} onValueChange={onChange}>
-          <SelectTrigger className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectTrigger
+            aria-label={label}
+            className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -756,15 +821,34 @@ export function PanelSection({
   title,
   actions,
   children,
+  onEmptyTitleClick,
+  emptyTitleActionLabel,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
+  onEmptyTitleClick?: () => void;
+  emptyTitleActionLabel?: string;
 }) {
   const hasContent = Children.toArray(children).length > 0;
   const heading = (
-    <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
-      {title}
+    <h3
+      aria-label={title}
+      className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground"
+    >
+      {onEmptyTitleClick && !hasContent ? (
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label={emptyTitleActionLabel ?? title}
+          className="h-full w-full min-w-0 justify-start rounded-none bg-transparent p-0 text-left text-inherit shadow-none hover:bg-transparent"
+          onClick={onEmptyTitleClick}
+        >
+          {title}
+        </Button>
+      ) : (
+        title
+      )}
     </h3>
   );
 

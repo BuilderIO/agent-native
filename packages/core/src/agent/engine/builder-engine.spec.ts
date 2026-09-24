@@ -495,6 +495,7 @@ describe("createBuilderEngine", () => {
             type: "usage",
             inputTokens: 5,
             outputTokens: 3,
+            creditsUsed: 0.237,
             cacheInputTokens: 2,
             cacheCreatedTokens: 1,
           },
@@ -518,6 +519,7 @@ describe("createBuilderEngine", () => {
       outputTokens: 3,
       cacheReadTokens: 2,
       cacheWriteTokens: 1,
+      builderCreditsUsed: 0.237,
     });
 
     const assistantContent = events.find((e) => e.type === "assistant-content");
@@ -527,6 +529,30 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("end_turn");
+  });
+
+  it("rejects malformed Builder credit usage instead of recording an estimate", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "usage",
+            inputTokens: 5,
+            outputTokens: 3,
+            creditsUsed: "1",
+          },
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(events.find((event) => event.type === "usage")).toBeUndefined();
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      reason: "error",
+      errorCode: "builder_gateway_error",
+    });
   });
 
   it("assembles interleaved text and tool-call into assistant-content in order", async () => {
@@ -2452,10 +2478,13 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("high");
   });
 
-  // OpenAI rejects reasoning_effort + function tools on Chat Completions,
-  // where the gateway routes GPT models — every gpt-5.x chat WITH TOOLS (i.e.
-  // every real agent turn) failed deterministically until this sent "none".
-  it("sends reasoning_effort none for a GPT model when tools are present", async () => {
+  // The gateway proxies GPT reasoning models (Luna/Terra/Sol) to OpenAI's
+  // Responses API, which accepts reasoning_effort alongside function tools —
+  // confirmed via a live gateway request (200 OK, effort=xhigh, 39 tools).
+  // A prior guard here forced "none" based on a misattributed Chat
+  // Completions rejection actually seen on a different engine/proxy; see
+  // packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md.
+  it("sends the real reasoning_effort for a GPT model when tools are present", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -2481,11 +2510,17 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("none");
+    expect(body.reasoning_effort).toBe("high");
     expect(body.tools).toHaveLength(1);
   });
 
-  it("preserves explicit none for a GPT model when tools are present", async () => {
+  // "none" is not one of GPT's visible effort tiers (see VISIBLE_GPT_EFFORTS
+  // in reasoning-effort.ts), so normalizeReasoningEffortForModel drops it and
+  // the field is omitted — OpenAI then applies the model's own default. This
+  // was previously masked by the removed Chat-Completions guard, which forced
+  // "none" onto the wire for an unrelated reason and happened to produce the
+  // same value for this input.
+  it("omits reasoning_effort for a GPT model when explicit effort is none", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -2512,7 +2547,7 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("none");
+    expect(body.reasoning_effort).toBeUndefined();
   });
 
   it("keeps full reasoning_effort for a Claude model when tools are present", async () => {

@@ -10,7 +10,7 @@
 
 import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
-import { formatMcpConnectError } from "./errors.js";
+import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,
@@ -48,6 +48,10 @@ interface ServerEntry {
   transport: any;
   tools: McpTool[];
   error?: string;
+  pendingRequests: number;
+  pendingRequestsDrained: Promise<void>;
+  resolvePendingRequests?: () => void;
+  replacement?: ServerEntry;
 }
 
 type ErrorSink = (error: unknown) => void;
@@ -356,6 +360,8 @@ export class McpClientManager {
       client: null,
       transport: null,
       tools: [],
+      pendingRequests: 0,
+      pendingRequestsDrained: Promise.resolve(),
     };
     this.servers.set(id, entry);
     try {
@@ -536,6 +542,115 @@ export class McpClientManager {
     }
   }
 
+  private async closeEntry(entry: ServerEntry): Promise<void> {
+    if (entry.client) entry.client.onerror = undefined;
+    if (entry.transport) entry.transport.onerror = undefined;
+    await safelyClose(entry.client);
+    await safelyClose(entry.transport);
+  }
+
+  private beginRequest(entry: ServerEntry): void {
+    if (entry.pendingRequests === 0) {
+      entry.pendingRequestsDrained = new Promise<void>((resolve) => {
+        entry.resolvePendingRequests = resolve;
+      });
+    }
+    entry.pendingRequests += 1;
+  }
+
+  private endRequest(entry: ServerEntry): void {
+    entry.pendingRequests -= 1;
+    if (entry.pendingRequests === 0) {
+      entry.resolvePendingRequests?.();
+      entry.resolvePendingRequests = undefined;
+    }
+  }
+
+  private async runRequest<T>(
+    entry: ServerEntry,
+    operation: (entry: ServerEntry) => Promise<T>,
+  ): Promise<T> {
+    this.beginRequest(entry);
+    try {
+      return await operation(entry);
+    } finally {
+      this.endRequest(entry);
+    }
+  }
+
+  private async reconnectExpiredSession(
+    entry: ServerEntry,
+    failedTransport: any,
+  ): Promise<ServerEntry | null> {
+    const task = this.reconfigureQueue.then(async () => {
+      if (
+        this.servers.get(entry.id) !== entry ||
+        entry.transport !== failedTransport
+      ) {
+        return this.servers.get(entry.id) === entry.replacement
+          ? (entry.replacement ?? null)
+          : null;
+      }
+
+      await entry.pendingRequestsDrained;
+      if (
+        this.servers.get(entry.id) !== entry ||
+        entry.transport !== failedTransport
+      ) {
+        return this.servers.get(entry.id) === entry.replacement
+          ? (entry.replacement ?? null)
+          : null;
+      }
+      this.servers.delete(entry.id);
+      await this.closeEntry(entry);
+      const sdk = await this.loadSdk(
+        (entry.config.type ?? "stdio") === "stdio",
+      );
+      if (!sdk) throw new Error("MCP SDK is unavailable");
+      await this.addServer(entry.id, entry.config, sdk);
+      entry.replacement = this.servers.get(entry.id);
+      this.emitChange();
+      return entry.replacement ?? null;
+    });
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    await task;
+    return task;
+  }
+
+  private async withExpiredSessionRetry<T>(
+    entry: ServerEntry,
+    operation: (entry: ServerEntry) => Promise<T>,
+  ): Promise<T> {
+    const failedTransport = entry.transport;
+    const sessionId = failedTransport?.sessionId;
+    try {
+      return await this.runRequest(entry, operation);
+    } catch (error) {
+      if (
+        typeof sessionId !== "string" ||
+        sessionId.length === 0 ||
+        httpStatusFromError(error) !== 404
+      ) {
+        throw error;
+      }
+      const replacement = await this.reconnectExpiredSession(
+        entry,
+        failedTransport,
+      );
+      if (!replacement) throw error;
+      if (!replacement.client) {
+        throw new Error(
+          `MCP server "${entry.id}" is not connected${
+            replacement.error ? `: ${replacement.error}` : ""
+          }`,
+        );
+      }
+      return this.runRequest(replacement, operation);
+    }
+  }
+
   /**
    * Replace the configured server set. Servers that appear in the new config
    * under a different shape are reconnected; unchanged entries stay live;
@@ -602,16 +717,7 @@ export class McpClientManager {
         const entry = this.servers.get(id);
         if (!entry) return;
         this.servers.delete(id);
-        try {
-          if (entry.client?.close) await entry.client.close();
-        } catch {
-          // ignore
-        }
-        try {
-          if (entry.transport?.close) await entry.transport.close();
-        } catch {
-          // ignore
-        }
+        await this.closeEntry(entry);
       }),
     );
 
@@ -683,22 +789,23 @@ export class McpClientManager {
         }`,
       );
     }
-    // Look up the tool so we fail loud for unknown names instead of forwarding
-    // garbage through to the server.
-    const known = entry.tools.find((t) => t.name === prefixedName);
-    if (!known) {
-      throw new Error(
-        `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
-      );
-    }
-    const result = await entry.client.callTool({
-      name: parsed.toolName,
-      arguments:
-        args && typeof args === "object"
-          ? (args as Record<string, unknown>)
-          : {},
+    return this.withExpiredSessionRetry(entry, (current) => {
+      // Look up the tool so we fail loud for unknown names instead of
+      // forwarding garbage through to the server.
+      const known = current.tools.find((t) => t.name === prefixedName);
+      if (!known) {
+        throw new Error(
+          `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
+        );
+      }
+      return current.client.callTool({
+        name: parsed.toolName,
+        arguments:
+          args && typeof args === "object"
+            ? (args as Record<string, unknown>)
+            : {},
+      });
     });
-    return result;
   }
 
   async readResource(serverId: string, uri: string): Promise<unknown> {
@@ -713,16 +820,20 @@ export class McpClientManager {
         }`,
       );
     }
-    if (typeof entry.client.readResource === "function") {
-      return entry.client.readResource({ uri });
-    }
-    if (typeof entry.client.request === "function") {
-      return entry.client.request({
-        method: "resources/read",
-        params: { uri },
-      });
-    }
-    throw new Error(`MCP server "${serverId}" does not support resources/read`);
+    return this.withExpiredSessionRetry(entry, (current) => {
+      if (typeof current.client.readResource === "function") {
+        return current.client.readResource({ uri });
+      }
+      if (typeof current.client.request === "function") {
+        return current.client.request({
+          method: "resources/read",
+          params: { uri },
+        });
+      }
+      throw new Error(
+        `MCP server "${serverId}" does not support resources/read`,
+      );
+    });
   }
 
   async readResourceForTool(
@@ -740,23 +851,16 @@ export class McpClientManager {
 
   /** Cleanly close all MCP clients and child processes. */
   async stop(): Promise<void> {
-    const entries = Array.from(this.servers.values());
-    this.servers.clear();
-    this.started = false;
-    await Promise.all(
-      entries.map(async (entry) => {
-        try {
-          if (entry.client?.close) await entry.client.close();
-        } catch {
-          // ignore
-        }
-        try {
-          if (entry.transport?.close) await entry.transport.close();
-        } catch {
-          // ignore
-        }
-      }),
-    );
+    const task = this.reconfigureQueue.then(async () => {
+      const entries = Array.from(this.servers.values());
+      this.servers.clear();
+      this.started = false;
+      await Promise.all(entries.map((entry) => this.closeEntry(entry)));
+    });
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    await task;
   }
 
   /** Diagnostic snapshot used by `/_agent-native/mcp/status`. */

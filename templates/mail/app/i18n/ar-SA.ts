@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "جارٍ مزامنة الوارد…",
     },
+    sort: {
+      label: "ترتيب الوارد",
+      newest: "الأحدث",
+      priority: "الأولوية",
+      priorityFailed: "تعذّر ترتيب الوارد.",
+    },
     toolbar: {
       toggleMenu: "تبديل القائمة",
       menu: "Menu",
@@ -500,6 +506,10 @@ const messages = {
       instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
       spamMode: "مزعج",
       tagMode: "وسم",
+      importantMode: "مهم",
+      importantLabel: "مهم بالذكاء الاصطناعي",
+      reviewImportant: "عرض المهم",
+      importantPlaceholder: "مثال: الرسائل التي تحتاج إلى رد أو لها موعد نهائي",
       ruleAdded: "تمت إضافة قاعدة الذكاء الاصطناعي.",
       instructionHelp: "استخدم لغة طبيعية",
       tagNamePlaceholder: "اسم الوسم",
@@ -514,6 +524,7 @@ const messages = {
       previewButton: "تشغيل المعاينة",
       previewRunning: "جارٍ فحص بريد الوارد الأخير…",
       jevBadge: "Jev",
+      jevMatchProbability: "احتمال مطابقة Jev: {{percent}}%",
       feedbackLabel: "حدد المطابقات التي لا ينبغي تضمينها",
       notSpamShort: "ليس مزعجًا",
       notMatchShort: "ليس مطابقًا",

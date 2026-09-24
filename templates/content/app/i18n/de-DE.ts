@@ -462,8 +462,9 @@ const editor = {
   pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
   pageBodySyncingDescription:
     "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
+  createCollection: "Sammlung erstellen",
   creatingDatabase: "Inline-Sammlung wird erstellt...",
-  databaseCreated: "Inline-Sammlung erstellt",
+  databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
@@ -716,6 +717,11 @@ const editor = {
     collapsibleBlockDescription: "Zusammenklappbarer Block",
     database: "Sammlung",
     databaseDescription: "Inline-Sammlung auf dieser Seite",
+    collectionInline: "Sammlung — eingebettet",
+    collectionInlineDescription: "Eine Sammlung in dieser Seite hinzufügen",
+    collectionFullPage: "Sammlung — ganze Seite",
+    collectionFullPageDescription:
+      "Eine untergeordnete Sammlung erstellen und hier verlinken",
     divider: "Teiler",
     dividerDescription: "Horizontale Regel",
     generate: "Generieren",
@@ -872,9 +878,40 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content-Bereich",
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
+    collapseItem: "{{title}} einklappen",
+    removeFromRecent: "Aus „Zuletzt besucht“ entfernen",
+    copyLink: "Link kopieren",
+    openInNewTab: "In neuem Tab öffnen",
+    rename: "Umbenennen",
+    duplicate: "Duplizieren",
+    moveTo: "Verschieben nach",
+    moveToTrash: "In den Papierkorb verschieben",
+    lastEditedBy: "Zuletzt bearbeitet von {{name}}",
+    lastEdited: "Zuletzt bearbeitet",
+    pageName: "Seitenname",
+    movePageTo: "„{{title}}“ verschieben nach",
+    topLevel: "Oberste Ebene",
+    noMatchingPages: "Keine passenden Seiten",
+    failedRenamePage: "Seite konnte nicht umbenannt werden",
+    failedDuplicatePage: "Seite konnte nicht dupliziert werden",
+    duplicatedFromLastSave:
+      "Die zuletzt gespeicherte Version wurde kopiert; neuere ungespeicherte Änderungen fehlen.",
+    chooseSpace: "Arbeitsbereich wählen",
+    moveToSpaceTitle: "Nach {{space}} verschieben?",
+    moveToSpaceWarningShared:
+      "Alle in {{space}} können „{{title}}“ und die Unterseiten sehen. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    moveToSpaceWarningPrivate:
+      "„{{title}}“ und die Unterseiten sind in {{space}} nur für dich sichtbar. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    back: "Zurück",
+    movePage: "Verschieben",
+    movedToSpace: "„{{title}}“ nach {{space}} verschoben",
+    failedRemoveFromRecent: "Entfernen aus „Zuletzt besucht“ fehlgeschlagen",
+    expandItem: "{{title}} erweitern",
     database: "Sammlung",
+    collection: "Sammlung",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
     databaseRestored: "Sammlung wiederhergestellt",
     deleteDatabaseNamedPermanently: "{{title}} endgültig löschen",
@@ -911,6 +948,9 @@ const landing = {
   requestedPageUnavailable:
     "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
   saveFailed: "Deine Position konnte nicht gespeichert werden",
+  workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
+  workspaceWelcomeUnavailableDescription:
+    "Du kannst diesen Arbeitsbereich ansehen, hast aber keine Berechtigung, seine Willkommensseite zu erstellen.",
 };
 
 const comments = {
@@ -979,6 +1019,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "Zuletzt besucht",
+  customizeSidebar: "Seitenleiste anpassen",
+  noRecentVisits: "Keine letzten Besuche",
+  noPinnedItems: "Keine angehefteten Elemente",
+  showMore: "Mehr anzeigen",
+  showLess: "Weniger anzeigen",
+  seeAll: "Alle anzeigen…",
+  seeAllFiles: "Alle Dateien anzeigen",
   pinned: "Angeheftet",
   loadingPinned: "Angeheftete Elemente werden geladen…",
   dragToReorder: "{{label}} zum Neuordnen ziehen",
@@ -1258,6 +1306,18 @@ const overrides = {
     labCreativeContext: "Kreativer Kontext",
     labCreativeContextDescription:
       "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
+    labSlashAdvancedCode: "Erweiterte Codeblöcke",
+    labSlashAdvancedCodeDescription:
+      "Fügt Code- und Code-Tab-Blöcke zum Slash-Menü hinzu.",
+    labSlashLayouts: "Layoutblöcke",
+    labSlashLayoutsDescription:
+      "Fügt benutzerdefinierte HTML- und Tab-Blöcke zum Slash-Menü hinzu.",
+    labSlashVisuals: "Visuelle Blöcke",
+    labSlashVisualsDescription:
+      "Fügt Diagramm-, Mermaid- und Wireframe-Blöcke zum Slash-Menü hinzu.",
+    labSlashDeveloperDocs: "Blöcke für Entwicklerdokumentation",
+    labSlashDeveloperDocsDescription:
+      "Fügt API- und Entwicklerdokumentationsblöcke zum Slash-Menü hinzu.",
   },
   chat: {
     publicEmptyState: "Frag mich alles zu diesem Dokument",

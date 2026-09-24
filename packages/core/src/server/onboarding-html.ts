@@ -1204,7 +1204,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
-  const appHomePath = resolveAppHomePath(getAppConfig().app);
+  const appHomePath = resolveAppHomePath(
+    getAppConfig().app,
+    getAppConfig().workspace,
+  );
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
     getAppConfig().app.slug ??
@@ -2367,6 +2370,7 @@ ${marketingStyles}
   }
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel {
+    order: 1;
     flex: 1 1 50%;
     max-width: none;
     min-width: 0;
@@ -2402,6 +2406,7 @@ ${marketingStyles}
   }
   .auth-marketing-visual .marketing-copy { margin-top: auto; }
   .auth-marketing-home .form-panel {
+    order: 2;
     flex: 1 1 50%;
     width: auto;
     max-width: none;
@@ -2663,19 +2668,7 @@ ${marketingStyles}
       flex-direction: column;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      position: sticky;
-      top: max(1rem, env(safe-area-inset-top));
-      inset-inline-start: auto;
-      inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
-      align-self: flex-end;
-      margin-block: 1.5rem 2rem;
-      margin-inline-start: auto;
-      margin-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
-      padding: 0;
-    }
-    :root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right {
-      inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));
-      margin-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));
+      display: none;
     }
     .auth-marketing-home .auth-marketing-layout {
       flex-direction: column;
@@ -2691,11 +2684,12 @@ ${marketingStyles}
       font-size: 2.25rem;
     }
     .auth-marketing-home .form-panel {
-      order: -1;
-      padding: 2rem 1rem 5rem;
+      order: 1;
+      padding: 3rem 1rem 5rem;
       border-inline-start: 0;
       border-top: 1px solid var(--auth-marketing-border);
     }
+    .auth-marketing-home .marketing-panel { order: 2; }
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);

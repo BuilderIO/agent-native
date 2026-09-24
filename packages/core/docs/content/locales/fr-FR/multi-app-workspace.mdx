@@ -401,11 +401,13 @@ Ces paramètres affectent uniquement la navigation dans les pages en lecture seu
 
 ### Déploiement indépendant par application
 
-Vous préférez chaque application sur son propre domaine (`mail.company.com`, `calendar.company.com`) ? Chaque application de l'espace de travail est toujours un déployable indépendant : `cd apps/mail && npx @agent-native/core@latest build` se comporte exactement comme un échafaudage autonome. Le A2A inter-applications passe ensuite par le chemin signé JWT standard avec un `A2A_SECRET` partagé. Le SSO inter-domaines entre des applications déployées séparément est géré par la fédération d'identité avec Dispatch comme hub — voir [Cross-App SSO](/docs/cross-app-sso) ; le déploiement unifié à origine unique évite d'en avoir besoin.
+Vous préférez chaque application sur son propre domaine (`mail.company.com`, `calendar.company.com`) ? Chaque application de l'espace de travail est toujours un déployable indépendant : `cd apps/mail && pnpm build` se comporte exactement comme un échafaudage autonome. Le A2A inter-applications passe ensuite par le chemin signé JWT standard avec un `A2A_SECRET` partagé. Le SSO inter-domaines entre des applications déployées séparément est géré par la fédération d'identité avec Dispatch comme hub — voir [Cross-App SSO](/docs/cross-app-sso) ; le déploiement unifié à origine unique évite d'en avoir besoin.
 
 ### Base de données partagée, identifiants partagés
 
 Quel que soit votre choix, pointez chaque application vers le même `DATABASE_URL` pour obtenir un état inter-applications prêt à l'emploi : un ensemble de comptes utilisateur, un ensemble d'organisations, un ensemble de paramètres partagés. Si chaque application possède sa propre base de données, le modèle d'espace de travail fonctionne toujours : vous perdez simplement cette histoire à état partagé.
+
+La demande de connexions s'additionne entre les processus qui partagent une base de données. Si cinq processus d'applications Node.js de longue durée utilisent chacun un pool partagé pour le même `DATABASE_URL`, ils peuvent utiliser jusqu'à 100 connexions avec la limite par défaut de 20 par pool (`5 × 1 pool × 20`). Pour les espaces de travail sans serveur, estimez le nombre d'instances de fonctions actives par application à partir des limites par défaut propres à l'environnement. Consultez [Base de données du serveur](/docs/server-database) pour `AGENT_NATIVE_DB_POOL_MAX` et les conseils complets de dimensionnement.
 
 Le package partagé lui-même n’est jamais déployé de manière autonome. Il s'agit d'un dépôt `workspace:*` que pnpm relie symboliquement au `node_modules/` de chaque application, de sorte que chaque application regroupe de manière transparente tout ce dont elle a besoin au moment de la construction.
 

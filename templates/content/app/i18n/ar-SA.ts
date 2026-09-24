@@ -439,8 +439,9 @@ const editor = {
   pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
   pageBodySyncingDescription:
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
+  createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
-  databaseCreated: "تم إنشاء المجموعة المضمنة",
+  databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
   describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
   enterToSubmit: "أدخل لتقديم",
@@ -688,6 +689,10 @@ const editor = {
     collapsibleBlockDescription: "كتلة قابلة للطي",
     database: "المجموعة",
     databaseDescription: "مجموعة مضمنة في هذه الصفحة",
+    collectionInline: "مجموعة — مضمنة",
+    collectionInlineDescription: "إضافة مجموعة داخل هذه الصفحة",
+    collectionFullPage: "مجموعة — صفحة كاملة",
+    collectionFullPageDescription: "إنشاء مجموعة فرعية وربطها هنا",
     divider: "مقسم",
     dividerDescription: "القاعدة الأفقية",
     generate: "إنشاء",
@@ -833,9 +838,40 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "مساحة Content",
     addChild: "إضافة عنصر فرعي",
     addChildTo: "إضافة عنصر فرعي إلى {{title}}",
+    removeFromRecent: "إزالة من الأخيرة",
+    copyLink: "نسخ الرابط",
+    openInNewTab: "فتح في علامة تبويب جديدة",
+    rename: "إعادة التسمية",
+    duplicate: "تكرار",
+    moveTo: "نقل إلى",
+    moveToTrash: "نقل إلى سلة المهملات",
+    lastEditedBy: "آخر تعديل بواسطة {{name}}",
+    lastEdited: "آخر تعديل",
+    pageName: "اسم الصفحة",
+    movePageTo: "نقل «{{title}}» إلى",
+    topLevel: "المستوى الأعلى",
+    noMatchingPages: "لا توجد صفحات مطابقة",
+    failedRenamePage: "تعذّرت إعادة تسمية الصفحة",
+    failedDuplicatePage: "تعذّر تكرار الصفحة",
+    duplicatedFromLastSave:
+      "تم نسخ آخر إصدار محفوظ؛ لم تُضمَّن التعديلات الأخيرة غير المحفوظة.",
+    chooseSpace: "اختر مساحة عمل",
+    moveToSpaceTitle: "النقل إلى {{space}}؟",
+    moveToSpaceWarningShared:
+      "سيتمكن الجميع في {{space}} من رؤية «{{title}}» وصفحاتها الفرعية. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    moveToSpaceWarningPrivate:
+      "ستصبح «{{title}}» وصفحاتها الفرعية خاصة بك في {{space}}. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    back: "رجوع",
+    movePage: "نقل",
+    movedToSpace: "تم نقل «{{title}}» إلى {{space}}",
+    failedRemoveFromRecent: "تعذّرت الإزالة من الأخيرة",
+    collapseItem: "طي {{title}}",
+    expandItem: "توسيع {{title}}",
     database: "المجموعة",
+    collection: "مجموعة",
     databasePermanentlyDeleted: "تم حذف المجموعة نهائيًا",
     databaseRestored: "تمت استعادة المجموعة",
     deleteDatabaseNamedPermanently: "حذف {{title}} نهائيًا",
@@ -871,6 +907,9 @@ const landing = {
   requestedPageUnavailable:
     "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
+  workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
+  workspaceWelcomeUnavailableDescription:
+    "يمكنك عرض مساحة العمل هذه، لكن ليس لديك إذن لإنشاء صفحة الترحيب الخاصة بها.",
 };
 
 const comments = {
@@ -943,6 +982,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "الأخيرة",
+  customizeSidebar: "تخصيص الشريط الجانبي",
+  noRecentVisits: "لا توجد زيارات حديثة",
+  noPinnedItems: "لا توجد عناصر مثبتة",
+  showMore: "عرض المزيد",
+  showLess: "عرض أقل",
+  seeAll: "عرض الكل…",
+  seeAllFiles: "عرض كل الملفات",
   pinned: "مثبتة",
   loadingPinned: "جارٍ تحميل العناصر المثبتة…",
   dragToReorder: "اسحب لإعادة ترتيب {{label}}",
@@ -1205,6 +1252,18 @@ const overrides = {
     labCreativeContext: "السياق الإبداعي",
     labCreativeContextDescription:
       "ربط سياق المرجع الخاضع للإدارة وإعادة استخدامه في Content.",
+    labSlashAdvancedCode: "كتل التعليمات البرمجية المتقدمة",
+    labSlashAdvancedCodeDescription:
+      "أضف كتل التعليمات البرمجية وعلامات تبويبها إلى قائمة الشرطة المائلة.",
+    labSlashLayouts: "كتل التخطيط",
+    labSlashLayoutsDescription:
+      "أضف كتل HTML المخصصة وعلامات التبويب إلى قائمة الشرطة المائلة.",
+    labSlashVisuals: "الكتل المرئية",
+    labSlashVisualsDescription:
+      "أضف المخططات وMermaid والإطارات الهيكلية إلى قائمة الشرطة المائلة.",
+    labSlashDeveloperDocs: "كتل وثائق المطورين",
+    labSlashDeveloperDocsDescription:
+      "أضف كتل API ووثائق المطورين إلى قائمة الشرطة المائلة.",
   },
   chat: {
     publicEmptyState: "اسألني أي شيء عن هذا المستند",

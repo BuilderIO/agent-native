@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Sincronizando caixa de entrada…",
     },
+    sort: {
+      label: "Ordenar caixa de entrada",
+      newest: "Mais recentes",
+      priority: "Prioridade",
+      priorityFailed: "Não foi possível ordenar a caixa de entrada.",
+    },
     toolbar: {
       toggleMenu: "Alternar menu",
       menu: "Menu",
@@ -505,6 +511,11 @@ const messages = {
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
       spamMode: "Spam",
       tagMode: "Tag",
+      importantMode: "Importante",
+      importantLabel: "Importante por IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "ex.: mensagens que precisam de resposta ou têm prazo",
       ruleAdded: "Regra de IA adicionada.",
       instructionHelp: "Use linguagem natural",
       tagNamePlaceholder: "Nome da tag",
@@ -520,6 +531,8 @@ const messages = {
       previewButton: "Executar prévia",
       previewRunning: "Verificando emails recentes da Caixa de entrada…",
       jevBadge: "Jev",
+      jevMatchProbability:
+        "Probabilidade de correspondência do Jev: {{percent}}%",
       feedbackLabel: "Marque as correspondências que não devem ser incluídas",
       notSpamShort: "Não é spam",
       notMatchShort: "Não corresponde",

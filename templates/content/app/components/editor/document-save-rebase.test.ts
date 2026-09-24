@@ -42,15 +42,67 @@ describe("document save ownership after a rejected CAS", () => {
     });
   });
 
-  it("preserves a genuine overlapping draft without retrying", async () => {
+  it("retries a genuine overlap with the later local intent", async () => {
+    const localDraft = original.replace("inspect", "discuss");
+    const saved = {
+      ...winner,
+      content: localDraft,
+      updatedAt: "2026-09-09T00:00:03.000Z",
+    };
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: winner })
+      .mockResolvedValueOnce(saved);
+    const confirm = vi.fn();
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist,
+        owner: {
+          version: 1,
+          current: () => ({ version: 1, content: localDraft }),
+          canPreferLive: () => true,
+          confirm,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "saved",
+      document: saved,
+      content: localDraft,
+    });
+    expect(persist).toHaveBeenNthCalledWith(2, localDraft, {
+      content: winner.content,
+      updatedAt: winner.updatedAt,
+    });
+  });
+
+  it("returns an unobserved overlapping edit for durable displacement", async () => {
     const localDraft = original.replace("inspect", "discuss");
     const persist = vi
       .fn()
       .mockResolvedValue({ conflict: true, document: winner });
+    const confirm = vi.fn();
+
     await expect(
-      saveDocumentWithRebase({ base, content: localDraft, persist }),
-    ).resolves.toEqual({ status: "conflict", localDraft });
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist,
+        owner: {
+          version: 1,
+          current: () => ({ version: 1, content: localDraft }),
+          canPreferLive: () => false,
+          confirm,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "displaced",
+      document: winner,
+      localDraft,
+    });
     expect(persist).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("merges independent peer and local block edits before retrying", async () => {
@@ -81,6 +133,7 @@ describe("document save ownership after a rejected CAS", () => {
         owner: {
           version: 1,
           current: () => ({ version: 1, content: localDraft }),
+          canPreferLive: () => false,
           confirm,
         },
       }),
@@ -226,7 +279,12 @@ describe("document save ownership after a rejected CAS", () => {
         base,
         content: submitted,
         persist,
-        owner: { version: 1, current: () => current, confirm },
+        owner: {
+          version: 1,
+          current: () => current,
+          canPreferLive: () => true,
+          confirm,
+        },
       });
       const newest = `${submitted} Newer typing.`;
       current = { version: 2, content: newest };
@@ -235,7 +293,7 @@ describe("document save ownership after a rejected CAS", () => {
       expect(confirm).not.toHaveBeenCalled();
       expect(current.content).toBe(newest);
       if (safe) expect(result.status).toBe("saved");
-      else expect(result).toEqual({ status: "conflict", localDraft: newest });
+      else expect(result).toEqual({ status: "superseded", document: winner });
     },
   );
 });

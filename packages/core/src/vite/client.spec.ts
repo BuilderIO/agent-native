@@ -8,6 +8,7 @@ import { createServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
+import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -24,7 +25,9 @@ import {
   _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
   _nitroStartupRecovery,
+  _persistent5xxRecovery,
   agentNative,
+  defaultViteWatchIgnored,
   defineConfig,
   isFrameworkDynamicDevPath,
   isFrameworkDevPath,
@@ -44,6 +47,53 @@ vi.mock("../server/dev-action-bridge.js", () => ({
 }));
 
 describe("Nitro dev startup recovery", () => {
+  it("requires a continuous 5xx streak before restarting after a long idle", () => {
+    let time = 0;
+    let middleware:
+      | ((req: unknown, res: unknown, next: () => void) => void)
+      | undefined;
+    const exit = vi.fn();
+    _persistent5xxRecovery({
+      enabled: true,
+      now: () => time,
+      exit,
+    }).configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const request = { headers: { accept: "text/html" }, method: "GET" };
+    const next = vi.fn();
+    const response = (statusCode: number) => {
+      const res = Object.assign(new EventEmitter(), { statusCode });
+      middleware?.(request, res, next);
+      res.emit("finish");
+    };
+
+    response(200);
+    time = 100_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 100_001;
+    response(200);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 200_000;
+    response(503);
+    time = 275_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 275_001;
+    response(503);
+    expect(exit).toHaveBeenCalledWith(DEV_SERVER_RECOVERY_EXIT_CODE);
+    expect(next).toHaveBeenCalledTimes(6);
+  });
+
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
     const repositoryRoot = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -2095,7 +2145,27 @@ describe("agentNative Vite plugin preset", () => {
     )) as any;
 
     expect(config.ssr.external).toContain("yjs");
+    expect(config.ssr.external).toEqual(
+      expect.arrayContaining([
+        "react",
+        "react-dom",
+        "react-router",
+        "@tanstack/react-query",
+      ]),
+    );
     expect(config.ssr.external).toContain("custom-native-package");
+
+    const ssrNoExternal = config.ssr.noExternal as RegExp;
+    expect(ssrNoExternal.test("react-router")).toBe(false);
+    expect(ssrNoExternal.test("react-router/dom")).toBe(false);
+    expect(
+      config.resolve.alias.some(
+        (entry: { find?: RegExp | string }) =>
+          entry.find instanceof RegExp &&
+          (entry.find.test("react-router") ||
+            entry.find.test("react-router/dom")),
+      ),
+    ).toBe(false);
   });
 
   it("keeps legacy defineConfig caller plugins before framework plugins", () => {
@@ -2192,6 +2262,20 @@ describe("app changelog raw imports", () => {
       ).ignored ?? [];
 
     expect(ignored).not.toContain("**/changelog/**");
+  });
+
+  it("watches an app checked out under an ignored directory name", () => {
+    const root = path.join(os.tmpdir(), "repo", ".claude", "worktrees", "wt");
+    const app = path.join(root, "templates", "app");
+    const ignored = defaultViteWatchIgnored(app);
+
+    expect(ignored(path.join(app, "app", "page.tsx"))).toBe(false);
+    expect(ignored(path.join(root, "packages", "core", "src", "a.ts"))).toBe(
+      false,
+    );
+    expect(ignored(path.join(app, ".claude", "settings.json"))).toBe(true);
+    expect(ignored(path.join(app, "node_modules", "x", "index.js"))).toBe(true);
+    expect(ignored(path.join(app, ".data", "base", "1"))).toBe(true);
   });
 });
 

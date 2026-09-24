@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { isValidElement, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   scrollToIndex: vi.fn(),
   trash: vi.fn(),
+  searchQuery: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
+  view: "all",
+  headerActions: null as unknown,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -58,12 +61,18 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useParams: () => ({ view: "all" }),
-  useSearchParams: () => [new URLSearchParams()],
+  useParams: () => ({ view: mocks.view }),
+  useSearchParams: () => [
+    new URLSearchParams(
+      mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
+    ),
+  ],
 }));
 
 vi.mock("@/components/layout/HeaderActions", () => ({
-  useSetHeaderActions: vi.fn(),
+  useSetHeaderActions: (actions: unknown) => {
+    mocks.headerActions = actions;
+  },
 }));
 
 vi.mock("@/components/GoogleConnectBanner", () => ({
@@ -99,6 +108,17 @@ vi.mock("@/components/ui/dropdown-menu", async () => {
 
 vi.mock("@/hooks/use-account-filter", () => ({
   useAccountFilter: () => ({ activeAccounts: new Set(), allAccounts: [] }),
+}));
+
+vi.mock("@/hooks/use-ai-priority", () => ({
+  useAiPriority: () => ({
+    isPending: false,
+    mutateAsync: vi.fn().mockResolvedValue({ scores: [] }),
+  }),
+}));
+
+vi.mock("@/hooks/use-automations", () => ({
+  useAutomations: () => ({ data: [], isFetching: false }),
 }));
 
 vi.mock("@/hooks/use-emails", () => {
@@ -172,9 +192,17 @@ const messages = ["first", "middle", "last"].map((id, index) => ({
 function Harness({
   emails = messages,
   onCompose,
+  accountErrors,
+  hasNextPage,
+  isFetchingNextPage,
+  showPrioritySort,
 }: {
   emails?: typeof messages;
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
+  accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  showPrioritySort?: boolean;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -190,6 +218,10 @@ function Harness({
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
         onCompose={onCompose}
+        accountErrors={accountErrors}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        showPrioritySort={showPrioritySort}
       />
     </>
   );
@@ -203,16 +235,80 @@ function press(key: string, shiftKey = false) {
   fireEvent.keyDown(window, { key, shiftKey });
 }
 
+function hasPrioritySortOption(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasPrioritySortOption);
+  if (!isValidElement(node)) return false;
+  const props = node.props as { children?: unknown; value?: unknown };
+  return props.value === "priority" || hasPrioritySortOption(props.children);
+}
+
 describe("EmailList keyboard navigation interactions", () => {
   beforeEach(() => {
     mocks.navigate.mockReset();
     mocks.scrollToIndex.mockReset();
     mocks.trash.mockReset();
+    mocks.searchQuery = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
+    mocks.view = "all";
+    mocks.headerActions = null;
   });
 
   afterEach(() => cleanup());
+
+  it("hides Priority sort when Jev is unavailable", () => {
+    mocks.view = "inbox";
+    render(<Harness showPrioritySort={false} />);
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
+  });
+
+  it("shows Priority sort when Jev is configured", () => {
+    mocks.view = "inbox";
+    render(<Harness showPrioritySort />);
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+  });
+
+  it("keeps partial refresh warnings out of a populated cached list", () => {
+    render(
+      <Harness
+        accountErrors={[
+          { email: "steve@builder.io", error: "temporary refresh failure" },
+        ]}
+      />,
+    );
+
+    expect(rows()).toHaveLength(3);
+    expect(screen.queryByText("mail.error.someAccountsFailed")).toBeNull();
+  });
+
+  it("keeps refresh warnings on empty search results", () => {
+    mocks.searchQuery = "invoice";
+    render(
+      <Harness
+        emails={[]}
+        accountErrors={[{ email: "steve@builder.io", error: "temporary" }]}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.someAccountsFailed")).toBeTruthy();
+    expect(screen.getByText("mail.empty.noSearchResults")).toBeTruthy();
+  });
+
+  it("keeps refresh warnings while an empty page is fetching more rows", () => {
+    render(
+      <Harness
+        emails={[]}
+        accountErrors={[{ email: "steve@builder.io", error: "temporary" }]}
+        hasNextPage
+        isFetchingNextPage
+      />,
+    );
+
+    expect(screen.getByText("mail.error.someAccountsFailed")).toBeTruthy();
+    expect(screen.getByText("mail.empty.loadingMore")).toBeTruthy();
+  });
 
   it("moves visible focus with j/k and arrows and clamps at both ends", () => {
     render(<Harness />);

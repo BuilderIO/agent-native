@@ -232,6 +232,12 @@ describe("template routes", () => {
     }
   });
 
+  it("keeps Chat out of the public app index", () => {
+    expect(featuredTemplates.map((template) => template.slug)).not.toContain(
+      "chat",
+    );
+  });
+
   it("maps every template catalog item to a real docs page", () => {
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
 

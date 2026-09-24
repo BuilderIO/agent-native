@@ -143,6 +143,11 @@ export interface SlideObjectGeometry {
   height: number;
 }
 
+/**
+ * An explicit object size is the user's decision. Generated slides routinely
+ * cap text with `max-width` (and cards with `min-height`), which would clamp
+ * the resize silently: the handles move while the text keeps wrapping.
+ */
 export function setSlideObjectDimension(
   element: HTMLElement,
   property: "width" | "height",
@@ -152,6 +157,14 @@ export function setSlideObjectDimension(
     element.style.setProperty(`max-${property}`, "none", "important");
     element.style.setProperty(property, value, "important");
     return;
+  }
+  const computed = window.getComputedStyle(element);
+  const max = computed.getPropertyValue(`max-${property}`);
+  if (max && max !== "none") {
+    element.style.setProperty(`max-${property}`, "none");
+  }
+  if (Number.parseFloat(computed.getPropertyValue(`min-${property}`)) > 0) {
+    element.style.setProperty(`min-${property}`, "0px");
   }
   element.style.setProperty(property, value);
 }
@@ -703,6 +716,153 @@ export function cloneSlideObject(element: HTMLElement): HTMLElement {
       descendant.setAttribute("data-slide-object-id", createSlideObjectId());
     });
   return clone;
+}
+
+function viewportScale(element: Element | null): { x: number; y: number } {
+  if (!(element instanceof HTMLElement)) return { x: 1, y: 1 };
+  const rect = element.getBoundingClientRect();
+  return {
+    x: element.offsetWidth ? rect.width / element.offsetWidth || 1 : 1,
+    y: element.offsetHeight ? rect.height / element.offsetHeight || 1 : 1,
+  };
+}
+
+/**
+ * Which insets anchor an absolute object, whether set inline or by a slide
+ * `<style>` rule. A positioned element resolves every inset to its used px, so
+ * read them while static, where the specified `auto` survives.
+ */
+function readAnchoredInsets(element: HTMLElement) {
+  const position = element.style.getPropertyValue("position");
+  const priority = element.style.getPropertyPriority("position");
+  element.style.setProperty("position", "static", "important");
+  const specified = window.getComputedStyle(element);
+  const isSet = (side: string) => {
+    const value = specified.getPropertyValue(side);
+    return value !== "" && value !== "auto";
+  };
+  const anchors = {
+    left: isSet("left"),
+    right: isSet("right"),
+    top: isSet("top"),
+    bottom: isSet("bottom"),
+  };
+  if (position) element.style.setProperty("position", position, priority);
+  else element.style.removeProperty("position");
+  return anchors;
+}
+
+/**
+ * Undo a viewport shift of an absolute object on the sides it is anchored to.
+ * Generated badges often pin `right`/`bottom`; rewriting only `left` would
+ * over-constrain them and stretch or jump the box instead.
+ */
+function restoreViewportPosition(element: HTMLElement, before: DOMRect): void {
+  const anchors = readAnchoredInsets(element);
+  const after = element.getBoundingClientRect();
+  const scale = viewportScale(element.offsetParent);
+  const style = window.getComputedStyle(element);
+  const shift = (side: "left" | "top" | "right" | "bottom", delta: number) => {
+    const value = Number.parseFloat(style.getPropertyValue(side));
+    if (Number.isFinite(value)) {
+      element.style.setProperty(side, `${Math.round(value + delta)}px`);
+    }
+  };
+  // Each edge moves by its own amount: an object stretched between both
+  // insets also changes size when its containing block does.
+  const dLeft = (after.left - before.left) / scale.x;
+  const dRight = (after.right - before.right) / scale.x;
+  const dTop = (after.top - before.top) / scale.y;
+  const dBottom = (after.bottom - before.bottom) / scale.y;
+  if ((anchors.left || !anchors.right) && dLeft) shift("left", -dLeft);
+  if (anchors.right && dRight) shift("right", dRight);
+  if ((anchors.top || !anchors.bottom) && dTop) shift("top", -dTop);
+  if (anchors.bottom && dBottom) shift("bottom", dBottom);
+}
+
+/**
+ * Positioning `element` makes it the containing block of absolute descendants
+ * that resolved past it, so an object freed from a box earlier would jump by
+ * the box's offset the moment the box itself is dragged. Returns the undo for a
+ * cancelled promotion, which restores the element but not its descendants.
+ */
+export function keepAbsoluteDescendantsInPlace(
+  element: HTMLElement,
+  position: () => void,
+): () => void {
+  const descendants = Array.from(
+    element.querySelectorAll<HTMLElement>("*"),
+  ).filter((descendant) => {
+    if (window.getComputedStyle(descendant).position !== "absolute") {
+      return false;
+    }
+    const containingBlock = descendant.offsetParent;
+    return !containingBlock || !element.contains(containingBlock);
+  });
+  const styles = descendants.map((descendant) =>
+    descendant.getAttribute("style"),
+  );
+  const before = descendants.map((descendant) =>
+    descendant.getBoundingClientRect(),
+  );
+  position();
+  descendants.forEach((descendant, index) =>
+    restoreViewportPosition(descendant, before[index]!),
+  );
+  return () =>
+    descendants.forEach((descendant, index) =>
+      restoreSlideObjectStyle(descendant, styles[index]!),
+    );
+}
+
+/**
+ * An object dropped outside the generated box it came from has left that box.
+ * As a DOM child the box would still clip it, carry it along when moved, and
+ * delete it with itself, so re-home it under the innermost ancestor that still
+ * contains its center, keeping it where it was dropped. The box also stops
+ * reserving the object's old flow slot, so its own layout closes the gap
+ * instead of keeping an invisible hole.
+ */
+export function releaseSlideObjectFromLeftBoxes(
+  element: HTMLElement,
+  layer: HTMLElement,
+): boolean {
+  const parent = element.parentElement;
+  if (
+    !parent ||
+    parent === layer ||
+    !layer.contains(parent) ||
+    parent.classList.contains("fmd-slide-group") ||
+    SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN.has(element.tagName)
+  ) {
+    return false;
+  }
+  const rect = element.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  let home: HTMLElement | null = parent;
+  while (home && home !== layer) {
+    const box = home.getBoundingClientRect();
+    const containsCenter =
+      centerX >= box.left &&
+      centerX <= box.right &&
+      centerY >= box.top &&
+      centerY <= box.bottom;
+    if (containsCenter && canDropSlideLayerInside(home, element)) break;
+    home = home.parentElement;
+  }
+  if (!home || home === parent) return false;
+  home.append(element);
+  const objectId = element.getAttribute("data-slide-object-id");
+  for (const spacer of Array.from(
+    layer.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
+  )) {
+    if (spacer.getAttribute("data-slide-layout-spacer-for") === objectId) {
+      spacer.remove();
+    }
+  }
+  restoreViewportPosition(element, rect);
+  return true;
 }
 
 /**

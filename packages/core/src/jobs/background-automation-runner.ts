@@ -52,6 +52,7 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "../server/request-context.js";
+import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -683,6 +684,10 @@ async function executeBackgroundAutomation(
               runId,
               maxIterations: automation.meta.maxIterations,
               maxRunInputTokens: automation.meta.maxRunInputTokens,
+              reasoningEffort: normalizeReasoningEffortForRequest(
+                model,
+                automation.meta.reasoningEffort,
+              ),
               // Same model-aware ceiling the interactive paths pass (see
               // agent-teams.ts and webhook-handler.ts). Without it a scheduled
               // run silently inherits the flat per-engine default — a LOWER
@@ -844,7 +849,8 @@ async function executeBackgroundAutomation(
         (usage.inputTokens > 0 ||
           usage.outputTokens > 0 ||
           usage.cacheReadTokens > 0 ||
-          usage.cacheWriteTokens > 0)
+          usage.cacheWriteTokens > 0 ||
+          usage.builderCreditsUsed != null)
       ) {
         try {
           const { recordUsage } = await import("../usage/store.js");
@@ -854,6 +860,10 @@ async function executeBackgroundAutomation(
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,
             cacheWriteTokens: usage.cacheWriteTokens,
+            ...(usage.builderCreditsUsed == null
+              ? {}
+              : { builderCreditsUsed: usage.builderCreditsUsed }),
+            engineName: usage.engineName ?? engine.name,
             model: usage.model,
             label: usageLabel,
             app: deps.appId,

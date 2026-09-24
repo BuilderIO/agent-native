@@ -655,7 +655,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(editor).toContain("handleOverviewFrameAction(screenId)");
   });
 
-  it("enters responsive Interact immediately from overview", () => {
+  it("enters Interact in place for an overview screen", () => {
     const modeHandler = commandSource("mode-change.ts");
     expect(modeHandler).toContain("resolveModeChangeView({");
     expect(modeHandler).toContain('if (routing === "enter-single-interact")');
@@ -666,9 +666,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(modeHandler).toContain('if (routing === "enter-overview")');
     expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
-    // Two-view model: the infinite canvas is the editing view, so returning
-    // to overview always drops Interact. Annotate is a tool overlay on that
-    // same canvas, not a third view, so it survives the trip.
+    expect(source).toContain("setOverviewInteractScreenId(screenId)");
+    expect(source).toContain("interactScreenId={overviewInteractScreenId}");
+    // Two-view model: the infinite canvas is the editing view. Per-screen
+    // Interact is an in-place bridge mode, so the iframe stays mounted.
     expect(source).toContain(
       'currentMode === "annotate" ? "annotate" : "edit"',
     );
@@ -680,9 +681,15 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
+    // Toggling the per-frame Interact target still lives here, gated the
+    // same way runModeChange gates the toolbar path (see the pending live
+    // edits describe block below) so re-clicking the active frame always
+    // leaves Interact and only entering it can be blocked.
     expect(frameAction).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
+      "overviewInteractScreenIdRef.current === screenId",
     );
+    expect(frameAction).toContain("setOverviewInteractScreenId(null)");
+    expect(frameAction).toContain("setOverviewInteractScreenId(screenId)");
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

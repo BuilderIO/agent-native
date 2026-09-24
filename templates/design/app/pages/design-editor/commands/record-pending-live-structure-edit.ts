@@ -122,6 +122,7 @@ export function preparePendingLiveStructureEdit(
       };
     }>;
     insertedHtml?: string;
+    remintCollidingNodeIds?: boolean;
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
@@ -186,6 +187,7 @@ export function preparePendingLiveStructureEdit(
     gridPlacement: details?.gridPlacement,
     gridDisplacements: details?.gridDisplacements,
     insertedHtml: details?.insertedHtml,
+    remintCollidingNodeIds: details?.remintCollidingNodeIds,
     ...(details?.replaced
       ? {
           replaced: true as const,
@@ -353,6 +355,7 @@ export function runRecordPendingLiveStructureEdit(
     /** Markup this change introduced; the subject does not exist in the
      * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
+    remintCollidingNodeIds?: boolean;
     /** The inserted markup replaced this subject as one live gesture. */
     replaced?: true;
     replacementSelector?: string;

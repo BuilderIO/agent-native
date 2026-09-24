@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
   aField: "a field",
@@ -884,6 +885,10 @@ const editorSlashMessages = {
   collapsibleBlockDescription: "Collapsible block",
   database: "Collection",
   databaseDescription: "Inline collection in this page",
+  collectionInline: "Collection — inline",
+  collectionInlineDescription: "Add a collection inside this page",
+  collectionFullPage: "Collection — full page",
+  collectionFullPageDescription: "Create a child collection and link it here",
   cancelEquation: "Cancel",
   divider: "Divider",
   dividerDescription: "Horizontal rule",
@@ -1066,6 +1071,9 @@ const enUS = {
     requestedPageUnavailable:
       "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
+    workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
+    workspaceWelcomeUnavailableDescription:
+      "You can browse this space, but you do not have permission to create its welcome page.",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -1101,6 +1109,18 @@ const enUS = {
     labCreativeContext: "Creative Context",
     labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
+    labSlashAdvancedCode: "Advanced code blocks",
+    labSlashAdvancedCodeDescription:
+      "Add structured code and code-tabs blocks to the slash menu.",
+    labSlashLayouts: "Layout blocks",
+    labSlashLayoutsDescription:
+      "Add custom HTML and tabs blocks to the slash menu.",
+    labSlashVisuals: "Visual blocks",
+    labSlashVisualsDescription:
+      "Add diagram, Mermaid, and wireframe blocks to the slash menu.",
+    labSlashDeveloperDocs: "Developer documentation blocks",
+    labSlashDeveloperDocsDescription:
+      "Add API and developer-documentation blocks to the slash menu.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -1234,8 +1254,9 @@ const enUS = {
     reorderField: "Reorder {{name}}",
     title: "Title",
     toggleField: "Toggle {{name}}",
+    createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
-    databaseCreated: "Inline collection created",
+    databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
@@ -1433,8 +1454,17 @@ const enUS = {
   database: databaseMessages,
   localFiles: localFilesMessages,
   sidebar: {
+    contentSpace: "Content space",
     cannotReorderPages: "Cannot reorder pages",
     pinned: "Pinned",
+    recent: "Recent",
+    customizeSidebar: "Customize sidebar",
+    noRecentVisits: "No recent visits",
+    noPinnedItems: "No pinned items",
+    showMore: "Show more",
+    showLess: "Show less",
+    seeAll: "See all…",
+    seeAllFiles: "See all files",
     loadingPinned: "Loading pinned items…",
     dragToReorder: "Drag to reorder {{label}}",
     moveUp: "Move up",
@@ -1457,6 +1487,34 @@ const enUS = {
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
     collapse: "Collapse sidebar",
+    collapseItem: "Collapse {{title}}",
+    removeFromRecent: "Remove from Recent",
+    copyLink: "Copy link",
+    openInNewTab: "Open in new tab",
+    rename: "Rename",
+    duplicate: "Duplicate",
+    moveTo: "Move to",
+    moveToTrash: "Move to Trash",
+    lastEditedBy: "Last edited by {{name}}",
+    lastEdited: "Last edited",
+    pageName: "Page name",
+    movePageTo: "Move “{{title}}” to",
+    topLevel: "Top level",
+    noMatchingPages: "No matching pages",
+    failedRenamePage: "Couldn't rename page",
+    failedDuplicatePage: "Couldn't duplicate page",
+    duplicatedFromLastSave:
+      "Copied the last saved version; recent unsaved edits weren't included.",
+    chooseSpace: "Choose a workspace",
+    moveToSpaceTitle: "Move to {{space}}?",
+    moveToSpaceWarningShared:
+      "Everyone in {{space}} will be able to see “{{title}}” and its sub-pages. Its current sharing and public link are removed, and you become the owner.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” and its sub-pages will be private to you in {{space}}. Its current sharing and public link are removed, and you become the owner.",
+    back: "Back",
+    movePage: "Move",
+    movedToSpace: "Moved “{{title}}” to {{space}}",
+    failedRemoveFromRecent: "Couldn't remove from Recent",
     resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",
     connectWorkspace: "Connect workspace",
@@ -1466,7 +1524,9 @@ const enUS = {
     copy: "Copy",
     disconnectWorkspace: "Disconnect workspace",
     expand: "Expand sidebar",
+    expandItem: "Expand {{title}}",
     database: "Collection",
+    collection: "Collection",
     databasePermanentlyDeleted: "Collection permanently deleted",
     databaseRestored: "Collection restored",
     pagePermanentlyDeleted: "Page permanently deleted",
@@ -1573,6 +1633,7 @@ const enUS = {
     untitled: "Untitled",
     workspaces: "Workspaces",
   },
+  trash: trashMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -1624,6 +1685,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    trash: enUS.trash,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2131,6 +2193,7 @@ function mergeMessagesForLocale(
       },
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
+    trash: trashMessagesByLocale[locale],
   };
 }
 

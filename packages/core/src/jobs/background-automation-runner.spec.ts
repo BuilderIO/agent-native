@@ -221,6 +221,54 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
 
+  // Chat and webhook automations already forwarded `reasoningEffort` into the
+  // agent loop (agent-teams.ts, webhook-handler.ts); this runner was the one
+  // path that silently dropped it, so a scheduled automation's configured
+  // effort never reached the engine at all.
+  it("forwards the automation's configured reasoningEffort into the agent loop", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+    const reasoningEngine = {
+      name: "test",
+      defaultModel: "gpt-5.6-luna",
+      supportedModels: ["gpt-5.6-luna"],
+    } as any;
+
+    await runBackgroundAutomation(
+      {
+        automation: {
+          name: "weekly-report",
+          meta: {
+            schedule: "* * * * *",
+            enabled: true,
+            model: "gpt-5.6-luna",
+            reasoningEffort: "low",
+          },
+          body: "Render the weekly report.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: "jobs/weekly-report.md",
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Render the weekly report.",
+        threadTitle: "Job: weekly-report",
+        runIdPrefix: "job-weekly-report-effort",
+        usageLabel: "recurring-job:weekly-report",
+      },
+      {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: reasoningEngine,
+      },
+    );
+
+    const call = vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1);
+    expect(call?.[0]).toMatchObject({ reasoningEffort: "low" });
+  });
+
   // History is a record ABOUT the run. If the history table is unwritable the
   // correct outcome is a missing record, not a scheduled automation that never
   // executed and gets reported as a failure.

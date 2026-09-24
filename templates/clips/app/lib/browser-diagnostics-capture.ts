@@ -258,7 +258,9 @@ export function createBrowserDiagnosticsCapture(): BrowserDiagnosticsCapture {
         type: "fetch",
         method,
         url,
-        status: response.status,
+        // An opaque (no-cors) or opaqueredirect response reports status 0,
+        // not a real HTTP status — drop it like the XHR path below does.
+        status: response.status || undefined,
         statusText: response.statusText,
         ok: response.ok,
         durationMs: performance.now() - startedAtPerfForRequest,

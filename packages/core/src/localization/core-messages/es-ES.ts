@@ -37,20 +37,21 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "Elige tu rol",
   "onboarding.customizeRole": "Personalicemos esto para ti.",
   "onboarding.roleQuestion": "¿Qué describe mejor tu función?",
-  "onboarding.roleProduct": "Producto",
-  "onboarding.roleDesign": "Diseño",
+  "onboarding.roleHelperText": "Esto nos ayuda a personalizar tu experiencia",
+  "onboarding.roleProduct": "Gerente de producto",
+  "onboarding.roleDesign": "Diseñador",
   "onboarding.roleDeveloper": "Desarrollo",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Ventas",
   "onboarding.roleOps": "Operaciones",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Otro",
+  "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
-  "onboarding.builderActivateCredits":
-    "Activar créditos gratuitos de Builder.io",
-  "onboarding.builderConnectCredits":
-    "Conectar créditos gratuitos de Builder.io",
+  "onboarding.builderCreateAccount": "Crear cuenta de Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Iniciar sesión con una cuenta de Builder.io",
   "onboarding.builderActivateDescription":
     "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
   "onboarding.builderActiveCredits":
@@ -64,9 +65,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
-  "onboarding.builderConsentPrefix": "Al continuar, aceptas los",
-  "onboarding.builderTerms": "Términos",
-  "onboarding.builderPrivacy": "Privacidad",
+  "onboarding.builderConsentPrefix":
+    "Al crear una cuenta de Builder.io, aceptas nuestros",
+  "onboarding.builderTerms": "Términos de servicio",
+  "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
   "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
   "onboarding.builderActivating":
@@ -83,10 +85,9 @@ const messages: AgentChatTranslation = {
     "Los créditos de IA están listos para usarse. Las ediciones de código en la nube requieren un proyecto de Builder en la configuración del agente en segundo plano.",
   "onboarding.openBackgroundAgentSettings":
     "Abrir la configuración del agente en segundo plano",
-  "onboarding.capability.llm.keySummary":
-    "Conecta un proveedor de IA o un modelo local",
+  "onboarding.capability.llm.keySummary": "Conecta tu propio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
-    "Almacenamiento de Builder o un bucket compatible con S3",
+    "Carga y almacenamiento de archivos",
   "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
   "onboarding.fileStorage.description":
     "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
@@ -94,13 +95,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
-  "onboarding.capability.voiceInput.keySummary":
-    "Reconocimiento de voz del navegador o conversión de voz a texto",
+  "onboarding.capability.voiceInput.keySummary": "Entrada de voz",
   "onboarding.capability.voiceInput.why":
     "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
   "onboarding.capability.embeddings.label": "Vectores semánticos",
-  "onboarding.capability.embeddings.keySummary":
-    "Clave de Gemini, Cohere o Voyage",
+  "onboarding.capability.embeddings.keySummary": "Vectores semánticos",
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
@@ -142,6 +141,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.useOrganizationKey": "Usar clave de la organización",
   "agentPanel.keyStatusUnavailable":
     "No se pudo consultar el estado de la clave.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Permite las ventanas emergentes de este sitio y vuelve a intentarlo.",
+  "agentPanel.chatgptSubscriptionTitle": "Suscripción de ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Acceso experimental a Codex mediante tu suscripción de ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "En uso",
+  "agentPanel.chatgptSubscriptionConnected": "Conectado",
+  "agentPanel.chatgptSubscriptionConnecting": "Conectando…",
+  "agentPanel.chatgptSubscriptionReconnect": "Volver a conectar",
+  "agentPanel.chatgptSubscriptionConnect": "Conectar ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Usar en el chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Desconectar",
   "agentHostNudge.sidebarTitle": "Usa el chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Ya estás chateando con {{agent}}. Pídele que trabaje directamente con esta app.",
@@ -163,6 +174,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "Cargando...",
   "common.no": "No",
   "common.retry": "Reintentar",
+  "common.chunkLoadFailed": "No se pudo cargar. Inténtalo de nuevo.",
   "common.save": "Guardar",
   "agents.hostedAgent": "Agente alojado",
   "agents.provider": "Proveedor",
@@ -719,7 +731,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "El proveedor de IA rechazó temporalmente esta solicitud. Esto suele resolverse en menos de un minuto: vuelve a intentarlo.",
   "errorMessages.startNewChat": "Iniciar un chat nuevo",
-  "errorMessages.upgradeAtBuilder": "Mejorar el plan en Builder.io",
+  "errorMessages.addCreditsInBuilder": "Añadir créditos en Builder",
   "feedback.inaccurate": "Impreciso",
   "feedback.keyboardHint": "{{shortcut}} Enter para enviar",
   "feedback.notHelpful": "Poco útil",
@@ -856,6 +868,15 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "No se pudo enviar la confirmación.",
   "settings.emailNewLabel": "Correo electrónico nuevo",
   "settings.emailNewPlaceholder": "Introduce un correo nuevo",
+  "usage.builderCredits": "Créditos de Builder",
+  "usage.estimatedBuilderCredits": "~{{amount}} créditos estimados",
+  "usage.otherUsdSpend": "{{amount}} USD adicional",
+  "usage.noBuilderCredits": "0 créditos de Builder",
+  "usage.otherUnclassifiedSpend": "Gasto en USD adicional o sin clasificar",
+  "usage.providerSpendDetail":
+    "Uso de proveedores o llamadas antiguas fuera de la facturación de Builder",
+  "usage.providerSpendToday": "Uso adicional o sin clasificar hoy: {{amount}}",
+  "usage.driverCreditsAndUsd": "Créditos de Builder / USD",
 };
 
 export default messages;

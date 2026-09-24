@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "Posteingang wird synchronisiert…",
     },
+    sort: {
+      label: "Posteingang sortieren",
+      newest: "Neueste",
+      priority: "Priorität",
+      priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+    },
     toolbar: {
       toggleMenu: "Menü umschalten",
       menu: "Menu",
@@ -511,6 +517,11 @@ const messages = {
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
+      importantMode: "Wichtig",
+      importantLabel: "KI-Wichtig",
+      reviewImportant: "Wichtige anzeigen",
+      importantPlaceholder:
+        "z. B. Nachrichten, die eine Antwort oder einen Termin erfordern",
       ruleAdded: "KI-Regel hinzugefügt.",
       instructionHelp: "Klare Sprache verwenden",
       tagNamePlaceholder: "Tag-Name",
@@ -527,6 +538,7 @@ const messages = {
       previewButton: "Vorschau starten",
       previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev-Trefferwahrscheinlichkeit: {{percent}}%",
       feedbackLabel: "Treffer auswählen, die nicht enthalten sein sollen",
       notSpamShort: "Kein Spam",
       notMatchShort: "Kein Treffer",

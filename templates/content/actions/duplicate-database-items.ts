@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -22,7 +25,7 @@ export default defineAction({
   description:
     "Duplicate multiple page rows in a content collection in one atomic batch. Use this for two or more selected/named rows instead of looping duplicate-database-item.",
   schema: databaseRowBatchSchema,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const { database, rows } = await resolveDatabaseRowsForBatch(args);
     if (!database.spaceId) {
@@ -45,7 +48,7 @@ export default defineAction({
     );
     const sourceItemIds = rows.map((row) => row.item.id);
     const now = new Date().toISOString();
-    const currentUserEmail = getRequestUserEmail() ?? database.ownerEmail;
+    const currentUserEmail = requireDocumentRequestActor(ctx);
 
     const inheritedShares = await db
       .select({
@@ -200,6 +203,7 @@ export default defineAction({
           isFavorite: 0,
           hideFromSearch: duplicate.row.document.hideFromSearch,
           visibility: duplicate.row.document.visibility,
+          ...documentCreationAttribution(currentUserEmail),
           createdAt: now,
           updatedAt: now,
         })),

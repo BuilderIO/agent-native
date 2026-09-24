@@ -304,6 +304,33 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("keeps a root-only workspace app at its root instead of bouncing to /home", async () => {
+    // The workspace deploy records `/` for an app with only a root route, and
+    // the launcher links there; the app must not redirect to a missing /home.
+    resetAppConfigForTests();
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "adoption";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "adoption", path: "/adoption", homePath: "/" },
+    ]);
+    try {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><head></head><body>app</body></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/"));
+      const html = await response.text();
+
+      expect(html).not.toContain("data-agent-native-auth-redirect");
+      expect(html).toContain('"appHomePath":"/"');
+    } finally {
+      delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+      delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+    }
+  });
+
   it("narrows Netlify query variation on public SSR HTML", async () => {
     process.env.SITE_ID = "site-test";
     mocks.requestHandler.mockResolvedValueOnce(
@@ -910,6 +937,35 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('src="/docs/app.js"');
   });
+
+  it("strips the mount from React Router's root data URL", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs.data"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("GET /.data");
+  });
+
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      process.env.APP_BASE_PATH = "/docs";
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location } }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/docs.data"));
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+      expect(new URL(mocks.requestHandler.mock.calls[0][0].url).pathname).toBe(
+        "/.data",
+      );
+    },
+  );
 
   it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
     process.env.APP_BASE_PATH = "/analytics";

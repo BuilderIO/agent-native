@@ -274,7 +274,7 @@ describe("runFrameworkReleaseMigrations", () => {
   });
 
   // The beta lane runs release migrations under a branch-deploy context against
-  // masked site secrets; its databases are migrated by their production twin.
+  // masked site secrets; its database is migrated by the beta publish step.
   it("allows a local database on a beta branch-deploy build", async () => {
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: "branch-deploy" },

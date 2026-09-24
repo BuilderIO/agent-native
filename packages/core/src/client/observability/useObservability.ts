@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type {
   InstructionUpdate,
-  OutputReviewRow,
+  OutputReviewListRow,
 } from "../../observability/types.js";
 import { agentNativePath } from "../api-path.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
@@ -76,10 +77,18 @@ export function useOutputReviews(sinceDays = 7, limit = 100) {
     }),
     [sinceDays, limit],
   );
-  return useActionQuery<OutputReviewRow[]>(
+  return useActionQuery<OutputReviewListRow[]>(
     "list-observability-reviews",
     params,
     { refetchInterval: 30_000 },
+  );
+}
+
+export function useOutputReviewApp(runId: string | null) {
+  return useActionQuery<AgentMcpAppPayload | null>(
+    "get-observability-review-app",
+    { runId: runId ?? "" },
+    { enabled: runId !== null, gcTime: 0 },
   );
 }
 

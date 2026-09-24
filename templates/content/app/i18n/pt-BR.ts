@@ -460,8 +460,9 @@ const editor = {
   pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
   pageBodySyncingDescription:
     "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
+  createCollection: "Criar coleção",
   creatingDatabase: "Criando coleção embutida...",
-  databaseCreated: "Coleção embutida criada",
+  databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
   describeWhatToGenerate: "Descreva o que gerar...",
   enterToSubmit: "Entre para enviar",
@@ -713,6 +714,10 @@ const editor = {
     collapsibleBlockDescription: "Bloco dobrável",
     database: "Coleção",
     databaseDescription: "Coleção embutida nesta página",
+    collectionInline: "Coleção — embutida",
+    collectionInlineDescription: "Adicione uma coleção nesta página",
+    collectionFullPage: "Coleção — página inteira",
+    collectionFullPageDescription: "Crie uma coleção filha e vincule-a aqui",
     divider: "Divisor",
     dividerDescription: "Regra horizontal",
     generate: "Gerar",
@@ -864,9 +869,40 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Espaço do Content",
     addChild: "Adicionar filho",
     addChildTo: "Adicionar filho a {{title}}",
+    collapseItem: "Recolher {{title}}",
+    removeFromRecent: "Remover de Recentes",
+    copyLink: "Copiar link",
+    openInNewTab: "Abrir em nova aba",
+    rename: "Renomear",
+    duplicate: "Duplicar",
+    moveTo: "Mover para",
+    moveToTrash: "Mover para a lixeira",
+    lastEditedBy: "Última edição por {{name}}",
+    lastEdited: "Última edição",
+    pageName: "Nome da página",
+    movePageTo: "Mover “{{title}}” para",
+    topLevel: "Nível superior",
+    noMatchingPages: "Nenhuma página correspondente",
+    failedRenamePage: "Não foi possível renomear a página",
+    failedDuplicatePage: "Não foi possível duplicar a página",
+    duplicatedFromLastSave:
+      "A última versão salva foi copiada; edições recentes não salvas não foram incluídas.",
+    chooseSpace: "Escolha um espaço de trabalho",
+    moveToSpaceTitle: "Mover para {{space}}?",
+    moveToSpaceWarningShared:
+      "Todos em {{space}} poderão ver “{{title}}” e suas subpáginas. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” e suas subpáginas ficarão privadas para você em {{space}}. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    back: "Voltar",
+    movePage: "Mover",
+    movedToSpace: "“{{title}}” movida para {{space}}",
+    failedRemoveFromRecent: "Não foi possível remover de Recentes",
+    expandItem: "Expandir {{title}}",
     database: "Coleção",
+    collection: "Coleção",
     databasePermanentlyDeleted: "Coleção excluída permanentemente",
     databaseRestored: "Coleção restaurada",
     deleteDatabaseNamedPermanently: "Excluir {{title}} permanentemente",
@@ -901,6 +937,9 @@ const landing = {
   requestedPageUnavailable:
     "Essa página não está disponível para sua conta, então abrimos a página de boas-vindas.",
   saveFailed: "Não foi possível salvar sua localização",
+  workspaceWelcomeUnavailableTitle: "Ainda não há nada aberto aqui",
+  workspaceWelcomeUnavailableDescription:
+    "Você pode ver este espaço de trabalho, mas não tem permissão para criar a página de boas-vindas.",
 };
 
 const comments = {
@@ -970,6 +1009,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "Recentes",
+  customizeSidebar: "Personalizar barra lateral",
+  noRecentVisits: "Nenhuma visita recente",
+  noPinnedItems: "Nenhum item fixado",
+  showMore: "Mostrar mais",
+  showLess: "Mostrar menos",
+  seeAll: "Ver tudo…",
+  seeAllFiles: "Ver todos os arquivos",
   pinned: "Fixados",
   loadingPinned: "Carregando itens fixados…",
   dragToReorder: "Arraste para reordenar {{label}}",
@@ -1248,6 +1295,18 @@ const overrides = {
     labCreativeContext: "Contexto criativo",
     labCreativeContextDescription:
       "Conecte e reutilize contexto de referência regulado no Content.",
+    labSlashAdvancedCode: "Blocos de código avançados",
+    labSlashAdvancedCodeDescription:
+      "Adiciona blocos de código e abas de código ao menu de comandos.",
+    labSlashLayouts: "Blocos de layout",
+    labSlashLayoutsDescription:
+      "Adiciona blocos de HTML personalizado e abas ao menu de comandos.",
+    labSlashVisuals: "Blocos visuais",
+    labSlashVisualsDescription:
+      "Adiciona diagramas, Mermaid e wireframes ao menu de comandos.",
+    labSlashDeveloperDocs: "Blocos de documentação técnica",
+    labSlashDeveloperDocsDescription:
+      "Adiciona blocos de API e documentação técnica ao menu de comandos.",
   },
   chat: {
     publicEmptyState: "Pergunte qualquer coisa sobre este documento",

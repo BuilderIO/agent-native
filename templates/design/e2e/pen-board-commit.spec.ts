@@ -168,7 +168,8 @@ test("a pen path drawn on the board commits once and keeps the pen armed", async
     await penClick(page, gapX - 40, gapY);
     await penClick(page, gapX + 20, gapY + 60);
     await penClick(page, gapX - 20, gapY + 120);
-    await page.keyboard.press("Enter");
+    // Escape ends the path and keeps drawing (Figma); Enter would switch to Move.
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(3000);
 
     expect(await allVectors(page)).toHaveLength(1);

@@ -1885,6 +1885,14 @@ function isTransientDegradedFailure(outcome: CheckOutcome): boolean {
   );
 }
 
+function isTransientServerFailure(outcome: CheckOutcome): boolean {
+  return (
+    outcome.status === "down" &&
+    outcome.statusCode != null &&
+    outcome.statusCode >= 500
+  );
+}
+
 export function shouldOpenMonitorIncident(
   outcome: CheckOutcome,
   priorConsecutiveFailures: number,
@@ -1892,7 +1900,8 @@ export function shouldOpenMonitorIncident(
 ): boolean {
   const needsConfirmation =
     isTransientNoResponseFailure(outcome) ||
-    isTransientDegradedFailure(outcome);
+    isTransientDegradedFailure(outcome) ||
+    isTransientServerFailure(outcome);
   const needed = needsConfirmation
     ? Math.max(1, Math.min(10, Math.floor(confirmationChecks)))
     : 1;

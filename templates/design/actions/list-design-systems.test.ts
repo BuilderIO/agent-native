@@ -73,6 +73,19 @@ vi.mock("@agent-native/core/sharing", () => ({
   ROLE_RANK: { viewer: 1, commenter: 2, editor: 3, admin: 4, owner: 5 },
 }));
 
+const fetchBuilderDesignSystemDocumentCount = vi.fn();
+
+vi.mock("@agent-native/core/server", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/server")
+  >("@agent-native/core/server");
+  return {
+    ...actual,
+    fetchBuilderDesignSystemDocumentCount: (...args: unknown[]) =>
+      fetchBuilderDesignSystemDocumentCount(...args),
+  };
+});
+
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
   desc: (value: unknown) => ({ desc: value }),
@@ -94,6 +107,108 @@ beforeEach(() => {
   mocks.state.shareRows = [];
   mocks.state.listRows = [];
   mocks.state.defaultRows = [];
+  fetchBuilderDesignSystemDocumentCount.mockReset();
+});
+
+describe("list-design-systems — live Builder docCount reconciliation", () => {
+  it("reports a live docCount when Builder finished indexing after the cache was written", async () => {
+    mocks.state.listRows = [
+      {
+        id: "ds-builder",
+        title: "Builder system",
+        description: null,
+        data: JSON.stringify({
+          source: "builder",
+          builderDesignSystemId: "bds-1",
+          builderJobId: "job-1",
+          builderStatus: "in-progress",
+        }),
+        assets: "[]",
+        customInstructions: "",
+        isDefault: false,
+        visibility: "private",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    fetchBuilderDesignSystemDocumentCount.mockResolvedValue({
+      ok: true,
+      docCount: 12,
+    });
+
+    const result = await action.run({});
+
+    expect(fetchBuilderDesignSystemDocumentCount).toHaveBeenCalledWith("bds-1");
+    expect(result.designSystems[0]).toMatchObject({ docCount: 12 });
+    const data = JSON.parse(result.designSystems[0].data as string);
+    expect(data.docCount).toBe(12);
+    expect(data.builderStatus).toBe("ready");
+  });
+
+  it("always re-checks live even when the row already carries a cached docCount", async () => {
+    mocks.state.listRows = [
+      {
+        id: "ds-builder-ready",
+        title: "Builder system",
+        description: null,
+        data: JSON.stringify({
+          source: "builder",
+          builderDesignSystemId: "bds-2",
+          builderJobId: "job-2",
+          builderStatus: "ready",
+          docCount: 5,
+        }),
+        assets: "[]",
+        customInstructions: "",
+        isDefault: false,
+        visibility: "private",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    fetchBuilderDesignSystemDocumentCount.mockResolvedValue({
+      ok: true,
+      docCount: 8,
+    });
+
+    const result = await action.run({});
+
+    expect(fetchBuilderDesignSystemDocumentCount).toHaveBeenCalledWith("bds-2");
+    expect(result.designSystems[0]).toMatchObject({ docCount: 8 });
+    const data = JSON.parse(result.designSystems[0].data as string);
+    expect(data.docCount).toBe(8);
+  });
+
+  it("keeps reporting the cached count when the live check fails", async () => {
+    mocks.state.listRows = [
+      {
+        id: "ds-builder-unreachable",
+        title: "Builder system",
+        description: null,
+        data: JSON.stringify({
+          source: "builder",
+          builderDesignSystemId: "bds-3",
+          builderJobId: "job-3",
+          builderStatus: "in-progress",
+        }),
+        assets: "[]",
+        customInstructions: "",
+        isDefault: false,
+        visibility: "private",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    fetchBuilderDesignSystemDocumentCount.mockResolvedValue({
+      ok: false,
+      reason: "unreachable",
+      detail: "Builder did not respond",
+    });
+
+    const result = await action.run({});
+
+    expect(result.designSystems[0]).toMatchObject({ docCount: undefined });
+  });
 });
 
 describe("list-design-systems — effective isDefault", () => {

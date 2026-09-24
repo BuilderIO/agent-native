@@ -11,14 +11,56 @@ vi.mock("../server/lib/google-calendar.js", () => ({
   getAuthStatus: getAuthStatusMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import {
   buildStatusEventFields,
+  googleEventResultId,
   ensureOrganizerInAttendees,
+  normalizeGoogleEventId,
   normalizeCreateEventInput,
+  resolveBulkGoogleEventAccountEmail,
+  resolveGoogleEventAccountEmail,
   validateEventTimeOrder,
   validateStatusEventTiming,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers";
+
+describe("normalizeGoogleEventId", () => {
+  it("unwraps a multi-account event identity for provider mutations", () => {
+    const id = createGoogleAccountEventId({
+      accountEmail: "owner@example.com",
+      googleEventId: "provider-event-id",
+    });
+
+    expect(normalizeGoogleEventId(id)).toBe("provider-event-id");
+    expect(resolveGoogleEventAccountEmail(id, undefined)).toBe(
+      "owner@example.com",
+    );
+    expect(() =>
+      resolveGoogleEventAccountEmail(id, "different@example.com"),
+    ).toThrow("does not match");
+
+    const otherId = createGoogleAccountEventId({
+      accountEmail: "other@example.com",
+      googleEventId: "provider-event-id",
+    });
+    expect(() =>
+      resolveBulkGoogleEventAccountEmail([id, otherId], undefined),
+    ).toThrow("one Google account");
+    expect(() =>
+      resolveBulkGoogleEventAccountEmail(
+        [id, "google-other"],
+        "owner@example.com",
+      ),
+    ).toThrow("cannot mix");
+    expect(googleEventResultId(id, "replacement-id", "other@example.com")).toBe(
+      createGoogleAccountEventId({
+        accountEmail: "other@example.com",
+        googleEventId: "replacement-id",
+      }),
+    );
+  });
+});
 
 describe("resolveOwnedAccountEmail", () => {
   it("accepts a connected secondary account beneath the signed-in owner", async () => {

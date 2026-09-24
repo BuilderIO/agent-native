@@ -34,18 +34,20 @@ const messages = {
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
   "onboarding.roleQuestion": "What best describes your role?",
-  "onboarding.roleProduct": "Product",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText": "This helps us personalize your experience",
+  "onboarding.roleProduct": "Product Manager",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Developer",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Sales",
   "onboarding.roleOps": "Ops",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Other",
+  "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
-  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -58,9 +60,10 @@ const messages = {
   "onboarding.builderActivationDescription":
     "We'll automatically create your Builder.io account for you in one click.",
   "onboarding.builderCreateAndActivate": "Create and activate",
-  "onboarding.builderConsentPrefix": "By continuing, you agree to Builder.io's",
-  "onboarding.builderTerms": "Terms",
-  "onboarding.builderPrivacy": "Privacy",
+  "onboarding.builderConsentPrefix":
+    "By creating a Builder.io account, you agree to our",
+  "onboarding.builderTerms": "Terms of Service",
+  "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
   "onboarding.builderActivating": "Activating Builder.io free credits",
@@ -74,10 +77,8 @@ const messages = {
   "onboarding.builderReadyCreditsOnly":
     "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
-  "onboarding.capability.llm.keySummary":
-    "Connect an AI provider or local model",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.llm.keySummary": "Connect your own AI model",
+  "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
   "onboarding.fileStorage.title": "Choose file storage",
   "onboarding.fileStorage.description":
     "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
@@ -85,13 +86,11 @@ const messages = {
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
-  "onboarding.capability.voiceInput.keySummary":
-    "Browser speech recognition or speech-to-text",
+  "onboarding.capability.voiceInput.keySummary": "Voice input",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
   "onboarding.capability.embeddings.label": "Embeddings",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
@@ -130,6 +129,18 @@ const messages = {
   "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
   "agentPanel.useOrganizationKey": "Use organization key",
   "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Allow pop-ups for this site, then try again.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT subscription",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Experimental Codex access through your ChatGPT subscription.",
+  "agentPanel.chatgptSubscriptionInUse": "In use",
+  "agentPanel.chatgptSubscriptionConnected": "Connected",
+  "agentPanel.chatgptSubscriptionConnecting": "Connecting…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconnect",
+  "agentPanel.chatgptSubscriptionConnect": "Connect ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Use in chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Disconnect",
   "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
   "agentHostNudge.sidebarDescription":
     "You're already chatting with {{agent}}. Ask it to work with this app directly.",
@@ -151,6 +162,7 @@ const messages = {
   "common.loading": "Loading...",
   "common.no": "No",
   "common.retry": "Retry",
+  "common.chunkLoadFailed": "Couldn't load this. Please try again.",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
   "agents.provider": "Provider",
@@ -471,7 +483,7 @@ const messages = {
   "errorMessages.providerTransientRejection":
     "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
-  "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
+  "errorMessages.addCreditsInBuilder": "Add credits in Builder",
   "feedback.inaccurate": "Inaccurate",
   "feedback.keyboardHint": "{{shortcut}} Enter to send",
   "feedback.notHelpful": "Not helpful",
@@ -808,6 +820,15 @@ const messages = {
   "settings.emailChangeError": "Could not send confirmation.",
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
+  "usage.builderCredits": "Builder credits",
+  "usage.estimatedBuilderCredits": "~{{amount}} estimated credits",
+  "usage.otherUsdSpend": "{{amount}} other USD",
+  "usage.noBuilderCredits": "0 Builder credits",
+  "usage.otherUnclassifiedSpend": "Other or unclassified USD spend",
+  "usage.providerSpendDetail":
+    "Provider or older calls outside Builder billing",
+  "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "usage.driverCreditsAndUsd": "Builder credits / USD",
 } as const;
 
 export default messages;

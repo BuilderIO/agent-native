@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  findSlideShapeOwner,
   findSmartBlock,
   getSlideCanvasTraversalElements,
   isRichTextBlock,
@@ -16,6 +17,46 @@ import {
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
+  it("grabs the nearest painted box around text, like a Google Slides shape", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <h2 id="title">Bare title</h2>
+        <div style="display:flex;flex-direction:column">
+          <div id="row" style="display:grid;border-top:1px solid #2a3038">
+            <div id="label">LABEL</div><div>Body</div>
+          </div>
+        </div>
+        <div id="card" style="background:#14181d;padding:16px">
+          <img id="logo" src="logo.png"><p id="note">Note</p>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const byId = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+
+    expect(findSlideShapeOwner(byId("title"), root)).toBeNull();
+    expect(findSlideShapeOwner(byId("label"), root)).toBe(byId("row"));
+    expect(findSlideShapeOwner(byId("note"), root)).toBe(byId("card"));
+    expect(findSlideShapeOwner(byId("logo"), root)).toBeNull();
+    root.remove();
+  });
+
+  it("does not treat a full-slide backdrop as a shape", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div id="backdrop" style="background:#111"><p id="text">Text</p></div>`;
+    document.body.append(root);
+    const backdrop = root.querySelector<HTMLElement>("#backdrop")!;
+    const slideRect = DOMRect.fromRect({ width: 960, height: 540 });
+    root.getBoundingClientRect = () => slideRect;
+    backdrop.getBoundingClientRect = () => slideRect;
+
+    expect(
+      findSlideShapeOwner(root.querySelector<HTMLElement>("#text"), root),
+    ).toBeNull();
+    root.remove();
+  });
+
   it("traverses flow-layout roots and groups without selecting renderer shells or members", () => {
     const root = document.createElement("div");
     root.innerHTML = `

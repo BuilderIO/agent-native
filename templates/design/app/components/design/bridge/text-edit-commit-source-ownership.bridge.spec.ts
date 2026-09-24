@@ -8,19 +8,23 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  * real contenteditable produces the unmarked nodes that break it.
  */
 function hydratedEditorChromeBridgeScript(): string {
-  return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "true")
-    .replace("__EDITOR_CHROME_SCALE_X__", "1")
-    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
-    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("text-commit"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-    .replace("__LIVE_REFLOW_ENABLED__", "false")
-    .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
-    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
+  return (
+    editorChromeBridgeScript
+      .replace("__READ_ONLY__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", "true")
+      .replace("__EDITOR_CHROME_SCALE_X__", "1")
+      .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("text-commit"))
+      // This suite exercises board-style click-through before text editing.
+      // Screen content intentionally uses direct single-click selection instead.
+      .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+      .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+      .replace("__LIVE_REFLOW_ENABLED__", "false")
+      .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
+      .replace(/__INITIAL_SOURCE_HEAD__/g, '""')
+  );
 }
 
 const NODE_ID = "draft-text-1";
@@ -116,7 +120,7 @@ function committedContent(page: Page) {
 
 describe("text-edit commit claims its content as source", () => {
   it(
-    "selects generated Text lines as the Text object and re-enters at the clicked line",
+    "selects generated Text lines as the Text object and enters editing with all its text selected",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -193,6 +197,16 @@ describe("text-edit commit claims its content as source", () => {
           `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
         );
         expect(await editing.count()).toBe(1);
+        expect(
+          await page.evaluate(() =>
+            window.getSelection()?.toString().replace(/\s+/g, ""),
+          ),
+        ).toBe("HomeBrowseLibrary");
+
+        await page.mouse.click(
+          library.x + library.width - 1,
+          library.y + library.height / 2,
+        );
         const caretLineId = await page.evaluate(() => {
           const anchor = window.getSelection()?.anchorNode;
           const element =

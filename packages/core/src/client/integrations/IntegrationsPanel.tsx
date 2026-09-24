@@ -56,7 +56,7 @@ import {
   useReconnectMcpServer,
   type McpServer,
 } from "../resources/use-mcp-servers.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
 import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
 import {
@@ -1378,7 +1378,7 @@ export function IntegrationsPanel() {
                   variant="text"
                 />
               ) : viewModel.connectFlow && viewModel.action ? (
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={viewModel.connectFlow}
                   onConnect={viewModel.action.onPress}
                 >
@@ -1389,7 +1389,7 @@ export function IntegrationsPanel() {
                   >
                     {t("mcpIntegrations.connect")}
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               ) : null,
           };
           const connectedItems = builderConnected

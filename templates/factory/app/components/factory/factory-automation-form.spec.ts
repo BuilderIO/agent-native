@@ -279,6 +279,14 @@ describe("mergeListedAutomationDraft", () => {
     ).not.toBe(automationEditorConfigKey({ ...daily, timezone: null }));
   });
 
+  it("treats a changed reasoningEffort as a pending change", () => {
+    expect(
+      automationEditorConfigKey({ ...listed, reasoningEffort: "high" }),
+    ).not.toBe(
+      automationEditorConfigKey({ ...listed, reasoningEffort: "low" }),
+    );
+  });
+
   it("takes the listed row after a matching save", () => {
     const original: AutomationEditorSnapshot = { ...listed, authorIds: [] };
     const saved: AutomationEditorSnapshot = {

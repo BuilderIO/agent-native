@@ -326,6 +326,40 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
   });
 
+  it("keeps localhost bridge identity stable across Interact mode changes", () => {
+    const canvas = readFileSync(
+      "app/components/design/DesignCanvas.tsx",
+      "utf8",
+    );
+    expect(canvas).toContain("const includeLiveEditEditorChrome = !readOnly;");
+    expect(canvas).toContain('type: "set-interaction-mode"');
+    expect(canvas).toContain("interact: interactModeRef.current");
+    expect(canvas).not.toContain(
+      "const includeLiveEditEditorChrome = !interactMode && !readOnly;",
+    );
+    const bridge = readFileSync(
+      "app/components/design/bridge/editor-chrome.bridge.ts",
+      "utf8",
+    );
+    expect(bridge).toContain('e.data.type === "set-interaction-mode"');
+    expect(bridge).toContain('shieldOverlay.style.pointerEvents = "none"');
+    expect(bridge).toContain("scheduleRuntimeLayerSnapshot()");
+  });
+
+  it("keeps a focused localhost screen on its live route when returning to Edit", () => {
+    const focusedCanvas = source.slice(
+      source.lastIndexOf("<DesignCanvas"),
+      source.indexOf(
+        "onRoutePathChange={handleLiveRoutePathChange}",
+        source.lastIndexOf("<DesignCanvas"),
+      ) + 100,
+    );
+    expect(focusedCanvas).toContain('activeCanvasSourceType === "localhost"');
+    expect(focusedCanvas).toContain("previewUrlAtLiveRoute(");
+    expect(focusedCanvas).toContain("liveRoutePathsByScreenIdRef.current[");
+    expect(focusedCanvas).toContain("activeFile.id");
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");

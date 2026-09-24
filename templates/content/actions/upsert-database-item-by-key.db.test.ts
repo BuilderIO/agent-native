@@ -443,6 +443,7 @@ describe("reliable Content database row mutations", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, created.receipt.row.documentId));
     expect(document.content).toBe("Blocks body stays separate");
+    expect(document).toMatchObject({ createdBy: OWNER, updatedBy: OWNER });
 
     await expect(
       asOwner(() =>

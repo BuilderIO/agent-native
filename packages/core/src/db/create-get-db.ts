@@ -17,6 +17,7 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  assertHostedRuntimeDatabase,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -376,6 +377,21 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
+    // getDb() below calls this via `void startInit()`, so a throw here must
+    // surface through the rejected `_dbReady` it awaits later, not as a
+    // synchronous exception out of this function.
+    try {
+      assertHostedRuntimeDatabase();
+    } catch (err) {
+      _dbReady = Promise.reject(err);
+      // The real consumer attaches its handler later, through the lazy proxy's
+      // `then` trap, once the caller awaits the query chain — one or more
+      // microtasks from now. Without this, Node flags the promise as an
+      // unhandled rejection in the gap before that happens.
+      _dbReady.catch(() => {});
+      return _dbReady;
+    }
+
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
 
     if (isPgliteUrl(url)) {
@@ -449,6 +465,13 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             }
             return result;
           });
+          // `ready` can already be rejected (e.g. the hosted-runtime database
+          // guard) when this trap fires, and `[prop].bind(promise)` only
+          // returns a handler for the *caller* to invoke — it does not attach
+          // one itself. Without this, `promise` sits rejected and unhandled
+          // for the gap until the caller actually calls the bound function,
+          // which is enough for Node to report it as an unhandled rejection.
+          promise.catch(() => {});
           return (promise as any)[prop].bind(promise);
         }
         // drizzle-orm duck-types "is this an SQL entity" by reading these two

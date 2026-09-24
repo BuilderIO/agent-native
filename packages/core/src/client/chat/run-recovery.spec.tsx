@@ -14,6 +14,11 @@ const agentEngineKeyMock = vi.hoisted(() => ({
   setAgentEngineProvider: vi.fn(),
 }));
 
+const deferredUiModuleLoads = vi.hoisted(() => ({
+  builderConnectPopover: false,
+  providerSetupForm: false,
+}));
+
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
 }));
@@ -113,54 +118,65 @@ vi.mock("../i18n.js", () => ({
   },
 }));
 
-vi.mock("../settings/ProviderSetupForm.js", () => ({
-  AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
-    const [providerOpen, setProviderOpen] = React.useState(false);
-    const [apiKey, setApiKey] = React.useState("");
-    return (
-      <div>
-        <button
-          type="button"
-          aria-label="Choose a provider"
-          onClick={() => setProviderOpen((open) => !open)}
-        >
-          Choose a provider
-        </button>
-        {providerOpen ? (
-          <div>
-            <button type="button">OpenRouter</button>
-            <button type="button">Ollama</button>
-          </div>
-        ) : null}
+vi.mock("../settings/ProviderSetupForm.js", () => {
+  deferredUiModuleLoads.providerSetupForm = true;
+  return {
+    AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
+      const [providerOpen, setProviderOpen] = React.useState(false);
+      const [apiKey, setApiKey] = React.useState("");
+      return (
         <div>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
           <button
             type="button"
-            onClick={() => {
-              void agentEngineKeyMock.saveAgentEngineProviderSettings({
-                provider: "anthropic",
-                key: "ANTHROPIC_API_KEY",
-                apiKey,
-                scope: "org",
-              });
-              void agentEngineKeyMock.setAgentEngineProvider({
-                provider: "anthropic",
-                model: "mock-model",
-              });
-              onConnected?.();
-            }}
+            aria-label="Choose a provider"
+            onClick={() => setProviderOpen((open) => !open)}
           >
-            Save
+            Choose a provider
           </button>
+          {providerOpen ? (
+            <div>
+              <button type="button">OpenRouter</button>
+              <button type="button">Ollama</button>
+            </div>
+          ) : null}
+          <div>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                void agentEngineKeyMock.saveAgentEngineProviderSettings({
+                  provider: "anthropic",
+                  key: "ANTHROPIC_API_KEY",
+                  apiKey,
+                  scope: "org",
+                });
+                void agentEngineKeyMock.setAgentEngineProvider({
+                  provider: "anthropic",
+                  model: "mock-model",
+                });
+                onConnected?.();
+              }}
+            >
+              Save
+            </button>
+          </div>
         </div>
-      </div>
-    );
-  },
-}));
+      );
+    },
+  };
+});
+
+vi.mock("../settings/BuilderConnectPopover.js", () => {
+  deferredUiModuleLoads.builderConnectPopover = true;
+  return {
+    BuilderConnectPopover: ({ children }: { children: React.ReactNode }) =>
+      children,
+  };
+});
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: () => ({
@@ -205,6 +221,64 @@ describe("run recovery surfaces", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("loads provider setup modules only when a setup surface is reached", async () => {
+    expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
+    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent connection was interrupted.",
+              errorCode: "connection_error",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
+    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(deferredUiModuleLoads.builderConnectPopover).toBe(true);
+    });
+    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
+
+    const customKeysButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Custom keys"));
+    await act(async () => {
+      customKeysButton?.click();
+    });
+
+    await vi.waitFor(() => {
+      expect(deferredUiModuleLoads.providerSetupForm).toBe(true);
+    });
+    expect(container.textContent).toContain("Choose a provider");
   });
 
   it("shows an explicit failure state when Copy debug cannot write clipboard", async () => {

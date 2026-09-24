@@ -22,7 +22,10 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import PromptPopover from "@/components/editor/PromptDialog";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
@@ -106,6 +109,10 @@ export default function Templates() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
 
   const templates = useMemo(() => data?.templates ?? [], [data?.templates]);
   const linkedTemplateId = searchParams.get("templateId");
@@ -182,6 +189,7 @@ export default function Templates() {
         ? template.designSystemId
         : resolveDefaultDesignSystemId(),
     );
+    preloadPromptComposer();
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
@@ -197,6 +205,7 @@ export default function Templates() {
     template: DesignTemplateSummary,
     element: HTMLElement,
   ) => {
+    preloadPromptComposer();
     anchorElRef.current = element;
     handledTemplateIdRef.current = template.id;
     setSelectedTemplateParam(template.id);
@@ -387,7 +396,7 @@ export default function Templates() {
         onSubmit={handleSubmit}
         anchorRef={anchorRef}
         loading={creating}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedDesignSystemId ?? null}
         onDesignSystemChange={setSelectedDesignSystemId}

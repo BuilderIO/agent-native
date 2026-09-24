@@ -27,6 +27,12 @@ const messages = {
     inbox: {
       syncing: "收件箱同步中…",
     },
+    sort: {
+      label: "排序收件箱",
+      newest: "最新",
+      priority: "优先级",
+      priorityFailed: "无法对收件箱排序。",
+    },
     toolbar: {
       toggleMenu: "切换菜单",
       menu: "菜单",
@@ -488,6 +494,10 @@ const messages = {
       instructionFailed: "无法保存 AI 筛选指令。",
       spamMode: "垃圾邮件",
       tagMode: "标签",
+      importantMode: "重要",
+      importantLabel: "AI 重要",
+      reviewImportant: "查看重要邮件",
+      importantPlaceholder: "例如：需要回复或有截止日期的邮件",
       ruleAdded: "已添加 AI 规则。",
       instructionHelp: "使用自然语言",
       tagNamePlaceholder: "标签名称",
@@ -502,6 +512,7 @@ const messages = {
       previewButton: "运行预览",
       previewRunning: "正在检查最近的收件箱邮件…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 匹配概率 {{percent}}%",
       feedbackLabel: "勾选不应包含的匹配项",
       notSpamShort: "不是垃圾邮件",
       notMatchShort: "不匹配",

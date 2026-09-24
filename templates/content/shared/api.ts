@@ -23,6 +23,7 @@ export interface ContentContextPathEntry {
 
 export interface Document {
   id: string;
+  spaceId?: string | null;
   parentId: string | null;
   title: string;
   content: string;
@@ -145,6 +146,10 @@ export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
   historySessionId?: string;
+  editorSessionId?: string;
+  editorEditGeneration?: number;
+  editorSnapshotTitle?: string;
+  editorSnapshotContent?: string;
   description?: string;
   icon?: string | null;
   isFavorite?: boolean;
@@ -160,11 +165,39 @@ export interface DocumentUpdateResponse extends Document {
 export interface DocumentMoveRequest {
   parentId?: string | null;
   position?: number;
+  /** Destination Content space; moves the page and its sub-pages there. */
+  spaceId?: string;
 }
 
 export interface DocumentListResponse {
   documents: Document[];
   pagination: DocumentDiscoveryPagination;
+}
+
+export interface ContentNavigationPathEntry {
+  id: string;
+  parentId: string | null;
+  title: string;
+  icon: string | null;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  isFavorite: boolean;
+  visibility?: "private" | "org" | "public";
+  accessRole?: DocumentAccessRole;
+  canView?: boolean;
+  canComment?: boolean;
+  canEdit?: boolean;
+  canManage?: boolean;
+  source?: DocumentSourceInfo;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentNavigationContext {
+  mode: "database" | "local-files";
+  document: Document;
+  path: ContentNavigationPathEntry[];
+  workspaceFilesDatabaseId: string | null;
 }
 
 export interface DocumentDiscoveryPagination {
@@ -516,6 +549,7 @@ export interface ContentDatabaseItem {
   document: Document;
   position: number;
   properties: DocumentProperty[];
+  workspaceFilesDatabaseId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
   sourceRecord?: ContentDatabaseSourceRow;
   // Federation (NEXT): the row's normalized join key, and the read-only columns
@@ -979,6 +1013,39 @@ export type ContentDatabaseItemsPageResponse = Pick<
   "items" | "source" | "sources" | "pagination" | "tableQueryMode"
 >;
 
+export type ContentDatabaseNavigationSort =
+  | "custom"
+  | "name"
+  | "created"
+  | "last_edited";
+
+export interface ContentDatabaseNavigationItem {
+  membershipId: string;
+  membershipPosition: number;
+  documentId: string;
+  parentId: string | null;
+  title: string;
+  icon: string | null;
+  type: "page" | "database";
+  hasChildren: boolean;
+  spaceId: string | null;
+  sourceKind: string | null;
+  isFavorite: boolean;
+  canEdit: boolean;
+  canManage: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentDatabaseNavigationPageResponse {
+  items: ContentDatabaseNavigationItem[];
+  pagination: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+}
+
 export interface BuilderActionTiming {
   name: string;
   durationMs: number;
@@ -1019,6 +1086,8 @@ export interface CreateInlineDatabaseRequest {
   hostDocumentId: string;
   title?: string;
   description?: string;
+  newDocumentId?: string;
+  ownerBlockId?: string;
 }
 
 export interface CreateInlineDatabaseResponse {

@@ -72,7 +72,14 @@ import {
 } from "@tiptap/react";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { useCallback, useEffect, useRef, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -848,6 +855,9 @@ const CustomTable = BaseTable.extend({
 });
 
 const NotionTableHeader = TableHeader.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
+  },
   renderHTML({ HTMLAttributes }) {
     return [
       "td",
@@ -856,6 +866,21 @@ const NotionTableHeader = TableHeader.extend({
       }),
       0,
     ];
+  },
+});
+
+const tableAlignmentAttribute = {
+  textAlign: {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-alignment"),
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.textAlign ? { "data-alignment": attributes.textAlign } : {},
+  },
+};
+
+const NotionTableCell = TableCell.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
 });
 
@@ -983,6 +1008,109 @@ const NormalizeTableHeaders = Extension.create({
               destroyed = true;
             },
           };
+        },
+      }),
+    ];
+  },
+});
+
+const normalizeTableAlignmentPluginKey = new PluginKey(
+  "normalizeTableAlignment",
+);
+
+const NormalizeTableAlignment = Extension.create({
+  name: "normalizeTableAlignment",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: normalizeTableAlignmentPluginKey,
+        appendTransaction(transactions, oldState, newState) {
+          if (
+            transactions.some((transaction) =>
+              transaction.getMeta(normalizeTableAlignmentPluginKey),
+            ) ||
+            !transactions.some((transaction) => transaction.docChanged)
+          ) {
+            return null;
+          }
+
+          const previousTables = new Map<number, ProseMirrorNode>();
+          oldState.doc.descendants((node, position) => {
+            if (node.type.name !== "table") return true;
+            let mappedPosition = position;
+            for (const transaction of transactions) {
+              const mapped = transaction.mapping.mapResult(mappedPosition, 1);
+              if (mapped.deleted) return false;
+              mappedPosition = mapped.pos;
+            }
+            previousTables.set(mappedPosition, node);
+            return false;
+          });
+
+          let transaction = newState.tr;
+          let changed = false;
+          newState.doc.descendants((table, position) => {
+            if (table.type.name !== "table") return true;
+            const previous = previousTables.get(position);
+            if (!previous || table.childCount <= previous.childCount)
+              return false;
+
+            const previousRows = getNodeChildren(previous);
+            const previousRowSet = new Set(previousRows);
+            const alignments = getNodeChildren(previousRows[0]).map(
+              (_cell, columnIndex) => {
+                const alignment =
+                  previousRows[0].maybeChild(columnIndex)?.attrs.textAlign;
+                if (
+                  alignment !== "left" &&
+                  alignment !== "center" &&
+                  alignment !== "right"
+                )
+                  return null;
+                return previousRows.every(
+                  (row) =>
+                    row.maybeChild(columnIndex)?.attrs.textAlign === alignment,
+                )
+                  ? alignment
+                  : null;
+              },
+            );
+            if (alignments.every((alignment) => alignment === null))
+              return false;
+
+            let tableChanged = false;
+            const rows = getNodeChildren(table).map((row) => {
+              if (previousRowSet.has(row)) return row;
+              let rowChanged = false;
+              const cells = getNodeChildren(row).map((cell, columnIndex) => {
+                const alignment = alignments[columnIndex];
+                if (cell.attrs.textAlign || !alignment || cell.textContent)
+                  return cell;
+                rowChanged = true;
+                return cell.type.create(
+                  { ...cell.attrs, textAlign: alignment },
+                  cell.content,
+                  cell.marks,
+                );
+              });
+              if (!rowChanged) return row;
+              tableChanged = true;
+              return row.copy(Fragment.fromArray(cells));
+            });
+            if (!tableChanged) return false;
+            transaction = transaction.replaceWith(
+              position,
+              position + table.nodeSize,
+              table.copy(Fragment.fromArray(rows)),
+            );
+            changed = true;
+            return false;
+          });
+
+          return changed
+            ? transaction.setMeta(normalizeTableAlignmentPluginKey, true)
+            : null;
         },
       }),
     ];
@@ -1344,7 +1472,9 @@ function writeContentSelectionState(value: unknown) {
 
 interface VisualEditorProps {
   documentId?: string;
+  contentSpaceId?: string;
   content: string;
+  contentResetKey?: string | null;
   /**
    * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
    * edit (agent / Notion / peer-via-SQL) apart from a stale autosave echo or a
@@ -1420,7 +1550,10 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?: { from: number; prefix: string; suffix: string } | null;
+  initialSelection?:
+    | { from: number; prefix: string; suffix: string }
+    | VisualEditorSelectionSnapshot
+    | null;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -1437,6 +1570,9 @@ interface VisualEditorProps {
     controller: VisualEditorHistoryController | null,
   ) => void;
   onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+  onSelectionControllerChange?: (
+    controller: VisualEditorSelectionController | null,
+  ) => void;
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
@@ -1455,6 +1591,62 @@ export interface VisualEditorHistoryController {
     contentUpdatedAt: string;
     contentRevision: string | null;
   }) => boolean;
+}
+
+export interface VisualEditorSelectionSnapshot {
+  anchor: number;
+  head: number;
+  docJson: string;
+}
+
+export interface VisualEditorSelectionController {
+  captureSelection: (options?: {
+    includeRemembered?: boolean;
+  }) => VisualEditorSelectionSnapshot | null;
+  preserveSelection: (snapshot: VisualEditorSelectionSnapshot) => boolean;
+  releaseSelectionPreservation: () => void;
+  restoreSelection: (snapshot: VisualEditorSelectionSnapshot) => boolean;
+}
+
+const visualEditorDocJsonCache = new WeakMap<ProseMirrorNode, string>();
+
+function visualEditorDocJson(doc: ProseMirrorNode) {
+  const cached = visualEditorDocJsonCache.get(doc);
+  if (cached) return cached;
+  const serialized = JSON.stringify(doc.toJSON());
+  visualEditorDocJsonCache.set(doc, serialized);
+  return serialized;
+}
+
+export function captureVisualEditorSelection(
+  doc: ProseMirrorNode,
+  selection: Selection,
+): VisualEditorSelectionSnapshot | null {
+  if (!(selection instanceof TextSelection)) return null;
+  return {
+    anchor: selection.anchor,
+    head: selection.head,
+    docJson: visualEditorDocJson(doc),
+  };
+}
+
+export function resolveVisualEditorSelection(
+  doc: ProseMirrorNode,
+  snapshot: VisualEditorSelectionSnapshot,
+): TextSelection | null {
+  if (snapshot.docJson !== visualEditorDocJson(doc)) return null;
+  const { anchor, head } = snapshot;
+  if (
+    ![anchor, head].every(
+      (position) =>
+        Number.isInteger(position) &&
+        position >= 0 &&
+        position <= doc.content.size &&
+        doc.resolve(position).parent.inlineContent,
+    )
+  )
+    return null;
+  return TextSelection.create(doc, anchor, head);
 }
 
 export interface VisualEditorPersistenceController {
@@ -2477,13 +2669,14 @@ export function createVisualEditorExtensions({
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
-        resizable: false,
+        resizable: true,
         HTMLAttributes: { class: "notion-table" },
       }),
       TableRow,
       NotionTableHeader,
-      TableCell,
+      NotionTableCell,
       NormalizeTableHeaders,
+      NormalizeTableAlignment,
       ...createNotionEditorExtensions({
         resolvePageLink: resolveNotionPageLink,
         onOpenPageLink: onOpenNotionPageLink,
@@ -2858,7 +3051,9 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 
 export function VisualEditor({
   documentId,
+  contentSpaceId,
   content,
+  contentResetKey = null,
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
@@ -2897,6 +3092,7 @@ export function VisualEditor({
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
+  onSelectionControllerChange,
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
@@ -2928,8 +3124,20 @@ export function VisualEditor({
   const historyStateNotificationRef = useRef<VisualEditorHistoryState | null>(
     null,
   );
+  const deliveredHistoryStateRef = useRef<VisualEditorHistoryState | null>(
+    null,
+  );
   const historyStateNotificationQueuedRef = useRef(false);
   const editorMountedRef = useRef(false);
+  const lastFocusedSelectionRef = useRef<VisualEditorSelectionSnapshot | null>(
+    null,
+  );
+  const preservedContentEditableRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    lastFocusedSelectionRef.current = null;
+  }, [documentId]);
   const notifyHistoryStateChange = useCallback(
     (state: VisualEditorHistoryState) => {
       historyStateNotificationRef.current = state;
@@ -2940,6 +3148,13 @@ export function VisualEditor({
         const next = historyStateNotificationRef.current;
         historyStateNotificationRef.current = null;
         if (!editorMountedRef.current || !next) return;
+        const delivered = deliveredHistoryStateRef.current;
+        if (
+          delivered?.canUndo === next.canUndo &&
+          delivered.canRedo === next.canRedo
+        )
+          return;
+        deliveredHistoryStateRef.current = next;
         onHistoryStateChangeRef.current?.(next);
       });
     },
@@ -3418,6 +3633,21 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const appliedContentResetKeyRef = useRef(contentResetKey);
+  useLayoutEffect(() => {
+    if (!editor || appliedContentResetKeyRef.current === contentResetKey)
+      return;
+    appliedContentResetKeyRef.current = contentResetKey;
+    if (ydoc || docToNfm(editor.getJSON() as any) === content) return;
+    editor
+      .chain()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .setContent(nfmToDoc(content), { emitUpdate: false })
+      .run();
+  }, [content, contentResetKey, editor, ydoc]);
   useEffect(() => {
     if (!editor) return;
     const capture = ({ transaction }: { transaction: Transaction }) => {
@@ -3499,10 +3729,12 @@ export function VisualEditor({
         return applied;
       },
     });
-    onHistoryStateChange?.({
+    const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
-    });
+    };
+    deliveredHistoryStateRef.current = initialHistoryState;
+    onHistoryStateChange?.(initialHistoryState);
     return () => onHistoryControllerChange?.(null);
   }, [
     editor,
@@ -3511,6 +3743,109 @@ export function VisualEditor({
     onHistoryControllerChange,
     onHistoryStateChange,
   ]);
+
+  useEffect(() => {
+    if (!editor) {
+      onSelectionControllerChange?.(null);
+      return;
+    }
+    const releaseSelectionPreservation = () => {
+      const previous = preservedContentEditableRef.current;
+      if (previous === undefined) return;
+      preservedContentEditableRef.current = undefined;
+      if (previous == null) editor.view.dom.removeAttribute("contenteditable");
+      else editor.view.dom.setAttribute("contenteditable", previous);
+    };
+    const rememberFocusedSelection = () => {
+      if (editor.isDestroyed || !editor.isFocused) return;
+      lastFocusedSelectionRef.current = captureVisualEditorSelection(
+        editor.state.doc,
+        editor.state.selection,
+      );
+    };
+    editor.on("selectionUpdate", rememberFocusedSelection);
+    editor.on("focus", rememberFocusedSelection);
+    const clearRememberedSelectionOutsideEditorControls = (
+      event: FocusEvent,
+    ) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (editor.view.dom.contains(target)) return;
+      if (target.closest("[data-editor-selection-continuation]")) return;
+      lastFocusedSelectionRef.current = null;
+    };
+    document.addEventListener(
+      "focusin",
+      clearRememberedSelectionOutsideEditorControls,
+    );
+    rememberFocusedSelection();
+    onSelectionControllerChange?.({
+      captureSelection: (options) => {
+        if (editor.isDestroyed) return null;
+        const { selection, doc } = editor.state;
+        const current = captureVisualEditorSelection(doc, selection);
+        if (editor.isFocused) {
+          lastFocusedSelectionRef.current = current;
+          return current;
+        }
+        if (!options?.includeRemembered) return null;
+        const remembered = lastFocusedSelectionRef.current;
+        return remembered && resolveVisualEditorSelection(doc, remembered)
+          ? remembered
+          : null;
+      },
+      preserveSelection: (snapshot) => {
+        if (editor.isDestroyed) return false;
+        const selection = resolveVisualEditorSelection(
+          editor.state.doc,
+          snapshot,
+        );
+        if (!selection) return false;
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+        if (preservedContentEditableRef.current === undefined) {
+          preservedContentEditableRef.current =
+            editor.view.dom.getAttribute("contenteditable");
+        }
+        editor.view.dom.setAttribute("contenteditable", "false");
+        const anchor = editor.view.domAtPos(selection.anchor);
+        const head = editor.view.domAtPos(selection.head);
+        window
+          .getSelection()
+          ?.setBaseAndExtent(
+            anchor.node,
+            anchor.offset,
+            head.node,
+            head.offset,
+          );
+        lastFocusedSelectionRef.current = snapshot;
+        return true;
+      },
+      releaseSelectionPreservation,
+      restoreSelection: (snapshot) => {
+        if (editor.isDestroyed) return false;
+        releaseSelectionPreservation();
+        const selection = resolveVisualEditorSelection(
+          editor.state.doc,
+          snapshot,
+        );
+        if (!selection) return false;
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+        editor.view.focus();
+        lastFocusedSelectionRef.current = snapshot;
+        return true;
+      },
+    });
+    return () => {
+      editor.off("selectionUpdate", rememberFocusedSelection);
+      editor.off("focus", rememberFocusedSelection);
+      document.removeEventListener(
+        "focusin",
+        clearRememberedSelectionOutsideEditorControls,
+      );
+      releaseSelectionPreservation();
+      onSelectionControllerChange?.(null);
+    };
+  }, [editor, onSelectionControllerChange]);
 
   // Clear the agent's selection context when this document closes — on
   // unmount, and on document change (the editor is reused across route
@@ -3665,6 +4000,7 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    overlapPolicy: "prefer-live",
     editable,
     isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
@@ -3994,19 +4330,30 @@ export function VisualEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     if (!editable || !initialSelection) return;
-    const position = resolveAnchorPoint(
-      editor.state.doc,
-      {
-        prefix: initialSelection.prefix,
-        suffix: initialSelection.suffix,
-        startOffset: initialSelection.from,
-      },
-      "\n",
-    );
-    if (position == null) return;
+    let selection: TextSelection | null = null;
+    if ("docJson" in initialSelection) {
+      selection = resolveVisualEditorSelection(
+        editor.state.doc,
+        initialSelection,
+      );
+      if (!selection) return;
+    } else {
+      const position = resolveAnchorPoint(
+        editor.state.doc,
+        {
+          prefix: initialSelection.prefix,
+          suffix: initialSelection.suffix,
+          startOffset: initialSelection.from,
+        },
+        "\n",
+      );
+      if (position == null) return;
+      selection = TextSelection.create(editor.state.doc, position);
+    }
     const frame = requestAnimationFrame(() => {
       if (!editor.isDestroyed) {
-        editor.chain().focus().setTextSelection(position).run();
+        editor.view.dispatch(editor.state.tr.setSelection(selection!));
+        editor.view.focus();
       }
     });
     return () => cancelAnimationFrame(frame);
@@ -4115,6 +4462,7 @@ export function VisualEditor({
         <SlashCommandMenu
           editor={editor}
           documentId={documentId}
+          contentSpaceId={contentSpaceId}
           suggesting={suggesting}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
