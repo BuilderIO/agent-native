@@ -259,6 +259,11 @@ const DEFAULT_REPLAY_RETENTION_DAYS = 30;
 const DEFAULT_ABANDONED_REPLAY_MINUTES = 30;
 const DEFAULT_REPLAY_MAX_BYTES_PER_DAY = 100 * 1024 * 1024;
 const DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE = 120;
+/** New recordings are admitted only below this share of the daily byte cap;
+ * the rest is reserved for recordings already in progress. A 429 is terminal
+ * for the recorder, so without the reserve a saturated key cuts admitted
+ * recordings off after their first chunk and stores empty stubs. */
+const REPLAY_NEW_RECORDING_ADMISSION_RATIO = 0.85;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
@@ -1116,6 +1121,8 @@ export interface SessionReplayIngestContext {
   origin?: string | null;
   requestBytes?: number | null;
   now?: Date;
+  /** True when no `session_recordings` row exists yet for this chunk. */
+  isNewRecording?: boolean;
 }
 
 export async function assertReplayKeyBudget(
@@ -1176,7 +1183,10 @@ export async function assertReplayKeyBudget(
     );
 
   const bytesToday = Number(dailyUsage?.bytes ?? 0);
-  if (bytesToday + requestBytes > maxBytesPerDay) {
+  const admissionCeiling = context.isNewRecording
+    ? Math.floor(maxBytesPerDay * REPLAY_NEW_RECORDING_ADMISSION_RATIO)
+    : maxBytesPerDay;
+  if (bytesToday + requestBytes > admissionCeiling) {
     throw replayError(
       "Replay ingest byte quota exceeded for this public key",
       429,
@@ -1207,13 +1217,13 @@ export async function assertReplayKeyBudget(
   }
 }
 
-async function resolveReplayPublicKey(
-  publicKey: string,
-  context: SessionReplayIngestContext = {},
-): Promise<{
+async function resolveReplayPublicKey(publicKey: string): Promise<{
   id: string;
   ownerEmail: string;
   orgId: string | null;
+  replayAllowedOrigins?: string | null;
+  replayMaxBytesPerDay?: number | null;
+  replayMaxRequestsPerMinute?: number | null;
 }> {
   const db = getDb() as any;
   // guard:allow-unscoped -- public replay ingestion must resolve the owning tenant from the submitted write key before it can scope inserts.
@@ -1228,11 +1238,13 @@ async function resolveReplayPublicKey(
     )
     .limit(1);
   if (!key) throw replayError("Invalid analytics public key", 401);
-  await assertReplayKeyBudget(key, context);
   return {
     id: key.id,
     ownerEmail: key.ownerEmail,
     orgId: key.orgId ?? null,
+    replayAllowedOrigins: key.replayAllowedOrigins,
+    replayMaxBytesPerDay: key.replayMaxBytesPerDay,
+    replayMaxRequestsPerMinute: key.replayMaxRequestsPerMinute,
   };
 }
 
@@ -1403,7 +1415,7 @@ export async function recordSessionReplayChunks(
   eventCount: number;
   totalBytes: number;
 }> {
-  const key = await resolveReplayPublicKey(input.publicKey, context);
+  const key = await resolveReplayPublicKey(input.publicKey);
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);
@@ -1421,6 +1433,12 @@ export async function recordSessionReplayChunks(
       ),
     )
     .limit(1);
+
+  // Before the insert below: a rejected new recording must not leave a row.
+  await assertReplayKeyBudget(key, {
+    ...context,
+    isNewRecording: !recording,
+  });
 
   if (!recording) {
     const newRecordingId = replayId("sr");

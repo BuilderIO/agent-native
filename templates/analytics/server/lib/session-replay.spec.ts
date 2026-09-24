@@ -1321,6 +1321,80 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("rejects a new recording at 90% of the daily byte budget", async () => {
+    // Admission ceiling for a new recording is 85% of the 1,000-byte cap
+    // (850), so 900 already-used bytes plus any request exceeds it even
+    // though the hard cap (1,000) has headroom left.
+    const db = createBudgetDbMock([[{ bytes: 900 }]]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      assertReplayKeyBudget(
+        {
+          id: "key_1",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+        {
+          requestBytes: 10,
+          now: new Date("2026-01-01T00:00:00.000Z"),
+          isNewRecording: true,
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      message: "Replay ingest byte quota exceeded for this public key",
+      retryAfterSeconds: 24 * 60 * 60,
+    });
+  });
+
+  it("accepts an existing recording at 90% of the daily byte budget", async () => {
+    const db = createBudgetDbMock([[{ bytes: 900 }], [{ requests: 0 }]]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      assertReplayKeyBudget(
+        {
+          id: "key_1",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+        {
+          requestBytes: 10,
+          now: new Date("2026-01-01T00:00:00.000Z"),
+          isNewRecording: false,
+        },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("still rejects an existing recording above the hard daily byte cap", async () => {
+    const db = createBudgetDbMock([[{ bytes: 1_000 }]]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      assertReplayKeyBudget(
+        {
+          id: "key_1",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+        {
+          requestBytes: 10,
+          now: new Date("2026-01-01T00:00:00.000Z"),
+          isNewRecording: false,
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      message: "Replay ingest byte quota exceeded for this public key",
+      retryAfterSeconds: 24 * 60 * 60,
+    });
+  });
+
   it("does not leave an empty recording when production chunk storage fails", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalFallback = process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK;
@@ -1363,9 +1437,9 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [], // no existing recording -> triggers insert
       [{ bytes: 0 }],
       [{ requests: 0 }],
-      [],
       [recording],
       [],
     ]);
@@ -1448,9 +1522,9 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [recording], // existing recording found directly, no reselect
       [{ bytes: 0 }],
       [{ requests: 0 }],
-      [recording],
       [],
     ]);
     db.insert.mockImplementation((table: unknown) => ({
@@ -1498,9 +1572,9 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [], // no existing recording -> triggers insert
       [{ bytes: 0 }],
       [{ requests: 0 }],
-      [], // no existing recording -> triggers insert
       [
         {
           id: "sr_new",
@@ -1648,5 +1722,34 @@ describe("session replay ingest parsing", () => {
     expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
       "private",
     );
+  });
+
+  it("creates no session_recordings row when admission control rejects a new recording", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [], // no existing recording
+      [{ bytes: 900 }], // 90% used -> above the 85% new-recording ceiling
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 10,
+        now: new Date("2026-01-01T00:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 429 });
+
+    expect(inserts).toHaveLength(0);
   });
 });
