@@ -89,6 +89,46 @@ describe("useLaunchDarklyFlag / useLaunchDarklyFlags session gating", () => {
     expect(value).toBe(true);
   });
 
+  it("stops returning the prior cached flag after logout", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ flags: { "new-editor": true } })),
+    );
+
+    let value: boolean | undefined;
+    function Probe() {
+      value = useLaunchDarklyFlag("new-editor");
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const queryClient = new QueryClient();
+    const render = () =>
+      act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Probe />
+          </QueryClientProvider>,
+        ),
+      );
+
+    await render();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(value).toBe(true);
+
+    sessionMocks.useSession.mockReturnValue({ status: "unauthenticated" });
+    await render();
+
+    expect(value).toBe(false);
+  });
+
   it("useLaunchDarklyFlags evaluates several keys in one request", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(

@@ -396,11 +396,6 @@ function loadTemplateEnv(template: string, sources: string[]) {
   const foundSources: string[] = [];
   const sourcesByKey = new Map<string, string[]>();
 
-  for (const key of FLEET_WIDE_ENV_KEYS) {
-    const value = process.env[key];
-    if (value) values.set(key, value);
-  }
-
   for (const source of sources) {
     const filePath = path.join(REPO_ROOT, "templates", template, source);
     if (!existsSync(filePath)) continue;
@@ -411,6 +406,14 @@ function loadTemplateEnv(template: string, sources: string[]) {
       values.set(key, value);
       sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), relativePath]);
     }
+  }
+
+  // Applied after template sources so a fleet-wide credential (the same
+  // value for every hosted site) always wins over a stale or developer-local
+  // value committed to a template .env file.
+  for (const key of FLEET_WIDE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) values.set(key, value);
   }
 
   return { foundSources, sourcesByKey, values };

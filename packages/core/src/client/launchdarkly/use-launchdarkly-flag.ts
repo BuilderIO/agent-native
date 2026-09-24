@@ -19,6 +19,10 @@ export function useLaunchDarklyFlag(
     { keys: [key], defaultValue } as never,
     { enabled: status === "authenticated" },
   );
+  // Disabling the query on logout stops new requests but React Query keeps
+  // the last successful result cached, so a signed-out read must ignore it
+  // rather than surface the previous user's evaluated flag.
+  if (status !== "authenticated") return defaultValue;
   const value = query.data?.flags?.[key];
   return typeof value === "boolean" ? value : defaultValue;
 }
@@ -33,7 +37,7 @@ export function useLaunchDarklyFlags(
     { keys, defaultValue } as never,
     { enabled: status === "authenticated" && keys.length > 0 },
   );
-  const flags = query.data?.flags ?? {};
+  const flags = status === "authenticated" ? (query.data?.flags ?? {}) : {};
   return Object.fromEntries(
     keys.map((key) => [
       key,
