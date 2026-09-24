@@ -773,12 +773,17 @@ function FlexContainerControls({
         }}
         onMarginChange={(nextMargin, meta, changedSides) => {
           const patch = marginStylesForSides(nextMargin, changedSides);
+          const changeMeta =
+            meta &&
+            (meta.relativeDelta !== undefined || meta.relativeExpression)
+              ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+              : meta;
           if (onStylesChange) {
-            onStylesChange(patch, meta);
+            onStylesChange(patch, changeMeta);
             return;
           }
           Object.entries(patch).forEach(([property, value]) =>
-            onStyleChange(property, value, meta),
+            onStyleChange(property, value, changeMeta),
           );
         }}
         onClipContentChange={(clipContent) =>
@@ -1270,12 +1275,17 @@ export function LayoutContextProperties({
           labels={marginLabels}
           onChange={(margin, meta, changedSides) => {
             const patch = marginStylesForSides(margin, changedSides);
+            const changeMeta =
+              meta &&
+              (meta.relativeDelta !== undefined || meta.relativeExpression)
+                ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+                : meta;
             if (onStylesChange) {
-              onStylesChange(patch, meta);
+              onStylesChange(patch, changeMeta);
               return;
             }
             Object.entries(patch).forEach(([property, value]) =>
-              onStyleChange(property, value, meta),
+              onStyleChange(property, value, changeMeta),
             );
           }}
         />

@@ -31,6 +31,10 @@ const PADDING_FRAME = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const THIN_PADDING_FRAME = `<!doctype html><html><body style="margin:0">
+  <div id="card" data-agent-native-node-id="card" style="position:absolute;left:200px;top:150px;width:160px;height:100px;margin:0;padding:1px;background:#333;box-sizing:border-box"></div>
+</body></html>`;
+
 const MARGIN_LEAF = `<!doctype html><html><body style="margin:0">
   <div id="leaf" data-agent-native-node-id="leaf" style="position:absolute;left:240px;top:180px;width:160px;height:100px;margin:0;background:#c33"></div>
 </body></html>`;
@@ -140,6 +144,86 @@ describe("padding interaction bridge", () => {
 
       await page.mouse.up();
       await page.keyboard.up("Shift");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps a thin padding handle above the overlapping zero-margin handle", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(THIN_PADDING_FRAME);
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __styleChanges?: Record<string, string>[];
+        };
+        target.__styleChanges = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-style-change") {
+            target.__styleChanges?.push(event.data.styles);
+          }
+        });
+      });
+      await installBridge(page);
+
+      const card = page.locator("#card");
+      const cardBox = (await card.boundingBox())!;
+      await page.mouse.click(
+        cardBox.x + cardBox.width / 2,
+        cardBox.y + cardBox.height / 2,
+      );
+      const handle = page.locator('[data-spacing-key="padding:top"]');
+      await handle.waitFor();
+      const handleBox = (await handle.boundingBox())!;
+      const x = handleBox.x + handleBox.width / 2;
+      const y = handleBox.y + handleBox.height / 2;
+
+      expect(
+        await page.evaluate(
+          ({ x, y }) =>
+            document
+              .elementsFromPoint(x, y)
+              .find((node) =>
+                node.matches("[data-agent-native-spacing-region]"),
+              )
+              ?.getAttribute("data-spacing-key"),
+          { x, y },
+        ),
+      ).toBe("padding:top");
+
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x, y + 6, { steps: 4 });
+      await page.mouse.up();
+
+      expect(
+        await card.evaluate((node) => {
+          const style = (node as HTMLElement).style;
+          return [style.paddingTop, style.marginTop];
+        }),
+      ).toEqual(["7px", "0px"]);
+      await page.waitForFunction(() =>
+        (
+          window as typeof window & {
+            __styleChanges?: Record<string, string>[];
+          }
+        ).__styleChanges?.some(
+          (styles) =>
+            styles.paddingTop === "7px" && Object.keys(styles).length === 1,
+        ),
+      );
+      expect(
+        await page.evaluate(() =>
+          (
+            window as typeof window & {
+              __styleChanges?: Record<string, string>[];
+            }
+          ).__styleChanges?.filter((styles) => styles.paddingTop === "7px"),
+        ),
+      ).toContainEqual({ paddingTop: "7px" });
     } finally {
       await browser.close();
     }

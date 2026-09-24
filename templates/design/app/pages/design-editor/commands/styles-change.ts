@@ -16,7 +16,7 @@ export interface StylesChangeArgs {
     styles: Record<string, string>,
   ) => boolean;
   commitRelativeStyleDeltaToSelectedLayers: (
-    property: string,
+    property: string | string[],
     operation: number | ScrubRelativeExpression,
     phase?: StyleChangeMeta["phase"],
   ) => boolean;
@@ -117,14 +117,25 @@ export function runStylesChange(
   const selector = selectedElement?.selector ?? "body";
   const entries = Object.entries(styles).filter(([, value]) => Boolean(value));
   if (entries.length === 0) return;
-  if (meta?.relativeExpression && entries.length === 1) {
-    const [property] = entries[0]!;
-    commitRelativeStyleDeltaToSelectedLayers(
-      property,
-      meta.relativeExpression,
-      meta.phase,
+  const relativeProperties =
+    meta?.relativeDeltaProperties ??
+    (entries.length === 1 ? [entries[0]![0]] : []);
+  const relativeOperation = meta?.relativeExpression ?? meta?.relativeDelta;
+  if (
+    relativeOperation !== undefined &&
+    relativeProperties.length > 0 &&
+    relativeProperties.every((property) =>
+      entries.some(([entryProperty]) => entryProperty === property),
+    )
+  ) {
+    const applied = commitRelativeStyleDeltaToSelectedLayers(
+      relativeProperties.length === 1
+        ? relativeProperties[0]!
+        : relativeProperties,
+      relativeOperation,
+      meta?.phase,
     );
-    return;
+    if (meta?.relativeExpression || applied) return;
   }
   const target = styleWriteTarget({ selector, selectedElement });
   // T10: mirror handleStyleChange's text-range routing here. Without
@@ -168,26 +179,6 @@ export function runStylesChange(
       });
     }
     return;
-  }
-  // Mixed-value arrow-step parity (item 7): see handleStyleChange's
-  // matching comment for the full defensive-read rationale. A relative
-  // delta is inherently single-valued (one scrub gesture on one field),
-  // so this only applies when the batched patch has exactly one entry —
-  // a multi-property patch (e.g. a shadow popover's X+Y+blur+spread all
-  // at once) has no single delta to apply per-node and falls through to
-  // the existing absolute-value paths unchanged.
-  const relativeDelta = (meta as { relativeDelta?: number } | undefined)
-    ?.relativeDelta;
-  if (typeof relativeDelta === "number" && entries.length === 1) {
-    const [singleProperty] = entries[0]!;
-    if (
-      commitRelativeStyleDeltaToSelectedLayers(
-        singleProperty,
-        relativeDelta,
-        meta?.phase,
-      )
-    )
-      return;
   }
   if (
     selectedElement &&

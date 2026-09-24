@@ -8836,6 +8836,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     regionNode.style.display = "block";
     regionNode.style.boxSizing = "border-box";
     regionNode.style.pointerEvents = "auto";
+    regionNode.style.zIndex =
+      handle.kind === "padding" ? "2" : handle.kind === "margin" ? "1" : "0";
     regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
