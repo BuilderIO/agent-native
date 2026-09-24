@@ -370,12 +370,7 @@ export default function DeckEditor() {
     if (pendingDeckNavigationBlocker.state !== "blocked") return;
     pendingDeckNavigationBlocker.proceed();
   }, [pendingDeckNavigationBlocker]);
-  const {
-    generating,
-    runError: generationRunError,
-    stopReason: generationStopReason,
-    timedOut: generationTimedOut,
-  } = useAgentGenerating();
+  const { generating } = useAgentGenerating();
   // Dedicated instance (not the `generating` one above, which reflects ANY
   // agent chat activity) so an unrelated concurrent run can't be mistaken
   // for this one finishing and clear the flag early. Owning the submit call
@@ -812,7 +807,7 @@ export default function DeckEditor() {
           });
           return;
         }
-        const settledSlideCount = refreshedDeck.slides.length;
+        const settledSlideCount = refreshResult.deck.slides.length;
         const failureCode =
           attemptStopReason === "stopped"
             ? "cancelled"
