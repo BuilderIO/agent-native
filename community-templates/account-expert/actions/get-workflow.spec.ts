@@ -28,23 +28,46 @@ describe("get-workflow", () => {
     );
   });
 
-  it("migrates existing workflow and selection state to app-specific keys", async () => {
-    const storedWorkflow = structuredClone(workflow);
-    const selectedId = workflow.items[1].id;
+  it("does not claim unscoped legacy workflow or selection state", async () => {
     mocks.state.set(
       "workflow-data",
-      storedWorkflow as unknown as Record<string, unknown>,
+      structuredClone(workflow) as unknown as Record<string, unknown>,
     );
-    mocks.state.set("workflow-selection", { selectedId });
+    mocks.state.set("workflow-selection", {
+      selectedId: workflow.items[1].id,
+    });
 
     const result = await action.run({});
 
-    expect(result).toEqual({ workflow: storedWorkflow, selectedId });
-    expect(mocks.state.get("account-expert:workflow-data")).toEqual(
-      storedWorkflow,
+    expect(result).toEqual({
+      workflow,
+      selectedId: workflow.items[0].id,
+    });
+    expect(mocks.state.get("workflow-data")).toEqual(workflow);
+    expect(mocks.state.get("workflow-selection")).toEqual({
+      selectedId: workflow.items[1].id,
+    });
+    expect(mocks.state.get("account-expert:workflow-data")).toEqual(workflow);
+    expect(mocks.readAppState).not.toHaveBeenCalledWith("workflow-data");
+    expect(mocks.readAppState).not.toHaveBeenCalledWith("workflow-selection");
+  });
+
+  it("reads workflow and selection state from this app's keys", async () => {
+    const storedWorkflow = structuredClone(workflow);
+    storedWorkflow.items[0].status = "In progress";
+    mocks.state.set(
+      "account-expert:workflow-data",
+      storedWorkflow as unknown as Record<string, unknown>,
     );
-    expect(mocks.state.get("account-expert:workflow-selection")).toEqual({
-      selectedId,
+    mocks.state.set("account-expert:workflow-selection", {
+      selectedId: workflow.items[1].id,
+    });
+
+    const result = await action.run({});
+
+    expect(result).toEqual({
+      workflow: storedWorkflow,
+      selectedId: workflow.items[1].id,
     });
   });
 });
