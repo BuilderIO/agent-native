@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-workspace-${{ github.event_name == 'schedule' || inputs.lane == 'production' && 'production' || 'beta' }}
+  group: app-workspace-${{ (github.event_name == 'schedule' || inputs.lane == 'production') && 'production' || 'beta' }}
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 45
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-      NETLIFY_SITE_ID: ${{ github.event_name == 'schedule' || inputs.lane == 'production' && secrets.NETLIFY_COMMUNITY_PRODUCTION_SITE_ID || secrets.NETLIFY_COMMUNITY_BETA_SITE_ID }}
+      NETLIFY_SITE_ID: ${{ (github.event_name == 'schedule' || inputs.lane == 'production') && secrets.NETLIFY_COMMUNITY_PRODUCTION_SITE_ID || secrets.NETLIFY_COMMUNITY_BETA_SITE_ID }}
     steps:
       - name: Check publish lane
         id: gate
@@ -74,25 +74,52 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: Install the pinned Netlify CLI
+        if: steps.gate.outputs.ready == 'true'
+        run: npm install --global netlify-cli@27.9.0 @netlify/build@37.0.0 --ignore-scripts
+
       - name: Run shared database release migrations
         if: steps.gate.outputs.ready == 'true'
         env:
-          DATABASE_URL: ${{ secrets.COMMUNITY_DATABASE_URL }}
+          CONTEXT: production
+          DATABASE_URL: ${{ (github.event_name == 'schedule' || inputs.lane == 'production') && secrets.COMMUNITY_DATABASE_URL || secrets.COMMUNITY_BETA_DATABASE_URL }}
         run: |
           set -euo pipefail
           if [[ -z "$DATABASE_URL" ]]; then
-            echo "::error::COMMUNITY_DATABASE_URL is required for the app workspace deploy."
+            echo "::error::The matching Community database secret is required for this app workspace deploy."
             exit 1
           fi
           pnpm --dir community-templates/account-expert migrate:production
 
       - name: Build the bundle
         if: steps.gate.outputs.ready == 'true'
+        env:
+          AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
+          CONTEXT: production
         run: pnpm --dir community-templates exec agent-native deploy --preset=netlify --build-only
 
-      - name: Install the pinned Netlify CLI
+      - name: Point the runtime to the migrated database
         if: steps.gate.outputs.ready == 'true'
-        run: npm install --global netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
+        env:
+          DATABASE_URL: ${{ (github.event_name == 'schedule' || inputs.lane == 'production') && secrets.COMMUNITY_DATABASE_URL || secrets.COMMUNITY_BETA_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "::error::The matching Community database secret is required for this app workspace deploy."
+            exit 1
+          fi
+          account_id="$(netlify api getSite --data "{\"site_id\":\"$NETLIFY_SITE_ID\"}" | jq -er '.account_id')"
+          payload="$(jq -cn --arg account_id "$account_id" --arg site_id "$NETLIFY_SITE_ID" --arg value "$DATABASE_URL" '{account_id:$account_id,site_id:$site_id,key:"DATABASE_URL_UNPOOLED",body:{context:"production",value:$value}}')"
+          if ! netlify api setEnvVarValue --data "$payload" >/dev/null 2>&1; then
+            echo "::error::Could not point the Community Netlify site at its migrated Neon database."
+            exit 1
+          fi
+          metadata_payload="$(jq -cn --arg account_id "$account_id" --arg site_id "$NETLIFY_SITE_ID" '{account_id:$account_id,site_id:$site_id,key:"DATABASE_URL_UNPOOLED"}')"
+          metadata="$(netlify api getEnvVar --data "$metadata_payload")"
+          if ! jq -e '(.scopes // []) | index("functions") != null' <<<"$metadata" >/dev/null; then
+            echo "::error::DATABASE_URL_UNPOOLED must be available to Netlify Functions before publishing."
+            exit 1
+          fi
 
       - name: Publish the prebuilt bundle
         if: steps.gate.outputs.ready == 'true'
