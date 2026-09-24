@@ -76,9 +76,6 @@ export function PageDraftRecovery({
   const journalAttemptRef = useRef<string | null>(null);
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
-  const [pendingSqlDraftKey, setPendingSqlDraftKey] = useState<string | null>(
-    null,
-  );
   const draft = drafts.data?.draft;
 
   useEffect(() => {
@@ -554,12 +551,30 @@ export function PageDraftRecovery({
       return;
     const attempt = `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}:${document.updatedAt}`;
     if (automaticRecoveryRef.current === attempt) return;
-    automaticRecoveryRef.current = attempt;
     if (draft.baseDocumentUpdatedAt === document.updatedAt) {
+      automaticRecoveryRef.current = attempt;
       void settleDraft(true);
       return;
     }
-    setPendingSqlDraftKey(attempt);
+    if (session?.email) {
+      try {
+        const journal = readPageDraftJournal({
+          accountId: session.email.trim().toLowerCase(),
+          orgId: session.orgId ?? null,
+          documentId: document.id,
+        });
+        if (
+          journal?.snapshot.title === draft.title &&
+          journal.snapshot.content === draft.content
+        )
+          return;
+      } catch {
+        setJournalState("failed");
+        return;
+      }
+    }
+    automaticRecoveryRef.current = attempt;
+    void resolveConflict("use_saved");
   }, [
     busy,
     document,
@@ -568,16 +583,15 @@ export function PageDraftRecovery({
     hasEditIdentity,
     journalState,
     scopeKey,
+    session?.email,
+    session?.orgId,
     verifiedScopeKey,
   ]);
 
   if (releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey)
     return journalState === "retained" ? (
       <>
-        <div role="status">
-          {t("editor.previewDraftConflict")}{" "}
-          {t("editor.previewDraftSavedToHistory")}
-        </div>
+        <div role="status">{t("editor.previewDraftSavedToHistory")}</div>
         {children}
       </>
     ) : (
@@ -624,26 +638,11 @@ export function PageDraftRecovery({
         {children}
       </>
     );
-  if (
-    hasEditIdentity &&
-    pendingSqlDraftKey ===
-      `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}:${document.updatedAt}`
-  )
-    return (
-      <>
-        <div role="status">{t("editor.previewDraftConflict")}</div>
-        {children}
-      </>
-    );
   if (hasEditIdentity && !failure)
     return <DocumentEditorSkeleton title={document.title} />;
   return (
     <>
-      <div role="status">
-        {failure === "error"
-          ? t("empty.genericError")
-          : t("editor.previewDraftConflict")}
-      </div>
+      <div role="status">{t("empty.genericError")}</div>
       {children}
     </>
   );

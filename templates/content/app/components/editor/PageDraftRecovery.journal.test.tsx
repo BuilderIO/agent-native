@@ -297,7 +297,7 @@ describe("Page browser journal recovery", () => {
     expect(state.retainedNotice).toBe(true);
     expect(container.querySelector("textarea")).not.toBeNull();
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "editor.previewDraftConflict",
+      "editor.previewDraftSavedToHistory",
     );
   });
 });

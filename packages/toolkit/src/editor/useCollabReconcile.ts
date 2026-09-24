@@ -17,6 +17,15 @@ import {
 
 export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
 
+export function isRemoteCollaborativeTransaction(
+  transaction: Transaction,
+): boolean {
+  return (
+    isChangeOrigin(transaction) &&
+    !transaction.getMeta(ySyncPluginKey)?.isUndoRedoOperation
+  );
+}
+
 type InitialSeedNode = ReturnType<XmlFragment["toArray"]>[number];
 
 export function applyAuthoritativeInitialSeed(
@@ -1255,7 +1264,8 @@ export function useCollabReconcile({
     // state load or a peer's edit arriving via sync). Each client saves only its
     // OWN local edits; a peer's edit is saved by that peer. Without this, a
     // lagging Y.Doc load would write stale markdown over newer SQL.
-    if (collab && transaction && isChangeOrigin(transaction)) return true;
+    if (collab && transaction && isRemoteCollaborativeTransaction(transaction))
+      return true;
     lastTypedAtRef.current = Date.now();
     return false;
   };

@@ -124,7 +124,7 @@ describe("Page draft recovery", () => {
     expect(state.resolve).not.toHaveBeenCalled();
   });
 
-  it("retains a newer-base identified draft without filing it as saved", async () => {
+  it("preserves an unrebased newer-base draft in History without showing a conflict", async () => {
     state.draft = {
       title: "Draft",
       content: "Draft body",
@@ -136,11 +136,17 @@ describe("Page draft recovery", () => {
     };
     await act(async () => render());
     expect(state.update).not.toHaveBeenCalled();
-    expect(state.resolve).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "editor.previewDraftConflict",
-    );
+    expect(state.resolve).toHaveBeenCalledWith({
+      choice: "use_saved",
+      documentId: "page",
+      expectedDraftVersion: 3,
+      expectedDraftTitle: "Draft",
+      expectedDraftContent: "Draft body",
+      expectedDocumentUpdatedAt: "v2",
+    });
+    expect(
+      container.querySelector('[role="status"]')?.textContent ?? "",
+    ).not.toContain("editor.previewDraftConflict");
   });
 
   it("moves a legacy draft to History without blocking the editor", async () => {
