@@ -89,6 +89,7 @@ import {
 } from "@/context/DeckContext";
 import {
   clearStartedGenerationAttempt,
+  getStartedGenerationAttemptTabId,
   hasStartedGenerationAttempt,
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
@@ -256,6 +257,29 @@ export function syncSlideContentSnapshots(
       latestContent.set(slide.id, slide.content);
     }
     renderedContent.set(slide.id, slide.content);
+  }
+}
+
+export type GenerationDeckRefreshResult =
+  | { status: "ready"; deck: Deck }
+  | { status: "not_ready" }
+  | { status: "failed" };
+
+export async function refreshDeckForGenerationOutcome(
+  refreshOpenDeck: (deckId: string) => Promise<Deck | null>,
+  deckId: string,
+): Promise<GenerationDeckRefreshResult> {
+  try {
+    let refreshedDeck = await refreshOpenDeck(deckId);
+    if (refreshedDeck === null) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      refreshedDeck = await refreshOpenDeck(deckId);
+    }
+    return refreshedDeck
+      ? { status: "ready", deck: refreshedDeck }
+      : { status: "not_ready" };
+  } catch {
+    return { status: "failed" };
   }
 }
 
@@ -664,6 +688,19 @@ export default function DeckEditor() {
       : searchParams.get("generation_attempt_id");
   const generationLifecycleOwnedByEditor =
     generationContext?.generationMode !== "action";
+  const [generationAttemptTabId, setGenerationAttemptTabId] = useState<
+    string | null
+  >(() =>
+    generationAttemptId && id
+      ? getStartedGenerationAttemptTabId(generationAttemptId, id)
+      : null,
+  );
+  const {
+    generating: attemptGenerating,
+    runError: attemptRunError,
+    stopReason: attemptStopReason,
+    timedOut: attemptTimedOut,
+  } = useAgentGenerating({ tabId: generationAttemptTabId });
   const targetSlideCount =
     typeof generationContext?.targetSlideCount === "number" &&
     Number.isInteger(generationContext.targetSlideCount) &&
@@ -683,6 +720,9 @@ export default function DeckEditor() {
       generationAttemptId,
       id,
     );
+    setGenerationAttemptTabId(
+      getStartedGenerationAttemptTabId(generationAttemptId, id),
+    );
     const handleGenerationStarted = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (
@@ -691,6 +731,8 @@ export default function DeckEditor() {
       ) {
         return;
       }
+      if (typeof detail.tabId !== "string") return;
+      setGenerationAttemptTabId(detail.tabId);
       generationRunStartedRef.current = true;
     };
     window.addEventListener(
@@ -713,7 +755,7 @@ export default function DeckEditor() {
     )
       return;
     if (!generationRunStartedRef.current) return;
-    if (generating) {
+    if (attemptGenerating) {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= Date.now();
       return;
@@ -727,82 +769,101 @@ export default function DeckEditor() {
     }
     generationSettlingAttemptRef.current = generationAttemptId;
     void (async () => {
-      let refreshedDeck = await refreshOpenDeck(id);
-      if (refreshedDeck === null) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        refreshedDeck = await refreshOpenDeck(id);
+      try {
+        const refreshResult = await refreshDeckForGenerationOutcome(
+          refreshOpenDeck,
+          id,
+        );
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        generationTerminalAttemptRef.current = generationAttemptId;
+        const refreshedDeck =
+          refreshResult.status === "ready" ? refreshResult.deck : null;
+        const durationMs = generationStartedAtRef.current
+          ? Math.max(0, Date.now() - generationStartedAtRef.current)
+          : undefined;
+        const properties = {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: id,
+          output_type: "deck",
+          ...(refreshedDeck !== null
+            ? { slide_count: refreshedDeck.slides.length }
+            : {}),
+          ...(targetSlideCount !== null
+            ? { target_slide_count: targetSlideCount }
+            : {}),
+          ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+          source: "new_deck_prompt",
+        };
+        if (refreshResult.status !== "ready") {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason:
+              refreshResult.status === "failed"
+                ? "deck_refresh_failed"
+                : "deck_not_visible_after_refresh",
+          });
+          return;
+        }
+        const settledSlideCount = refreshedDeck.slides.length;
+        const failureCode =
+          attemptStopReason === "stopped"
+            ? "cancelled"
+            : attemptTimedOut
+              ? "timeout"
+              : attemptRunError
+                ? "agent_error"
+                : targetSlideCount !== null &&
+                    settledSlideCount < targetSlideCount
+                  ? "incomplete_output"
+                  : settledSlideCount === 0
+                    ? "no_output"
+                    : null;
+        if (failureCode === "cancelled") {
+          trackEvent("generation_cancelled", {
+            ...properties,
+            outcome: "cancelled",
+            failure_code: failureCode,
+          });
+        } else if (failureCode === "timeout") {
+          trackEvent("generation_stuck", {
+            ...properties,
+            outcome: "stuck",
+            failure_code: failureCode,
+          });
+        } else if (failureCode) {
+          trackEvent("generation_failed", {
+            ...properties,
+            failure_code: failureCode,
+            failure_stage: "agent",
+          });
+        } else {
+          trackEvent("generation_completed", properties);
+        }
+      } finally {
+        clearStartedGenerationAttempt(generationAttemptId, id);
+        if (generationSettlingAttemptRef.current === generationAttemptId) {
+          generationSettlingAttemptRef.current = null;
+          generationSawActiveRef.current = false;
+          generationRunStartedRef.current = false;
+          generationStartedAtRef.current = null;
+        }
       }
-      if (generationTerminalAttemptRef.current === generationAttemptId) return;
-      generationTerminalAttemptRef.current = generationAttemptId;
-      const settledSlideCount = refreshedDeck?.slides.length ?? slideCount;
-      const durationMs = generationStartedAtRef.current
-        ? Math.max(0, Date.now() - generationStartedAtRef.current)
-        : undefined;
-      const failureCode =
-        generationStopReason === "stopped"
-          ? "cancelled"
-          : generationTimedOut
-            ? "timeout"
-            : generationRunError
-              ? "agent_error"
-              : targetSlideCount !== null &&
-                  settledSlideCount < targetSlideCount
-                ? "incomplete_output"
-                : settledSlideCount === 0
-                  ? "no_output"
-                  : null;
-      const properties = {
-        app_name: "slides",
-        template_name: "slides",
-        generation_attempt_id: generationAttemptId,
-        output_id: id,
-        output_type: "deck",
-        slide_count: settledSlideCount,
-        ...(targetSlideCount !== null
-          ? { target_slide_count: targetSlideCount }
-          : {}),
-        ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
-        source: "new_deck_prompt",
-      };
-      if (refreshedDeck === null && failureCode === null) {
-        trackEvent("generation_outcome_unresolved", {
-          ...properties,
-          outcome: "unresolved",
-          reason: "deck_refresh_unavailable",
-        });
-      } else if (failureCode === "cancelled") {
-        trackEvent("generation_cancelled", {
-          ...properties,
-          outcome: "cancelled",
-          failure_code: failureCode,
-        });
-      } else if (failureCode === "timeout") {
-        trackEvent("generation_stuck", {
-          ...properties,
-          outcome: "stuck",
-          failure_code: failureCode,
-        });
-      } else if (failureCode) {
-        trackEvent("generation_failed", {
-          ...properties,
-          failure_code: failureCode,
-          failure_stage: "agent",
-        });
-      } else {
-        trackEvent("generation_completed", properties);
-      }
-      clearStartedGenerationAttempt(generationAttemptId, id);
-      generationSawActiveRef.current = false;
-      generationRunStartedRef.current = false;
-      generationStartedAtRef.current = null;
     })();
   }, [
-    generating,
+    attemptGenerating,
     generationAttemptId,
     generationLifecycleOwnedByEditor,
-    generationRunError,
-    generationStopReason,
-    generationTimedOut,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
     id,
     refreshOpenDeck,
     slideCount,
@@ -819,24 +880,45 @@ export default function DeckEditor() {
     const handlePageHide = () => {
       if (
         !generationRunStartedRef.current ||
-        !generationSawActiveRef.current ||
-        generationSettlingAttemptRef.current === generationAttemptId ||
         generationTerminalAttemptRef.current === generationAttemptId
       ) {
         return;
       }
+      const settling =
+        generationSettlingAttemptRef.current === generationAttemptId;
+      const sawActive = generationSawActiveRef.current;
       generationTerminalAttemptRef.current = generationAttemptId;
-      trackEvent("generation_abandoned", {
+      const properties = {
         app_name: "slides",
         template_name: "slides",
         generation_attempt_id: generationAttemptId,
         output_id: id,
         output_type: "deck",
         slide_count: slideCount,
-        reason: "page_exit",
         source: "new_deck_prompt",
-      });
-      if (id) clearStartedGenerationAttempt(generationAttemptId, id);
+      };
+      try {
+        if (!sawActive || settling) {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason: settling
+              ? "page_exit_during_settlement"
+              : "page_exit_before_active",
+          });
+        } else {
+          trackEvent("generation_abandoned", {
+            ...properties,
+            reason: "page_exit",
+          });
+        }
+      } finally {
+        if (id) clearStartedGenerationAttempt(generationAttemptId, id);
+        if (settling) generationSettlingAttemptRef.current = null;
+        generationSawActiveRef.current = false;
+        generationRunStartedRef.current = false;
+        generationStartedAtRef.current = null;
+      }
     };
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);

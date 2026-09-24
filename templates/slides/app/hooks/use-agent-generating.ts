@@ -15,7 +15,7 @@ const MAX_GENERATING_MS = 30 * 60 * 1000;
 export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 const CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
 export const SLIDES_GENERATION_STARTED_EVENT = "slides:generation-started";
-const startedGenerationAttempts = new Set<string>();
+const startedGenerationAttempts = new Map<string, string>();
 
 function generationAttemptKey(attemptId: string, outputId: string): string {
   return `${attemptId}:${outputId}`;
@@ -27,6 +27,16 @@ export function hasStartedGenerationAttempt(
 ): boolean {
   return startedGenerationAttempts.has(
     generationAttemptKey(attemptId, outputId),
+  );
+}
+
+export function getStartedGenerationAttemptTabId(
+  attemptId: string,
+  outputId: string,
+): string | null {
+  return (
+    startedGenerationAttempts.get(generationAttemptKey(attemptId, outputId)) ??
+    null
   );
 }
 
@@ -58,8 +68,12 @@ type AgentGeneratingSubmitOptions = Pick<
  * Wraps @agent-native/core's useAgentChatGenerating hook, with a timeout
  * fallback so a run that never reports completion can't spin forever.
  */
-export function useAgentGenerating() {
-  const [generating, send, stopReason] = useAgentChatGenerating();
+export function useAgentGenerating(options?: { tabId: string | null }) {
+  const hasTabScope = options !== undefined;
+  const scopedTabId = options?.tabId ?? null;
+  const [generating, send, stopReason] = useAgentChatGenerating(
+    hasTabScope ? { tabId: scopedTabId } : undefined,
+  );
   const engineConfigured = useAgentEngineConfigured();
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
@@ -67,7 +81,9 @@ export function useAgentGenerating() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSubmitRef = useRef<string | null>(null);
-  const activeTabRef = useRef<string | null>(null);
+  const scopedTabIdRef = useRef<string | null>(scopedTabId);
+  scopedTabIdRef.current = scopedTabId;
+  const activeTabRef = useRef<string | null>(scopedTabId);
   const generationActiveRef = useRef(false);
   generationActiveRef.current = generating || recentlyGenerating;
 
@@ -86,6 +102,17 @@ export function useAgentGenerating() {
   }, []);
 
   const providerMissing = engineConfigured.state === "missing";
+
+  useEffect(() => {
+    if (!hasTabScope) return;
+    activeTabRef.current = scopedTabId;
+    activeSubmitRef.current = null;
+    clearStopDebounce();
+    clearWatchdog();
+    setRecentlyGenerating(false);
+    setTimedOut(false);
+    setRunError(false);
+  }, [clearStopDebounce, clearWatchdog, hasTabScope, scopedTabId]);
 
   useEffect(() => {
     if (!providerMissing) return;
@@ -143,6 +170,7 @@ export function useAgentGenerating() {
       ) {
         return;
       }
+      if (scopedTabIdRef.current) return;
       activeSubmitRef.current = null;
       activeTabRef.current = null;
     };
@@ -231,16 +259,19 @@ export function useAgentGenerating() {
       if (
         generationAttemptId &&
         generationOutputId &&
+        activeTabRef.current &&
         typeof window !== "undefined"
       ) {
-        startedGenerationAttempts.add(
+        startedGenerationAttempts.set(
           generationAttemptKey(generationAttemptId, generationOutputId),
+          activeTabRef.current,
         );
         window.dispatchEvent(
           new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
             detail: {
               generationAttemptId,
               outputId: generationOutputId,
+              tabId: activeTabRef.current,
             },
           }),
         );

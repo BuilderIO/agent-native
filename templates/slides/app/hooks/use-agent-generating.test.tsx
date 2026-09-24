@@ -7,6 +7,7 @@ const agentChatState = vi.hoisted(() => ({
   generating: false,
   stopReason: null as "stopped" | null,
   send: vi.fn(),
+  tabId: null as string | null,
 }));
 const agentEngineState = vi.hoisted(() => ({
   state: "configured" as "configured" | "missing",
@@ -16,12 +17,14 @@ const toastState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useAgentChatGenerating: () =>
-    [
+  useAgentChatGenerating: (options?: { tabId?: string | null }) => {
+    agentChatState.tabId = options?.tabId ?? null;
+    return [
       agentChatState.generating,
       agentChatState.send,
       agentChatState.stopReason,
-    ] as const,
+    ] as const;
+  },
   useAgentEngineConfigured: () => ({
     state: agentEngineState.state,
     missing: agentEngineState.state === "missing",
@@ -31,6 +34,7 @@ vi.mock("sonner", () => ({ toast: toastState }));
 
 import {
   CHAT_STOP_DEBOUNCE_MS,
+  getStartedGenerationAttemptTabId,
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
 } from "./use-agent-generating";
@@ -41,6 +45,7 @@ afterEach(() => {
   agentChatState.generating = false;
   agentChatState.stopReason = null;
   agentChatState.send.mockReset();
+  agentChatState.tabId = null;
   agentEngineState.state = "configured";
   toastState.error.mockReset();
 });
@@ -168,10 +173,19 @@ describe("useAgentGenerating", () => {
         detail: {
           generationAttemptId: "attempt-1",
           outputId: "deck-1",
+          tabId: "requested-new-tab",
         },
       }),
     );
+    expect(getStartedGenerationAttemptTabId("attempt-1", "deck-1")).toBe(
+      "requested-new-tab",
+    );
     window.removeEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
+  });
+
+  it("scopes its chat status to a selected tab", () => {
+    renderHook(() => useAgentGenerating({ tabId: "generation-tab" }));
+    expect(agentChatState.tabId).toBe("generation-tab");
   });
 
   it("ignores a run error until the active tab is correlated", () => {

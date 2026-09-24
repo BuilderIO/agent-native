@@ -518,6 +518,101 @@ describe("create-deck — generation lifecycle tracking", () => {
     }));
   }
 
+  it("does not report bulk generation complete when post-processing fails", async () => {
+    mockNotifyClients.mockRejectedValueOnce(new Error("notification failed"));
+
+    const result = await action.run({
+      title: "T",
+      slides: [{ id: "s1", content: "<div>Slide</div>" }],
+    });
+    const events = trackedEvents();
+
+    expect(result.postProcessStatus).toBe("failed");
+    expect(events.some((event) => event.name === "generation_completed")).toBe(
+      false,
+    );
+    expect(
+      events.find((event) => event.name === "generation_outcome_unresolved")
+        ?.properties,
+    ).toMatchObject({
+      output_id: result.id,
+      outcome: "unresolved",
+      reason: "postprocess_failed",
+      persisted_output: true,
+    });
+  });
+
+  it.each([
+    [
+      "client notification",
+      () =>
+        mockNotifyClients.mockRejectedValueOnce(
+          new Error("notification failed"),
+        ),
+    ],
+    [
+      "app-state update",
+      () => mockWriteAppState.mockRejectedValueOnce(new Error("state failed")),
+    ],
+    [
+      "provenance write",
+      () =>
+        mockRecordGenerationCreativeContext.mockRejectedValueOnce(
+          new Error("provenance failed"),
+        ),
+    ],
+    [
+      "design-system read",
+      () =>
+        mockGetDesignSystemRun.mockRejectedValueOnce(
+          new Error("design-system read failed"),
+        ),
+    ],
+  ] as const)(
+    "returns the persisted replacement when %s post-processing fails",
+    async (_step, failPostProcess) => {
+      existingDeckRow = {
+        id: "deck-1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        data: JSON.stringify({
+          title: "T",
+          slides: [],
+          designSystemId: "ds-linked",
+        }),
+      };
+      failPostProcess();
+
+      const result = await action.run({
+        title: "T2",
+        slides: [{ id: "s1", content: "<div>Replacement</div>" }],
+        deckId: "deck-1",
+      });
+      const events = trackedEvents();
+
+      expect(updatedFields).toBeDefined();
+      expect(JSON.parse(updatedFields!.data as string).slides).toHaveLength(1);
+      expect(result).toMatchObject({
+        id: "deck-1",
+        postProcessStatus: "failed",
+      });
+      expect(
+        events.some((event) => event.name === "generation_completed"),
+      ).toBe(false);
+      expect(events.some((event) => event.name === "generation_failed")).toBe(
+        false,
+      );
+      expect(
+        events.find((event) => event.name === "generation_outcome_unresolved")
+          ?.properties,
+      ).toMatchObject({
+        output_id: "deck-1",
+        outcome: "unresolved",
+        reason: "postprocess_failed",
+        persisted_output: true,
+      });
+    },
+  );
+
   it("joins generation start and completion with one opaque attempt id", async () => {
     await action.run({
       title: "T",

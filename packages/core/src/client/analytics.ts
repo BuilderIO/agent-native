@@ -1725,6 +1725,12 @@ function configuredSessionReplayOptions(
             status: details.status,
             restart_attempted: details.restartAttempted,
             restart_succeeded: details.restartSucceeded,
+            ...(details.failureReason
+              ? { failure_reason: details.failureReason }
+              : {}),
+            ...(details.retryAfterSeconds !== undefined
+              ? { retry_after_seconds: details.retryAfterSeconds }
+              : {}),
             ...(details.restartReason
               ? { restart_reason: details.restartReason }
               : {}),

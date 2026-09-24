@@ -16,16 +16,29 @@ import {
  *   agentNative.chatRunning event reports that the run has stopped
  * - send: wrapper around sendToAgentChat that sets isGenerating to true
  * - stopReason: "stopped" when the user explicitly stopped the run
+ * - tabId scope: observe only that tab; null waits until its identity is known
  */
-export function useAgentChatGenerating(): [
-  boolean,
-  (opts: AgentChatMessage) => string,
-  "stopped" | null,
-] {
+export function useAgentChatGenerating(options?: {
+  tabId?: string | null;
+}): [boolean, (opts: AgentChatMessage) => string, "stopped" | null] {
   const [isGenerating, setIsGenerating] = useState(false);
   const [stopReason, setStopReason] = useState<"stopped" | null>(null);
-  const activeTabRef = useRef<string | null>(null);
+  const hasTabScope = options !== undefined;
+  const hasTabScopeRef = useRef(hasTabScope);
+  hasTabScopeRef.current = hasTabScope;
+  const scopedTabId = options?.tabId ?? null;
+  const scopedTabIdRef = useRef(scopedTabId);
+  scopedTabIdRef.current = scopedTabId;
+  const activeTabRef = useRef<string | null>(scopedTabId);
   const activeSubmitRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!hasTabScope) return;
+    activeTabRef.current = scopedTabId;
+    activeSubmitRef.current = null;
+    setIsGenerating(false);
+    setStopReason(null);
+  }, [hasTabScope, scopedTabId]);
 
   useEffect(() => {
     const targetHandler = (e: Event) => {
@@ -47,7 +60,15 @@ export function useAgentChatGenerating(): [
       // composer, automation) and must not flip our state. Once a run has a
       // tab identity, an unscoped event is just as unrelated as another tab.
       const eventTabId = typeof detail.tabId === "string" ? detail.tabId : null;
-      if (activeTabRef.current && !eventTabId) return;
+      if (
+        hasTabScopeRef.current &&
+        (!scopedTabIdRef.current || eventTabId !== scopedTabIdRef.current)
+      ) {
+        return;
+      }
+      if (!hasTabScopeRef.current && activeTabRef.current && !eventTabId) {
+        return;
+      }
       if (
         eventTabId &&
         activeTabRef.current &&
@@ -58,7 +79,11 @@ export function useAgentChatGenerating(): [
       setStopReason(
         !detail.isRunning && detail.reason === "stopped" ? "stopped" : null,
       );
-      if (!detail.isRunning && eventTabId === activeTabRef.current) {
+      if (
+        !hasTabScopeRef.current &&
+        !detail.isRunning &&
+        eventTabId === activeTabRef.current
+      ) {
         activeTabRef.current = null;
         activeSubmitRef.current = null;
       }

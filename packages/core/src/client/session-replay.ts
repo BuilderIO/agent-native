@@ -214,6 +214,8 @@ export interface SessionReplayUploadRejectedDetails {
   restartAttempted: boolean;
   restartSucceeded: boolean;
   restartReason?: SessionReplayStartResult["reason"];
+  failureReason?: "quota_pause" | "quota_stop" | "oversized_event";
+  retryAfterSeconds?: number | null;
 }
 
 export interface SessionReplayOptions {
@@ -2181,6 +2183,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let isDefinitiveClientError = false;
   let definitiveClientErrorStatus: number | null = null;
   let pausedForQuota = false;
+  let quotaRetryAfterSeconds: number | null = null;
   try {
     await sendReplayUpload(state.options, payload.body, {
       beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
@@ -2240,6 +2243,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         rejectedStatus === 429 && error instanceof ReplayUploadHttpError
           ? decideReplayQuotaResponse(error.retryAfterSeconds, Date.now())
           : null;
+      if (rejectedStatus === 429 && error instanceof ReplayUploadHttpError) {
+        quotaRetryAfterSeconds = error.retryAfterSeconds;
+      }
       if (quotaDecision) {
         // Park uploads before anything else can reach the wire. A teardown
         // flush riding out of the stop below would otherwise put one more
@@ -2381,6 +2387,31 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       } else void flushSessionReplay(reason);
     }
   }
+  if (droppedOversizedBatch || pausedForQuota) {
+    try {
+      state.options?.onUploadRejected?.({
+        status: droppedOversizedBatch ? 413 : 429,
+        restartAttempted: false,
+        restartSucceeded: false,
+        failureReason: droppedOversizedBatch
+          ? "oversized_event"
+          : "quota_pause",
+        ...(pausedForQuota
+          ? { retryAfterSeconds: quotaRetryAfterSeconds }
+          : {}),
+      });
+    } catch {
+      const previousInternal = replayCaptureInternal;
+      replayCaptureInternal = true;
+      try {
+        console.warn(
+          "[session-replay] upload rejection telemetry callback failed",
+        );
+      } finally {
+        replayCaptureInternal = previousInternal;
+      }
+    }
+  }
   if (
     definitiveClientErrorStatus !== null &&
     state.replayId === payload.replayId
@@ -2420,6 +2451,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         status: definitiveClientErrorStatus,
         restartAttempted: shouldRestartAfterConflict,
         restartSucceeded: restartResult?.started === true,
+        ...(definitiveClientErrorStatus === 429
+          ? {
+              failureReason: "quota_stop",
+              retryAfterSeconds: quotaRetryAfterSeconds,
+            }
+          : {}),
         ...(restartResult?.reason
           ? { restartReason: restartResult.reason }
           : {}),

@@ -2211,7 +2211,12 @@ describe("session replay", () => {
     ).toBe(2);
     expect(replay.isSessionReplayActive()).toBe(true);
     expect(replay.getSessionReplayId()).toBe(started.replayId);
-    expect(onUploadRejected).not.toHaveBeenCalled();
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 413,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "oversized_event",
+    });
     expect(warn).toHaveBeenCalledWith(
       "[session-replay] dropping oversized replay event (HTTP 413)",
       expect.any(Error),

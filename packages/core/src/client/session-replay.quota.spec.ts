@@ -144,6 +144,7 @@ describe("session replay ingest quota (HTTP 429)", () => {
   it("stops re-sending the rejected batch instead of retry-storming", async () => {
     const browser = installBrowser();
     browser.setResponder(() => quotaExceeded(60));
+    const onUploadRejected = vi.fn();
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -157,10 +158,18 @@ describe("session replay ingest quota (HTTP 429)", () => {
       endpoint: "/api/analytics/replay",
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
+      onUploadRejected,
     });
 
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "quota_pause",
+      retryAfterSeconds: 60,
+    });
 
     // A Design canvas session keeps emitting while the key is over quota.
     for (let index = 0; index < 20; index += 1) {
@@ -224,6 +233,7 @@ describe("session replay ingest quota (HTTP 429)", () => {
   it("stops the recorder when the retry window outlasts the session", async () => {
     const browser = installBrowser();
     browser.setResponder(() => quotaExceeded(24 * 60 * 60));
+    const onUploadRejected = vi.fn();
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -237,10 +247,18 @@ describe("session replay ingest quota (HTTP 429)", () => {
       endpoint: "/api/analytics/replay",
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
+      onUploadRejected,
     });
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
     expect(browser.uploads).toHaveLength(1);
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "quota_stop",
+      retryAfterSeconds: 24 * 60 * 60,
+    });
   });
 
   it("pauses but keeps recording for a short rate-limit window", async () => {

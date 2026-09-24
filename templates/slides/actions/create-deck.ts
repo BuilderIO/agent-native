@@ -417,45 +417,79 @@ export default defineAction({
             );
           assertDeckWriteApplied(updateResult, deckId, "deck replacement");
         });
-        // Broadcast to open editors (in-process SSE) + application-state
-        // refresh signal (cross-process polling fallback for serverless).
-        await notifyClients(deckId);
-        await writeAppStateForCurrentTab(
-          "navigate",
-          deckNavigationCommand(deckId),
-        );
-        await writeAppState("refresh-signal", {
-          ts: writeNow,
-          source: "create-deck",
-        });
-        await recordGenerationCreativeContext({
-          appId: "slides",
-          artifactType: "deck",
-          artifactId: deckId,
-          ...creativeContextProvenance,
-          ...(elementProvenance.length ? { elementProvenance } : {}),
-        });
-        const loadedDesignSystem = await loadAgentDesignSystemContext(
-          designSystemId ?? previousDesignSystemId,
-          getDesignSystem,
-          { full: true },
-        );
+        let loadedDesignSystem: Awaited<
+          ReturnType<typeof loadAgentDesignSystemContext>
+        > = null;
+        let postProcessErrorType: string | undefined;
+        try {
+          // Broadcast to open editors (in-process SSE) + application-state
+          // refresh signal (cross-process polling fallback for serverless).
+          await notifyClients(deckId);
+          await writeAppStateForCurrentTab(
+            "navigate",
+            deckNavigationCommand(deckId),
+          );
+          await writeAppState("refresh-signal", {
+            ts: writeNow,
+            source: "create-deck",
+          });
+          await recordGenerationCreativeContext({
+            appId: "slides",
+            artifactType: "deck",
+            artifactId: deckId,
+            ...creativeContextProvenance,
+            ...(elementProvenance.length ? { elementProvenance } : {}),
+          });
+          loadedDesignSystem = await loadAgentDesignSystemContext(
+            designSystemId ?? previousDesignSystemId,
+            getDesignSystem,
+            { full: true },
+          );
+          if (loadedDesignSystem?.status === "unavailable") {
+            postProcessErrorType = "DesignSystemUnavailable";
+          }
+        } catch (error) {
+          postProcessErrorType =
+            error instanceof Error ? error.name : "unknown_error";
+        }
+        const postProcessStatus = postProcessErrorType ? "failed" : "completed";
+        if (postProcessErrorType) {
+          trackGenerationEvent(
+            "generation_outcome_unresolved",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              source: "create_deck_action",
+              generation_mode: "bulk",
+              output_id: deckId,
+              output_type: "deck",
+              slide_count: slides.length,
+              outcome: "unresolved",
+              reason: "postprocess_failed",
+              persisted_output: true,
+              error_type: postProcessErrorType,
+            },
+            ctx,
+          );
+        } else {
+          trackGenerationEvent(
+            "generation_completed",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              source: "create_deck_action",
+              generation_mode: "bulk",
+              output_id: deckId,
+              output_type: "deck",
+              slide_count: slides.length,
+              duration_ms: Date.now() - generationStartedAt,
+            },
+            ctx,
+          );
+        }
         trackGenerationEvent(
-          "generation_completed",
-          {
-            app_name: "slides",
-            template_name: "slides",
-            generation_attempt_id: generationAttemptId,
-            source: "create_deck_action",
-            generation_mode: "bulk",
-            output_id: deckId,
-            output_type: "deck",
-            slide_count: slides.length,
-            duration_ms: Date.now() - generationStartedAt,
-          },
-          ctx,
-        );
-        track(
           "deck_edited",
           {
             app_name: "slides",
@@ -478,6 +512,7 @@ export default defineAction({
           appUrl: getDeckUrl(deckId),
           deepLink: deckDeepLink(deckId),
           slides,
+          postProcessStatus,
           ...creativeContextProvenance,
         };
       }
@@ -527,7 +562,7 @@ export default defineAction({
       let loadedDesignSystem: Awaited<
         ReturnType<typeof loadAgentDesignSystemContext>
       > = null;
-      let postProcessStatus: "completed" | "failed" = "completed";
+      let postProcessErrorType: string | undefined;
       try {
         await notifyClients(id);
         await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
@@ -547,8 +582,15 @@ export default defineAction({
           getDesignSystem,
           { full: true },
         );
+        if (loadedDesignSystem?.status === "unavailable") {
+          postProcessErrorType = "DesignSystemUnavailable";
+        }
       } catch (error) {
-        postProcessStatus = "failed";
+        postProcessErrorType =
+          error instanceof Error ? error.name : "unknown_error";
+      }
+      const postProcessStatus = postProcessErrorType ? "failed" : "completed";
+      if (postProcessErrorType) {
         trackGenerationEvent(
           "generation_outcome_unresolved",
           {
@@ -563,28 +605,44 @@ export default defineAction({
             outcome: "unresolved",
             reason: "postprocess_failed",
             persisted_output: true,
-            error_type: error instanceof Error ? error.name : "unknown_error",
+            error_type: postProcessErrorType,
           },
           ctx,
         );
       }
-      trackGenerationEvent(
-        incrementalGeneration
-          ? "generation_request_accepted"
-          : "generation_completed",
-        {
-          app_name: "slides",
-          template_name: "slides",
-          generation_attempt_id: generationAttemptId,
-          source: "create_deck_action",
-          generation_mode: incrementalGeneration ? "incremental" : "bulk",
-          output_id: id,
-          output_type: "deck",
-          slide_count: slides.length,
-          duration_ms: Date.now() - generationStartedAt,
-        },
-        ctx,
-      );
+      if (incrementalGeneration) {
+        trackGenerationEvent(
+          "generation_request_accepted",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            source: "create_deck_action",
+            generation_mode: incrementalGeneration ? "incremental" : "bulk",
+            output_id: id,
+            output_type: "deck",
+            slide_count: slides.length,
+            duration_ms: Date.now() - generationStartedAt,
+          },
+          ctx,
+        );
+      } else if (postProcessStatus === "completed") {
+        trackGenerationEvent(
+          "generation_completed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            source: "create_deck_action",
+            generation_mode: "bulk",
+            output_id: id,
+            output_type: "deck",
+            slide_count: slides.length,
+            duration_ms: Date.now() - generationStartedAt,
+          },
+          ctx,
+        );
+      }
       trackGenerationEvent(
         "deck_created",
         {

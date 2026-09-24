@@ -20,6 +20,7 @@ describe("useAgentChatGenerating", () => {
   let container: HTMLDivElement;
   let root: Root;
   let hook: ReturnType<typeof useAgentChatGenerating> | null;
+  let scopedTabId: string | null;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -27,9 +28,12 @@ describe("useAgentChatGenerating", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     hook = null;
+    scopedTabId = null;
 
     function Harness() {
-      hook = useAgentChatGenerating();
+      hook = useAgentChatGenerating(
+        scopedTabId === null ? undefined : { tabId: scopedTabId },
+      );
       return null;
     }
 
@@ -120,6 +124,74 @@ describe("useAgentChatGenerating", () => {
             tabId: "requested-new-tab",
             reason: "stopped",
           },
+        }),
+      );
+    });
+
+    expect(hook![0]).toBe(false);
+  });
+
+  it("observes only the explicitly scoped chat tab", () => {
+    act(() => root.unmount());
+    scopedTabId = "target-tab";
+    root = createRoot(container);
+    function ScopedHarness() {
+      hook = useAgentChatGenerating({ tabId: scopedTabId });
+      return null;
+    }
+    act(() => root.render(<ScopedHarness />));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "other-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true },
+        }),
+      );
+    });
+    expect(hook![0]).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "target-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "other-tab" },
+        }),
+      );
+    });
+    expect(hook![0]).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "target-tab" },
+        }),
+      );
+    });
+    expect(hook![0]).toBe(false);
+  });
+
+  it("ignores all chat events while an explicit tab scope is unresolved", () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    function PendingScopeHarness() {
+      hook = useAgentChatGenerating({ tabId: null });
+      return null;
+    }
+    act(() => root.render(<PendingScopeHarness />));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "unrelated-tab" },
         }),
       );
     });
