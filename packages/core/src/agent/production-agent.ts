@@ -7512,7 +7512,16 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          if (isAgentConnectionRequiredError(err)) {
+          // An abort is an unknown outcome, not a failure: the request may
+          // already have reached the provider. Recorded as an error, the
+          // resuming chunk reads it as "did not happen" and re-dispatches the
+          // write. The marker is what `seedWriteToolInterruptionsFromHistory`
+          // counts, so the ledger recovery and interruption budget apply.
+          // Keyed on `signal.aborted`, not the message, so the per-tool
+          // timeout (which rejects on `timeoutSignal`) stays a real failure.
+          if (signal.aborted) {
+            result = INTERRUPTED_TOOL_RESULT_MARKER;
+          } else if (isAgentConnectionRequiredError(err)) {
             const message =
               sanitizeToolErrorValue(err.message) ||
               `Connect ${err.provider} to continue.`;
@@ -7564,8 +7573,13 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
+        // The marker must survive verbatim (the interruption counter matches
+        // on it), and an unknown outcome must not feed the repeated-error
+        // breakers, which are for calls that genuinely failed.
         if (isError) {
-          result = finalizeToolErrorResult(result);
+          if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
+            result = finalizeToolErrorResult(result);
+          }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
         }
