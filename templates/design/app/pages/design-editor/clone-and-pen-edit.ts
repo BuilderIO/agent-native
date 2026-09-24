@@ -36,6 +36,7 @@ import {
 
 /** Marks a stroke this module added so a reopened path stays visible. */
 const AUTO_OPEN_STROKE_MARKER = "data-an-auto-open-stroke";
+const OPEN_FILL_OPACITY_MARKER = "data-an-open-fill-opacity";
 import type { PortableStyleSnapshot } from "@/components/design/types";
 import {
   applyDesignClipboardManagedStyles,
@@ -56,13 +57,32 @@ import {
 } from "./portable-style";
 
 function restoreClosedPenPathPaint(path: SVGPathElement): void {
-  path.removeAttribute("fill-opacity");
+  const originalFillOpacity = path.getAttribute(OPEN_FILL_OPACITY_MARKER);
+  if (originalFillOpacity === "absent") {
+    path.removeAttribute("fill-opacity");
+  } else if (originalFillOpacity?.startsWith("value:")) {
+    path.setAttribute("fill-opacity", originalFillOpacity.slice(6));
+  }
+  if (originalFillOpacity !== null) {
+    path.removeAttribute(OPEN_FILL_OPACITY_MARKER);
+  }
   if (!path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) return;
   if (path.getAttribute("fill") === "none") {
     path.setAttribute("fill", DEFAULT_SHAPE_FILL);
   }
   path.setAttribute("stroke", "none");
   path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
+}
+
+function hidePenPathFill(path: SVGPathElement): void {
+  if (!path.hasAttribute(OPEN_FILL_OPACITY_MARKER)) {
+    const originalFillOpacity = path.getAttribute("fill-opacity");
+    path.setAttribute(
+      OPEN_FILL_OPACITY_MARKER,
+      originalFillOpacity === null ? "absent" : `value:${originalFillOpacity}`,
+    );
+  }
+  path.setAttribute("fill-opacity", "0");
 }
 
 /**
@@ -141,7 +161,7 @@ export function writeBackVectorEditedPenPath(
       if (isClosed) {
         restoreClosedPenPathPaint(path);
       } else {
-        path.setAttribute("fill-opacity", "0");
+        hidePenPathFill(path);
         if (path.getAttribute("stroke") === "none") {
           path.setAttribute("stroke", DEFAULT_LINE_STROKE);
           path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -181,7 +201,7 @@ export function writeBackVectorEditedPenPath(
     if (isClosed) {
       restoreClosedPenPathPaint(path);
     } else {
-      path.setAttribute("fill-opacity", "0");
+      hidePenPathFill(path);
       if (strokeOverlay) {
         const overlayStyle = strokeOverlay.style;
         for (const property of [

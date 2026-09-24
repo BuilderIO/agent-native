@@ -181,6 +181,61 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("keeps the Fill section empty for an open Pen path", () => {
+    const openPath = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: false,
+          computedStyles: {
+            fill: "#000000",
+            fillOpacity: "0",
+            stroke: "#000000",
+            strokeWidth: "1px",
+          },
+          inlineStyles: { fill: "none" },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+    const filledOpenPath = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: false,
+          computedStyles: {
+            fill: "#123456",
+            fillOpacity: "0",
+            stroke: "#000000",
+            strokeWidth: "1px",
+          },
+          inlineStyles: { fill: "#123456" },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+    const closedPath = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: true,
+          computedStyles: { fill: "#000000" },
+          inlineStyles: { fill: "#000000" },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(openPath).toContain("editPanel.sections.fill");
+    expect(openPath).toContain('aria-label="editPanel.labels.addFill"');
+    expect(openPath).not.toContain('data-testid="base-fill-color-input"');
+    expect(filledOpenPath).toContain('data-testid="base-fill-color-input"');
+    expect(closedPath).toContain('data-testid="base-fill-color-input"');
+  });
+
   it("offers native linear and radial fill paints for SVG shapes", () => {
     const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
     const markup = renderToStaticMarkup(

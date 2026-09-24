@@ -25959,8 +25959,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
-      shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
-      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      shieldOverlay.style.pointerEvents =
+        interactionMode || activeTextEditEl ? "none" : "auto";
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !interactionMode && !activeTextEditEl,
+      );
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
         positionOverlay(selectionOverlay, selectedEl);

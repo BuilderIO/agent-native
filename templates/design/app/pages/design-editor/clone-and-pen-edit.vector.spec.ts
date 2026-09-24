@@ -129,6 +129,99 @@ describe("nested Pen path commits", () => {
     expect(reclosedPath?.getAttribute("fill-opacity")).toBeNull();
   });
 
+  it("restores an authored fill opacity after reopening and closing", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const closedPath = closePenPath(openPath);
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="partially-transparent" data-an-pen-nodes="${serializePenNodes(closedPath)}"
+        d="${serializePenPath(closedPath)}" fill="#000000" fill-opacity="0.4" stroke="none" />
+    </svg>`;
+
+    const reopened = writeBackVectorEditedPenPath(
+      html,
+      "partially-transparent",
+      openPath,
+    );
+    expect(reopened).not.toBeNull();
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened!, "text/html")
+      .querySelector("path");
+    expect(reopenedPath?.getAttribute("fill-opacity")).toBe("0");
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened!,
+      "partially-transparent",
+      closedPath,
+    );
+    const reclosedPath = new DOMParser()
+      .parseFromString(reclosed!, "text/html")
+      .querySelector("path");
+    expect(reclosedPath?.getAttribute("fill-opacity")).toBe("0.4");
+    expect(reclosedPath?.getAttribute("stroke")).toBe("none");
+  });
+
+  it("preserves root-path fill opacity while editing and reopening it", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const closedPath = closePenPath(openPath);
+    const editedPath = translatePenPath(closedPath, 1, 1);
+    const html = `<!doctype html><svg data-agent-native-node-id="root-vector" data-an-primitive="path"
+      data-an-pen-nodes="${serializePenNodes(closedPath)}" viewBox="0 0 30 30"
+      style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path d="${serializePenPath(closedPath)}" fill="#000000" fill-opacity="0.4" stroke="none" />
+    </svg>`;
+
+    const edited = writeBackVectorEditedPenPath(
+      html,
+      "root-vector",
+      editedPath,
+    );
+    expect(edited).not.toBeNull();
+    let svg = new DOMParser()
+      .parseFromString(edited!, "text/html")
+      .querySelector("svg");
+    expect(svg?.querySelector("path")?.getAttribute("fill-opacity")).toBe(
+      "0.4",
+    );
+
+    const reopened = writeBackVectorEditedPenPath(
+      edited!,
+      "root-vector",
+      openPath,
+    );
+    expect(reopened).not.toBeNull();
+    svg = new DOMParser()
+      .parseFromString(reopened!, "text/html")
+      .querySelector("svg");
+    expect(svg?.querySelector("path")?.getAttribute("fill-opacity")).toBe("0");
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened!,
+      "root-vector",
+      closedPath,
+    );
+    svg = new DOMParser()
+      .parseFromString(reclosed!, "text/html")
+      .querySelector("svg");
+    expect(svg?.querySelector("path")?.getAttribute("fill-opacity")).toBe(
+      "0.4",
+    );
+  });
+
   it("persists one rounded anchor through vector writeback and node rehydration", () => {
     const path = closePenPath(
       appendPenNode(

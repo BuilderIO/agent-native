@@ -331,11 +331,11 @@ export function StatesPanel({
           {breakpoints.length === 0 && (
             <>
               <BreakpointButton
-                id="bp-mobile"
-                label="Mobile"
-                widthPx={390}
-                isActive={activeBreakpointId === "bp-mobile"}
-                onClick={() => handleBreakpointClick("bp-mobile")}
+                id="bp-desktop"
+                label="Desktop"
+                widthPx={1280}
+                isActive={activeBreakpointId === "bp-desktop"}
+                onClick={() => handleBreakpointClick("bp-desktop")}
               />
               <BreakpointButton
                 id="bp-tablet"
@@ -345,11 +345,11 @@ export function StatesPanel({
                 onClick={() => handleBreakpointClick("bp-tablet")}
               />
               <BreakpointButton
-                id="bp-desktop"
-                label="Desktop"
-                widthPx={1280}
-                isActive={activeBreakpointId === "bp-desktop"}
-                onClick={() => handleBreakpointClick("bp-desktop")}
+                id="bp-mobile"
+                label="Mobile"
+                widthPx={390}
+                isActive={activeBreakpointId === "bp-mobile"}
+                onClick={() => handleBreakpointClick("bp-mobile")}
               />
             </>
           )}

@@ -1,3 +1,5 @@
+import postcss from "postcss";
+
 const SHAPE_TAGS = new Set([
   "path",
   "rect",
@@ -90,8 +92,69 @@ const DEF_TAGS = new Set(
   ].map((tag) => tag.toLowerCase()),
 );
 const GROUP_EFFECT_ATTRIBUTES = ["clip-path", "mask", "filter"];
-const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/g;
+const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/gi;
 
+function normalizeCssTokens(value: string): string {
+  const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
+  return uncommented.replace(
+    /\\([\da-f]{1,6})\s?|\\(.)/gi,
+    (_, hex, escaped) => {
+      if (!hex) return escaped;
+      const codePoint = Number.parseInt(hex, 16);
+      return String.fromCodePoint(
+        codePoint > 0x10ffff || codePoint === 0 ? 0xfffd : codePoint,
+      );
+    },
+  );
+}
+
+function sanitizeExternalUrlReferences(value: string): string {
+  const normalized = normalizeCssTokens(value);
+  if (!/url\s*\(/i.test(normalized)) return value;
+  return normalized.replace(
+    /url\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi,
+    (reference, doubleQuoted, singleQuoted, unquoted) => {
+      const target = (doubleQuoted ?? singleQuoted ?? unquoted ?? "").trim();
+      return target.startsWith("#") ? reference : "";
+    },
+  );
+}
+
+function sanitizeStyleAttribute(value: string): string | null {
+  try {
+    const root = postcss.parse(`svg{${value}}`);
+    root.walkDecls((declaration) => {
+      declaration.value = sanitizeExternalUrlReferences(declaration.value);
+    });
+    const rule = root.first;
+    const style = document.createElement("div").style;
+    style.cssText =
+      rule?.type === "rule"
+        ? rule.nodes.map((node) => node.toString()).join(";")
+        : "";
+    return style.length ? style.cssText : null;
+    // coercion-ok: malformed SVG style declarations are dropped at the paste boundary.
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeStyleSheet(styleElement: Element): void {
+  try {
+    const root = postcss.parse(styleElement.textContent ?? "");
+    root.walkAtRules((rule) => {
+      if (normalizeCssTokens(rule.name).toLowerCase() === "import") {
+        rule.remove();
+      }
+    });
+    root.walkDecls((declaration) => {
+      declaration.value = sanitizeExternalUrlReferences(declaration.value);
+    });
+    styleElement.textContent = root.toString();
+  } catch {
+    styleElement.remove();
+  }
+}
 /** Past these, a pasted SVG is artwork rather than an icon or logo and goes
  * through the image upload instead of into the document as markup. */
 const MAX_SVG_MARKUP_LENGTH = 512 * 1024;
@@ -144,8 +207,14 @@ export function svgLayerName(fileName: string): string {
 }
 
 function parseSvgRoot(markup: string): SVGSVGElement | null {
-  const doc = new DOMParser().parseFromString(markup, "text/html");
-  return doc.body.querySelector("svg");
+  const doc = new DOMParser().parseFromString(markup, "image/svg+xml");
+  if (
+    doc.querySelector("parsererror") ||
+    doc.documentElement.localName !== "svg"
+  ) {
+    return null;
+  }
+  return doc.documentElement as unknown as SVGSVGElement;
 }
 
 function sanitizeSvg(root: SVGSVGElement): void {
@@ -159,14 +228,26 @@ function sanitizeSvg(root: SVGSVGElement): void {
       if (name.startsWith("on")) element.removeAttribute(attribute.name);
       else if (
         (name === "href" || name === "xlink:href") &&
+        value !== "" &&
         !value.startsWith("#")
       ) {
         element.removeAttribute(attribute.name);
+      } else if (name === "style") {
+        const safeStyle = sanitizeStyleAttribute(value);
+        if (safeStyle) element.setAttribute(attribute.name, safeStyle);
+        else element.removeAttribute(attribute.name);
       } else if (/javascript:|data:text\/html/i.test(value)) {
         element.removeAttribute(attribute.name);
+      } else {
+        const safeValue = sanitizeExternalUrlReferences(value);
+        if (safeValue !== value) {
+          if (safeValue) element.setAttribute(attribute.name, safeValue);
+          else element.removeAttribute(attribute.name);
+        }
       }
     }
   }
+  root.ownerDocument.querySelectorAll("style").forEach(sanitizeStyleSheet);
 }
 
 function lengthAttribute(value: string | null): number | null {

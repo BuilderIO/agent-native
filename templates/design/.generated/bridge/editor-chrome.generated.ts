@@ -18369,8 +18369,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           cancelActiveBridgeDrag();
           setSelectionOverlayResizeChromeVisible(false);
         }
-        shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
-        setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+        shieldOverlay.style.pointerEvents = interactionMode || activeTextEditEl ? "none" : "auto";
+        setSelectionOverlayResizeChromeVisible(
+          !readOnly && !interactionMode && !activeTextEditEl
+        );
         if (interactionMode) hideSelectionOverlay();
         else if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);

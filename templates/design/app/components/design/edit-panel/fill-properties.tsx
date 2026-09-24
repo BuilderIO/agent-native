@@ -336,12 +336,16 @@ export function FillProperties({
   const authoredFill = element.inlineStyles?.[fillProperty]
     ?.trim()
     .toLowerCase();
-  const hasBaseFill =
-    isTextFillElement ||
-    colorHasVisibleAlpha(fillValue) ||
-    Boolean(
-      authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
-    );
+  const isOpenPenPath =
+    element.tagName.toLowerCase() === "svg" &&
+    element.primitiveKind === "path" &&
+    element.vectorStrokeCanAlign === false;
+  const hasAuthoredFill = Boolean(
+    authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
+  );
+  const hasBaseFill = isOpenPenPath
+    ? hasAuthoredFill
+    : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
   const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
   const pendingConversion = pendingConvertedLayerRef.current;
   if (
