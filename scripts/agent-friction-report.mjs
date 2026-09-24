@@ -186,14 +186,15 @@ function shipStopPrNumbers(text, stopMatch) {
   if (direct.size > 0) return direct;
 
   const stopEnd = stopMatch.index + stopMatch[0].length;
-  const optOutStart = [
+  const optOut = [
     ...text.matchAll(new RegExp(SHIP_AFFIRMATIVE_OPT_OUT_RE.source, "gi")),
-  ]
-    .map((match) => match.index)
-    .find((index) => index >= stopEnd);
-  const stopContext =
-    optOutStart === undefined ? text : text.slice(0, optOutStart);
-  return prNumbersNearMatch(stopContext, stopMatch);
+  ].find((match) => match.index >= stopEnd);
+  const stopContext = optOut === undefined ? text : text.slice(0, optOut.index);
+  const beforeOptOut = prNumbersNearMatch(stopContext, stopMatch);
+  if (beforeOptOut.size > 0 || optOut === undefined) return beforeOptOut;
+
+  const afterOptOut = text.slice(optOut.index + optOut[0].length);
+  return prNumbersNearMatch(afterOptOut, { 0: "", index: 0 });
 }
 
 function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
@@ -606,6 +607,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
   [
     false,
+    "The agent stopped /ship with the pull request unmerged because I asked to leave it open while PR #123 waits for CI.",
+  ],
+  [
+    false,
     "The agent stopped /ship with PR #123 unmerged. I explicitly opted out of merging.",
   ],
   [
@@ -663,6 +668,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with PR #123 unmerged because I asked to leave the PR open for PR #456.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because I asked to leave PR #456 open while PR #123 waits for CI.",
   ],
   [
     true,
