@@ -266,17 +266,18 @@ actionable bot findings, credible safety concerns, or an otherwise material
 code issue mean **Needs updates** or **Cannot assess**. Report skipped,
 unknown, and non-required checks accurately; never describe them as passing.
 
-For every verified external PR needing an update, draft a concise reply that
-names the concrete change or evidence requested and links the relevant review
-thread or check when useful. Before drafting, inspect the PR timeline, commits,
-and review threads for the latest actionable request from the exact login
-`steve8708`. If the contributor has not since pushed a commit addressing that
-request or posted a substantive reply addressing it, do not draft or post another
-author-facing comment. Mark the PR as waiting on the contributor and link the
-existing request. A bare acknowledgment does not count as addressing it. Once
-the contributor updates the PR, reassess what remains and draft only the
-unresolved requests. This also applies when another comment or bot event is
-newer than Steve's request; bot activity alone does not reopen the handoff.
+For every verified external PR needing a code update or screenshot evidence,
+draft a concise reply that names the concrete change or evidence requested and
+links the relevant review thread or check when useful. Before drafting, inspect
+the PR timeline, commits, and review threads for all actionable requests from
+the exact login `steve8708`. If any request remains unaddressed, do not draft or
+post another author-facing comment. A contributor commit or substantive reply
+clears only the requests it actually addresses; an unrelated commit or bare
+acknowledgment does not. Mark the PR as waiting on the contributor and link
+each outstanding request. Once all prior requests are addressed, reassess the
+current head and draft only the remaining code or screenshot requests. This
+also applies when another comment or bot event is newer than Steve's request;
+bot activity alone does not reopen the handoff.
 
 If no prior Steve request is awaiting an update and this would be Steve's first
 comment on that PR, begin the draft by thanking the contributor. Do not repeat
