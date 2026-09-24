@@ -175,11 +175,10 @@ function prNumbersNearMatch(text, match) {
 }
 
 function sameShipment(leftPrs, rightPrs) {
-  return (
-    leftPrs.size === 0 ||
-    rightPrs.size === 0 ||
-    [...leftPrs].some((number) => rightPrs.has(number))
-  );
+  if (leftPrs.size === 0 || rightPrs.size === 0) {
+    return leftPrs.size === 0 && rightPrs.size === 0;
+  }
+  return [...leftPrs].some((number) => rightPrs.has(number));
 }
 
 function shipOptOutMatches(text) {
@@ -582,6 +581,14 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the PR unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open.",
   ],
   [
     false,

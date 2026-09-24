@@ -97,8 +97,8 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   proof, and never say "leaving open until published." Keep it open only while
   accepted scope is still unfixed, the source fix is not merged, or reporter
   information is required.
-- Use the current worktree and branch. A detached worktree may create one
-  unused shipping branch during this flow; never attach or move another
+- Use the current worktree. For a detached checkout, follow the preflight
+  branch gate below; never create an unused branch or attach or move another
   worktree.
 - Never add Co-Authored-By, codex, [codex], or agent labels to commits, branch
   names, PR titles, or PR bodies.
@@ -191,7 +191,15 @@ If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. Do not create or switch to a
 shipping branch based only on `/ship`; preserve the detached checkout and get
 explicit authorization for that branch operation before publishing. After
-authorization, follow `/new-branch` and start from fetched `origin/main`.
+authorization, fetch `origin/main` and save `detached_head=$(git rev-parse
+HEAD)`. If `origin/main` is an ancestor of `detached_head`, create the named
+branch at that exact saved commit so it retains every detached commit and the
+freshly fetched `origin/main` remains its base. If `detached_head` is an
+ancestor of `origin/main`, create from `origin/main` only when the entire
+worktree is clean. If the histories diverge, or a stale detached checkout is
+dirty, leave it unchanged and report the commits and paths; never create from
+`origin/main` in a way that omits detached work. Use `/new-branch`'s naming
+rules, not its generic checkout/stash command or its post-merge rotation path.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing

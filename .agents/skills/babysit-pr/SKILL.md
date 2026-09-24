@@ -519,10 +519,14 @@ before pausing the watcher or releasing its lease:
 
 1. Fetch origin and verify `mergeCommit.oid` is an ancestor of `origin/main`.
    If it has not arrived yet, keep this continuation in the foreground and
-   retry the fetch and ancestry check with interruptible waits until the proof
-   is available. Do not depend on another scheduled tick or reactivate a
-   watcher after the PR is terminal. Leave an already-owned watcher and lease
-   untouched while this foreground wait runs.
+   retry at an interruptible cadence of at most 60 seconds until the proof is
+   available. Before each retry, fetch origin, verify this invocation still
+   owns the PR lease, renew it with the observed-version compare-and-swap, and
+   verify the renewed record before checking ancestry. Do not depend on another
+   scheduled tick or reactivate a watcher after the PR is terminal. If renewal
+   fails or ownership changed, stop audits, branch disposition, and cleanup;
+   wait read-only until this invocation can safely reacquire the lease under
+   the normal claim rules. Never mutate another owner's lease.
 2. Re-run the final inline-thread and review-summary audits below before
    rotating. If new actionable feedback appears after merge, record it as a
    post-merge follow-up, retain the source branch, and do not restart this PR's
