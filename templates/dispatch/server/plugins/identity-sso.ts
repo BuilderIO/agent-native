@@ -656,6 +656,13 @@ export const organizationFederationHandler = defineEventHandler(
     const email = verified.email.trim().toLowerCase();
     const authority = resolveAuthority();
     if (!authority) return jsonResponse({ error: "identity_unavailable" }, 503);
+    const assertedIconJson =
+      parsedOrgIcon?.success && parsedOrgIcon.data !== null
+        ? JSON.stringify(parsedOrgIcon.data)
+        : null;
+    const assertedIconRevision = parsedOrgIcon?.success
+      ? Number(orgIconRevision)
+      : 0;
     const exec = getDbExec();
     const existing = await exec.execute({
       sql: `SELECT id, name, identity_authority, identity_id,
@@ -715,9 +722,9 @@ export const organizationFederationHandler = defineEventHandler(
           {
             sql: `INSERT INTO organizations
                   (id, name, created_by, created_at, a2a_secret,
-                   identity_authority, identity_id,
+                   identity_authority, identity_id, icon_json, icon_revision,
                    federation_roster_initialized_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
               orgId,
               orgName,
@@ -726,6 +733,8 @@ export const organizationFederationHandler = defineEventHandler(
               randomBytes(32).toString("base64url"),
               authority,
               orgId,
+              assertedIconJson,
+              assertedIconRevision,
               now,
             ],
           },
@@ -763,8 +772,8 @@ export const organizationFederationHandler = defineEventHandler(
         await exec.execute({
           sql: `INSERT INTO organizations
                 (id, name, created_by, created_at, a2a_secret,
-                 identity_authority, identity_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                 identity_authority, identity_id, icon_json, icon_revision)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             orgId,
             orgName,
@@ -773,19 +782,10 @@ export const organizationFederationHandler = defineEventHandler(
             randomBytes(32).toString("base64url"),
             authority,
             orgId,
+            assertedIconJson,
+            assertedIconRevision,
           ],
         });
-      }
-      if (federationRoster) {
-        return jsonResponse(
-          {
-            orgId,
-            name: orgName,
-            role: orgRole,
-            rosterInitialized: true,
-          },
-          200,
-        );
       }
     } else if (!existingAuthority && !existingId && !federationRoster) {
       await exec.execute({
@@ -806,26 +806,6 @@ export const organizationFederationHandler = defineEventHandler(
         roster: federationRoster,
       });
       if (!setup.ok) return jsonResponse({ error: setup.error }, setup.status);
-      return jsonResponse(
-        {
-          orgId,
-          name: organizationName,
-          role: orgRole,
-          rosterInitialized: true,
-        },
-        200,
-      );
-    }
-    if (federationRoster && existingOrg?.federation_roster_initialized_at) {
-      return jsonResponse(
-        {
-          orgId,
-          name: organizationName,
-          role: orgRole,
-          rosterInitialized: true,
-        },
-        200,
-      );
     }
     if (federationOperation !== undefined) {
       if (!existingOrg) {
@@ -1053,7 +1033,7 @@ export const organizationFederationHandler = defineEventHandler(
       );
     }
 
-    if (parsedOrgIcon?.success) {
+    if (parsedOrgIcon?.success && existingOrg) {
       const iconUpdate = await exec.execute({
         sql: `UPDATE organizations
               SET icon_json = ?, icon_revision = ?
@@ -1097,6 +1077,18 @@ export const organizationFederationHandler = defineEventHandler(
           );
         }
       }
+    }
+
+    if (federationRoster) {
+      return jsonResponse(
+        {
+          orgId,
+          name: organizationName,
+          role: orgRole,
+          rosterInitialized: true,
+        },
+        200,
+      );
     }
 
     const member = await exec.execute({
