@@ -472,14 +472,31 @@ function buildGenerationContent(args: {
 }
 
 /** Keys whose values are stripped from persisted tool inputs when
- *  `captureToolArgs` is enabled. Matched case-insensitively and tolerant
- *  of `_` / `-` separators. M14 in the MCP/A2A audit: tool calls
+ *  `captureToolArgs` is enabled. Matched case-insensitively across
+ *  namespace, snake/kebab, and camelCase components. M14 in the MCP/A2A audit: tool calls
  *  routinely receive credentials verbatim (db-exec INSERTs, fetchTool
  *  Authorization headers, ad-hoc bearer tokens) — keeping those values
  *  out of agent_trace_spans.metadata avoids long-term storage of
  *  short-lived secrets. */
 const SENSITIVE_FIELD_PATTERN =
-  /^(authorization|cookie|password|secret|token|bearer|(?:[a-z0-9]+[_-]?)?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key))$/i;
+  /^(authorization|cookie|password|secret|token|bearer)$/i;
+const SENSITIVE_COMPOUND_FIELDS = [
+  "apikey",
+  "accesstoken",
+  "refreshtoken",
+  "clientsecret",
+  "privatekey",
+];
+
+function isSensitiveFieldName(field: string): boolean {
+  return field.split(/[.:/\[\]]+/).some((part) => {
+    if (SENSITIVE_FIELD_PATTERN.test(part)) return true;
+    const normalized = part.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return SENSITIVE_COMPOUND_FIELDS.some((field) =>
+      normalized.endsWith(field),
+    );
+  });
+}
 
 /** Recursively walk a structured value and replace sensitive field
  *  values with the literal string "[REDACTED]". Pure (returns a copy);
@@ -498,7 +515,7 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_FIELD_PATTERN.test(k)) {
+    if (isSensitiveFieldName(k)) {
       out[k] = "[REDACTED]";
     } else {
       out[k] = redactWalk(v, seen);

@@ -47,8 +47,12 @@ describe("redactSensitiveFields", () => {
       client_secret: "client-secret-value",
       clientSecret: "client-secret-camel",
       googleClientSecret: "provider-client-secret",
+      google_oauth_client_secret: "namespaced-client-secret",
+      gcp_service_account_private_key: "service-account-private-key",
       providerPrivateKey: "provider-private-key",
       openaiApiKey: "provider-api-key",
+      "request.headers.authorization": "Bearer nested-key",
+      "x-goog-api-key": "provider-key",
       private_key: "private-key-value",
       privateKey: "private-key-camel",
       password: "hunter2",
@@ -70,8 +74,12 @@ describe("redactSensitiveFields", () => {
       client_secret: "[REDACTED]",
       clientSecret: "[REDACTED]",
       googleClientSecret: "[REDACTED]",
+      google_oauth_client_secret: "[REDACTED]",
+      gcp_service_account_private_key: "[REDACTED]",
       providerPrivateKey: "[REDACTED]",
       openaiApiKey: "[REDACTED]",
+      "request.headers.authorization": "[REDACTED]",
+      "x-goog-api-key": "[REDACTED]",
       private_key: "[REDACTED]",
       privateKey: "[REDACTED]",
       password: "[REDACTED]",
@@ -908,7 +916,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     // A tool result echoing an upstream response with credentials in it.
     const leakyResult =
-      'Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" providerClientSecret="first-line-secret\nsecond-line-secret" privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"';
+      'Error: upstream rejected: key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" providerClientSecret="first-line-secret\nsecond-line-secret" privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"\nAuthorization: Bearer abcdef123456, key=sk-not-a-real-key-000000000\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature';
 
     const run = (captureToolResults: boolean) =>
       instrumentAgentLoop({
@@ -952,6 +960,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ).toContain("withheld");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
     expect(JSON.stringify(events[0])).not.toContain("compound-secret");
+    expect(JSON.stringify(events[0])).not.toContain("compound-cookie-secret");
+    expect(JSON.stringify(events[0])).not.toContain("compound-auth-signature");
     expect(JSON.stringify(events[0])).not.toContain("provider-camel-secret");
     expect(JSON.stringify(events[0])).not.toContain("second-line-secret");
     expect(JSON.stringify(events[0])).not.toContain("not-a-real-private-key");
@@ -985,6 +995,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(persistedError).not.toContain("provider-camel-secret");
     expect(persistedError).not.toContain("second-line-secret");
     expect(persistedError).not.toContain("not-a-real-private-key");
+    expect(persistedError).not.toContain("compound-cookie-secret");
+    expect(persistedError).not.toContain("compound-auth-signature");
     expect(persistedError).toContain('client_secret="[REDACTED]"');
     expect(persistedError).toContain("private_key=[REDACTED]");
   });
@@ -1948,7 +1960,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
   it("gates and sanitizes tool error text in exported span statuses", async () => {
     const leakyResult =
-      "Error: client_secret=compound-secret private_key=compound-private-key";
+      "Error: client_secret=compound-secret private_key=compound-private-key\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature";
 
     for (const captureToolResults of [false, true]) {
       const { spans, runtime } = createRecordingTracer();
@@ -1995,7 +2007,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
       if (captureToolResults) {
         expect(toolSpan?.status?.message).toBe(
-          "Error: client_secret=[REDACTED] private_key=[REDACTED]",
+          "Error: client_secret=[REDACTED] private_key=[REDACTED]\nCookie: [REDACTED]\nAuthorization: [REDACTED]",
         );
       } else {
         expect(toolSpan?.status?.message).toBeUndefined();
@@ -2347,7 +2359,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       Record<string, unknown>
     >;
     expect(redactedTools[0]?.error_message).toBe(
-      "Provider failed: Authorization: [REDACTED]; api_key=[REDACTED]",
+      "Provider failed: Authorization: [REDACTED]",
     );
 
     events.length = 0;

@@ -30,9 +30,10 @@ import type {
 } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
-  if (!value) return fallback;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== "string") return value as T;
   try {
-    return JSON.parse(String(value));
+    return JSON.parse(value);
   } catch {
     return fallback;
   }
@@ -1166,10 +1167,11 @@ export async function getObservabilityOverview(
 // ─── Row mappers ─────────────────────────────────────────────────────
 
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
-  const metadata = safeJsonParse<Record<string, unknown> | null>(
+  const storedMetadata = safeJsonParse<Record<string, unknown> | null>(
     row.metadata,
     null,
   );
+  const metadata = storedMetadata ? { ...storedMetadata } : null;
   const hasCapturedToolError =
     metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1;
   if (metadata) delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
