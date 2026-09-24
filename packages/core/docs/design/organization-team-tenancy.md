@@ -151,9 +151,10 @@ explicit editor can edit. An explicit resource admin can edit and manage shares
 and visibility. That admin cannot move scope or delete using that grant alone.
 
 Organization owners and admins can read, edit, manage shares and visibility,
-delete, and move every organization or team resource. They do not need team
-membership. Team leads retain only membership-management authority and normal
-resource grants.
+and delete every organization or team resource. They can authorize moves only
+for supported authored resource families under the Scope Moves rules. They do
+not need team membership. Team leads retain only membership-management
+authority and normal resource grants.
 
 Creator and explicit-share access to an organization or team resource requires
 current membership in its owning organization. All organization-derived access,
