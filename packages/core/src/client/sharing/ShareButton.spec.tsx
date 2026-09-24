@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { ShareButton } from "./ShareButton.js";
 
@@ -1076,6 +1077,59 @@ describe("ShareButton", () => {
     );
     expect(String(loadMoreCall?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
+  });
+
+  it("keeps quick copy separate from People and Agents tabs", async () => {
+    const onCopy = vi.fn(async () => true);
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              quickCopy={{
+                label: "Copy page link",
+                copiedLabel: "Copied page link",
+                onCopy,
+              }}
+              peopleTabLabel="People"
+              agentsTabLabel="Agents"
+              agentTabContent={<button type="button">Copy agent prompt</button>}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const copy = container.querySelector(
+      'button[aria-label="Copy page link"]',
+    ) as HTMLButtonElement;
+    expect(copy).not.toBeNull();
+    await act(async () => copy.click());
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("People");
+    expect(container.textContent).toContain("Only people with access can view");
+    expect(container.textContent).not.toContain("Copy agent prompt");
+
+    const agents = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "Agents");
+    expect(agents).toBeDefined();
+    await act(async () => {
+      agents!.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("Agents");
+    expect(container.textContent).toContain("Copy agent prompt");
+    expect(container.textContent).not.toContain("owner@example.com");
   });
 
   // Keep the non-source-locale provider test last: react-i18next's global

@@ -1005,6 +1005,18 @@ const exactEnglish = {
       copyLink: "リンクをコピー",
       copyForPeople: "人向けにコピー",
       copyForAgents: "エージェント向けにコピー",
+      whoHasAccess: "アクセスできる人",
+      sharePeople: "人",
+      shareAgents: "エージェント",
+      copyAgentPrompt: "エージェント用指示をコピー",
+      openInClaude: "Claude で開く",
+      openInClaudeCode: "Claude Code で開く",
+      openInCodex: "Codex で開く",
+      agentCopyAccessNote:
+        "エージェントは既存の権限で Content MCP を利用できます",
+      temporaryAgentLink: "一時的なエージェントリンク",
+      privateLinkCanView: "アクセス権のある人だけが閲覧できます",
+      publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
       copiedAgentPrompt: "エージェント用指示をコピーしました",
       couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
       agentPrompt:
@@ -1032,6 +1044,7 @@ const exactEnglish = {
       exportedCsv: "CSV をエクスポートしました",
       copiedPageLink: "ページリンクをコピーしました",
       copyPageLink: "ページリンクをコピー",
+      createShareableCopy: "共有できるコピーを作成",
       couldNotCopyLink: "リンクをコピーできませんでした",
       clipboardAccessUnavailable:
         "このブラウザではクリップボードにアクセスできません。",

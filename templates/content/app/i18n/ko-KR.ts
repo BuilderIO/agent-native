@@ -998,6 +998,18 @@ const exactEnglish = {
       copyLink: "링크 복사",
       copyForPeople: "사람용으로 복사",
       copyForAgents: "에이전트용으로 복사",
+      whoHasAccess: "접근 권한이 있는 사람",
+      sharePeople: "사람",
+      shareAgents: "에이전트",
+      copyAgentPrompt: "에이전트 지침 복사",
+      openInClaude: "Claude에서 열기",
+      openInClaudeCode: "Claude Code에서 열기",
+      openInCodex: "Codex에서 열기",
+      agentCopyAccessNote:
+        "에이전트는 기존 권한으로 Content MCP를 사용할 수 있습니다",
+      temporaryAgentLink: "임시 에이전트 링크",
+      privateLinkCanView: "접근 권한이 있는 사람만 볼 수 있습니다",
+      publicLinkCanView: "링크가 있는 누구나 볼 수 있습니다",
       copiedAgentPrompt: "에이전트 지침을 복사했습니다",
       couldNotCopyAgentPrompt: "에이전트 지침을 복사할 수 없습니다",
       agentPrompt:
@@ -1025,6 +1037,7 @@ const exactEnglish = {
       exportedCsv: "CSV를 내보냈습니다",
       copiedPageLink: "페이지 링크를 복사했습니다",
       copyPageLink: "페이지 링크 복사",
+      createShareableCopy: "공유 가능한 사본 만들기",
       couldNotCopyLink: "링크를 복사하지 못했습니다",
       clipboardAccessUnavailable:
         "이 브라우저에서는 클립보드에 접근할 수 없습니다.",

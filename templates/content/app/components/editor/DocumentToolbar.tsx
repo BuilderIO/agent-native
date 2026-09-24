@@ -8,7 +8,16 @@ import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import {
+  AgentDestinationActions,
+  buildAgentShareDeepLink,
+  ClaudeCodeLogo,
+  ClaudeLogo,
+  CodexLogo,
+  JoinedShareControl,
+  ShareTrigger,
+  type AgentShareDestination,
+} from "@agent-native/toolkit/sharing";
 import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
@@ -34,12 +43,12 @@ import {
   IconPlus,
   IconHistory,
   IconInfoCircle,
-  IconLink,
   IconMessageCircle,
   IconRefresh,
   IconPin,
   IconPencil,
   IconTrash,
+  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -771,7 +780,7 @@ export function DocumentToolbar({
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
         description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
-      return;
+      return false;
     }
 
     if (!isLocalFileDocument) {
@@ -782,22 +791,28 @@ export function DocumentToolbar({
       });
     }
     toast.success(t("editor.toolbar.copiedPageLink"));
+    return true;
   }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
+  const agentPrompt = useCallback(
+    () =>
+      t(
+        "editor.toolbar.agentPrompt",
+        contentAgentPromptValues({
+          documentId,
+          origin: window.location.origin,
+          basePath: appPath("/"),
+        }),
+      ),
+    [documentId, t],
+  );
+
   const handleCopyAgentPrompt = useCallback(async () => {
-    const prompt = t(
-      "editor.toolbar.agentPrompt",
-      contentAgentPromptValues({
-        documentId,
-        origin: window.location.origin,
-        basePath: appPath("/"),
-      }),
-    );
-    if (!(await writeClipboardText(prompt))) {
+    if (!(await writeClipboardText(agentPrompt()))) {
       toast.error(t("editor.toolbar.couldNotCopyAgentPrompt"), {
         description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
-      return;
+      return false;
     }
     trackEvent("share_link_copied", {
       resource_type: "document",
@@ -805,7 +820,22 @@ export function DocumentToolbar({
       link_type: "agent_prompt",
     });
     toast.success(t("editor.toolbar.copiedAgentPrompt"));
-  }, [documentId, t]);
+    return true;
+  }, [agentPrompt, documentId, t]);
+
+  const handleOpenAgentDestination = useCallback(
+    (destination: AgentShareDestination) => {
+      trackEvent("agent_share_opened", {
+        resource_type: "document",
+        resource_id: documentId,
+        destination,
+      });
+      window.location.assign(
+        buildAgentShareDeepLink(destination, agentPrompt()),
+      );
+    },
+    [agentPrompt, documentId],
+  );
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
@@ -1008,6 +1038,29 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
+  const unopenedShareControl = (
+    <JoinedShareControl
+      trigger={
+        <ShareTrigger
+          aria-expanded={false}
+          aria-label={t("editor.toolbar.share")}
+          label={
+            <span className="flex items-center gap-2">
+              <IconUserPlus aria-hidden="true" />
+              <span>{t("editor.toolbar.share")}</span>
+            </span>
+          }
+          intent="primary"
+          emphasis="solid"
+          onPress={() => setShareRequested(true)}
+        />
+      }
+      copyLabel={t("editor.toolbar.copyPageLink")}
+      copiedLabel={t("editor.toolbar.copiedPageLink")}
+      onCopy={handleCopyPageLink}
+    />
+  );
+
   return (
     <>
       <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
@@ -1047,36 +1100,81 @@ export function DocumentToolbar({
             className="mr-1"
           />
           {isLocalFileDocument ? (
-            <ShareTrigger
-              className="h-9 rounded-lg px-3"
-              pending={shareLocalFile.isPending}
-              disabled={shareLocalFile.isPending}
-              label={t("editor.toolbar.share")}
-              onPress={() => void handleShareLocalFile()}
-            />
-          ) : (
-            <Suspense
-              fallback={
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
                 <ShareTrigger
-                  aria-expanded={false}
+                  className="h-9 rounded-lg px-3"
+                  pending={shareLocalFile.isPending}
+                  disabled={shareLocalFile.isPending}
                   label={t("editor.toolbar.share")}
-                  onPress={() => setShareRequested(true)}
                 />
-              }
-            >
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                data-database-preview-portal={compact ? "" : undefined}
+              >
+                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
+                  {t("editor.toolbar.copyPageLink")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleShareLocalFile()}>
+                  {t("editor.toolbar.createShareableCopy")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Suspense fallback={unopenedShareControl}>
               {shareRequested || openShareOnLoad ? (
                 <ShareButton
                   resourceType="document"
                   resourceId={documentId}
                   resourceTitle={documentTitle}
                   shareUrl={shareUrl}
+                  mobileSheet
+                  agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
+                  showShareLinks={false}
+                  quickCopy={{
+                    label: t("editor.toolbar.copyPageLink"),
+                    copiedLabel: t("editor.toolbar.copiedPageLink"),
+                    onCopy: handleCopyPageLink,
+                  }}
+                  peopleTabLabel={t("editor.toolbar.sharePeople")}
+                  agentsTabLabel={t("editor.toolbar.shareAgents")}
+                  peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
+                  agentTabContent={
+                    <div className="space-y-3">
+                      <AgentDestinationActions
+                        labels={{
+                          copy: t("editor.toolbar.copyAgentPrompt"),
+                          claude: t("editor.toolbar.openInClaude"),
+                          claudeCode: t("editor.toolbar.openInClaudeCode"),
+                          codex: t("editor.toolbar.openInCodex"),
+                        }}
+                        icons={{
+                          claude: <ClaudeLogo className="size-4" />,
+                          "claude-code": <ClaudeCodeLogo className="size-4" />,
+                          codex: <CodexLogo className="size-4" />,
+                        }}
+                        onCopy={handleCopyAgentPrompt}
+                        onOpen={handleOpenAgentDestination}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t("editor.toolbar.agentCopyAccessNote")}
+                      </p>
+                    </div>
+                  }
                   defaultOpen={shareRequested || openShareOnLoad}
                   onOpenChange={handleDbShareOpenChange}
                   visibilityCopy={{
+                    private: {
+                      description: t("editor.toolbar.privateLinkCanView"),
+                    },
                     org: {
                       description: effectiveHideFromSearch
                         ? t("editor.toolbar.orgLinkCanView")
                         : t("editor.toolbar.orgCanFindAndView"),
+                    },
+                    public: {
+                      description: t("editor.toolbar.publicLinkCanView"),
                     },
                   }}
                   hideInSearchControl={{
@@ -1116,11 +1214,7 @@ export function DocumentToolbar({
                   }
                 />
               ) : (
-                <ShareTrigger
-                  aria-expanded={false}
-                  label={t("editor.toolbar.share")}
-                  onPress={() => setShareRequested(true)}
-                />
+                unopenedShareControl
               )}
 
               <VersionHistoryPanel
@@ -1135,50 +1229,6 @@ export function DocumentToolbar({
                 restoreUnavailableReason={restoreUnavailableReason}
               />
             </Suspense>
-          )}
-
-          {isLocalFileDocument ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={t("editor.toolbar.copyLink")}
-                  onClick={() => void handleCopyPageLink()}
-                >
-                  <IconLink size={18} aria-hidden="true" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("editor.toolbar.copyLink")}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <DropdownMenu modal={false}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={t("editor.toolbar.copyLink")}
-                    >
-                      <IconLink size={18} aria-hidden="true" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.toolbar.copyLink")}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="end"
-                data-database-preview-portal={compact ? "" : undefined}
-              >
-                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
-                  {t("editor.toolbar.copyForPeople")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleCopyAgentPrompt()}>
-                  {t("editor.toolbar.copyForAgents")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           )}
 
           {suggesting ? (

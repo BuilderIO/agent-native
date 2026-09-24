@@ -1280,6 +1280,18 @@ const exactEnglish = {
       copyLink: "Copiar enlace",
       copyForPeople: "Copiar para personas",
       copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quién tiene acceso",
+      sharePeople: "Personas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instrucciones para el agente",
+      openInClaude: "Abrir en Claude",
+      openInClaudeCode: "Abrir en Claude Code",
+      openInCodex: "Abrir en Codex",
+      agentCopyAccessNote:
+        "Los agentes pueden usar Content MCP con tus permisos actuales",
+      temporaryAgentLink: "Enlace temporal para agentes",
+      privateLinkCanView: "Solo las personas con acceso pueden verlo",
+      publicLinkCanView: "Cualquiera con el enlace puede verlo",
       copiedAgentPrompt: "Instrucciones para el agente copiadas",
       couldNotCopyAgentPrompt:
         "No se pudieron copiar las instrucciones para el agente",
@@ -1308,6 +1320,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Enlace de página copiado",
       copyPageLink: "Copiar enlace de página",
+      createShareableCopy: "Crear copia para compartir",
       couldNotCopyLink: "No se pudo copiar el enlace",
       clipboardAccessUnavailable:
         "El acceso al portapapeles no está disponible en este navegador.",

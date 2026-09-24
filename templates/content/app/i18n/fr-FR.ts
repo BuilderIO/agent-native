@@ -1033,7 +1033,20 @@ const exactEnglish = {
       copyLink: "Copier le lien",
       copyForPeople: "Copier pour les personnes",
       copyForAgents: "Copier pour les agents",
-      copiedAgentPrompt: "Instructions pour l’agent copiées",
+      whoHasAccess: "Qui a accès",
+      sharePeople: "Personnes",
+      shareAgents: "Agents",
+      copyAgentPrompt: "Copier les instructions pour l’agent",
+      openInClaude: "Ouvrir dans Claude",
+      openInClaudeCode: "Ouvrir dans Claude Code",
+      openInCodex: "Ouvrir dans Codex",
+      agentCopyAccessNote:
+        "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
+      temporaryAgentLink: "Lien temporaire pour agent",
+      privateLinkCanView:
+        "Seules les personnes autorisées peuvent consulter ce lien",
+      publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      copiedAgentPrompt: "Instructions pour l'agent copiées",
       couldNotCopyAgentPrompt:
         "Impossible de copier les instructions pour l’agent",
       agentPrompt:
@@ -1061,6 +1074,7 @@ const exactEnglish = {
       exportedCsv: "CSV exporté",
       copiedPageLink: "Lien de la page copié",
       copyPageLink: "Copier le lien de la page",
+      createShareableCopy: "Créer une copie partageable",
       couldNotCopyLink: "Impossible de copier le lien",
       clipboardAccessUnavailable:
         "L'accès au presse-papiers n'est pas disponible dans ce navigateur.",

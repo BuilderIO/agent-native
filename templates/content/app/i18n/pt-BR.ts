@@ -1023,6 +1023,18 @@ const exactEnglish = {
       copyLink: "Copiar link",
       copyForPeople: "Copiar para pessoas",
       copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quem tem acesso",
+      sharePeople: "Pessoas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instruções para o agente",
+      openInClaude: "Abrir no Claude",
+      openInClaudeCode: "Abrir no Claude Code",
+      openInCodex: "Abrir no Codex",
+      agentCopyAccessNote:
+        "Os agentes podem usar o Content MCP com suas permissões atuais",
+      temporaryAgentLink: "Link temporário para agentes",
+      privateLinkCanView: "Somente pessoas com acesso podem visualizar",
+      publicLinkCanView: "Qualquer pessoa com o link pode visualizar",
       copiedAgentPrompt: "Instruções para o agente copiadas",
       couldNotCopyAgentPrompt:
         "Não foi possível copiar as instruções para o agente",
@@ -1051,6 +1063,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Link da página copiado",
       copyPageLink: "Copiar link da página",
+      createShareableCopy: "Criar cópia compartilhável",
       couldNotCopyLink: "Não foi possível copiar o link",
       clipboardAccessUnavailable:
         "O acesso à área de transferência não está disponível neste navegador.",

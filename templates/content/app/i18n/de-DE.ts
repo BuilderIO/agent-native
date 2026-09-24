@@ -1035,6 +1035,18 @@ const exactEnglish = {
       copyLink: "Link kopieren",
       copyForPeople: "Für Personen kopieren",
       copyForAgents: "Für Agenten kopieren",
+      whoHasAccess: "Wer Zugriff hat",
+      sharePeople: "Personen",
+      shareAgents: "Agenten",
+      copyAgentPrompt: "Agenten-Anweisung kopieren",
+      openInClaude: "In Claude öffnen",
+      openInClaudeCode: "In Claude Code öffnen",
+      openInCodex: "In Codex öffnen",
+      agentCopyAccessNote:
+        "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
+      temporaryAgentLink: "Temporärer Agentenlink",
+      privateLinkCanView: "Nur Personen mit Zugriff können ihn ansehen",
+      publicLinkCanView: "Jede Person mit dem Link kann ihn ansehen",
       copiedAgentPrompt: "Agenten-Anweisung kopiert",
       couldNotCopyAgentPrompt: "Agenten-Anweisung konnte nicht kopiert werden",
       agentPrompt:
@@ -1062,6 +1074,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportiert",
       copiedPageLink: "Seitenlink kopiert",
       copyPageLink: "Seitenlink kopieren",
+      createShareableCopy: "Teilbare Kopie erstellen",
       couldNotCopyLink: "Link konnte nicht kopiert werden",
       clipboardAccessUnavailable:
         "Der Zugriff auf die Zwischenablage ist in diesem Browser nicht verfügbar.",
