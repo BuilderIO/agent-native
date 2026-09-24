@@ -2813,8 +2813,11 @@ describe("connection status reads a broken managed connection as disconnected", 
   // listEvents reads its clients through getClientsForAccountsWithErrors,
   // which had the same unguarded resolveManagedCalendarClient() call as
   // isConnected. list-events.ts only reaches this once isConnected() has
-  // already reported `true`, but the function must be safe on its own too.
-  it("listEvents returns an empty read instead of throwing", async () => {
+  // already reported `true`, but the function must be safe on its own too -
+  // and, unlike the plain boolean checks, it must keep the failure visible in
+  // `errors` rather than reporting a successful empty read (list-events.ts
+  // uses this to distinguish an empty calendar from a read failure).
+  it("listEvents surfaces the failure instead of throwing or going silent", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
       new Error("no workspace token available"),
     );
@@ -2825,6 +2828,9 @@ describe("connection status reads a broken managed connection as disconnected", 
         "2026-01-02T00:00:00.000Z",
         "user@example.com",
       ),
-    ).resolves.toEqual({ events: [], errors: [] });
+    ).resolves.toEqual({
+      events: [],
+      errors: [{ email: "workspace", error: "no workspace token available" }],
+    });
   });
 });

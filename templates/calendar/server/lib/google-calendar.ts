@@ -995,7 +995,20 @@ export async function getClientsForAccountsWithErrors(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length === 0) {
-    const managed = await resolveManagedCalendarClientOrNull();
+    // Unlike isConnected()/getAuthStatus() - plain status reads with nowhere
+    // to put a reason - this function already has an `errors` channel its
+    // callers (listEvents, listGoogleCalendars) use to distinguish an empty
+    // calendar from a read failure. Preserve the failure there instead of
+    // coercing it into the same silent-empty shape as "no managed connection
+    // configured", matching the sibling fallback in getClientsWithErrors.
+    let managed: ManagedCalendarClient | null = null;
+    let managedError: string | undefined;
+    try {
+      managed = await resolveManagedCalendarClient();
+    } catch (err: any) {
+      managedError =
+        err?.message || "Workspace Google Calendar connection failed";
+    }
     if (!managed) {
       if (accountEmails?.length) {
         throw new Error(
@@ -1004,7 +1017,9 @@ export async function getClientsForAccountsWithErrors(
       }
       return {
         clients: [],
-        errors: [],
+        errors: managedError
+          ? [{ email: "workspace", error: managedError }]
+          : [],
         requestedAccounts: [],
         resolvedAccounts: [],
       };
