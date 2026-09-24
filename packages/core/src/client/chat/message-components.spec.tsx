@@ -32,6 +32,7 @@ import {
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   shouldShowInlineRunError,
+  withoutRunErrorSummary,
   shouldShowMissingFinalResponse,
   useSettledFlag,
   ThinkingIndicator,
@@ -1228,6 +1229,34 @@ describe("shouldShowInlineRunError", () => {
         bannerRunErrorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("withoutRunErrorSummary", () => {
+  const message =
+    "The model provider is rate-limiting this chat right now. Wait a moment, then retry.";
+  const runError = { message, errorCode: "provider_rate_limited" };
+
+  it("hides duplicate assistant text when the recovery banner is visible", () => {
+    expect(withoutRunErrorSummary(`Error: ${message}`, runError, true)).toBe(
+      null,
+    );
+  });
+
+  it("keeps recovery links after removing their repeated error summary", () => {
+    expect(
+      withoutRunErrorSummary(
+        `Error: ${message}\n\n[Retry in settings](https://example.com)`,
+        runError,
+        true,
+      ),
+    ).toBe("[Retry in settings](https://example.com)");
+  });
+
+  it("keeps error text when no recovery banner replaces it", () => {
+    expect(withoutRunErrorSummary(`Error: ${message}`, runError, false)).toBe(
+      `Error: ${message}`,
+    );
   });
 });
 

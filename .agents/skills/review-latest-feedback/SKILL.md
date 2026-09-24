@@ -549,8 +549,9 @@ owner instead of borrowing a nearby PR link.
 
 If the sweep found no verified fix, finish with the recap and say why no ship
 started. Unavailable connectors and external failures are not shipping blockers.
-An unresolved **Clarification needed** item remains eye-held and blocks an
-authorized merge until answered or expired.
+An unresolved **Clarification needed** item remains pending and blocks an
+authorized merge until answered or expired, but carries no `👀` while waiting.
+Re-claim it only when new evidence arrives and investigation resumes.
 
 ## Recap
 

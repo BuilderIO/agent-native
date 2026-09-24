@@ -2106,6 +2106,20 @@ export function shouldShowInlineRunError({
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 
+export function withoutRunErrorSummary(
+  text: string,
+  runError: RunErrorInfo | null,
+  showRunErrorNotice: boolean,
+): string | null {
+  if (!runError || !showRunErrorNotice) return text;
+  const summary = runError.message.trim();
+  for (const prefix of [`Error: ${summary}`, summary]) {
+    if (text === prefix) return null;
+    if (text.startsWith(`${prefix}\n\n`)) return text.slice(prefix.length + 2);
+  }
+  return text;
+}
+
 export function InlineRunErrorNotice({
   info,
   durationMs,
@@ -2270,6 +2284,10 @@ export function AssistantMessage() {
       runError: messageRunError,
       bannerRunErrorKey: messageActions?.bannerRunErrorKey,
     });
+  const runErrorBannerIsVisible =
+    !isUserStoppedRun &&
+    messageRunError !== null &&
+    messageActions?.bannerRunErrorKey === runErrorKey(messageRunError);
   const missingFinalResponseCandidate =
     missingWarningText == null &&
     shouldShowMissingFinalResponse({
@@ -2623,7 +2641,12 @@ export function AssistantMessage() {
                       />
                     );
                   }
-                  return <MarkdownText />;
+                  const text = withoutRunErrorSummary(
+                    part.text,
+                    messageRunError,
+                    runErrorBannerIsVisible,
+                  );
+                  return text === null ? null : <MarkdownText text={text} />;
                 case "reasoning":
                   return <ReasoningMessagePart />;
                 case "tool-call":
