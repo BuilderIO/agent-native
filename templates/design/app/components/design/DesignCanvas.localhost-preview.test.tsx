@@ -133,11 +133,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {
-      liveIframe?.dispatchEvent(new Event("load"));
-    });
-    expect(onBootReady).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: { type: "agent-native:editor-chrome-ready" },
@@ -146,7 +141,14 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         }),
       );
     });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toContain("Preparing live editor");
     expect(liveIframe?.style.pointerEvents).toBe("");
+
+    await act(async () => {
+      liveIframe?.dispatchEvent(new Event("load"));
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
     expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
       liveIframe,
     );

@@ -3730,6 +3730,12 @@ export function DesignCanvas({
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const markPreviewFrameReady = useCallback(() => {
+    setPreviewFrameLoaded(true);
+    if (!onBootReady || bootReadyRef.current) return;
+    bootReadyRef.current = true;
+    onBootReady();
+  }, [onBootReady]);
   useEffect(() => {
     setPreviewFrameLoaded(false);
   }, [iframeDocumentIdentity]);
@@ -3854,6 +3860,14 @@ export function DesignCanvas({
       ) {
         bootReadyRef.current = true;
         onBootReady();
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "agent-native:editor-chrome-ready" &&
+        sourceType === "localhost" &&
+        externalPreviewUrl
+      ) {
+        markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
       if (e.data.type === "agent-native:live-route-path") {
@@ -5017,6 +5031,7 @@ export function DesignCanvas({
     onRuntimeLayerSnapshot,
     onBridgeReady,
     onBootReady,
+    markPreviewFrameReady,
     onBootStart,
     externalPreviewUrl,
     onScreenRootComputedStyles,
@@ -7108,11 +7123,7 @@ export function DesignCanvas({
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
-            setPreviewFrameLoaded(true);
-            if (onBootReady && !bootReadyRef.current) {
-              bootReadyRef.current = true;
-              onBootReady();
-            }
+            markPreviewFrameReady();
             sendBridgeToContainer();
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
