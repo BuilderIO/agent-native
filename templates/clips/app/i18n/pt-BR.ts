@@ -626,9 +626,6 @@ const messages = {
     customizeEmbed: "Personalizar incorporação",
     more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
-    redactionsPendingBody:
-      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas. Abra o editor, aplique-as, e o compartilhamento volta.",
-    redactionsPendingTitle: "Conclua as tarjas primeiro",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",

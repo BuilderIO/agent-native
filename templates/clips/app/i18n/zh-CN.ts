@@ -588,9 +588,6 @@ const messages = {
     customizeEmbed: "自定义嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
-    redactionsPendingBody:
-      "这段录制上画了 {{count}} 处遮挡，但尚未合成进视频，因此文件里遮挡下方的内容依然可见。打开编辑器完成合成后，即可重新分享。",
-    redactionsPendingTitle: "请先完成遮挡",
   },
   shareUi: {
     owner: "所有者： {{email}}",

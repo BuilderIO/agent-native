@@ -617,9 +617,6 @@ const messages = {
     customizeEmbed: "임베드 맞춤 설정",
     more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
-    redactionsPendingBody:
-      "이 녹화에 가림 처리 {{count}}개가 그려져 있지만 영상에 적용되지 않았습니다. 따라서 파일에는 그 아래 내용이 그대로 남아 있습니다. 편집기를 열어 적용하면 공유가 다시 가능해집니다.",
-    redactionsPendingTitle: "가림 처리를 먼저 끝내세요",
   },
   shareUi: {
     owner: "소유자: {{email}}",

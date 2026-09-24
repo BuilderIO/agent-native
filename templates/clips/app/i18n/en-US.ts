@@ -553,9 +553,6 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
-    redactionsPendingBody:
-      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
-    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",

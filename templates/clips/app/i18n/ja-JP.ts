@@ -626,9 +626,6 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
-    redactionsPendingBody:
-      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
-    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",

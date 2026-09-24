@@ -632,9 +632,6 @@ const messages = {
     customizeEmbed: "Personnaliser l’intégration",
     more: "Plus",
     sharePlainTitle: "Partager {{title}}",
-    redactionsPendingBody:
-      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n'ont pas été appliqués à la vidéo : le fichier montre donc toujours tout ce qui se trouve dessous. Ouvrez l'éditeur, appliquez-les, et le partage redeviendra disponible.",
-    redactionsPendingTitle: "Terminez d'abord les masquages",
   },
   shareUi: {
     owner: "Propriétaire : {{email}}",

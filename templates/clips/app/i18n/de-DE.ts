@@ -638,9 +638,6 @@ const messages = {
     customizeEmbed: "Einbettung anpassen",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
-    redactionsPendingBody:
-      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter. Öffnen Sie den Editor, brennen Sie sie ein, und das Teilen steht wieder zur Verfügung.",
-    redactionsPendingTitle: "Schließen Sie die Schwärzungen zuerst ab",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
