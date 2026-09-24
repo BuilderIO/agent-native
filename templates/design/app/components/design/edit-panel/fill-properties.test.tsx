@@ -88,6 +88,7 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       backgroundRepeat?: string;
       backgroundPosition?: string;
       supportsLayeredFills?: boolean;
+      singlePaint?: boolean;
       supportedPaintTypes?: string[];
     }) =>
       createElement("div", {
@@ -100,6 +101,7 @@ vi.mock("./panel-primitives", async (importOriginal) => {
         "data-supports-layered-fills": String(
           props.supportsLayeredFills ?? false,
         ),
+        "data-single-paint": String(props.singlePaint ?? false),
         "data-supported-paint-types":
           props.supportedPaintTypes?.join(",") ?? "",
       }),
@@ -158,7 +160,7 @@ describe("baseFillLayerSourceProps", () => {
     });
   });
 
-  it("keeps SVG shape fills solid-only", () => {
+  it("keeps SVG shape fills out of the CSS background layer stack", () => {
     expect(
       baseFillLayerSourceProps(
         {
@@ -179,6 +181,31 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("offers native linear and radial fill paints for SVG shapes", () => {
+    const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          computedStyles: {
+            fill: "url(#vector-fill-gradient)",
+          },
+          inlineStyles: { "--an-vector-fill-gradient": gradient },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain(`data-value="${gradient}"`);
+    expect(markup).toContain('data-background-image=""');
+    expect(markup).toContain(
+      'data-supported-paint-types="solid,linear,radial"',
+    );
+    expect(markup).toContain('data-supports-layered-fills="false"');
+    expect(markup).toContain('data-single-paint="true"');
+  });
+
   it("omits the empty base picker but keeps the converted gradient row", () => {
     const el = element({
       computedStyles: {

@@ -1145,6 +1145,7 @@ const messages = {
     transcript: "Transcript",
     comment: "Comment",
     titleOrDescription: "Title or description",
+    matchAt: "Match at {{time}} in video",
   },
   organizationSwitcher: {
     noOrganization: "No organization",

@@ -524,6 +524,7 @@ const messages = {
       previewButton: "تشغيل المعاينة",
       previewRunning: "جارٍ فحص بريد الوارد الأخير…",
       jevBadge: "Jev",
+      jevMatchProbability: "احتمال مطابقة Jev: {{percent}}%",
       feedbackLabel: "حدد المطابقات التي لا ينبغي تضمينها",
       notSpamShort: "ليس مزعجًا",
       notMatchShort: "ليس مطابقًا",

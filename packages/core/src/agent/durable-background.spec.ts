@@ -162,12 +162,47 @@ describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => 
     expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
   });
 
-  it("stays OFF when opted in but NOT hosted (local dev keeps inline path)", () => {
-    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+  it("stays OFF by default when NOT hosted (local dev keeps inline path)", () => {
     process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "design";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
+  });
+
+  it("honors an explicit env opt-in on a long-lived server with no hosted marker", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    // The soft-timeout regime keys on hosted detection, which stays false.
+    expect(isHostedRuntimeForDurableBackground()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(true);
+  });
+
+  it("keeps an explicit env opt-in OFF on a long-lived server without A2A_SECRET", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
+  });
+
+  it("lets an app opt-out win over an env opt-in on a long-lived server", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: false })).toBe(
+      false,
+    );
+  });
+
+  it("stays OFF on a long-lived server when the env flag is explicitly falsy", () => {
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "design";
+    for (const val of ["false", "0", "no", "off"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
+      expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+      expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(
+        false,
+      );
+    }
   });
 
   it("stays OFF when opted in + hosted but A2A_SECRET is missing", () => {
@@ -177,8 +212,7 @@ describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => 
     expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
   });
 
-  it("treats NETLIFY_LOCAL=true as NOT hosted (netlify dev), even when opted in", () => {
-    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+  it("treats NETLIFY_LOCAL=true as NOT hosted (netlify dev), so the default stays off", () => {
     process.env.A2A_SECRET = "shhh";
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
@@ -186,8 +220,16 @@ describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => 
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("treats Netlify's runtime-only SITE_ID as hosted", () => {
+  it("honors an explicit env opt-in under netlify dev", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_LOCAL = "true";
+    expect(isHostedRuntimeForDurableBackground()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+  });
+
+  it("treats Netlify's runtime-only SITE_ID as hosted", () => {
     process.env.A2A_SECRET = "shhh";
     process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
     expect(isHostedRuntimeForDurableBackground()).toBe(true);
@@ -195,7 +237,6 @@ describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => 
   });
 
   it("keeps SITE_ID local under netlify dev", () => {
-    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     process.env.A2A_SECRET = "shhh";
     process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
     process.env.NETLIFY_LOCAL = "true";
@@ -204,7 +245,6 @@ describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => 
   });
 
   it("lets NETLIFY=false roll back SITE_ID hosted detection", () => {
-    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     process.env.A2A_SECRET = "shhh";
     process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
     process.env.NETLIFY = "false";

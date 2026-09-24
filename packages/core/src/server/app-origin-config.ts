@@ -70,7 +70,7 @@ export function resolvePublicAppOriginConfig(): {
     config.workspace.appsJson,
   );
   const resolved = {
-    appHomePath: resolveAppHomePath(config.app),
+    appHomePath: resolveAppHomePath(config.app, config.workspace),
     ...(config.app.url ? { appUrl: config.app.url } : {}),
     ...(config.workspace.gatewayUrl
       ? { workspaceGatewayUrl: config.workspace.gatewayUrl }

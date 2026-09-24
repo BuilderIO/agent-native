@@ -86,6 +86,17 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("min-w-0");
   });
 
+  it("does not highlight the current document in workspace trees while in Trash", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain(
+      'const sidebarActiveDocumentId = location.pathname.startsWith("/trash")',
+    );
+    expect(
+      sidebar.match(/activeDocumentId=\{sidebarActiveDocumentId\}/g),
+    ).toHaveLength(2);
+  });
+
   it("keeps row actions inside the visible sidebar at narrow widths", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
     const rowWidthBlock = treeItem.slice(

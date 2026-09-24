@@ -401,7 +401,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 每个应用独立部署
 
-更喜欢每个应用程序在自己的域中（`mail.company.com`、`calendar.company.com`）？工作区中的每个应用程序仍然是独立可部署的 - `cd apps/mail && npx @agent-native/core@latest build` 的行为与独立脚手架完全相同。然后，跨应用程序 A2A 通过具有共享 `A2A_SECRET` 的标准 JWT 签名路径。单独部署的应用程序之间的跨域 SSO 由以 Dispatch 作为中心的身份联合处理 - 请参阅 [Cross-App SSO](/docs/cross-app-sso)；统一的单源部署避免了需要它。
+更喜欢每个应用程序在自己的域中（`mail.company.com`、`calendar.company.com`）？工作区中的每个应用程序仍然是独立可部署的 - `cd apps/mail && pnpm build` 的行为与独立脚手架完全相同。然后，跨应用程序 A2A 通过具有共享 `A2A_SECRET` 的标准 JWT 签名路径。单独部署的应用程序之间的跨域 SSO 由以 Dispatch 作为中心的身份联合处理 - 请参阅 [Cross-App SSO](/docs/cross-app-sso)；统一的单源部署避免了需要它。
 
 ### 共享数据库、共享凭证
 

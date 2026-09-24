@@ -524,6 +524,7 @@ const messages = {
       previewButton: "पूर्वावलोकन चलाएँ",
       previewRunning: "हाल के इनबॉक्स ईमेल जाँचे जा रहे हैं…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev मिलान की संभावना {{percent}}%",
       feedbackLabel: "जिन मिलानों को शामिल नहीं करना चाहिए उन्हें चुनें",
       notSpamShort: "स्पैम नहीं",
       notMatchShort: "मिलान नहीं",

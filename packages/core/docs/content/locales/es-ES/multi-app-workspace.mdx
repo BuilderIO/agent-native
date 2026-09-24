@@ -401,7 +401,7 @@ Estas configuraciones solo afectan la navegación de páginas de solo lectura. L
 
 ### Implementación independiente por aplicación
 
-¿Prefieres cada aplicación en su propio dominio (`mail.company.com`, `calendar.company.com`)? Cada aplicación en el espacio de trabajo sigue siendo implementable de forma independiente: `cd apps/mail && npx @agent-native/core@latest build` se comporta exactamente como un andamio independiente. Luego, el A2A entre aplicaciones pasa por la ruta estándar firmada por JWT con un `A2A_SECRET` compartido. El SSO de dominio cruzado entre aplicaciones implementadas por separado se maneja mediante la federación de identidades con Dispatch como centro; consulte [Cross-App SSO](/docs/cross-app-sso); la implementación unificada de origen único evita su necesidad.
+¿Prefieres cada aplicación en su propio dominio (`mail.company.com`, `calendar.company.com`)? Cada aplicación en el espacio de trabajo sigue siendo implementable de forma independiente: `cd apps/mail && pnpm build` se comporta exactamente como un andamio independiente. Luego, el A2A entre aplicaciones pasa por la ruta estándar firmada por JWT con un `A2A_SECRET` compartido. El SSO de dominio cruzado entre aplicaciones implementadas por separado se maneja mediante la federación de identidades con Dispatch como centro; consulte [Cross-App SSO](/docs/cross-app-sso); la implementación unificada de origen único evita su necesidad.
 
 ### Base de datos compartida, credenciales compartidas
 
