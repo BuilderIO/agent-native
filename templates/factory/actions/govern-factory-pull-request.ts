@@ -185,6 +185,7 @@ export default defineAction({
         "PR governance is restricted to the configured Factory repository.",
       );
     }
+    let postClaimInternalMemberIsMember = false;
     if (itemId) {
       const item = (
         await getDb()
@@ -811,6 +812,7 @@ export default defineAction({
         pullRequest.userId,
         pullRequest.userLogin,
       );
+      postClaimInternalMemberIsMember = postClaimInternalMember.isMember;
       const postClaimGovernance = decidePullRequestGovernance({
         author: pullRequest.userLogin,
         authorId: pullRequest.userId,
@@ -1018,7 +1020,7 @@ export default defineAction({
             pullRequest.headSha,
           ) ||
           !hasSafeFinalApprovalGateEvidence(finalReviewSnapshot, {
-            afterClaim: postClaimInternalMember.isMember,
+            afterClaim: postClaimInternalMemberIsMember,
             beforeApproval: finalAuthorMembership.isMember,
           }) ||
           finalReviewSnapshot.commentsTruncated ||
