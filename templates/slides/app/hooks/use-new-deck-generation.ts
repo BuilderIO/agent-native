@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   NEW_DECK_GENERATION_START_TIMEOUT_MS,
@@ -93,6 +99,7 @@ export function useNewDeckGeneration({
     if (
       currentLifecycle.phase !== "started" ||
       generating ||
+      waitingOnQuestions ||
       !currentLifecycle.isNewDeckCreation
     ) {
       return;
@@ -107,6 +114,7 @@ export function useNewDeckGeneration({
     currentLifecycle.phase,
     deckId,
     generating,
+    waitingOnQuestions,
   ]);
 
   return {
@@ -130,18 +138,18 @@ export function clearNewDeckGenerationRun(
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
   runTabIds.delete(key);
-  try {
-    window.sessionStorage.removeItem(key);
-  } catch {
-    // The in-memory mapping is already cleared.
-  }
+  window.sessionStorage.removeItem(key);
 }
 
 export function useNewDeckGenerationRun(
   deckId: string,
   isNewDeckRoute: boolean,
   submitMessageId: string | null,
-): boolean {
+): {
+  generating: boolean;
+  questionContinuationPending: boolean;
+  expectQuestionContinuation: (submitMessageId: string) => void;
+} {
   const [run, setRun] = useState<NewDeckGenerationRun>(() =>
     createRun(deckId, isNewDeckRoute, submitMessageId),
   );
@@ -166,11 +174,49 @@ export function useNewDeckGenerationRun(
   const runKey = `${currentRun.deckId}:${currentRun.submitMessageId}:${currentRun.tabId}`;
   const [activeRun, setActiveRun] = useState({ runKey, generating: false });
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const continuationTargetTabIdRef = useRef<string | null>(null);
+  const [continuation, setContinuation] = useState({
+    runKey,
+    submitMessageId: null as string | null,
+  });
+  const currentContinuation =
+    continuation.runKey === runKey
+      ? continuation
+      : { runKey, submitMessageId: null };
+  if (continuation.runKey !== runKey) {
+    continuationTargetTabIdRef.current = null;
+    setContinuation(currentContinuation);
+  }
   if (activeRun.runKey !== runKey) {
     setActiveRun({ runKey, generating: false });
   }
+  const expectQuestionContinuation = useCallback(
+    (continuationSubmitMessageId: string) => {
+      continuationTargetTabIdRef.current = null;
+      setContinuation({
+        runKey,
+        submitMessageId: continuationSubmitMessageId,
+      });
+    },
+    [runKey],
+  );
 
   useEffect(() => {
+    const continuationSubmitId = currentContinuation.submitMessageId;
+    if (!continuationSubmitId) return;
+    const timer = setTimeout(() => {
+      continuationTargetTabIdRef.current = null;
+      setContinuation((previous) =>
+        previous.runKey === runKey &&
+        previous.submitMessageId === continuationSubmitId
+          ? { runKey, submitMessageId: null }
+          : previous,
+      );
+    }, NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [currentContinuation.submitMessageId, runKey]);
+
+  useLayoutEffect(() => {
     const submitId = currentRun.submitMessageId;
     if (!submitId) return;
     const handleSubmitTarget = (event: Event) => {
@@ -179,15 +225,21 @@ export function useNewDeckGenerationRun(
         detail?.submitMessageId !== submitId ||
         typeof detail?.tabId !== "string"
       ) {
+        if (
+          detail?.submitMessageId === currentContinuation.submitMessageId &&
+          detail?.tabId === currentRun.tabId
+        ) {
+          continuationTargetTabIdRef.current = detail.tabId;
+        }
         return;
       }
-      rememberRunTabId(currentRun.deckId, submitId, detail.tabId);
       setRun((previous) =>
         previous.deckId === currentRun.deckId &&
         previous.submitMessageId === submitId
           ? { ...previous, tabId: detail.tabId }
           : previous,
       );
+      rememberRunTabId(currentRun.deckId, submitId, detail.tabId);
     };
     window.addEventListener("agentNative.chatSubmitTarget", handleSubmitTarget);
     return () =>
@@ -195,7 +247,12 @@ export function useNewDeckGenerationRun(
         "agentNative.chatSubmitTarget",
         handleSubmitTarget,
       );
-  }, [currentRun.deckId, currentRun.submitMessageId]);
+  }, [
+    currentContinuation.submitMessageId,
+    currentRun.deckId,
+    currentRun.submitMessageId,
+    currentRun.tabId,
+  ]);
 
   useEffect(() => {
     const tabId = currentRun.tabId;
@@ -214,6 +271,14 @@ export function useNewDeckGenerationRun(
       if (detail.isRunning === true) {
         clearStopDebounce();
         setActiveRun({ runKey, generating: true });
+        if (continuationTargetTabIdRef.current === tabId) {
+          continuationTargetTabIdRef.current = null;
+          setContinuation((previous) =>
+            previous.runKey === runKey
+              ? { runKey, submitMessageId: null }
+              : previous,
+          );
+        }
       } else if (detail.isRunning === false) {
         clearStopDebounce();
         if (detail.reason === "stopped") {
@@ -231,6 +296,14 @@ export function useNewDeckGenerationRun(
       if (detail?.tabId !== tabId) return;
       clearStopDebounce();
       setActiveRun({ runKey, generating: false });
+      if (continuationTargetTabIdRef.current === tabId) {
+        continuationTargetTabIdRef.current = null;
+        setContinuation((previous) =>
+          previous.runKey === runKey
+            ? { runKey, submitMessageId: null }
+            : previous,
+        );
+      }
     };
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
     window.addEventListener("agent-chat:run-error", handleRunError);
@@ -241,7 +314,11 @@ export function useNewDeckGenerationRun(
     };
   }, [currentRun.tabId, runKey]);
 
-  return activeRun.runKey === runKey && activeRun.generating;
+  return {
+    generating: activeRun.runKey === runKey && activeRun.generating,
+    questionContinuationPending: currentContinuation.submitMessageId !== null,
+    expectQuestionContinuation,
+  };
 }
 
 function createRun(
@@ -262,16 +339,13 @@ function getRunTabStorageKey(deckId: string, submitMessageId: string): string {
 }
 
 function getRunTabId(deckId: string, submitMessageId: string): string | null {
+  if (typeof window === "undefined") return null;
   const key = getRunTabStorageKey(deckId, submitMessageId);
   const inMemory = runTabIds.get(key);
   if (inMemory) return inMemory;
-  try {
-    const stored = window.sessionStorage.getItem(key);
-    if (stored) runTabIds.set(key, stored);
-    return stored;
-  } catch {
-    return null;
-  }
+  const stored = window.sessionStorage.getItem(key);
+  if (stored) runTabIds.set(key, stored);
+  return stored;
 }
 
 function rememberRunTabId(
@@ -281,11 +355,7 @@ function rememberRunTabId(
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
   runTabIds.set(key, tabId);
-  try {
-    window.sessionStorage.setItem(key, tabId);
-  } catch {
-    // The in-memory mapping still covers the route transition.
-  }
+  window.sessionStorage.setItem(key, tabId);
 }
 
 function createLifecycle(

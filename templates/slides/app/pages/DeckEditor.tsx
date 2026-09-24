@@ -1,4 +1,7 @@
-import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
+import {
+  sendToAgentChat,
+  useGuidedQuestionFlow,
+} from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
@@ -357,18 +360,32 @@ export default function DeckEditor() {
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
   const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
-  const newDeckGenerationGenerating = useNewDeckGenerationRun(
+  const generationSubmitId = searchParams.get("generationSubmitId");
+  const {
+    generating: newDeckGenerationGenerating,
+    questionContinuationPending,
+    expectQuestionContinuation,
+  } = useNewDeckGenerationRun(
     id ?? "",
     isNewDeckGenerationRoute,
-    searchParams.get("generationSubmitId"),
+    generationSubmitId,
   );
-  // Neither hook above is actually scoped to THIS run until its own submit()
-  // call has fired: before that, `activeTabRef` inside useAgentGenerating is
-  // still null, so both hooks report on ANY chat activity system-wide, same
-  // as the broad instance. The target is set (and the popover's persistence
-  // wait starts) well before that submit call, so an unrelated run finishing
-  // during that wait could otherwise satisfy either "seen true" guard below
-  // and clear the freshly-set target before this run ever sent a request.
+  const submitQuestionContinuation = useCallback(
+    ({ message, context }: { message: string; context: string }) => {
+      if (!generationSubmitId) {
+        sendToAgentChat({ message, context, submit: true });
+        return;
+      }
+      const submitMessageId = nanoid();
+      expectQuestionContinuation(submitMessageId);
+      sendToAgentChat({ message, context, submit: true, submitMessageId });
+    },
+    [expectQuestionContinuation, generationSubmitId],
+  );
+  // Neither useAgentGenerating instance is scoped to its run until submit()
+  // fires: before then, its active tab ref is null and it reports on any chat
+  // activity. The add-slide target is set well before submission, so an
+  // unrelated run could otherwise satisfy either "seen true" guard below.
   // Both cleanup effects stay inert until this flips true.
   const addSlideRequestSentRef = useRef(false);
   const sawAddSlideAgentGeneratingRef = useRef(false);
@@ -740,9 +757,13 @@ export default function DeckEditor() {
       ].join("\n"),
     buildSkipContext: () =>
       `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content); keep each slide within that fit budget and split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+    onSubmitMessage: submitQuestionContinuation,
+    onSkipMessage: submitQuestionContinuation,
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const waitingOnNewDeckQuestions =
+    showQuestionFlow || questionContinuationPending;
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
@@ -750,7 +771,7 @@ export default function DeckEditor() {
       deckId: id ?? "",
       isNewDeckRoute: isNewDeckGenerationRoute,
       generating: newDeckGenerationGenerating,
-      waitingOnQuestions: showQuestionFlow,
+      waitingOnQuestions: waitingOnNewDeckQuestions,
     });
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationGenerating,
@@ -1016,6 +1037,7 @@ export default function DeckEditor() {
     if (
       !id ||
       newDeckGenerationGenerating ||
+      waitingOnNewDeckQuestions ||
       newDeckGenerationPhase !== "started"
     ) {
       return;
@@ -1026,6 +1048,7 @@ export default function DeckEditor() {
     id,
     newDeckGenerationPhase,
     refreshOpenDeck,
+    waitingOnNewDeckQuestions,
   ]);
 
   useEffect(() => {
@@ -1033,8 +1056,11 @@ export default function DeckEditor() {
     if (
       !id ||
       !submitMessageId ||
-      newDeckGenerationGenerating ||
-      newDeckGenerationPhase !== "started"
+      !shouldClearNewDeckGeneratingState({
+        generating: newDeckGenerationGenerating,
+        waitingOnQuestions: waitingOnNewDeckQuestions,
+        phase: newDeckGenerationPhase,
+      })
     ) {
       return;
     }
@@ -1053,6 +1079,7 @@ export default function DeckEditor() {
     newDeckGenerationPhase,
     searchParams,
     setSearchParams,
+    waitingOnNewDeckQuestions,
   ]);
 
   // Clean up the generating URL param/ref when generation completes or when
@@ -1061,6 +1088,7 @@ export default function DeckEditor() {
     if (
       !shouldClearNewDeckGeneratingState({
         generating: newDeckGenerationGenerating,
+        waitingOnQuestions: waitingOnNewDeckQuestions,
         phase: newDeckGenerationPhase,
       })
     ) {
@@ -1081,6 +1109,7 @@ export default function DeckEditor() {
     newDeckGenerationPhase,
     searchParams,
     setSearchParams,
+    waitingOnNewDeckQuestions,
   ]);
 
   const sensors = useSensors(

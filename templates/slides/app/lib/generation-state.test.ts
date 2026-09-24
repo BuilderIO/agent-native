@@ -51,6 +51,7 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
+        waitingOnQuestions: false,
         phase: "pending",
       }),
     ).toBe(false);
@@ -67,6 +68,7 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: true,
+        waitingOnQuestions: false,
         phase: "started",
       }),
     ).toBe(false);
@@ -138,6 +140,7 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
+        waitingOnQuestions: false,
         phase: "started",
       }),
     ).toBe(true);
@@ -145,6 +148,7 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
+        waitingOnQuestions: false,
         phase: "pending",
       }),
     ).toBe(false);
@@ -171,7 +175,11 @@ describe("new deck generation state", () => {
         }),
       ).toBe(false);
       expect(
-        shouldClearNewDeckGeneratingState({ generating: false, phase }),
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: false,
+          phase,
+        }),
       ).toBe(true);
     });
 
@@ -206,7 +214,11 @@ describe("new deck generation state", () => {
         }),
       ).toBe(true);
       expect(
-        shouldClearNewDeckGeneratingState({ generating: false, phase }),
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: true,
+          phase,
+        }),
       ).toBe(false);
     });
 
@@ -242,11 +254,16 @@ describe("new deck generation state", () => {
       ).toBe("started");
 
       expect(
-        shouldClearNewDeckGeneratingState({ generating: true, phase: started }),
+        shouldClearNewDeckGeneratingState({
+          generating: true,
+          waitingOnQuestions: false,
+          phase: started,
+        }),
       ).toBe(false);
       expect(
         shouldClearNewDeckGeneratingState({
           generating: false,
+          waitingOnQuestions: false,
           phase: started,
         }),
       ).toBe(true);
@@ -264,6 +281,7 @@ describe("new deck generation state", () => {
       expect(
         shouldClearNewDeckGeneratingState({
           generating: true,
+          waitingOnQuestions: false,
           phase: "abandoned",
         }),
       ).toBe(false);

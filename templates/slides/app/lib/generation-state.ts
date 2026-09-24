@@ -86,10 +86,16 @@ export function slideBeingFilledInPlace({
 
 export function shouldClearNewDeckGeneratingState({
   generating,
+  waitingOnQuestions,
   phase,
 }: {
   generating: boolean;
+  waitingOnQuestions: boolean;
   phase: NewDeckGenerationPhase;
 }): boolean {
-  return !generating && (phase === "started" || phase === "abandoned");
+  return (
+    !generating &&
+    !waitingOnQuestions &&
+    (phase === "started" || phase === "abandoned")
+  );
 }
