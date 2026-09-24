@@ -2754,6 +2754,7 @@ describe("connection status reads a broken managed connection as disconnected", 
   beforeEach(() => {
     vi.clearAllMocks();
     listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    getOAuthAccountsMock.mockResolvedValue([]);
     getCredentialContextMock.mockReturnValue({
       userEmail: "user@example.com",
       orgId: null,
@@ -2793,5 +2794,37 @@ describe("connection status reads a broken managed connection as disconnected", 
     await expect(getConnectedAccounts("user@example.com")).resolves.toEqual([
       "shared@example.com",
     ]);
+  });
+
+  // getAuthStatus backs useGoogleAuthStatus(), which Calendar home, Settings,
+  // the Sidebar, and Booking Links all call unconditionally - the same shape
+  // of bug as list-events, on a different action.
+  it("getAuthStatus reports disconnected instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(getAuthStatus("user@example.com")).resolves.toEqual({
+      connected: false,
+      accounts: [],
+    });
+  });
+
+  // listEvents reads its clients through getClientsForAccountsWithErrors,
+  // which had the same unguarded resolveManagedCalendarClient() call as
+  // isConnected. list-events.ts only reaches this once isConnected() has
+  // already reported `true`, but the function must be safe on its own too.
+  it("listEvents returns an empty read instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(
+      listEvents(
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-02T00:00:00.000Z",
+        "user@example.com",
+      ),
+    ).resolves.toEqual({ events: [], errors: [] });
   });
 });

@@ -995,7 +995,7 @@ export async function getClientsForAccountsWithErrors(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length === 0) {
-    const managed = await resolveManagedCalendarClient();
+    const managed = await resolveManagedCalendarClientOrNull();
     if (!managed) {
       if (accountEmails?.length) {
         throw new Error(
@@ -1296,7 +1296,7 @@ export async function getAuthStatus(
   );
 
   if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedCalendarClient();
+    const managed = await resolveManagedCalendarClientOrNull();
     return managed
       ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
       : { connected: false, accounts: [] };
