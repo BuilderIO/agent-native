@@ -6104,7 +6104,7 @@ function PageEditorSessionBody({
                             onEscape={handleEditorEscape}
                             contentResetKey={
                               pendingSuggestionDecision
-                                ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}`
+                                ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
                                 : null
                             }
                             key={`${visualEditorInstanceKey({

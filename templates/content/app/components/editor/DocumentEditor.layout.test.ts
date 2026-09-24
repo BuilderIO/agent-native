@@ -328,7 +328,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
-    ).replaceAll("\r\n", "\n");
+    ).replace(/\r\n/g, "\n");
     // One effect, keyed on the selection. Keying it on the whole pending
     // comment resets the target to invalid for a frame on every keystroke,
     // which flashes the "select text" alert inside the open composer.
@@ -436,7 +436,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
-    ).replaceAll("\r\n", "\n");
+    ).replace(/\r\n/g, "\n");
     const flush = source.slice(
       source.indexOf("const flushSuggestionDraft"),
       source.indexOf("const startSuggestionDraft"),
@@ -1397,7 +1397,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
-    ).replaceAll("\r\n", "\n");
+    ).replace(/\r\n/g, "\n");
 
     expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
       documentId: "new-page",
@@ -1703,7 +1703,7 @@ describe("document editor layout", () => {
       {
         encoding: "utf8",
       },
-    ).replaceAll("\r\n", "\n");
+    ).replace(/\r\n/g, "\n");
 
     // Every SQL-backed reader keeps the scoped collaboration subscription for
     // presence, but only editors bind the rendered body to Yjs.
@@ -2118,6 +2118,9 @@ describe("document editor layout", () => {
     );
 
     expect(sessionSource).toContain("contentResetKey={");
+    expect(sessionSource).toContain(
+      'pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"',
+    );
     expect(editorSource).toContain("useLayoutEffect(() => {");
     expect(editorSource).toContain(
       "appliedContentResetKeyRef.current === contentResetKey",
