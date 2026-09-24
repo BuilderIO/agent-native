@@ -4162,6 +4162,8 @@ function DesignEditor() {
     !visualEditAccessLost &&
     !canEditDesign &&
     design?.visibility === "public";
+  const canApplyPendingVisualEditsWithAgent =
+    canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
@@ -11768,7 +11770,6 @@ function DesignEditor() {
   // focused should just arm single-screen panning there, not yank the user
   // out to overview. Overview mode itself is left completely alone below.
   const handleHandTool = useCallback(() => {
-    if (!canEditDesign) return;
     blurActiveDesignEditableTarget();
     setActiveTool("hand");
     setMode("edit");
@@ -11779,7 +11780,7 @@ function DesignEditor() {
     }
     viewModeRef.current = "overview";
     setViewMode("overview");
-  }, [activeFile, canEditDesign]);
+  }, [activeFile]);
 
   // Figma parity: holding Space arms a TEMPORARY hand tool (grab cursor, drag
   // pans) — stash the current tool and setActiveTool("hand"); releasing
@@ -11829,23 +11830,26 @@ function DesignEditor() {
       if (event.key !== " " || event.code !== "Space") return;
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (!canEditDesignRef.current) return;
       if (isNativeKeyboardActivationTarget(event.target)) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
-      const armKeydown = resolveSpaceForwardTransition(
-        "keydown",
-        spaceForwardArmedRef.current,
-        Boolean(activeEditorDragRef.current),
-      );
-      // An armed hold still belongs to forwarding after mouseup, even when
-      // a duplicate keydown has no new broadcast to send.
-      if (armKeydown.armed) {
-        event.preventDefault();
-        spaceForwardArmedRef.current = true;
-        if (armKeydown.broadcast !== null) {
-          broadcastSpaceHeldToIframes(armKeydown.broadcast);
+      if (canEditDesignRef.current) {
+        // A view pan is allowed for viewers; only the iframe reorder modifier
+        // requires edit access.
+        const armKeydown = resolveSpaceForwardTransition(
+          "keydown",
+          spaceForwardArmedRef.current,
+          Boolean(activeEditorDragRef.current),
+        );
+        // An armed hold still belongs to forwarding after mouseup, even when
+        // a duplicate keydown has no new broadcast to send.
+        if (armKeydown.armed) {
+          event.preventDefault();
+          spaceForwardArmedRef.current = true;
+          if (armKeydown.broadcast !== null) {
+            broadcastSpaceHeldToIframes(armKeydown.broadcast);
+          }
+          return;
         }
-        return;
       }
       if (spacePanStashedToolRef.current !== null) return;
       event.preventDefault();
@@ -19274,7 +19278,7 @@ function DesignEditor() {
     onEllipseTool: canEditDesign ? handleEllipseTool : undefined,
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
-    onHandTool: canEditDesign ? handleHandTool : undefined,
+    onHandTool: handleHandTool,
     onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
     onDrawTool: canEditDesign ? handleDrawTool : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
@@ -27414,7 +27418,7 @@ function DesignEditor() {
               >
                 {hostEmbeddedEditor ? (
                   <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
-                ) : canEditDesign ? (
+                ) : canApplyPendingVisualEditsWithAgent ? (
                   <AgentChatSurface
                     mode="panel"
                     className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
@@ -27459,7 +27463,8 @@ function DesignEditor() {
                       </>
                     }
                   />
-                ) : publicVisualEdit ? (
+                ) : isVisualEditSurface &&
+                  !canApplyPendingVisualEditsWithAgent ? (
                   <div
                     data-design-public-agent-empty-state
                     className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center"
@@ -28099,12 +28104,14 @@ function DesignEditor() {
                           className={cn(
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
                             "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
-                            (!shellMode || !canEditDesign) && "rounded-r-none",
+                            (!shellMode ||
+                              !canApplyPendingVisualEditsWithAgent) &&
+                              "rounded-r-none",
                           )}
                           aria-label={t(
-                            publicVisualEdit
-                              ? "designEditor.pendingVisualStyles.copyPrompt"
-                              : "designEditor.pendingVisualStyles.applyAria",
+                            canApplyPendingVisualEditsWithAgent
+                              ? "designEditor.pendingVisualStyles.applyAria"
+                              : "designEditor.pendingVisualStyles.copyPrompt",
                           )}
                           disabled={
                             applyingViaHost ||
@@ -28112,7 +28119,7 @@ function DesignEditor() {
                             pendingStructureVerificationBusy
                           }
                           onClick={
-                            canEditDesign
+                            canApplyPendingVisualEditsWithAgent
                               ? handleApplyPendingVisualStylesWithAgent
                               : handleCopyPendingVisualStylePrompt
                           }
@@ -28122,7 +28129,7 @@ function DesignEditor() {
                           ) : null}
                           <span className="truncate">
                             {t(
-                              publicVisualEdit
+                              !canApplyPendingVisualEditsWithAgent
                                 ? "designEditor.pendingVisualStyles.copyPrompt"
                                 : applyingViaHost
                                   ? "designEditor.pendingVisualStyles.applying"
@@ -28135,9 +28142,9 @@ function DesignEditor() {
                             )}
                           </span>
                         </Button>
-                        {/* Public visual-edit viewers cannot start an agent turn,
-                            so keep Copy prompt and Abort available there too. */}
-                        {shellMode && canEditDesign ? null : (
+                        {/* Keep explicit copy and cancel available when no in-page agent can receive the handoff. */}
+                        {shellMode &&
+                        canApplyPendingVisualEditsWithAgent ? null : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button

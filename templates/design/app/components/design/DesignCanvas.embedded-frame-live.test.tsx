@@ -230,6 +230,10 @@ describe("DesignCanvas live embedded-frame offset", () => {
 
       expect(editorThemeScript).toBeDefined();
       expect(editorThemeScript).toContain("--design-editor-accent-color");
+      expect(editorThemeScript).toContain(
+        "window.__anEditorBridgeThemeVars = vars",
+      );
+      expect(editorThemeScript).not.toContain("root.style.setProperty");
       expect(editorThemeScript).not.toContain('"--background"');
       expect(editorThemeScript).not.toContain('"--foreground"');
       expect(editorThemeScript).not.toContain('"--border"');

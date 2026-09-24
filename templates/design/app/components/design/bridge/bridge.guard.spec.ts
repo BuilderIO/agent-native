@@ -2150,6 +2150,135 @@ it(
 );
 
 it(
+  "keeps chrome theme tokens on its host and hands pointer ownership back in Interact",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html><head><style>html,body{margin:0;width:100%;height:100%}#spaces,#target{position:absolute;width:160px;height:60px}#spaces{left:120px;top:140px}#target{left:360px;top:140px}</style></head>
+<body><a id="spaces" href="#spaces-destination">Spaces</a><div id="target">Target</div><script>window.__bridgeMessages=[];window.addEventListener('message',event=>window.__bridgeMessages.push(event.data));</script></body></html>`);
+      await page.evaluate(() => {
+        (
+          window as Window & {
+            __anEditorBridgeThemeVars?: Record<string, string>;
+          }
+        ).__anEditorBridgeThemeVars = {
+          "--design-editor-accent-color": "hsl(205 100% 53%)",
+          "--design-editor-selection-color": "hsl(205 100% 53% / 0.14)",
+        };
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.mouse.click(400, 160);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+
+      const outlineColorBeforeHydration = await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>(
+          "[data-agent-native-editor-chrome-host]",
+        )!;
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        )!;
+        document.documentElement.removeAttribute("style");
+        return {
+          hostAccent: host.style.getPropertyValue(
+            "--design-editor-accent-color",
+          ),
+          outline: getComputedStyle(selection).borderTopColor,
+        };
+      });
+      expect(outlineColorBeforeHydration.hostAccent).toBe("hsl(205 100% 53%)");
+      expect(outlineColorBeforeHydration.outline).toBe("rgb(15, 155, 255)");
+
+      await page.keyboard.down("Space");
+      await page.waitForFunction(() =>
+        (window as any).__bridgeMessages.some(
+          (message: any) =>
+            message.type === "design-hotkey" && message.code === "Space",
+        ),
+      );
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-interaction-mode", interact: true },
+          "*",
+        );
+        // This is the parent replay order that previously re-armed the shield.
+        window.postMessage({ type: "set-read-only", readOnly: false }, "*");
+      });
+      await page.waitForFunction(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        return shield?.style.pointerEvents === "none";
+      });
+      expect(
+        await page.evaluate(() =>
+          (window as any).__bridgeMessages
+            .filter(
+              (message: any) =>
+                message.code === "Space" &&
+                ["design-hotkey", "design-hotkey-up"].includes(message.type),
+            )
+            .map((message: any) => message.type),
+        ),
+      ).toEqual(["design-hotkey", "design-hotkey-up"]);
+      await page.evaluate(() => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        bridge.updateConfig({ readOnly: true, textEditingEnabled: true });
+        bridge.repair();
+      });
+      await page.waitForFunction(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        return shield?.style.pointerEvents === "none";
+      });
+      await page.mouse.click(150, 160);
+      await page.waitForFunction(
+        () => window.location.hash === "#spaces-destination",
+      );
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-interaction-mode", interact: false },
+          "*",
+        );
+        window.postMessage({ type: "set-read-only", readOnly: false }, "*");
+      });
+      await page.waitForFunction(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        return shield?.style.pointerEvents === "auto";
+      });
+      await page.mouse.click(400, 160);
+      await page.waitForFunction(() => {
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return selection && getComputedStyle(selection).display === "block";
+      });
+      await page.keyboard.up("Space");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge keeps viewer selection inspectable without transform handles",
   { timeout: 30_000 },
   async () => {
