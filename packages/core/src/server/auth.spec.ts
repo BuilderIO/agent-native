@@ -1383,17 +1383,22 @@ describe("server/auth", () => {
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
-      const issueReplacementSession = vi.fn(async () => {
-        const replacementToken = "replacement-session-token";
-        betterAuthSessions.delete("current-session-token");
-        betterAuthSessions.add(replacementToken);
-        const headers = new Headers();
-        headers.append(
-          "set-cookie",
-          `an.session_token=${replacementToken}; Path=/; HttpOnly`,
-        );
-        return { headers, response: { status: true } };
-      });
+      const issueReplacementSession = vi.fn(
+        async ({ headers: requestHeaders }: { headers: Headers }) => {
+          expect(requestHeaders.get("authorization")).toBe(
+            "Bearer current-session-token",
+          );
+          const replacementToken = "replacement-session-token";
+          betterAuthSessions.delete("current-session-token");
+          betterAuthSessions.add(replacementToken);
+          const headers = new Headers();
+          headers.append(
+            "set-cookie",
+            `an.session_token=${replacementToken}; Path=/; HttpOnly`,
+          );
+          return { headers, response: { status: true } };
+        },
+      );
       const betterAuth = {
         handler: vi.fn(async () => new Response("{}")),
         api: {
@@ -1466,6 +1471,14 @@ describe("server/auth", () => {
           }),
         );
         expect(staleSession).toBeNull();
+
+        const callCount = issueReplacementSession.mock.calls.length;
+        const unauthorized = createJsonPostEvent(path, {});
+        expect(await handler(unauthorized)).toEqual({
+          error: "Not authenticated",
+        });
+        expect(unauthorized.res.status).toBe(401);
+        expect(issueReplacementSession).toHaveBeenCalledTimes(callCount);
       }
     });
 
