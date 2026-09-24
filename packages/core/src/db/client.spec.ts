@@ -105,6 +105,31 @@ describe("db/client Postgres URL handling", () => {
     expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
   });
 
+  it("uses the workspace app ID to resolve app-specific database URLs", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL",
+      "postgres://account-expert.example/db",
+    );
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
+      "postgres://account-expert-direct.example/db",
+    );
+    vi.stubEnv("DATABASE_URL", "postgres://workspace.example/db");
+
+    const { getDatabaseUrl, getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getDatabaseUrl()).toBe("postgres://account-expert.example/db");
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgres://account-expert-direct.example/db",
+    );
+    expect(getRuntimeDatabaseSource()).toBe(
+      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
+    );
+  });
+
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
     const {
