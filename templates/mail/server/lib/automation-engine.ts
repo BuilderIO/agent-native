@@ -109,7 +109,7 @@ async function resolveAnthropicKey(
   if (userKey && typeof userKey === "object" && userKey.key?.trim()) {
     return userKey.key.trim();
   }
-  return process.env.ANTHROPIC_API_KEY || undefined;
+  return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
 }
 
 // ─── Token helpers ───────────────────────────────────────────────────────────

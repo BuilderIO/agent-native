@@ -187,25 +187,37 @@ export function assertCredentialStoreReadable(result: {
  * Multi-tenant call sites must gate this explicitly before calling.
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
+  if (
+    HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key) &&
+    !canUseDeployCredentialFallbackForRequest(key)
+  ) {
+    return undefined;
+  }
   return process.env[key] || undefined;
 }
 
-const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
+const HOSTED_MODEL_PROVIDER_ENV_KEYS = new Set([
   "ANTHROPIC_API_KEY",
-  "JEV_API_KEY",
-  // The Builder-credits pair pays for the deployed app's own model calls and
-  // carries no end-user identity — the token is scoped to ['gateway'] and can
-  // make no identity-bearing Builder call. The legacy BUILDER_PRIVATE_KEY /
-  // BUILDER_PUBLIC_KEY pair can, so it must never be added to this set.
-  "BUILDER_GATEWAY_TOKEN",
   "BUILDER_GATEWAY_SPACE_ID",
+  "BUILDER_GATEWAY_TOKEN",
+  "COHERE_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GROQ_API_KEY",
+  "JEV_API_KEY",
+  "MISTRAL_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "TYPESAFE_API_KEY",
+]);
+
+const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "EMAIL_FROM",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
   "EMAIL_AGENT_ADDRESS",
-  "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OLLAMA_BASE_URL",
-  "OPENROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   // OAuth client ids identify the deployment; user identity remains in scoped tokens.
@@ -215,10 +227,6 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   // actor. The adapter still pins it to the incoming team and app via
   // auth.test + bots.info before using it.
   "SLACK_BOT_TOKEN",
-  "GOOGLE_GENERATIVE_AI_API_KEY",
-  "GROQ_API_KEY",
-  "MISTRAL_API_KEY",
-  "COHERE_API_KEY",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
 ]);
@@ -230,14 +238,11 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
 /**
  * Deployment-level credentials are safe as a runtime fallback only in local /
  * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential for
- * identity-bearing provider keys so one deploy key does not silently
- * impersonate another tenant. App-provided service credentials are different:
- * they configure the deployed app itself rather than identifying a user. This
- * includes LLM keys that let the app developer pay for model usage, email
- * transport configuration owned by the deployment, and OAuth client
- * credentials whose per-user identity remains in scoped OAuth tokens. Key-aware
- * callers may use those env vars.
+ * signed-in user needs their own user/org/workspace credential for provider
+ * keys. Model-provider env keys are never shared with hosted users because
+ * they bill the app owner. Other app-provided service credentials configure
+ * the deployed app itself, such as email transport and OAuth client
+ * credentials whose per-user identity remains in scoped OAuth tokens.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
@@ -255,6 +260,10 @@ export function canUseDeployCredentialFallbackForRequest(
   // If the dedicated test credential is rejected, using the site's shared key
   // would make a green retry both misleading and billable to real traffic.
   if (getRequestContext()?.isSyntheticTraffic === true) return false;
+  if (key && HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key)) {
+    if (isHostedWorkspaceRuntime()) return false;
+    if (isProductionLikeRuntime() && !isLocalDatabase()) return false;
+  }
   const email = getRequestUserEmail();
   if (!email) return true;
   if (isAppProvidedDeployCredentialKey(key)) return true;
@@ -1075,8 +1084,10 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
  * is read by the project owner.
  */
 export function isBuilderGatewayDeployConfigured(): boolean {
-  if (isHostedWorkspaceRuntime()) return false;
-  return Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR));
+  return (
+    canUseDeployCredentialFallbackForRequest(BUILDER_GATEWAY_TOKEN_ENV_VAR) &&
+    Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR))
+  );
 }
 
 /** One decision for every gateway-lane consumer; a per-consumer copy drifts. */
@@ -1766,9 +1777,8 @@ export async function deleteBuilderCredentials(
 // User-pasted and shared secrets live in `app_secrets` (encrypted). The
 // settings UI / onboarding panels can write user, org, or workspace rows.
 // Deploy-level env vars are the fallback for unauthenticated/CLI/background
-// contexts where there's no user to scope by. Authenticated requests may also
-// use app-provided LLM provider keys such as OPENAI_API_KEY or
-// ANTHROPIC_API_KEY, but Builder identity keys keep the stricter scoped policy.
+// contexts where there's no user to scope by. Hosted requests never use a
+// deploy-level model-provider key; personal and shared keys live in app_secrets.
 // ---------------------------------------------------------------------------
 
 /**
@@ -2210,9 +2220,11 @@ export async function resolveSecretDetailed(
       ...(envFallback ? { source: "env" as const } : {}),
     };
   }
-  // Unauthenticated / local-dev / CLI / background context: env fallback
-  // is safe because there's no user to mis-identify.
-  const value = process.env[key] || null;
+  // Unauthenticated / local-dev / CLI / background context: only return an
+  // env fallback when the same hosted model-key policy allows it.
+  const value = canUseDeployCredentialFallbackForRequest(key)
+    ? process.env[key] || null
+    : null;
   if (traceLookup) {
     console.log(
       `[resolve-secret] key=${key} email=(none) scope=env-anonymous hit=${!!value}`,

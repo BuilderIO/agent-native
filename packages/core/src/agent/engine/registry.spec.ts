@@ -3379,9 +3379,9 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(googleEngine);
     });
 
-    it("auto-detects app-provided deploy-level provider env keys for signed-in production shared-database users", async () => {
+    it("does not auto-detect deploy-level provider env keys for signed-in production users", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: app-provided LLM key should power this hosted app
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies hosted resolution ignores this key
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue(null),
       }));
@@ -3438,17 +3438,14 @@ describe("AgentEngine registry", () => {
 
       const resolved = await resolveEngine({});
 
-      expect(openAiCreate).toHaveBeenCalledWith({
-        apiKey: undefined,
-        allowEnvFallback: true,
-      });
+      expect(openAiCreate).not.toHaveBeenCalled();
       expect(anthropicCreate).not.toHaveBeenCalled();
-      expect(resolved).toBe(openAiEngine);
+      expect(resolved).toBeNull();
     });
 
-    it("allows deploy env fallback for explicitly selected app-level LLM engines in signed-in production shared-database requests", async () => {
+    it("disables deploy env fallback for explicitly selected LLM engines in hosted requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit app-level LLM engine selection can inherit hosted env
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies explicit hosted selection ignores this key
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
@@ -3488,7 +3485,7 @@ describe("AgentEngine registry", () => {
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: true,
+        allowEnvFallback: false,
       });
       expect(resolved).toBe(openAiEngine);
     });
