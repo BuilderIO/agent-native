@@ -53,6 +53,8 @@ export default defineAction({
           videoUrl: schema.recordings.videoUrl,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          imageUrl: schema.recordings.imageUrl,
+          baseImageUrl: schema.recordings.baseImageUrl,
         })
         .from(schema.recordings)
         .where(
@@ -62,6 +64,8 @@ export default defineAction({
               inArray(schema.recordings.videoUrl, mediaUrls),
               inArray(schema.recordings.thumbnailUrl, mediaUrls),
               inArray(schema.recordings.animatedThumbnailUrl, mediaUrls),
+              inArray(schema.recordings.imageUrl, mediaUrls),
+              inArray(schema.recordings.baseImageUrl, mediaUrls),
             ),
           ),
         );

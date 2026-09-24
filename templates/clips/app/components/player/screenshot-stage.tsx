@@ -66,7 +66,10 @@ export function ScreenshotStage({
       return;
     }
 
-    if (document.fullscreenEnabled && typeof el.requestFullscreen === "function") {
+    if (
+      document.fullscreenEnabled &&
+      typeof el.requestFullscreen === "function"
+    ) {
       try {
         await el.requestFullscreen();
         setIsFullscreen(true);
@@ -118,7 +121,8 @@ export function ScreenshotStage({
         // around a picture that now owns the whole screen, so full screen
         // drops them rather than trying to override each one.
         isFullscreen
-          ? "h-full max-h-none w-full rounded-none bg-black"
+          ? // guard:allow-raw-color — a photo viewer's black surround, the same in either theme
+            "h-full max-h-none w-full rounded-none bg-black"
           : cn("max-h-[calc(100vh-16rem)] rounded-lg bg-muted", className),
         usingFallback && "fixed inset-0 z-50",
       )}
@@ -162,7 +166,9 @@ export function ScreenshotStage({
         )}
         <span className="hidden sm:inline">
           {t(
-            isFullscreen ? "screenshot.exitFullscreen" : "screenshot.fullscreen",
+            isFullscreen
+              ? "screenshot.exitFullscreen"
+              : "screenshot.fullscreen",
           )}
         </span>
       </Button>

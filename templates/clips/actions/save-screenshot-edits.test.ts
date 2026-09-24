@@ -26,7 +26,10 @@ describe("nextScreenshotEdits", () => {
   });
 
   it("clears the pending list on a burn and records what was burned", () => {
-    const before = JSON.stringify({ overlays: [pending], redactions: [region] });
+    const before = JSON.stringify({
+      overlays: [pending],
+      redactions: [region],
+    });
     const edits = nextScreenshotEdits(before, {
       burning: true,
       annotations: [],
@@ -70,13 +73,21 @@ describe("nextScreenshotEdits", () => {
   });
 
   it("stores a crop, keeps it when not sent, and removes it on null", () => {
-    const base = { burning: false, annotations: [], pendingRedactions: [], burnedRegions: [] };
+    const base = {
+      burning: false,
+      annotations: [],
+      pendingRedactions: [],
+      burnedRegions: [],
+    };
     const crop = { x: 10, y: 20, width: 300, height: 200 };
     const cropped = nextScreenshotEdits("{}", { ...base, crop });
     expect((cropped as any).crop).toEqual(crop);
     const kept = nextScreenshotEdits(JSON.stringify(cropped), base);
     expect((kept as any).crop).toEqual(crop);
-    const removed = nextScreenshotEdits(JSON.stringify(cropped), { ...base, crop: null });
+    const removed = nextScreenshotEdits(JSON.stringify(cropped), {
+      ...base,
+      crop: null,
+    });
     expect((removed as any).crop).toBeUndefined();
   });
 });

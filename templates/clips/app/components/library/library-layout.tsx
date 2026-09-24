@@ -73,12 +73,12 @@ import {
   clipsChromeExtensionUrl,
   useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
+import { useRecordingSection } from "@/lib/recording-section";
 import { cn } from "@/lib/utils";
 
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SidebarFeedbackButton } from "./sidebar-feedback-button";
-import { useRecordingSection } from "@/lib/recording-section";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {

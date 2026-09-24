@@ -1553,7 +1553,8 @@ const messages = {
     alignRight: "靠右對齊",
     editSave: "儲存",
     editSaved: "截圖已更新",
-    editConfirm: "儲存會取代已分享的圖片，所有人都會看到這些標註。之後仍可移動或移除它們。要儲存嗎？",
+    editConfirm:
+      "儲存會取代已分享的圖片，所有人都會看到這些標註。之後仍可移動或移除它們。要儲存嗎？",
     textPlaceholder: "在此輸入。點選外部即可完成",
     undo: "復原",
     redo: "重做",
@@ -1593,10 +1594,12 @@ const messages = {
     background: "背景",
     backgroundTitle: "新增背景",
     backgroundNone: "無",
-    notYetBurned: "已放置 {{count}} 處遮蔽，但尚未燒錄。目前還沒有隱藏任何內容，在你燒錄之前其他人都看不到這張截圖。",
+    notYetBurned:
+      "已放置 {{count}} 處遮蔽，但尚未燒錄。目前還沒有隱藏任何內容，在你燒錄之前其他人都看不到這張截圖。",
     burnInHint: "永久銷毀遮蔽覆蓋的內容，並刪除原圖",
     burnInTitle: "要將 {{count}} 處遮蔽燒錄到這張截圖中嗎？",
-    burnInWarning: "被覆蓋的區域會在截圖的新副本中被銷毀，原始檔案將被刪除。此操作無法復原。你的方框、箭頭和文字仍可移動。已下載的副本不受影響。",
+    burnInWarning:
+      "被覆蓋的區域會在截圖的新副本中被銷毀，原始檔案將被刪除。此操作無法復原。你的方框、箭頭和文字仍可移動。已下載的副本不受影響。",
     burning: "正在燒錄…",
     burned: "遮蔽已燒錄",
     burnFailed: "無法燒錄遮蔽",

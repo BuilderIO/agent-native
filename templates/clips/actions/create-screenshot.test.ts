@@ -12,8 +12,9 @@ describe("create-screenshot schema", () => {
   it("requires the captured pixel size", () => {
     // Without dimensions the library grid cannot lay the card out, and a
     // zero-sized image is always a failed capture rather than a real one.
-    expect(createScreenshotSchema.safeParse({ dataUrl: VALID.dataUrl }).success)
-      .toBe(false);
+    expect(
+      createScreenshotSchema.safeParse({ dataUrl: VALID.dataUrl }).success,
+    ).toBe(false);
     expect(
       createScreenshotSchema.safeParse({ ...VALID, width: 0 }).success,
     ).toBe(false);

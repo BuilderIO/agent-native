@@ -1665,7 +1665,8 @@ const messages = {
     alignRight: "Alinear a la derecha",
     editSave: "Guardar",
     editSaved: "Captura actualizada",
-    editConfirm: "Al guardar se sustituye la imagen compartida, así que todos verán estas marcas. Podrás moverlas o quitarlas más adelante. ¿Guardar?",
+    editConfirm:
+      "Al guardar se sustituye la imagen compartida, así que todos verán estas marcas. Podrás moverlas o quitarlas más adelante. ¿Guardar?",
     textPlaceholder: "Escribe aquí. Haz clic fuera para terminar",
     undo: "Deshacer",
     redo: "Rehacer",
@@ -1680,7 +1681,8 @@ const messages = {
     textWidthHandle: "Arrastra para fijar el ancho",
     crop: "Recortar",
     cropApply: "Aplicar recorte",
-    cropApplyHint: "Muestra solo esta parte. El resto se conserva, así que podrás ampliar el recorte más adelante",
+    cropApplyHint:
+      "Muestra solo esta parte. El resto se conserva, así que podrás ampliar el recorte más adelante",
     cropReset: "Mostrar la imagen completa",
     kind: {
       box: "recuadro",
@@ -1705,10 +1707,13 @@ const messages = {
     background: "Fondo",
     backgroundTitle: "Añadir un fondo",
     backgroundNone: "Ninguno",
-    notYetBurned: "Hay {{count}} ocultación(es) colocada(s) pero sin aplicar. Todavía no se oculta nada, y nadie más puede ver esta captura hasta que las apliques.",
-    burnInHint: "Destruye para siempre lo que cubren las ocultaciones y elimina el original",
+    notYetBurned:
+      "Hay {{count}} ocultación(es) colocada(s) pero sin aplicar. Todavía no se oculta nada, y nadie más puede ver esta captura hasta que las apliques.",
+    burnInHint:
+      "Destruye para siempre lo que cubren las ocultaciones y elimina el original",
     burnInTitle: "¿Aplicar {{count}} ocultación(es) a esta captura?",
-    burnInWarning: "Las áreas cubiertas se destruirán en una copia nueva de la captura y se eliminará el archivo original. No se puede deshacer. Tus recuadros, flechas y textos seguirán siendo movibles. Lo que ya se haya descargado conserva lo que tiene.",
+    burnInWarning:
+      "Las áreas cubiertas se destruirán en una copia nueva de la captura y se eliminará el archivo original. No se puede deshacer. Tus recuadros, flechas y textos seguirán siendo movibles. Lo que ya se haya descargado conserva lo que tiene.",
     burning: "Aplicando…",
     burned: "Ocultaciones aplicadas",
     burnFailed: "No se pudieron aplicar las ocultaciones",

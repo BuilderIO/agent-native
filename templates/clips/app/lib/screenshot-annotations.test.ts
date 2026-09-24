@@ -57,9 +57,25 @@ describe("redactionsOf", () => {
     // What gets recorded on the row is where content was removed. A box or a
     // label is part of the picture and has nothing to record.
     const annotations: Annotation[] = [
-      { kind: "box", id: "a", x: 1, y: 2, width: 3, height: 4, color: "#ef4444" },
+      {
+        kind: "box",
+        id: "a",
+        x: 1,
+        y: 2,
+        width: 3,
+        height: 4,
+        color: "#ef4444",
+      },
       { kind: "redact", id: "b", x: 10, y: 20, width: 30, height: 40 },
-      { kind: "text", id: "c", x: 5, y: 5, text: "here", color: "#ef4444", scale: 1 },
+      {
+        kind: "text",
+        id: "c",
+        x: 5,
+        y: 5,
+        text: "here",
+        color: "#ef4444",
+        scale: 1,
+      },
     ];
 
     expect(redactionsOf(annotations, { width: 1000, height: 800 })).toEqual([
@@ -89,7 +105,9 @@ describe("hitTestAnnotation", () => {
   };
 
   it("picks the mark under the point", () => {
-    expect(hitTestAnnotation([box], { x: 150, y: 150 }, size)?.kind).toBe("box");
+    expect(hitTestAnnotation([box], { x: 150, y: 150 }, size)?.kind).toBe(
+      "box",
+    );
     expect(hitTestAnnotation([box], { x: 10, y: 10 }, size)).toBeNull();
   });
 
@@ -222,7 +240,16 @@ describe("annotationHandlePoints", () => {
 
   it("gives text a width handle on each side, halfway down", () => {
     const points = annotationHandlePoints(
-      { kind: "text", id: "t", x: 10, y: 10, text: "hi", color: "#fff", fontSize: 20, width: 200 },
+      {
+        kind: "text",
+        id: "t",
+        x: 10,
+        y: 10,
+        text: "hi",
+        color: "#fff",
+        fontSize: 20,
+        width: 200,
+      },
       SMALL,
     );
     expect(points).toEqual({
@@ -285,7 +312,14 @@ describe("text layout", () => {
   });
 
   it("uses an exact font size, and still reads the old size steps", () => {
-    const base = { kind: "text", id: "t", x: 0, y: 0, text: "x", color: "#fff" } as const;
+    const base = {
+      kind: "text",
+      id: "t",
+      x: 0,
+      y: 0,
+      text: "x",
+      color: "#fff",
+    } as const;
     expect(textFontSize({ ...base, fontSize: 31 }, RETINA)).toBe(31);
     expect(textFontSize({ ...base, scale: 1.6 }, RETINA)).toBe(
       annotationFontSize(RETINA, 1.6),
@@ -303,20 +337,26 @@ describe("text layout", () => {
       fontSize: 20,
       width: 200,
     };
-    expect(resizeAnnotation(text, "end", { x: 250, y: 999 }, SMALL)).toMatchObject({
+    expect(
+      resizeAnnotation(text, "end", { x: 250, y: 999 }, SMALL),
+    ).toMatchObject({
       x: 100,
       y: 50,
       width: 150,
     });
     // The left side moves the left edge and keeps the right one still.
-    expect(resizeAnnotation(text, "start", { x: 150, y: 0 }, SMALL)).toMatchObject({
+    expect(
+      resizeAnnotation(text, "start", { x: 150, y: 0 }, SMALL),
+    ).toMatchObject({
       x: 150,
       width: 150,
     });
     // Never narrower than two characters' worth.
-    expect(resizeAnnotation(text, "end", { x: 90, y: 0 }, SMALL)).toMatchObject({
-      width: 40,
-    });
+    expect(resizeAnnotation(text, "end", { x: 90, y: 0 }, SMALL)).toMatchObject(
+      {
+        width: 40,
+      },
+    );
   });
 });
 
@@ -331,13 +371,29 @@ describe("text alignment", () => {
 
 describe("pending redactions", () => {
   it("are stored the way the video editor stores them, so the hold sees them", async () => {
-    const { countPendingRedactions } = await import(
-      "../../server/lib/pending-redactions"
-    );
+    const { countPendingRedactions } =
+      await import("../../server/lib/pending-redactions");
     const overlays = toPendingOverlays(
       [
-        { kind: "redact", id: "r1", x: 80, y: 60, width: 160, height: 120, style: "solid", color: "#ffffff" },
-        { kind: "box", id: "b", x: 0, y: 0, width: 10, height: 10, color: "#ef4444" },
+        {
+          kind: "redact",
+          id: "r1",
+          x: 80,
+          y: 60,
+          width: 160,
+          height: 120,
+          style: "solid",
+          color: "#ffffff",
+        },
+        {
+          kind: "box",
+          id: "b",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          color: "#ef4444",
+        },
       ],
       SMALL,
     );
@@ -356,9 +412,9 @@ describe("pending redactions", () => {
       style: "solid",
       color: "#ffffff",
     };
-    expect(fromPendingOverlays(toPendingOverlays([drawn], SMALL), SMALL)).toEqual([
-      drawn,
-    ]);
+    expect(
+      fromPendingOverlays(toPendingOverlays([drawn], SMALL), SMALL),
+    ).toEqual([drawn]);
   });
 });
 
@@ -372,27 +428,46 @@ describe("text outline", () => {
 
 describe("parseCrop", () => {
   it("reads a crop and keeps it inside the picture", () => {
-    expect(parseCrop({ x: 700, y: 10, width: 400, height: 50 }, SMALL)).toEqual({
-      x: 700,
-      y: 10,
-      width: 100,
-      height: 50,
-    });
+    expect(parseCrop({ x: 700, y: 10, width: 400, height: 50 }, SMALL)).toEqual(
+      {
+        x: 700,
+        y: 10,
+        width: 100,
+        height: 50,
+      },
+    );
   });
 
   it("treats a missing, broken or whole-picture crop as no crop", () => {
     expect(parseCrop(undefined, SMALL)).toBeNull();
     expect(parseCrop({ x: "a" }, SMALL)).toBeNull();
-    expect(parseCrop({ x: 0, y: 0, width: 800, height: 600 }, SMALL)).toBeNull();
+    expect(
+      parseCrop({ x: 0, y: 0, width: 800, height: 600 }, SMALL),
+    ).toBeNull();
   });
 });
 
 describe("duplicateAnnotation", () => {
   it("makes a new mark with its own id, offset from the original", () => {
-    const box: Annotation = { kind: "box", id: "b", x: 10, y: 10, width: 50, height: 50, color: "#000000", fill: true };
+    const box: Annotation = {
+      kind: "box",
+      id: "b",
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 50,
+      color: "#000000",
+      fill: true,
+    };
     const copy = duplicateAnnotation(box, SMALL);
     expect(copy.id).not.toBe("b");
-    expect(copy).toMatchObject({ kind: "box", x: 23, y: 23, width: 50, fill: true });
+    expect(copy).toMatchObject({
+      kind: "box",
+      x: 23,
+      y: 23,
+      width: 50,
+      fill: true,
+    });
   });
 });
 
@@ -403,7 +478,14 @@ describe("fitRedaction", () => {
     // The review's case: a 15px box over a short token on a 4K capture is
     // under the stored minimum, and used to vanish from the pending list
     // while the served copy still showed it drawn in.
-    const tiny: Annotation = { kind: "redact", id: "r", x: 1000, y: 500, width: 15, height: 12 };
+    const tiny: Annotation = {
+      kind: "redact",
+      id: "r",
+      x: 1000,
+      y: 500,
+      width: 15,
+      height: 12,
+    };
     const overlays = toPendingOverlays([tiny], UHD);
     expect(fromPendingOverlays(overlays, UHD)).toHaveLength(1);
     const fitted = fitRedaction(tiny, UHD);
@@ -415,20 +497,48 @@ describe("fitRedaction", () => {
   });
 
   it("keeps a grown box inside the picture at a corner", () => {
-    const corner: Annotation = { kind: "redact", id: "r", x: 3838, y: 2158, width: 2, height: 2 };
+    const corner: Annotation = {
+      kind: "redact",
+      id: "r",
+      x: 3838,
+      y: 2158,
+      width: 2,
+      height: 2,
+    };
     const fitted = fitRedaction(corner, UHD);
     expect(fitted.x + fitted.width).toBe(3840);
     expect(fitted.y + fitted.height).toBe(2160);
-    expect(fromPendingOverlays(toPendingOverlays([corner], UHD), UHD)).toHaveLength(1);
+    expect(
+      fromPendingOverlays(toPendingOverlays([corner], UHD), UHD),
+    ).toHaveLength(1);
   });
 
   it("cuts off the part past an edge rather than shifting what it covers", () => {
-    const over: Annotation = { kind: "redact", id: "r", x: -40, y: 10, width: 200, height: 100 };
-    expect(fitRedaction(over, UHD)).toMatchObject({ x: 0, y: 10, width: 160, height: 100 });
+    const over: Annotation = {
+      kind: "redact",
+      id: "r",
+      x: -40,
+      y: 10,
+      width: 200,
+      height: 100,
+    };
+    expect(fitRedaction(over, UHD)).toMatchObject({
+      x: 0,
+      y: 10,
+      width: 160,
+      height: 100,
+    });
   });
 
   it("turns a box shrunk to nothing into one the burn will accept", () => {
-    const flat: Annotation = { kind: "redact", id: "r", x: 100, y: 100, width: 0, height: 0 };
+    const flat: Annotation = {
+      kind: "redact",
+      id: "r",
+      x: 100,
+      y: 100,
+      width: 0,
+      height: 0,
+    };
     const [rect] = redactionsOf([flat], UHD);
     expect(rect.x).toBeGreaterThanOrEqual(0);
     expect(rect.width).toBeGreaterThanOrEqual(1);
@@ -449,7 +559,14 @@ describe("fitRedaction", () => {
 
 describe("keepRedactionInside", () => {
   it("stops a dragged redaction at the edge, the same size", () => {
-    const box: Annotation = { kind: "redact", id: "r", x: -40, y: 790, width: 100, height: 50 };
+    const box: Annotation = {
+      kind: "redact",
+      id: "r",
+      x: -40,
+      y: 790,
+      width: 100,
+      height: 50,
+    };
     expect(keepRedactionInside(box, SMALL)).toMatchObject({
       x: 0,
       y: 550,

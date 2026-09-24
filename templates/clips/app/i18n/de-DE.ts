@@ -1672,13 +1672,15 @@ const messages = {
     alignRight: "Rechtsbündig",
     editSave: "Speichern",
     editSaved: "Screenshot aktualisiert",
-    editConfirm: "Beim Speichern wird das geteilte Bild ersetzt, sodass alle diese Markierungen sehen. Sie können sie später weiterhin verschieben oder entfernen. Speichern?",
+    editConfirm:
+      "Beim Speichern wird das geteilte Bild ersetzt, sodass alle diese Markierungen sehen. Sie können sie später weiterhin verschieben oder entfernen. Speichern?",
     textPlaceholder: "Hier tippen. Zum Beenden außerhalb klicken",
     undo: "Rückgängig",
     redo: "Wiederholen",
     redactSaving: "Wird gespeichert …",
     redactFailed: "Der Screenshot konnte nicht gespeichert werden",
-    redactLoadFailed: "Der Screenshot konnte nicht zum Bearbeiten geöffnet werden",
+    redactLoadFailed:
+      "Der Screenshot konnte nicht zum Bearbeiten geöffnet werden",
     saveSelection: "Auswahl speichern",
     saveWholeScreen: "Ganzen Bildschirm speichern",
     fullscreen: "Vollbild",
@@ -1687,7 +1689,8 @@ const messages = {
     textWidthHandle: "Ziehen, um die Breite festzulegen",
     crop: "Zuschneiden",
     cropApply: "Zuschnitt anwenden",
-    cropApplyHint: "Nur diesen Teil anzeigen. Der Rest bleibt erhalten, sodass Sie später wieder weiter zuschneiden können",
+    cropApplyHint:
+      "Nur diesen Teil anzeigen. Der Rest bleibt erhalten, sodass Sie später wieder weiter zuschneiden können",
     cropReset: "Ganzes Bild anzeigen",
     kind: {
       box: "Rahmen",
@@ -1712,10 +1715,12 @@ const messages = {
     background: "Hintergrund",
     backgroundTitle: "Hintergrund hinzufügen",
     backgroundNone: "Keiner",
-    notYetBurned: "{{count}} Schwärzung(en) sind platziert, aber nicht eingebrannt. Noch ist nichts verborgen, und niemand sonst kann diesen Screenshot sehen, bis Sie sie einbrennen.",
+    notYetBurned:
+      "{{count}} Schwärzung(en) sind platziert, aber nicht eingebrannt. Noch ist nichts verborgen, und niemand sonst kann diesen Screenshot sehen, bis Sie sie einbrennen.",
     burnInHint: "Das Verdeckte endgültig zerstören und das Original löschen",
     burnInTitle: "{{count}} Schwärzung(en) in diesen Screenshot einbrennen?",
-    burnInWarning: "Die verdeckten Bereiche werden in einer neuen Kopie des Screenshots zerstört, und die Originaldatei wird gelöscht. Dies lässt sich nicht rückgängig machen. Ihre Rahmen, Pfeile und Texte bleiben verschiebbar. Bereits heruntergeladene Kopien behalten ihren Inhalt.",
+    burnInWarning:
+      "Die verdeckten Bereiche werden in einer neuen Kopie des Screenshots zerstört, und die Originaldatei wird gelöscht. Dies lässt sich nicht rückgängig machen. Ihre Rahmen, Pfeile und Texte bleiben verschiebbar. Bereits heruntergeladene Kopien behalten ihren Inhalt.",
     burning: "Wird eingebrannt …",
     burned: "Schwärzungen eingebrannt",
     burnFailed: "Die Schwärzungen konnten nicht eingebrannt werden",

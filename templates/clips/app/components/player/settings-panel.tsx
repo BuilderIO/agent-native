@@ -4,9 +4,9 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isImageRecording } from "@shared/recording-kind";
 import { IconX } from "@tabler/icons-react";
 import { useRef, useState } from "react";
-import { isImageRecording } from "@shared/recording-kind";
 import { toast } from "sonner";
 
 import {
@@ -164,103 +164,103 @@ export function SettingsPanel(props: SettingsPanelProps) {
               />
             )}
             {isImage ? null : (
-            <div className="flex min-h-8 items-center gap-3 py-1">
-              <Label
-                htmlFor="recording-default-speed"
-                className="min-w-0 flex-1 text-sm font-normal"
-              >
-                {t("playerSettings.defaultPlaybackSpeed")}
-              </Label>
-              <Select
-                value={recording.defaultSpeed}
-                onValueChange={(v) => patch({ defaultSpeed: v })}
-              >
-                <ViewerSelectTrigger
-                  id="recording-default-speed"
-                  className="h-8 w-16 px-2 text-sm"
+              <div className="flex min-h-8 items-center gap-3 py-1">
+                <Label
+                  htmlFor="recording-default-speed"
+                  className="min-w-0 flex-1 text-sm font-normal"
                 >
-                  <SelectValue />
-                </ViewerSelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {SPEED_OPTIONS.map((s) => (
-                      <SelectItem key={s} value={String(s)}>
-                        {s}x
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
+                  {t("playerSettings.defaultPlaybackSpeed")}
+                </Label>
+                <Select
+                  value={recording.defaultSpeed}
+                  onValueChange={(v) => patch({ defaultSpeed: v })}
+                >
+                  <ViewerSelectTrigger
+                    id="recording-default-speed"
+                    className="h-8 w-16 px-2 text-sm"
+                  >
+                    <SelectValue />
+                  </ViewerSelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {SPEED_OPTIONS.map((s) => (
+                        <SelectItem key={s} value={String(s)}>
+                          {s}x
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
             )}
           </CardContent>
         </Card>
 
         {isImage ? null : (
-        <Card className="border border-border/70 bg-card shadow-none">
-          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-3 pb-1.5">
-            <CardTitle className="text-sm leading-none">
-              {t("playerSettings.callToAction")}
-            </CardTitle>
-            {ctas.length === 0 ? (
-              <ViewerButton
-                type="button"
-                variant="ghost"
-                disabled={creatingCta}
-                onClick={() => setCreatingCta(true)}
-              >
-                {t("playerSettings.addCta")}
-              </ViewerButton>
-            ) : null}
-          </CardHeader>
+          <Card className="border border-border/70 bg-card shadow-none">
+            <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-3 pb-1.5">
+              <CardTitle className="text-sm leading-none">
+                {t("playerSettings.callToAction")}
+              </CardTitle>
+              {ctas.length === 0 ? (
+                <ViewerButton
+                  type="button"
+                  variant="ghost"
+                  disabled={creatingCta}
+                  onClick={() => setCreatingCta(true)}
+                >
+                  {t("playerSettings.addCta")}
+                </ViewerButton>
+              ) : null}
+            </CardHeader>
 
-          <CardContent className="px-3 pb-3 pt-0">
-            {creatingCta ? (
-              <CtaDraftEditor
-                t={t}
-                pending={createCta.isPending}
-                onCancel={() => setCreatingCta(false)}
-                onSave={({ label, url, placement }) =>
-                  createCta.mutate({
-                    recordingId: recording.id,
-                    label,
-                    url,
-                    placement,
-                  } as any)
-                }
-              />
-            ) : null}
-            {!creatingCta && ctas.length === 0 ? (
-              <p className="py-1 text-xs leading-5 text-muted-foreground">
-                {t("playerSettings.noCtas")}
-              </p>
-            ) : null}
-            {ctas.length > 0 ? (
-              <Accordion
-                type="single"
-                collapsible
-                value={openCtaId}
-                onValueChange={setOpenCtaId}
-              >
-                {ctas.map((cta) => (
-                  <CtaEditor
-                    key={cta.id}
-                    cta={cta}
-                    t={t}
-                    pending={updateCta.isPending}
-                    deletePending={deleteCta.isPending}
-                    onSave={(fields) => {
-                      updateCta.mutate({ id: cta.id, ...fields } as any);
-                    }}
-                    onDelete={() => {
-                      deleteCta.mutate({ id: cta.id } as any);
-                    }}
-                  />
-                ))}
-              </Accordion>
-            ) : null}
-          </CardContent>
-        </Card>
+            <CardContent className="px-3 pb-3 pt-0">
+              {creatingCta ? (
+                <CtaDraftEditor
+                  t={t}
+                  pending={createCta.isPending}
+                  onCancel={() => setCreatingCta(false)}
+                  onSave={({ label, url, placement }) =>
+                    createCta.mutate({
+                      recordingId: recording.id,
+                      label,
+                      url,
+                      placement,
+                    } as any)
+                  }
+                />
+              ) : null}
+              {!creatingCta && ctas.length === 0 ? (
+                <p className="py-1 text-xs leading-5 text-muted-foreground">
+                  {t("playerSettings.noCtas")}
+                </p>
+              ) : null}
+              {ctas.length > 0 ? (
+                <Accordion
+                  type="single"
+                  collapsible
+                  value={openCtaId}
+                  onValueChange={setOpenCtaId}
+                >
+                  {ctas.map((cta) => (
+                    <CtaEditor
+                      key={cta.id}
+                      cta={cta}
+                      t={t}
+                      pending={updateCta.isPending}
+                      deletePending={deleteCta.isPending}
+                      onSave={(fields) => {
+                        updateCta.mutate({ id: cta.id, ...fields } as any);
+                      }}
+                      onDelete={() => {
+                        deleteCta.mutate({ id: cta.id } as any);
+                      }}
+                    />
+                  ))}
+                </Accordion>
+              ) : null}
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>

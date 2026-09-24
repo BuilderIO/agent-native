@@ -35,17 +35,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   DEFAULT_ANNOTATION_COLOR,
   DEFAULT_TEXT_FONT,
@@ -82,6 +82,15 @@ import {
   type TextFontId,
 } from "@/lib/screenshot-annotations";
 import {
+  BACKGROUND_COLORS,
+  BACKGROUND_GRADIENTS,
+  backgroundCss,
+  backgroundPadding,
+  composeOnBackground,
+  parseBackground,
+  type ScreenshotBackground,
+} from "@/lib/screenshot-background";
+import {
   SCREENSHOT_MIME_TYPE,
   SCREENSHOT_QUALITY,
 } from "@/lib/screenshot-capture";
@@ -98,15 +107,6 @@ import {
   type Point,
   type Rect,
 } from "@/lib/screenshot-region";
-import {
-  BACKGROUND_COLORS,
-  BACKGROUND_GRADIENTS,
-  backgroundCss,
-  backgroundPadding,
-  composeOnBackground,
-  parseBackground,
-  type ScreenshotBackground,
-} from "@/lib/screenshot-background";
 import { cn } from "@/lib/utils";
 
 import {
@@ -262,9 +262,10 @@ export function ScreenshotEditor({
   /** A mark under the pointer, so the cursor can say it can be moved. */
   const [hovering, setHovering] = useState(false);
   /** Where the picture's menu was opened, in image pixels, and on what. */
-  const [menuAt, setMenuAt] = useState<{ point: Point; hit: Annotation | null } | null>(
-    null,
-  );
+  const [menuAt, setMenuAt] = useState<{
+    point: Point;
+    hit: Annotation | null;
+  } | null>(null);
   const [color, setColor] = useState(DEFAULT_ANNOTATION_COLOR);
   /** Null until chosen: the default follows the picture's size. */
   const [textSize, setTextSize] = useState<number | null>(null);
@@ -456,9 +457,10 @@ export function ScreenshotEditor({
   const redactionKey = JSON.stringify(
     annotations.filter((annotation) => annotation.kind === "redact"),
   );
-  const redactedBaseRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(
-    null,
-  );
+  const redactedBaseRef = useRef<{
+    key: string;
+    canvas: HTMLCanvasElement;
+  } | null>(null);
 
   // A drag changes the marks on every pointer move, which can be several
   // times a frame; draw at most once a frame.
@@ -467,43 +469,45 @@ export function ScreenshotEditor({
     const image = imageRef.current;
     const holder = holderRef.current;
     if (!ready || !image || !holder || !imageSize.width) return;
-    if (drawFrameRef.current !== null) cancelAnimationFrame(drawFrameRef.current);
+    if (drawFrameRef.current !== null)
+      cancelAnimationFrame(drawFrameRef.current);
     drawFrameRef.current = requestAnimationFrame(() => {
-    drawFrameRef.current = null;
-    const baseKey = `${imageSize.width}x${imageSize.height}:${redactionKey}`;
-    if (redactedBaseRef.current?.key !== baseKey) {
-      redactedBaseRef.current = {
-        key: baseKey,
-        canvas: renderRedactedBase(image, imageSize, annotations),
-      };
-    }
-    const redactedBase = redactedBaseRef.current.canvas;
-    // The text being retyped is shown by the text box instead, not twice.
-    const editingId = pendingText?.editingId;
-    const rendered = renderAnnotated(
-      image,
-      imageSize,
-      editingId
-        ? annotations.filter(
-            (annotation) => !("id" in annotation) || annotation.id !== editingId,
-          )
-        : annotations,
-      redactedBase,
-    );
-    const cropped =
-      view.width === imageSize.width && view.height === imageSize.height
-        ? rendered
-        : cropCanvas(rendered, view);
-    const shown =
-      background && tool !== "crop"
-        ? composeOnBackground(cropped, background)
-        : cropped;
-    shown.className =
-      "block max-h-[calc(100vh-20rem)] max-w-full object-contain";
-    canvasRef.current?.remove();
-    canvasRef.current = shown;
-    holder.appendChild(shown);
-    fitCanvas();
+      drawFrameRef.current = null;
+      const baseKey = `${imageSize.width}x${imageSize.height}:${redactionKey}`;
+      if (redactedBaseRef.current?.key !== baseKey) {
+        redactedBaseRef.current = {
+          key: baseKey,
+          canvas: renderRedactedBase(image, imageSize, annotations),
+        };
+      }
+      const redactedBase = redactedBaseRef.current.canvas;
+      // The text being retyped is shown by the text box instead, not twice.
+      const editingId = pendingText?.editingId;
+      const rendered = renderAnnotated(
+        image,
+        imageSize,
+        editingId
+          ? annotations.filter(
+              (annotation) =>
+                !("id" in annotation) || annotation.id !== editingId,
+            )
+          : annotations,
+        redactedBase,
+      );
+      const cropped =
+        view.width === imageSize.width && view.height === imageSize.height
+          ? rendered
+          : cropCanvas(rendered, view);
+      const shown =
+        background && tool !== "crop"
+          ? composeOnBackground(cropped, background)
+          : cropped;
+      shown.className =
+        "block max-h-[calc(100vh-20rem)] max-w-full object-contain";
+      canvasRef.current?.remove();
+      canvasRef.current = shown;
+      holder.appendChild(shown);
+      fitCanvas();
     });
     return () => {
       if (drawFrameRef.current !== null) {
@@ -553,8 +557,14 @@ export function ScreenshotEditor({
       // A point on the background margin belongs to the nearest edge of the
       // picture: marks go on the screenshot, not around it.
       return {
-        x: Math.min(Math.max(rect.x + shownFrame.x, view.x), view.x + view.width),
-        y: Math.min(Math.max(rect.y + shownFrame.y, view.y), view.y + view.height),
+        x: Math.min(
+          Math.max(rect.x + shownFrame.x, view.x),
+          view.x + view.width,
+        ),
+        y: Math.min(
+          Math.max(rect.y + shownFrame.y, view.y),
+          view.y + view.height,
+        ),
       };
     },
     [bounds, imageSize, shownFrame, view],
@@ -613,9 +623,7 @@ export function ScreenshotEditor({
     (annotation) => "id" in annotation && annotation.id === selectedId,
   );
 
-  const defaultTextSize = imageSize.width
-    ? annotationFontSize(imageSize)
-    : 24;
+  const defaultTextSize = imageSize.width ? annotationFontSize(imageSize) : 24;
   /** What the size box shows: the selected text's, or the next one's. */
   const shownTextSize =
     selected?.kind === "text"
@@ -634,7 +642,12 @@ export function ScreenshotEditor({
     if (tool !== "crop") {
       const source = toSource(point);
       if (!source) return;
-      const hit = hitTestAnnotation(annotations, source, imageSize, 8 * scale());
+      const hit = hitTestAnnotation(
+        annotations,
+        source,
+        imageSize,
+        8 * scale(),
+      );
       if (hit && "id" in hit) {
         setSelectedId(hit.id);
         gestureStartRef.current = annotations;
@@ -663,7 +676,8 @@ export function ScreenshotEditor({
       if (tool === "crop" || pendingText) return;
       const source = toSource(point);
       const over = Boolean(
-        source && hitTestAnnotation(annotations, source, imageSize, 8 * scale()),
+        source &&
+        hitTestAnnotation(annotations, source, imageSize, 8 * scale()),
       );
       if (over !== hovering) setHovering(over);
       return;
@@ -682,8 +696,10 @@ export function ScreenshotEditor({
       // A few pixels of wobble during a click is not a drag.
       if (
         !interaction.moved &&
-        Math.hypot(point.x - interaction.start.x, point.y - interaction.start.y) <
-          MOVE_THRESHOLD_PX
+        Math.hypot(
+          point.x - interaction.start.x,
+          point.y - interaction.start.y,
+        ) < MOVE_THRESHOLD_PX
       ) {
         return;
       }
@@ -695,7 +711,10 @@ export function ScreenshotEditor({
         current.map((annotation) =>
           "id" in annotation && annotation.id === interaction.id
             ? annotation.kind === "redact"
-              ? keepRedactionInside(moveAnnotation(annotation, dx, dy) as typeof annotation, imageSize)
+              ? keepRedactionInside(
+                  moveAnnotation(annotation, dx, dy) as typeof annotation,
+                  imageSize,
+                )
               : moveAnnotation(annotation, dx, dy)
             : annotation,
         ),
@@ -723,7 +742,8 @@ export function ScreenshotEditor({
       // Only a click: the mark is selected, and nothing moved to undo.
       if (interaction.editOnClick) {
         const hit = annotations.find(
-          (annotation) => "id" in annotation && annotation.id === interaction.id,
+          (annotation) =>
+            "id" in annotation && annotation.id === interaction.id,
         );
         if (hit?.kind === "text") startEditingText(hit);
       }
@@ -812,8 +832,14 @@ export function ScreenshotEditor({
     // Cut to the picture, for a drag that started or ended on the margin.
     const left = Math.max(shown.x + shownFrame.x, view.x);
     const top = Math.max(shown.y + shownFrame.y, view.y);
-    const right = Math.min(shown.x + shownFrame.x + shown.width, view.x + view.width);
-    const bottom = Math.min(shown.y + shownFrame.y + shown.height, view.y + view.height);
+    const right = Math.min(
+      shown.x + shownFrame.x + shown.width,
+      view.x + view.width,
+    );
+    const bottom = Math.min(
+      shown.y + shownFrame.y + shown.height,
+      view.y + view.height,
+    );
     if (right - left < 1 || bottom - top < 1) return;
     const rect = { x: left, y: top, width: right - left, height: bottom - top };
 
@@ -936,8 +962,6 @@ export function ScreenshotEditor({
     }
   };
 
-
-
   const removeSelected = useCallback(() => {
     if (!selectedId) return;
     commit(
@@ -976,7 +1000,8 @@ export function ScreenshotEditor({
       }
       if (event.key === "Escape") {
         // Escape in an open panel or menu closes that, and nothing more.
-        if (document.querySelector("[data-radix-popper-content-wrapper]")) return;
+        if (document.querySelector("[data-radix-popper-content-wrapper]"))
+          return;
         if (selectedId) setSelectedId(null);
         else setExpanded(false);
       }
@@ -1037,8 +1062,10 @@ export function ScreenshotEditor({
       });
       return;
     }
-    const clampX = (x: number) => Math.min(Math.max(x, view.x), view.x + view.width);
-    const clampY = (y: number) => Math.min(Math.max(y, view.y), view.y + view.height);
+    const clampX = (x: number) =>
+      Math.min(Math.max(x, view.x), view.x + view.width);
+    const clampY = (y: number) =>
+      Math.min(Math.max(y, view.y), view.y + view.height);
     const id = newAnnotationId();
     if (kind === "arrow") {
       // The tip at the point clicked, the tail below and to the left of it.
@@ -1058,11 +1085,32 @@ export function ScreenshotEditor({
     }
     const width = Math.round(view.width * 0.2);
     const height = Math.round(view.height * 0.15);
-    const x = Math.round(Math.min(Math.max(point.x - width / 2, view.x), view.x + view.width - width));
-    const y = Math.round(Math.min(Math.max(point.y - height / 2, view.y), view.y + view.height - height));
+    const x = Math.round(
+      Math.min(
+        Math.max(point.x - width / 2, view.x),
+        view.x + view.width - width,
+      ),
+    );
+    const y = Math.round(
+      Math.min(
+        Math.max(point.y - height / 2, view.y),
+        view.y + view.height - height,
+      ),
+    );
     const mark: Annotation =
       kind === "box"
-        ? { kind: "box", id, x, y, width, height, color, thickness, fill: boxFill, shadow: boxShadow }
+        ? {
+            kind: "box",
+            id,
+            x,
+            y,
+            width,
+            height,
+            color,
+            thickness,
+            fill: boxFill,
+            shadow: boxShadow,
+          }
         : {
             kind: "redact",
             id,
@@ -1098,7 +1146,10 @@ export function ScreenshotEditor({
   useEffect(() => {
     onPendingRedactionsChange?.(pendingRedactionCount);
   }, [onPendingRedactionsChange, pendingRedactionCount]);
-  useEffect(() => () => onPendingRedactionsChange?.(0), [onPendingRedactionsChange]);
+  useEffect(
+    () => () => onPendingRedactionsChange?.(0),
+    [onPendingRedactionsChange],
+  );
 
   /**
    * Store the edits. With `burn`, the redactions are destroyed in the base
@@ -1131,24 +1182,34 @@ export function ScreenshotEditor({
       // What viewers get: every mark and redaction, cut down to the crop.
       // Pending redactions are drawn in too, so the owner's own view already
       // looks the way it will once burned.
-      const everything = renderAnnotated(image, imageSize, annotations, redactedBase);
+      const everything = renderAnnotated(
+        image,
+        imageSize,
+        annotations,
+        redactedBase,
+      );
       const cropped = crop ? cropCanvas(everything, crop) : everything;
       const served = background
         ? composeOnBackground(cropped, background)
         : cropped;
 
-      await callAction("save-screenshot-edits" as any, {
-        recordingId,
-        dataUrl: served.toDataURL(SCREENSHOT_MIME_TYPE, SCREENSHOT_QUALITY),
-        crop,
-        background,
-        ...(baseDataUrl ? { baseDataUrl } : {}),
-        annotations: movableAnnotations(annotations),
-        redactions: burn ? redactionsOf(annotations, imageSize) : [],
-        pendingRedactions: burn ? [] : toPendingOverlays(annotations, imageSize),
-        width: served.width,
-        height: served.height,
-      } as any);
+      await callAction(
+        "save-screenshot-edits" as any,
+        {
+          recordingId,
+          dataUrl: served.toDataURL(SCREENSHOT_MIME_TYPE, SCREENSHOT_QUALITY),
+          crop,
+          background,
+          ...(baseDataUrl ? { baseDataUrl } : {}),
+          annotations: movableAnnotations(annotations),
+          redactions: burn ? redactionsOf(annotations, imageSize) : [],
+          pendingRedactions: burn
+            ? []
+            : toPendingOverlays(annotations, imageSize),
+          width: served.width,
+          height: served.height,
+        } as any,
+      );
       toast.success(t(burn ? "screenshot.burned" : "screenshot.editSaved"), {
         id: savingToastId,
       });
@@ -1166,7 +1227,9 @@ export function ScreenshotEditor({
   };
 
   const previewRect =
-    drawing && tool !== "arrow" ? rectFromPoints(drawing.from, drawing.to) : null;
+    drawing && tool !== "arrow"
+      ? rectFromPoints(drawing.from, drawing.to)
+      : null;
 
   // Selection handles live in display coordinates, so they follow the image
   // however it is scaled to fit.
@@ -1415,183 +1478,197 @@ export function ScreenshotEditor({
           if (!open) setMenuAt(null);
         }}
       >
-      <ContextMenuTrigger asChild disabled={saving}>
-      <div
-        ref={stageRef}
-        onContextMenu={handleContextMenu}
-        className={cn(
-          "flex items-center justify-center overflow-hidden rounded-lg bg-muted",
-          expanded
-            ? "min-h-0 flex-1 max-h-[calc(100vh-7rem)]"
-            : "max-h-[calc(100vh-20rem)]",
-        )}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onDoubleClick={handleDoubleClick}
-      >
-        <div
-          className={cn(
-            "relative flex max-h-full max-w-full items-center justify-center",
-            hovering && tool !== "crop"
-              ? moving
-                ? "cursor-grabbing"
-                : "cursor-move"
-              : "cursor-crosshair",
-          )}
-        >
-          {/* Canvas only — React never renders children in here. */}
-          <div ref={holderRef} className="flex max-h-full max-w-full" />
-
-          {previewRect ? (
-            <div
-              className="pointer-events-none absolute border-2"
-              style={{
-                left: previewRect.x,
-                top: previewRect.y,
-                width: previewRect.width,
-                height: previewRect.height,
-                borderColor: tool === "redact" ? "#64748b" : color,
-                backgroundColor:
-                  tool === "redact"
-                    ? redactionStyle === "solid"
-                      ? solidColor
-                      : "rgba(100,116,139,0.25)"
-                    : "transparent",
-                opacity: tool === "redact" && redactionStyle === "solid" ? 0.85 : 1,
-              }}
-            />
-          ) : null}
-
-          {cropFrame ? (
-            // Everything outside the crop is dimmed rather than hidden, so
-            // there is something to aim for when drawing it wider.
-            <div
-              className="pointer-events-none absolute border-2 border-dashed border-white"
-              style={{
-                ...cropFrame,
-                boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.55)",
-              }}
-            />
-          ) : null}
-
-          {drawing && tool === "arrow" ? (
-            <svg className="pointer-events-none absolute inset-0 h-full w-full">
-              <line
-                x1={drawing.from.x}
-                y1={drawing.from.y}
-                x2={drawing.to.x}
-                y2={drawing.to.y}
-                stroke={color}
-                strokeWidth={3}
-                strokeLinecap="round"
-              />
-            </svg>
-          ) : null}
-
-          {selectionBox ? (
-            <div
-              className="pointer-events-none absolute rounded-[2px] border border-dashed border-primary"
-              style={selectionBox}
-            />
-          ) : null}
-
-          {handlePositions
-            ? (["start", "end"] as const).map((handle) => (
-                <span
-                  key={handle}
-                  role="button"
-                  aria-label={t(
-                    selected?.kind === "text"
-                      ? "screenshot.textWidthHandle"
-                      : "screenshot.resizeHandle",
-                  )}
-                  title={t(
-                    selected?.kind === "text"
-                      ? "screenshot.textWidthHandle"
-                      : "screenshot.resizeHandle",
-                  )}
-                  onPointerDown={startResize(handle)}
-                  className={cn(
-                    "absolute z-10 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-primary shadow-sm",
-                    selected?.kind === "arrow"
-                      ? "cursor-move"
-                      : selected?.kind === "text"
-                        ? "cursor-ew-resize"
-                        : "cursor-nwse-resize",
-                  )}
-                  style={handlePositions[handle]}
-                />
-              ))
-            : null}
-
-          {pendingText ? (
-            <TextBox
-              pending={pendingText}
-              factor={(() => {
-                void layoutTick;
-                const box = bounds();
-                return box && shownFrame.width ? box.width / shownFrame.width : 1;
-              })()}
-              offset={shownFrame}
-              placeholder={t("screenshot.textPlaceholder")}
-              onChange={(value) => setPendingText({ ...pendingText, value })}
-              onDone={commitText}
-            />
-          ) : null}
-
-          {selected && toolbarAnchor && !pendingText ? (
-            <ElementToolbar
-              selected={selected}
-              anchor={toolbarAnchor}
-              disabled={saving}
-              t={t}
-              onChange={changeSelected}
-              onDuplicate={() => duplicate(selected)}
-              onDelete={removeSelected}
-              textSize={shownTextSize}
-              onTextSize={changeTextSize}
-            />
-          ) : null}
-        </div>
-      </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent
-        className="min-w-48"
-        // Closing hands focus back to the picture by default, which would pull
-        // it straight out of a text box the menu has just opened.
-        onCloseAutoFocus={(event) => event.preventDefault()}
-      >
-        {menuAt?.hit ? (
-          <>
-            <ContextMenuItem onSelect={() => menuAt.hit && duplicate(menuAt.hit)}>
-              <IconCopy className="size-4" />
-              {t("screenshot.duplicate", {
-                kind: t(`screenshot.kind.${menuAt.hit.kind}`),
-              })}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-          </>
-        ) : null}
-        {(
-          [
-            ["text", IconTypography, "screenshot.addText"],
-            ["arrow", IconArrowUpRight, "screenshot.addArrow"],
-            ["box", IconSquare, "screenshot.addBox"],
-            ["redact", IconDropletFilled, "screenshot.addRedaction"],
-          ] as const
-        ).map(([kind, Icon, labelKey]) => (
-          <ContextMenuItem
-            key={kind}
-            disabled={!menuAt}
-            onSelect={() => menuAt && addAt(kind, menuAt.point)}
+        <ContextMenuTrigger asChild disabled={saving}>
+          <div
+            ref={stageRef}
+            onContextMenu={handleContextMenu}
+            className={cn(
+              "flex items-center justify-center overflow-hidden rounded-lg bg-muted",
+              expanded
+                ? "min-h-0 flex-1 max-h-[calc(100vh-7rem)]"
+                : "max-h-[calc(100vh-20rem)]",
+            )}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onDoubleClick={handleDoubleClick}
           >
-            <Icon className="size-4" />
-            {t(labelKey)}
-          </ContextMenuItem>
-        ))}
-      </ContextMenuContent>
+            <div
+              className={cn(
+                "relative flex max-h-full max-w-full items-center justify-center",
+                hovering && tool !== "crop"
+                  ? moving
+                    ? "cursor-grabbing"
+                    : "cursor-move"
+                  : "cursor-crosshair",
+              )}
+            >
+              {/* Canvas only — React never renders children in here. */}
+              <div ref={holderRef} className="flex max-h-full max-w-full" />
+
+              {previewRect ? (
+                <div
+                  className="pointer-events-none absolute border-2"
+                  style={{
+                    left: previewRect.x,
+                    top: previewRect.y,
+                    width: previewRect.width,
+                    height: previewRect.height,
+                    borderColor:
+                      tool === "redact"
+                        ? "hsl(var(--muted-foreground))"
+                        : color,
+                    backgroundColor:
+                      tool === "redact"
+                        ? redactionStyle === "solid"
+                          ? solidColor
+                          : "hsl(var(--muted-foreground) / 0.25)"
+                        : "transparent",
+                    opacity:
+                      tool === "redact" && redactionStyle === "solid"
+                        ? 0.85
+                        : 1,
+                  }}
+                />
+              ) : null}
+
+              {cropFrame ? (
+                // Everything outside the crop is dimmed rather than hidden, so
+                // there is something to aim for when drawing it wider.
+                <div
+                  // guard:allow-raw-color — drawn over the picture, not the page: a white edge on a dimmed image reads in either theme
+                  className="pointer-events-none absolute border-2 border-dashed border-white"
+                  style={{
+                    ...cropFrame,
+                    // guard:allow-raw-color — dims the picture outside the crop, whatever the theme
+                    boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.55)",
+                  }}
+                />
+              ) : null}
+
+              {drawing && tool === "arrow" ? (
+                <svg className="pointer-events-none absolute inset-0 h-full w-full">
+                  <line
+                    x1={drawing.from.x}
+                    y1={drawing.from.y}
+                    x2={drawing.to.x}
+                    y2={drawing.to.y}
+                    stroke={color}
+                    strokeWidth={3}
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : null}
+
+              {selectionBox ? (
+                <div
+                  className="pointer-events-none absolute rounded-[2px] border border-dashed border-primary"
+                  style={selectionBox}
+                />
+              ) : null}
+
+              {handlePositions
+                ? (["start", "end"] as const).map((handle) => (
+                    <span
+                      key={handle}
+                      role="button"
+                      aria-label={t(
+                        selected?.kind === "text"
+                          ? "screenshot.textWidthHandle"
+                          : "screenshot.resizeHandle",
+                      )}
+                      title={t(
+                        selected?.kind === "text"
+                          ? "screenshot.textWidthHandle"
+                          : "screenshot.resizeHandle",
+                      )}
+                      onPointerDown={startResize(handle)}
+                      className={cn(
+                        "absolute z-10 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-primary shadow-sm",
+                        selected?.kind === "arrow"
+                          ? "cursor-move"
+                          : selected?.kind === "text"
+                            ? "cursor-ew-resize"
+                            : "cursor-nwse-resize",
+                      )}
+                      style={handlePositions[handle]}
+                    />
+                  ))
+                : null}
+
+              {pendingText ? (
+                <TextBox
+                  pending={pendingText}
+                  factor={(() => {
+                    void layoutTick;
+                    const box = bounds();
+                    return box && shownFrame.width
+                      ? box.width / shownFrame.width
+                      : 1;
+                  })()}
+                  offset={shownFrame}
+                  placeholder={t("screenshot.textPlaceholder")}
+                  onChange={(value) =>
+                    setPendingText({ ...pendingText, value })
+                  }
+                  onDone={commitText}
+                />
+              ) : null}
+
+              {selected && toolbarAnchor && !pendingText ? (
+                <ElementToolbar
+                  selected={selected}
+                  anchor={toolbarAnchor}
+                  disabled={saving}
+                  t={t}
+                  onChange={changeSelected}
+                  onDuplicate={() => duplicate(selected)}
+                  onDelete={removeSelected}
+                  textSize={shownTextSize}
+                  onTextSize={changeTextSize}
+                />
+              ) : null}
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent
+          className="min-w-48"
+          // Closing hands focus back to the picture by default, which would pull
+          // it straight out of a text box the menu has just opened.
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          {menuAt?.hit ? (
+            <>
+              <ContextMenuItem
+                onSelect={() => menuAt.hit && duplicate(menuAt.hit)}
+              >
+                <IconCopy className="size-4" />
+                {t("screenshot.duplicate", {
+                  kind: t(`screenshot.kind.${menuAt.hit.kind}`),
+                })}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null}
+          {(
+            [
+              ["text", IconTypography, "screenshot.addText"],
+              ["arrow", IconArrowUpRight, "screenshot.addArrow"],
+              ["box", IconSquare, "screenshot.addBox"],
+              ["redact", IconDropletFilled, "screenshot.addRedaction"],
+            ] as const
+          ).map(([kind, Icon, labelKey]) => (
+            <ContextMenuItem
+              key={kind}
+              disabled={!menuAt}
+              onSelect={() => menuAt && addAt(kind, menuAt.point)}
+            >
+              <Icon className="size-4" />
+              {t(labelKey)}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuContent>
       </ContextMenu>
     </div>
   );
@@ -1727,7 +1804,10 @@ function BackgroundPicker({
             style={{
               background: value
                 ? backgroundCss(value)
-                : backgroundCss({ kind: "gradient", id: BACKGROUND_GRADIENTS[0].id }),
+                : backgroundCss({
+                    kind: "gradient",
+                    id: BACKGROUND_GRADIENTS[0].id,
+                  }),
               opacity: value ? 1 : 0.55,
             }}
           />
@@ -1744,13 +1824,17 @@ function BackgroundPicker({
             onClick={() => onChange(null)}
             className={cn(
               "flex h-16 items-center justify-center rounded-lg bg-foreground text-sm font-semibold text-background",
-              value === null && "ring-2 ring-primary ring-offset-2 ring-offset-popover",
+              value === null &&
+                "ring-2 ring-primary ring-offset-2 ring-offset-popover",
             )}
           >
             {t("screenshot.backgroundNone")}
           </button>
           {BACKGROUND_GRADIENTS.map((gradient) => {
-            const option: ScreenshotBackground = { kind: "gradient", id: gradient.id };
+            const option: ScreenshotBackground = {
+              kind: "gradient",
+              id: gradient.id,
+            };
             return (
               <button
                 key={gradient.id}
@@ -1760,7 +1844,8 @@ function BackgroundPicker({
                 onClick={() => onChange(option)}
                 className={cn(
                   "h-16 rounded-lg",
-                  same(option) && "ring-2 ring-primary ring-offset-2 ring-offset-popover",
+                  same(option) &&
+                    "ring-2 ring-primary ring-offset-2 ring-offset-popover",
                 )}
                 style={{ background: backgroundCss(option) }}
               />
@@ -1779,7 +1864,8 @@ function BackgroundPicker({
                 onClick={() => onChange(option)}
                 className={cn(
                   "size-7 rounded-full border border-border",
-                  same(option) && "ring-2 ring-primary ring-offset-2 ring-offset-popover",
+                  same(option) &&
+                    "ring-2 ring-primary ring-offset-2 ring-offset-popover",
                 )}
                 style={{ backgroundColor: color }}
               />

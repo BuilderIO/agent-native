@@ -33,7 +33,9 @@ export function decodeScreenshotDataUrl(
   });
   const mimeType = mime.split(";")[0].trim().toLowerCase();
   if (!isSupportedImageMimeType(mimeType)) {
-    throw new Error(`${what} must be a PNG, JPEG, GIF or WebP image, not ${mimeType}`);
+    throw new Error(
+      `${what} must be a PNG, JPEG, GIF or WebP image, not ${mimeType}`,
+    );
   }
   if (!bytes.byteLength) {
     throw new Error(`${what} is empty`);

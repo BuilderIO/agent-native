@@ -38,15 +38,15 @@ import {
 } from "../../../shared/agent-context.js";
 import { displayCommentMentions } from "../../../shared/comment-mentions.js";
 import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "../../../shared/recording-kind.js";
+import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
-import {
-  isImageRecording,
-  resolveRecordingKind,
-} from "../../../shared/recording-kind.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import {

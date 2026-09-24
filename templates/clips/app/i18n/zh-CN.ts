@@ -1560,7 +1560,8 @@ const messages = {
     alignRight: "右对齐",
     editSave: "保存",
     editSaved: "截图已更新",
-    editConfirm: "保存会替换已分享的图片，所有人都会看到这些标注。之后仍可移动或删除它们。要保存吗？",
+    editConfirm:
+      "保存会替换已分享的图片，所有人都会看到这些标注。之后仍可移动或删除它们。要保存吗？",
     textPlaceholder: "在此输入。点击外部完成",
     undo: "撤销",
     redo: "重做",
@@ -1600,10 +1601,12 @@ const messages = {
     background: "背景",
     backgroundTitle: "添加背景",
     backgroundNone: "无",
-    notYetBurned: "已放置 {{count}} 处遮挡，但尚未烧录。目前还没有隐藏任何内容，在你烧录之前其他人都看不到这张截图。",
+    notYetBurned:
+      "已放置 {{count}} 处遮挡，但尚未烧录。目前还没有隐藏任何内容，在你烧录之前其他人都看不到这张截图。",
     burnInHint: "永久销毁遮挡覆盖的内容，并删除原图",
     burnInTitle: "要将 {{count}} 处遮挡烧录到这张截图中吗？",
-    burnInWarning: "被覆盖的区域会在截图的新副本中被销毁，原始文件将被删除。此操作无法撤销。你的方框、箭头和文字仍可移动。已下载的副本不受影响。",
+    burnInWarning:
+      "被覆盖的区域会在截图的新副本中被销毁，原始文件将被删除。此操作无法撤销。你的方框、箭头和文字仍可移动。已下载的副本不受影响。",
     burning: "正在烧录…",
     burned: "遮挡已烧录",
     burnFailed: "无法烧录遮挡",

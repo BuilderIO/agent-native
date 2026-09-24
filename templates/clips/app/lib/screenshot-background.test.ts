@@ -4,14 +4,24 @@ import { backgroundPadding, parseBackground } from "./screenshot-background";
 
 describe("parseBackground", () => {
   it("reads a known gradient or a colour", () => {
-    expect(parseBackground({ kind: "gradient", id: "sky" })).toEqual({ kind: "gradient", id: "sky" });
-    expect(parseBackground({ kind: "solid", color: "#112233" })).toEqual({ kind: "solid", color: "#112233" });
+    expect(parseBackground({ kind: "gradient", id: "sky" })).toEqual({
+      kind: "gradient",
+      id: "sky",
+    });
+    expect(parseBackground({ kind: "solid", color: "#112233" })).toEqual({
+      kind: "solid",
+      color: "#112233",
+    });
   });
 
   it("treats anything else as no background", () => {
     expect(parseBackground(undefined)).toBeNull();
-    expect(parseBackground({ kind: "gradient", id: "not-a-preset" })).toBeNull();
-    expect(parseBackground({ kind: "solid", color: "red; background:url(x)" })).toBeNull();
+    expect(
+      parseBackground({ kind: "gradient", id: "not-a-preset" }),
+    ).toBeNull();
+    expect(
+      parseBackground({ kind: "solid", color: "red; background:url(x)" }),
+    ).toBeNull();
   });
 });
 

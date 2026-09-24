@@ -26,14 +26,14 @@ import { isImageRecording } from "@shared/recording-kind.js";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
+import { parseBackground } from "../app/lib/screenshot-background.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import { otherOverlays, parseRedactions } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
 import { IMAGE_EXTENSION_BY_MIME } from "../server/lib/image-signature.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
-import { parseBackground } from "../app/lib/screenshot-background.js";
-import { otherOverlays, parseRedactions } from "../app/lib/video-redactions.js";
 import { redactedTitle } from "./burn-recording-redactions.js";
 import { decodeScreenshotDataUrl } from "./lib/screenshot-image.js";
 
@@ -169,7 +169,8 @@ export default defineAction({
     // drawn in, and vanish from the next edit. Refuse rather than drop it.
     if (
       !args.baseDataUrl &&
-      parseRedactions(args.pendingRedactions).length !== args.pendingRedactions.length
+      parseRedactions(args.pendingRedactions).length !==
+        args.pendingRedactions.length
     ) {
       throw new Error(
         "A redaction box could not be saved. Make it a little bigger, or keep it inside the picture, and save again.",
@@ -238,7 +239,8 @@ export default defineAction({
       background: args.background,
     });
     const newUrls = [uploaded.url, baseUrl].filter(
-      (url): url is string => Boolean(url) && url !== previousUrl && url !== existing.baseImageUrl,
+      (url): url is string =>
+        Boolean(url) && url !== previousUrl && url !== existing.baseImageUrl,
     );
 
     // Every write is pinned to the row as it was read. Two editor tabs can
@@ -283,7 +285,16 @@ export default defineAction({
       // Someone else saved first. Nothing here was published, so the new
       // files are only orphans.
       for (const url of newUrls) {
-        await deleteStoredMediaUrl(url).catch(() => false);
+        try {
+          await deleteStoredMediaUrl(url);
+        } catch (err) {
+          // Costs storage, not correctness; the throw below is what the
+          // caller needs to see.
+          console.warn(
+            `[save-screenshot-edits] could not delete an orphaned upload for ${args.recordingId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
       throw new Error(
         "This screenshot was changed somewhere else while you were editing. Nothing was saved — reload it and try again.",
@@ -293,13 +304,20 @@ export default defineAction({
     // Now destroy what was replaced. For a burn that includes the unredacted
     // original, and the hold stays on until it is gone.
     let originalDeleted = true;
-    const staleUrls = [previousUrl, previousBaseUrl].filter(
-      (url): url is string =>
-        Boolean(url) && url !== uploaded.url && url !== baseUrl,
-    );
+    // A first burn with no separate base yet has the original under both
+    // names; deleting it twice would read the second 404 as a failure.
+    const staleUrls = [
+      ...new Set(
+        [previousUrl, previousBaseUrl].filter(
+          (url): url is string =>
+            Boolean(url) && url !== uploaded.url && url !== baseUrl,
+        ),
+      ),
+    ];
     for (const staleUrl of staleUrls) {
       try {
-        originalDeleted = (await deleteStoredMediaUrl(staleUrl)) && originalDeleted;
+        originalDeleted =
+          (await deleteStoredMediaUrl(staleUrl)) && originalDeleted;
       } catch (err) {
         originalDeleted = false;
         console.warn(

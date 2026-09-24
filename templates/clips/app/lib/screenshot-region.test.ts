@@ -80,8 +80,13 @@ describe("mapPointToSource", () => {
     // must land on the edge, not be dropped.
     const displayed = { width: 400, height: 300 };
     const source = { width: 4000, height: 3000 };
-    expect(mapRectToSource({ x: 400, y: 300, width: 1, height: 1 }, displayed, source))
-      .toBeNull();
+    expect(
+      mapRectToSource(
+        { x: 400, y: 300, width: 1, height: 1 },
+        displayed,
+        source,
+      ),
+    ).toBeNull();
     expect(mapPointToSource({ x: 400, y: 300 }, displayed, source)).toEqual({
       x: 4000,
       y: 3000,
@@ -90,7 +95,11 @@ describe("mapPointToSource", () => {
 
   it("scales and clamps", () => {
     expect(
-      mapPointToSource({ x: 100, y: -5 }, { width: 200, height: 100 }, { width: 1000, height: 500 }),
+      mapPointToSource(
+        { x: 100, y: -5 },
+        { width: 200, height: 100 },
+        { width: 1000, height: 500 },
+      ),
     ).toEqual({ x: 500, y: 0 });
   });
 });

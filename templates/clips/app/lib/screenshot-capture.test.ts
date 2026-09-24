@@ -68,9 +68,9 @@ describe("resolveCaptureSize", () => {
   });
 
   it("falls back to the element when the track reports nothing", () => {
-    expect(resolveCaptureSize({}, { videoWidth: 1280, videoHeight: 720 })).toEqual(
-      { width: 1280, height: 720 },
-    );
+    expect(
+      resolveCaptureSize({}, { videoWidth: 1280, videoHeight: 720 }),
+    ).toEqual({ width: 1280, height: 720 });
   });
 
   it("reports zero when neither source knows, so the caller can fail", () => {
@@ -80,7 +80,9 @@ describe("resolveCaptureSize", () => {
 
 describe("isScreenshotCancelled", () => {
   it("treats a closed picker as a cancellation, not a failure", () => {
-    expect(isScreenshotCancelled(new DOMException("", "AbortError"))).toBe(true);
+    expect(isScreenshotCancelled(new DOMException("", "AbortError"))).toBe(
+      true,
+    );
     expect(
       isScreenshotCancelled(
         new DOMException("Permission denied by user", "NotAllowedError"),

@@ -69,7 +69,10 @@ describe("resolvePlayerThumbnailUrl versioning", () => {
 
   it("leaves a never-edited image's URL as it was", () => {
     expect(
-      resolvePlayerThumbnailUrl({ id: "rec1", thumbnailUrl: "https://storage/a.png" }),
+      resolvePlayerThumbnailUrl({
+        id: "rec1",
+        thumbnailUrl: "https://storage/a.png",
+      }),
     ).toBe("/api/thumbnail/rec1");
   });
 });

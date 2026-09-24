@@ -92,7 +92,8 @@ export function ElementToolbar({
     const el = ref.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
-    if (width !== size.width || height !== size.height) setSize({ width, height });
+    if (width !== size.width || height !== size.height)
+      setSize({ width, height });
   });
 
   const viewportWidth = typeof window === "undefined" ? 0 : window.innerWidth;
@@ -145,7 +146,9 @@ export function ElementToolbar({
           value={selected.thickness ?? "thin"}
           disabled={disabled}
           t={t}
-          onChange={(thickness) => onChange({ thickness } as Partial<Annotation>)}
+          onChange={(thickness) =>
+            onChange({ thickness } as Partial<Annotation>)
+          }
         />
       ) : null}
 
@@ -298,7 +301,9 @@ function ColourControl({
             <label className="flex items-center gap-2">
               <Switch
                 checked={Boolean(selected.fill)}
-                onCheckedChange={(fill) => onChange({ fill } as Partial<Annotation>)}
+                onCheckedChange={(fill) =>
+                  onChange({ fill } as Partial<Annotation>)
+                }
               />
               {t("screenshot.fillBox")}
             </label>
@@ -335,7 +340,9 @@ function RedactionStyleControl({
     <Popover>
       <PopoverTrigger asChild>
         <MenuTrigger label={t("screenshot.redactionStyle")} disabled={disabled}>
-          {t(style === "mosaic" ? "redaction.styleBlur" : "redaction.styleSolid")}
+          {t(
+            style === "mosaic" ? "redaction.styleBlur" : "redaction.styleSolid",
+          )}
         </MenuTrigger>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3" sideOffset={8}>
@@ -363,7 +370,11 @@ function RedactionStyleControl({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {t(value === "mosaic" ? "redaction.styleBlur" : "redaction.styleSolid")}
+              {t(
+                value === "mosaic"
+                  ? "redaction.styleBlur"
+                  : "redaction.styleSolid",
+              )}
             </button>
           ))}
         </div>
@@ -374,7 +385,9 @@ function RedactionStyleControl({
                 key={swatch}
                 colour={swatch}
                 active={colour === swatch}
-                onClick={() => onChange({ color: swatch } as Partial<Annotation>)}
+                onClick={() =>
+                  onChange({ color: swatch } as Partial<Annotation>)
+                }
               />
             ))}
           </div>
@@ -416,7 +429,9 @@ function ThicknessControl({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <MenuTrigger label={t("screenshot.thickness")} disabled={disabled}>
-          <IconMenu2 className={cn("size-4", value === "thick" && "stroke-[3]")} />
+          <IconMenu2
+            className={cn("size-4", value === "thick" && "stroke-[3]")}
+          />
         </MenuTrigger>
       </DropdownMenuTrigger>
       <DropdownMenuContent sideOffset={8} className="min-w-36">
@@ -451,7 +466,8 @@ function FontControl({
   t: ElementToolbarProps["t"];
   onChange: (value: TextFontId) => void;
 }) {
-  const current = TEXT_FONTS.find((entry) => entry.id === value) ?? TEXT_FONTS[0];
+  const current =
+    TEXT_FONTS.find((entry) => entry.id === value) ?? TEXT_FONTS[0];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -490,7 +506,8 @@ function AlignControl({
     ["center", IconAlignCenter, "screenshot.alignCenter"],
     ["right", IconAlignRight, "screenshot.alignRight"],
   ] as const;
-  const CurrentIcon = options.find(([option]) => option === value)?.[1] ?? IconAlignLeft;
+  const CurrentIcon =
+    options.find(([option]) => option === value)?.[1] ?? IconAlignLeft;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -553,7 +570,9 @@ function TextSizeControl({
         aria-label={t("screenshot.textSize")}
         disabled={disabled}
         value={draft ?? String(value)}
-        onChange={(event) => setDraft(event.target.value.replace(/[^0-9]/g, ""))}
+        onChange={(event) =>
+          setDraft(event.target.value.replace(/[^0-9]/g, ""))
+        }
         onBlur={apply}
         onKeyDown={(event) => {
           if (event.key === "Enter") apply();

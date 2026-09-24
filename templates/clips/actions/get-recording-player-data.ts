@@ -61,11 +61,14 @@ function screenshotAnnotationsOf(editsJson: string | null): unknown[] {
     const parsed = JSON.parse(editsJson || "{}");
     const annotations = (parsed as { annotations?: unknown }).annotations;
     return Array.isArray(annotations) ? annotations : [];
-  } catch {
+  } catch (err) {
+    console.warn(
+      "[get-recording-player-data] unreadable editsJson, showing no marks",
+      err instanceof Error ? err.message : String(err),
+    );
     return [];
   }
 }
-
 
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";

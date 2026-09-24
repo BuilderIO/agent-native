@@ -35,11 +35,11 @@ import {
 } from "@shared/builder-credits";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
-import { isImageRecording } from "@shared/recording-kind";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
+import { isImageRecording } from "@shared/recording-kind";
 import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
@@ -49,7 +49,6 @@ import {
   IconCalendar,
   IconAlertTriangle,
   IconCheck,
-  IconDropletFilled,
   IconEdit,
   IconHelpCircle,
   IconBolt,
@@ -99,6 +98,8 @@ import {
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingTagsBar } from "@/components/player/recording-tags-bar";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
+import { ScreenshotEditor } from "@/components/player/screenshot-editor";
+import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
@@ -157,13 +158,11 @@ import {
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
-import { ScreenshotStage } from "@/components/player/screenshot-stage";
-import { ScreenshotEditor } from "@/components/player/screenshot-editor";
 import {
   setRecordingSection,
   type RecordingSection,
 } from "@/lib/recording-section";
+import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -1084,7 +1083,9 @@ export default function RecordingPage() {
       (recording && !recording.enableComments && panel === "comments") ||
       (isImage && panel === "transcript")
     ) {
-      setPanel(isImage && !recording?.enableComments ? "settings" : defaultPanel);
+      setPanel(
+        isImage && !recording?.enableComments ? "settings" : defaultPanel,
+      );
     }
   }, [browserDiagnostics, canEdit, defaultPanel, isImage, panel, recording]);
 
@@ -1354,10 +1355,10 @@ export default function RecordingPage() {
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
     recording?.enableDownloads &&
-      (isImage
-        ? recording.imageUrl || recording.thumbnailUrl
-        : recording.videoUrl) &&
-      !isLoomEmbedBacked,
+    (isImage
+      ? recording.imageUrl || recording.thumbnailUrl
+      : recording.videoUrl) &&
+    !isLoomEmbedBacked,
   );
   // Mirrors the /share/:shareId reshare restriction (same public/org scope):
   // a plain viewer of a public or org clip must not trigger
@@ -1965,7 +1966,9 @@ export default function RecordingPage() {
   // server writes videoUrl + flips status to 'ready'.
   if (
     recording.status !== "ready" ||
-    (isImage ? !recording.imageUrl && !recording.thumbnailUrl : !recording.videoUrl)
+    (isImage
+      ? !recording.imageUrl && !recording.thumbnailUrl
+      : !recording.videoUrl)
   ) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
@@ -2433,155 +2436,157 @@ export default function RecordingPage() {
                 download and delete. */}
             {isImage ? null : (
               <>
-            <DropdownMenuItem onSelect={openAgentPanel}>
-              <IconMessage className="h-4 w-4" />
-              {t("recordingPage.askAboutClip")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("remove-filler-words");
-                removeFillerWords.mutate({
-                  recordingId: recording.id,
-                } as any);
-              }}
-            >
-              {t("recordingPage.removeFillerWords")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("remove-silences");
-                removeSilences.mutate({
-                  recordingId: recording.id,
-                  thresholdMs: 1200,
-                } as any);
-              }}
-            >
-              {t("recordingPage.removeSilences")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("regenerate-chapters");
-                regenerateChapters.mutate({
-                  recordingId: recording.id,
-                  openInChat: true,
-                } as any);
-              }}
-            >
-              {t("recordingPage.autoChapters")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("regenerate-summary");
-                regenerateSummary.mutate({
-                  recordingId: recording.id,
-                  openInChat: true,
-                } as any);
-              }}
-            >
-              {t("recordingPage.regenerateDescription")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                {t("recordingPage.enhanceRecording")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
-                <DropdownMenuItem
-                  disabled={requestTranscript.isPending}
-                  onSelect={() =>
-                    requestTranscriptWithLifecycle({
-                      recordingId: recording.id,
-                      force: true,
-                      regenerate: true,
-                    })
-                  }
-                >
-                  {requestTranscript.isPending ? (
-                    <Spinner className="size-4" />
-                  ) : null}
-                  {t("transcriptPanel.regenerate")}
+                <DropdownMenuItem onSelect={openAgentPanel}>
+                  <IconMessage className="h-4 w-4" />
+                  {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={backgroundAiBusy}
                   onSelect={() => {
-                    beginAiRequest("regenerate-title");
-                    regenerateTitle.mutate({
+                    beginAiRequest("remove-filler-words");
+                    removeFillerWords.mutate({
                       recordingId: recording.id,
                     } as any);
                   }}
                 >
-                  {t("recordingPage.regenerateTitle")}
+                  {t("recordingPage.removeFillerWords")}
                 </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                {t("recordingPage.createFromClip")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
-                {WORKFLOW_MENU_ITEMS.map((item) => {
-                  const menuItem = (
+                <DropdownMenuItem
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("remove-silences");
+                    removeSilences.mutate({
+                      recordingId: recording.id,
+                      thresholdMs: 1200,
+                    } as any);
+                  }}
+                >
+                  {t("recordingPage.removeSilences")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("regenerate-chapters");
+                    regenerateChapters.mutate({
+                      recordingId: recording.id,
+                      openInChat: true,
+                    } as any);
+                  }}
+                >
+                  {t("recordingPage.autoChapters")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("regenerate-summary");
+                    regenerateSummary.mutate({
+                      recordingId: recording.id,
+                      openInChat: true,
+                    } as any);
+                  }}
+                >
+                  {t("recordingPage.regenerateDescription")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    {t("recordingPage.enhanceRecording")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                     <DropdownMenuItem
-                      key={item.kind}
-                      disabled={backgroundAiBusy}
-                      onSelect={() => handleGenerateWorkflow(item.kind)}
-                      className={
-                        item.tooltipKey ? "justify-between gap-3" : undefined
+                      disabled={requestTranscript.isPending}
+                      onSelect={() =>
+                        requestTranscriptWithLifecycle({
+                          recordingId: recording.id,
+                          force: true,
+                          regenerate: true,
+                        })
                       }
                     >
-                      <span>{t(item.labelKey)}</span>
-                      {item.tooltipKey ? (
-                        // guard:allow-large-help-icon - menu item tooltip icon
-                        <IconHelpCircle
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                        />
+                      {requestTranscript.isPending ? (
+                        <Spinner className="size-4" />
                       ) : null}
+                      {t("transcriptPanel.regenerate")}
                     </DropdownMenuItem>
-                  );
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-title");
+                        regenerateTitle.mutate({
+                          recordingId: recording.id,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.regenerateTitle")}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    {t("recordingPage.createFromClip")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
+                    {WORKFLOW_MENU_ITEMS.map((item) => {
+                      const menuItem = (
+                        <DropdownMenuItem
+                          key={item.kind}
+                          disabled={backgroundAiBusy}
+                          onSelect={() => handleGenerateWorkflow(item.kind)}
+                          className={
+                            item.tooltipKey
+                              ? "justify-between gap-3"
+                              : undefined
+                          }
+                        >
+                          <span>{t(item.labelKey)}</span>
+                          {item.tooltipKey ? (
+                            // guard:allow-large-help-icon - menu item tooltip icon
+                            <IconHelpCircle
+                              aria-hidden="true"
+                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                            />
+                          ) : null}
+                        </DropdownMenuItem>
+                      );
 
-                  if (!item.tooltipKey) {
-                    return menuItem;
-                  }
+                      if (!item.tooltipKey) {
+                        return menuItem;
+                      }
 
-                  return (
-                    <Tooltip key={item.kind}>
-                      <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
-                      <TooltipContent
-                        side="left"
-                        className="max-w-64 text-xs leading-5"
-                      >
-                        {t(item.tooltipKey)}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
-              onSelect={(event) => {
-                event.preventDefault();
-                handleIncludeFullVideoChange(!includeFullVideoInAi);
-              }}
-              title={t("recordingPage.includeFullVideoDescription")}
-              className="justify-between gap-3"
-            >
-              <span>{t("recordingPage.includeFullVideo")}</span>
-              <ViewerSwitch
-                checked={includeFullVideoInAi}
-                disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
-                tabIndex={-1}
-                aria-hidden="true"
-                className="pointer-events-none"
-              />
-            </DropdownMenuItem>
+                      return (
+                        <Tooltip key={item.kind}>
+                          <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
+                          <TooltipContent
+                            side="left"
+                            className="max-w-64 text-xs leading-5"
+                          >
+                            {t(item.tooltipKey)}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleIncludeFullVideoChange(!includeFullVideoInAi);
+                  }}
+                  title={t("recordingPage.includeFullVideoDescription")}
+                  className="justify-between gap-3"
+                >
+                  <span>{t("recordingPage.includeFullVideo")}</span>
+                  <ViewerSwitch
+                    checked={includeFullVideoInAi}
+                    disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="pointer-events-none"
+                  />
+                </DropdownMenuItem>
               </>
             )}
           </RecordingOptionsMenu>
@@ -2677,8 +2682,11 @@ export default function RecordingPage() {
                             parseEdits(recording.editsJson).overlays
                           }
                           initialCrop={
-                            (parseEdits(recording.editsJson) as { crop?: unknown })
-                              .crop
+                            (
+                              parseEdits(recording.editsJson) as {
+                                crop?: unknown;
+                              }
+                            ).crop
                           }
                           initialBackground={
                             (
@@ -2737,89 +2745,90 @@ export default function RecordingPage() {
                       )}
                     </div>
                   ) : (
-                  <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
-                    <VideoPlayer
-                      ref={playerRef}
-                      onVideoElementChange={setTrackedVideoEl}
-                      recordingId={recording.id}
-                      videoUrl={recording.videoUrl}
-                      mediaVersion={
-                        recording.mediaUpdatedAt ??
-                        recording.videoSizeBytes ??
-                        null
-                      }
-                      videoFormat={recording.videoFormat}
-                      embedProvider={isLoomEmbedBacked ? "loom" : null}
-                      durationMs={recording.durationMs}
-                      editsJson={recording.editsJson}
-                      thumbnailUrl={recording.thumbnailUrl}
-                      role={role}
-                      defaultSpeed={
-                        parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
-                      }
-                      alwaysShowControls
-                      startMs={resolveStartMs(startMs, recording.durationMs)}
-                      comments={comments}
-                      chapters={chapters}
-                      reactions={reactions}
-                      transcriptSegments={transcriptSegments}
-                      theaterMode={theaterMode}
-                      onTheaterToggle={() => setTheaterMode((v) => !v)}
-                      cta={firstCta}
-                      onCtaClick={() => tracking.reportCtaClick()}
-                      onTimeUpdate={(ms) => setCurrentMs(ms)}
-                      onCommentClick={openCommentsPanel}
-                      onFullscreenChange={setIsPlayerFullscreen}
-                      enableComments={recording.enableComments}
-                      onAddComment={() => {
-                        // The inline conversation is outside the element the
-                        // Fullscreen API paints, so keep the portal composer for
-                        // fullscreen and move to the thread everywhere else.
-                        const liveMs = resolvePlaybackMs();
-                        setCurrentMs(liveMs);
-                        if (!isPlayerFullscreen) {
-                          openCommentsPanel();
-                          return;
+                    <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
+                      <VideoPlayer
+                        ref={playerRef}
+                        onVideoElementChange={setTrackedVideoEl}
+                        recordingId={recording.id}
+                        videoUrl={recording.videoUrl}
+                        mediaVersion={
+                          recording.mediaUpdatedAt ??
+                          recording.videoSizeBytes ??
+                          null
                         }
-                        setCommentAtMs(liveMs);
-                        setCommentOpen(true);
-                      }}
-                      enableReactions={recording.enableReactions && !isImage}
-                      onReact={(emoji) => {
-                        tracking.reportReaction(emoji);
-                        const liveMs = resolvePlaybackMs();
-                        return writeReaction(emoji, liveMs, () =>
-                          playerDataQ.refetch(),
-                        );
-                      }}
-                      className="h-full w-full rounded-none sm:rounded-2xl"
-                    />
-                    {commentOpen && canComment
-                      ? (() => {
-                          const composer = (
-                            <TimestampedCommentBar
-                              recordingId={recording.id}
-                              atMs={commentAtMs}
-                              draft={commentDraft}
-                              onDraftChange={setCommentDraft}
-                              onClose={() => setCommentOpen(false)}
-                              onAdded={() => {
-                                if (isCompactLayout) setPanel("comments");
-                                void playerDataQ.refetch();
-                              }}
-                            />
+                        videoFormat={recording.videoFormat}
+                        embedProvider={isLoomEmbedBacked ? "loom" : null}
+                        durationMs={recording.durationMs}
+                        editsJson={recording.editsJson}
+                        thumbnailUrl={recording.thumbnailUrl}
+                        role={role}
+                        defaultSpeed={
+                          parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                        }
+                        alwaysShowControls
+                        startMs={resolveStartMs(startMs, recording.durationMs)}
+                        comments={comments}
+                        chapters={chapters}
+                        reactions={reactions}
+                        transcriptSegments={transcriptSegments}
+                        theaterMode={theaterMode}
+                        onTheaterToggle={() => setTheaterMode((v) => !v)}
+                        cta={firstCta}
+                        onCtaClick={() => tracking.reportCtaClick()}
+                        onTimeUpdate={(ms) => setCurrentMs(ms)}
+                        onCommentClick={openCommentsPanel}
+                        onFullscreenChange={setIsPlayerFullscreen}
+                        enableComments={recording.enableComments}
+                        onAddComment={() => {
+                          // The inline conversation is outside the element the
+                          // Fullscreen API paints, so keep the portal composer for
+                          // fullscreen and move to the thread everywhere else.
+                          const liveMs = resolvePlaybackMs();
+                          setCurrentMs(liveMs);
+                          if (!isPlayerFullscreen) {
+                            openCommentsPanel();
+                            return;
+                          }
+                          setCommentAtMs(liveMs);
+                          setCommentOpen(true);
+                        }}
+                        enableReactions={recording.enableReactions && !isImage}
+                        onReact={(emoji) => {
+                          tracking.reportReaction(emoji);
+                          const liveMs = resolvePlaybackMs();
+                          return writeReaction(emoji, liveMs, () =>
+                            playerDataQ.refetch(),
                           );
-                          // The Fullscreen API only paints the player's own
-                          // element, so portal the composer there instead of
-                          // exiting fullscreen when it's open.
-                          const fullscreenContainer =
-                            isPlayerFullscreen && playerRef.current?.container;
-                          return fullscreenContainer
-                            ? createPortal(composer, fullscreenContainer)
-                            : composer;
-                        })()
-                      : null}
-                  </div>
+                        }}
+                        className="h-full w-full rounded-none sm:rounded-2xl"
+                      />
+                      {commentOpen && canComment
+                        ? (() => {
+                            const composer = (
+                              <TimestampedCommentBar
+                                recordingId={recording.id}
+                                atMs={commentAtMs}
+                                draft={commentDraft}
+                                onDraftChange={setCommentDraft}
+                                onClose={() => setCommentOpen(false)}
+                                onAdded={() => {
+                                  if (isCompactLayout) setPanel("comments");
+                                  void playerDataQ.refetch();
+                                }}
+                              />
+                            );
+                            // The Fullscreen API only paints the player's own
+                            // element, so portal the composer there instead of
+                            // exiting fullscreen when it's open.
+                            const fullscreenContainer =
+                              isPlayerFullscreen &&
+                              playerRef.current?.container;
+                            return fullscreenContainer
+                              ? createPortal(composer, fullscreenContainer)
+                              : composer;
+                          })()
+                        : null}
+                    </div>
                   )}
                 </div>
 

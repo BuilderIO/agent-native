@@ -96,7 +96,10 @@ export default defineAction({
   agentTool: false,
   schema: createScreenshotSchema,
   run: async (args, actionContext) => {
-    const { bytes, mimeType } = decodeScreenshotDataUrl(args.dataUrl, "Screenshot");
+    const { bytes, mimeType } = decodeScreenshotDataUrl(
+      args.dataUrl,
+      "Screenshot",
+    );
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

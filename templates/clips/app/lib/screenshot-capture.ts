@@ -112,7 +112,8 @@ function createFocusController(): FocusController | null {
   if (typeof ctor !== "function") return null;
   try {
     return new ctor();
-  } catch {
+  } catch (err) {
+    console.debug("[screenshot] CaptureController unavailable", err);
     return null;
   }
 }
@@ -139,7 +140,8 @@ export function requestScreenshotStream(): Promise<MediaStream> {
       // the background still gives up its picture — and the user is not
       // thrown out of Clips on the way to the crop step.
       controller?.setFocusBehavior("no-focus-change");
-    } catch {
+    } catch (err) {
+      console.debug("[screenshot] could not keep focus on Clips", err);
       // Too late, or unsupported in this build — the captured surface takes
       // focus and the user comes back to Clips themselves. Not worth failing
       // a capture over.
@@ -227,7 +229,9 @@ async function pullViaImageCapture(
   if (typeof ctor !== "function") return null;
   try {
     return await new ctor(track).grabFrame();
-  } catch {
+  } catch (err) {
+    // Null means "try the next way of reading a frame", which the caller does.
+    console.debug("[screenshot] ImageCapture could not grab a frame", err);
     return null;
   }
 }
@@ -258,7 +262,9 @@ async function pullViaTrackProcessor(
     );
     const result = await Promise.race([reader.read(), timer]);
     return result && "value" in result ? (result.value ?? null) : null;
-  } catch {
+  } catch (err) {
+    // Null means "try the next way of reading a frame", which the caller does.
+    console.debug("[screenshot] track processor could not read a frame", err);
     return null;
   } finally {
     reader?.cancel().catch(() => {});

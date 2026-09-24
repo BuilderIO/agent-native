@@ -20,6 +20,12 @@ import {
   type RedactionStyle,
 } from "./screenshot-redaction";
 import {
+  MARK_COLORS,
+  MARK_SHADOW,
+  TEXT_OUTLINE_BEHIND_DARK,
+  TEXT_OUTLINE_BEHIND_LIGHT,
+} from "./tokens/screenshot-colors";
+import {
   MIN_REDACTION_SIZE,
   parseRedactions,
   type VideoRedaction,
@@ -104,11 +110,31 @@ export const TEXT_FONTS: ReadonlyArray<{
   label: string;
   family: string;
 }> = [
-  { id: "sans", label: "Inter", family: '"Inter Variable", Inter, system-ui, sans-serif' },
-  { id: "serif", label: "Georgia", family: 'Georgia, "Times New Roman", serif' },
-  { id: "mono", label: "Courier New", family: '"Courier New", Courier, monospace' },
-  { id: "casual", label: "Comic Sans", family: '"Comic Sans MS", "Chalkboard SE", cursive' },
-  { id: "impact", label: "Impact", family: 'Impact, "Arial Black", sans-serif' },
+  {
+    id: "sans",
+    label: "Inter",
+    family: '"Inter Variable", Inter, system-ui, sans-serif',
+  },
+  {
+    id: "serif",
+    label: "Georgia",
+    family: 'Georgia, "Times New Roman", serif',
+  },
+  {
+    id: "mono",
+    label: "Courier New",
+    family: '"Courier New", Courier, monospace',
+  },
+  {
+    id: "casual",
+    label: "Comic Sans",
+    family: '"Comic Sans MS", "Chalkboard SE", cursive',
+  },
+  {
+    id: "impact",
+    label: "Impact",
+    family: 'Impact, "Arial Black", sans-serif',
+  },
 ];
 
 export const DEFAULT_TEXT_FONT: TextFontId = "sans";
@@ -134,14 +160,7 @@ export type AnnotationTool =
   | "text";
 
 /** Deliberately few: a palette is a decision, not a colour picker. */
-export const ANNOTATION_COLORS: readonly AnnotationColor[] = [
-  "#ef4444",
-  "#f59e0b",
-  "#22c55e",
-  "#3b82f6",
-  "#ffffff",
-  "#000000",
-];
+export const ANNOTATION_COLORS: readonly AnnotationColor[] = MARK_COLORS;
 
 export const DEFAULT_ANNOTATION_COLOR = ANNOTATION_COLORS[0];
 
@@ -175,10 +194,11 @@ function drawBox(
   annotation: BoxAnnotation,
   size: ImageSize,
 ): void {
-  const lineWidth = annotationLineWidth(size) * thicknessFactor(annotation.thickness);
+  const lineWidth =
+    annotationLineWidth(size) * thicknessFactor(annotation.thickness);
   ctx.save();
   if (annotation.shadow) {
-    ctx.shadowColor = "rgba(15, 23, 42, 0.45)";
+    ctx.shadowColor = MARK_SHADOW;
     ctx.shadowBlur = lineWidth * 4;
     ctx.shadowOffsetY = lineWidth;
   }
@@ -187,7 +207,12 @@ function drawBox(
   ctx.fillStyle = annotation.color;
   ctx.lineJoin = "round";
   if (annotation.fill) {
-    ctx.fillRect(annotation.x, annotation.y, annotation.width, annotation.height);
+    ctx.fillRect(
+      annotation.x,
+      annotation.y,
+      annotation.width,
+      annotation.height,
+    );
   }
   ctx.strokeRect(
     annotation.x,
@@ -249,9 +274,8 @@ export function textFontSize(
 }
 
 export function textFontFamily(font: TextFontId | undefined): string {
-  return (
-    TEXT_FONTS.find((entry) => entry.id === font) ?? TEXT_FONTS[0]
-  ).family;
+  return (TEXT_FONTS.find((entry) => entry.id === font) ?? TEXT_FONTS[0])
+    .family;
 }
 
 /** The canvas `font` shorthand for a text mark at a given pixel size. */
@@ -289,7 +313,10 @@ export function wrapTextLines(
       let rest = word;
       while (rest && measure(rest) > maxWidth) {
         let cut = 1;
-        while (cut < rest.length && measure(rest.slice(0, cut + 1)) <= maxWidth) {
+        while (
+          cut < rest.length &&
+          measure(rest.slice(0, cut + 1)) <= maxWidth
+        ) {
           cut++;
         }
         lines.push(rest.slice(0, cut));
@@ -381,14 +408,18 @@ function drawText(
   ctx.save();
   ctx.font = textFontCss(annotation.font, fontSize);
   ctx.textBaseline = "alphabetic";
-  const layout = layoutText(annotation, size, (line) => ctx.measureText(line).width);
+  const layout = layoutText(
+    annotation,
+    size,
+    (line) => ctx.measureText(line).width,
+  );
   // An outline behind the fill keeps text readable on any screenshot without
   // a background plate covering the picture: dark behind light text, light
   // behind dark text, so black stays visible on a dark window.
   ctx.lineWidth = Math.max(2, Math.round(fontSize / 6));
   ctx.strokeStyle = isDarkColor(annotation.color)
-    ? "rgba(255, 255, 255, 0.75)"
-    : "rgba(15, 23, 42, 0.75)";
+    ? TEXT_OUTLINE_BEHIND_DARK
+    : TEXT_OUTLINE_BEHIND_LIGHT;
   ctx.lineJoin = "round";
   ctx.fillStyle = annotation.color;
   // Place each baseline the way CSS does — half the spare line height above
@@ -400,7 +431,13 @@ function drawText(
   const baseline = (layout.lineHeight - (ascent + descent)) / 2 + ascent;
   layout.lines.forEach((line, index) => {
     const y = annotation.y + baseline + index * layout.lineHeight;
-    const x = annotation.x + textLineOffset(annotation.align, layout.width, ctx.measureText(line).width);
+    const x =
+      annotation.x +
+      textLineOffset(
+        annotation.align,
+        layout.width,
+        ctx.measureText(line).width,
+      );
     ctx.strokeText(line, x, y);
     ctx.fillText(line, x, y);
   });
@@ -466,7 +503,10 @@ export function keepRedactionInside<T extends RedactionRect>(
   return {
     ...region,
     x: Math.min(Math.max(region.x, 0), Math.max(0, size.width - region.width)),
-    y: Math.min(Math.max(region.y, 0), Math.max(0, size.height - region.height)),
+    y: Math.min(
+      Math.max(region.y, 0),
+      Math.max(0, size.height - region.height),
+    ),
   };
 }
 
@@ -487,7 +527,8 @@ export function renderRedactedBase(
   ctx.drawImage(source, 0, 0, size.width, size.height);
   const redactions = annotations
     .filter(
-      (annotation): annotation is RedactAnnotation => annotation.kind === "redact",
+      (annotation): annotation is RedactAnnotation =>
+        annotation.kind === "redact",
     )
     .map((region) => fitRedaction(region, size));
   for (const region of redactions) {
@@ -685,7 +726,8 @@ export function resizeAnnotation(
       : { ...annotation, toX: point.x, toY: point.y };
   }
   if (annotation.kind === "box" || annotation.kind === "redact") {
-    const anchorX = handle === "start" ? annotation.x + annotation.width : annotation.x;
+    const anchorX =
+      handle === "start" ? annotation.x + annotation.width : annotation.x;
     const anchorY =
       handle === "start" ? annotation.y + annotation.height : annotation.y;
     return {
@@ -769,7 +811,9 @@ export function toPendingOverlays(
       id: region.id,
       kind: "redact" as const,
       style: region.style ?? "mosaic",
-      ...(region.style === "solid" && region.color ? { color: region.color } : {}),
+      ...(region.style === "solid" && region.color
+        ? { color: region.color }
+        : {}),
       startMs: 0,
       endMs: 1,
       keys: [
@@ -822,7 +866,8 @@ export function parseCrop(raw: unknown, size: ImageSize): CropRect | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const nums = [r.x, r.y, r.width, r.height];
-  if (nums.some((n) => typeof n !== "number" || !Number.isFinite(n))) return null;
+  if (nums.some((n) => typeof n !== "number" || !Number.isFinite(n)))
+    return null;
   const x = Math.max(0, Math.round(r.x as number));
   const y = Math.max(0, Math.round(r.y as number));
   const width = Math.min(Math.round(r.width as number), size.width - x);

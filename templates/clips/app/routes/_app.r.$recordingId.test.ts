@@ -342,7 +342,7 @@ describe("direct recording route shell cue", () => {
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
     );
     expect(normalizedEffect).toContain(
-      "setPanel( recording && !recording.enableComments ? defaultPanel : \"comments\", )",
+      'setPanel( recording && !recording.enableComments ? defaultPanel : "comments", )',
     );
 
     // `defaultPanel` is where the panel lands when the requested tab does not

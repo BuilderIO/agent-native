@@ -122,7 +122,15 @@ export function mapPointToSource(
   if (displayed.width <= 0 || displayed.height <= 0) return null;
   if (source.width <= 0 || source.height <= 0) return null;
   return {
-    x: clamp(Math.round((point.x * source.width) / displayed.width), 0, source.width),
-    y: clamp(Math.round((point.y * source.height) / displayed.height), 0, source.height),
+    x: clamp(
+      Math.round((point.x * source.width) / displayed.width),
+      0,
+      source.width,
+    ),
+    y: clamp(
+      Math.round((point.y * source.height) / displayed.height),
+      0,
+      source.height,
+    ),
   };
 }

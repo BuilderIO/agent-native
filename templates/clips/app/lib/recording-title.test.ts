@@ -26,14 +26,16 @@ describe("inferWindowTitleFromDisplayStream", () => {
         streamLabelled("4DDFC4CE5C8FAC3935A8D908674C60F2"),
       ),
     ).toBeNull();
-    expect(inferWindowTitleFromDisplayStream(streamLabelled("screen:0:0"))).toBe(
-      null,
-    );
+    expect(
+      inferWindowTitleFromDisplayStream(streamLabelled("screen:0:0")),
+    ).toBe(null);
   });
 
   it("keeps a real window name", () => {
     expect(
-      inferWindowTitleFromDisplayStream(streamLabelled("Checkout - Acme Admin")),
+      inferWindowTitleFromDisplayStream(
+        streamLabelled("Checkout - Acme Admin"),
+      ),
     ).toBe("Checkout - Acme Admin");
   });
 });
@@ -41,12 +43,18 @@ describe("inferWindowTitleFromDisplayStream", () => {
 describe("buildCaptureTitle for screenshots", () => {
   it("says what it is when there is nothing else to go on", () => {
     expect(
-      buildCaptureTitle({ mode: "screenshot", displaySurface: "monitor", now: NOW })
-        .title,
+      buildCaptureTitle({
+        mode: "screenshot",
+        displaySurface: "monitor",
+        now: NOW,
+      }).title,
     ).toBe("Screenshot - 17 September 2026");
     expect(
-      buildCaptureTitle({ mode: "screenshot", displaySurface: "window", now: NOW })
-        .title,
+      buildCaptureTitle({
+        mode: "screenshot",
+        displaySurface: "window",
+        now: NOW,
+      }).title,
     ).toBe("Window screenshot - 17 September 2026");
   });
 

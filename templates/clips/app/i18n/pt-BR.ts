@@ -1654,7 +1654,8 @@ const messages = {
     alignRight: "Alinhar à direita",
     editSave: "Salvar",
     editSaved: "Captura atualizada",
-    editConfirm: "Salvar substitui a imagem compartilhada, então todos verão estas marcações. Você ainda poderá movê-las ou removê-las depois. Salvar?",
+    editConfirm:
+      "Salvar substitui a imagem compartilhada, então todos verão estas marcações. Você ainda poderá movê-las ou removê-las depois. Salvar?",
     textPlaceholder: "Digite aqui. Clique fora para terminar",
     undo: "Desfazer",
     redo: "Refazer",
@@ -1669,7 +1670,8 @@ const messages = {
     textWidthHandle: "Arraste para definir a largura",
     crop: "Cortar",
     cropApply: "Aplicar corte",
-    cropApplyHint: "Mostrar só esta parte. O restante é mantido, então você pode ampliar o corte depois",
+    cropApplyHint:
+      "Mostrar só esta parte. O restante é mantido, então você pode ampliar o corte depois",
     cropReset: "Mostrar a imagem inteira",
     kind: {
       box: "caixa",
@@ -1694,10 +1696,13 @@ const messages = {
     background: "Fundo",
     backgroundTitle: "Adicionar um fundo",
     backgroundNone: "Nenhum",
-    notYetBurned: "{{count}} ocultação(ões) posicionadas, mas não aplicadas. Nada está oculto ainda, e ninguém mais pode ver esta captura até você aplicá-las.",
-    burnInHint: "Destruir de vez o que as ocultações cobrem e excluir o original",
+    notYetBurned:
+      "{{count}} ocultação(ões) posicionadas, mas não aplicadas. Nada está oculto ainda, e ninguém mais pode ver esta captura até você aplicá-las.",
+    burnInHint:
+      "Destruir de vez o que as ocultações cobrem e excluir o original",
     burnInTitle: "Aplicar {{count}} ocultação(ões) nesta captura?",
-    burnInWarning: "As áreas cobertas serão destruídas em uma nova cópia da captura, e o arquivo original será excluído. Isso não pode ser desfeito. Suas caixas, setas e textos continuam móveis. O que já foi baixado mantém o que tem.",
+    burnInWarning:
+      "As áreas cobertas serão destruídas em uma nova cópia da captura, e o arquivo original será excluído. Isso não pode ser desfeito. Suas caixas, setas e textos continuam móveis. O que já foi baixado mantém o que tem.",
     burning: "Aplicando…",
     burned: "Ocultações aplicadas",
     burnFailed: "Não foi possível aplicar as ocultações",

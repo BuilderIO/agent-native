@@ -4,47 +4,26 @@
  * background". It is painted into the copy viewers are served; the stored
  * base stays the bare screenshot, so it can be changed or removed later.
  *
- * Colours here are painted into an image file, which has no theme to follow.
+ * The colours are painted into an image file, which has no theme to follow,
+ * so they live in `tokens/screenshot-colors.ts`.
  */
+
+import {
+  BACKGROUND_CARD_FILL,
+  BACKGROUND_CARD_SHADOW,
+  BACKGROUND_GRADIENTS,
+  GLOW_FADE,
+} from "./tokens/screenshot-colors";
 
 export type ScreenshotBackground =
   | { kind: "gradient"; id: string }
   | { kind: "solid"; color: string };
 
-export interface BackgroundGradient {
-  id: string;
-  /** Top-left to bottom-right. */
-  stops: readonly string[];
-  /** A soft glow laid over the gradient, which is what keeps it from looking flat. */
-  glow: string;
-}
-
-// guard:allow-raw-color — painted into the image, not styling.
-export const BACKGROUND_GRADIENTS: readonly BackgroundGradient[] = [
-  { id: "indigo", stops: ["#5b5ef0", "#6b4fd8", "#9b4a8f"], glow: "rgba(120, 130, 255, 0.55)" },
-  { id: "peach", stops: ["#f7d9a6", "#f39a73", "#e06a6a"], glow: "rgba(255, 230, 200, 0.6)" },
-  { id: "sunset", stops: ["#6c5ce7", "#f08a5d", "#f6c453"], glow: "rgba(255, 170, 90, 0.55)" },
-  { id: "forest", stops: ["#5aa38c", "#2f6d6a", "#2b2f7a"], glow: "rgba(150, 210, 180, 0.45)" },
-  { id: "plum", stops: ["#c0507a", "#8e44ad", "#4b3fa8"], glow: "rgba(230, 110, 160, 0.4)" },
-  { id: "citrus", stops: ["#f07a52", "#f5c04a", "#8d82f0"], glow: "rgba(255, 210, 110, 0.5)" },
-  { id: "sky", stops: ["#3a6fe0", "#9ad2e0", "#b8b8f0"], glow: "rgba(200, 235, 245, 0.55)" },
-  { id: "lagoon", stops: ["#3f8f6e", "#3a78b0", "#8fc7c0"], glow: "rgba(160, 220, 210, 0.45)" },
-  { id: "night", stops: ["#2b2f86", "#4a3aa8", "#8a4c8c"], glow: "rgba(110, 90, 220, 0.45)" },
-];
-
-// guard:allow-raw-color — painted into the image, not styling.
-export const BACKGROUND_COLORS: readonly string[] = [
-  "#3b82f6",
-  "#3a97b8",
-  "#6a9a3a",
-  "#b08a2e",
-  "#c0579c",
-  "#c0443a",
-  "#d9702e",
-  "#7b8496",
-  "#111111",
-  "#ffffff",
-];
+export {
+  BACKGROUND_COLORS,
+  BACKGROUND_GRADIENTS,
+  type BackgroundGradient,
+} from "./tokens/screenshot-colors";
 
 /** Read a background back from `editsJson`, or null for none or nonsense. */
 export function parseBackground(raw: unknown): ScreenshotBackground | null {
@@ -66,7 +45,10 @@ export function parseBackground(raw: unknown): ScreenshotBackground | null {
 }
 
 /** The margin around the picture, in its own pixels. */
-export function backgroundPadding(size: { width: number; height: number }): number {
+export function backgroundPadding(size: {
+  width: number;
+  height: number;
+}): number {
   return Math.round(Math.max(size.width, size.height) * 0.06);
 }
 
@@ -117,7 +99,7 @@ export function composeOnBackground(
       radius,
     );
     glow.addColorStop(0, gradient.glow);
-    glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    glow.addColorStop(1, GLOW_FADE);
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
@@ -127,10 +109,10 @@ export function composeOnBackground(
   shape.roundRect(pad, pad, picture.width, picture.height, corner);
 
   ctx.save();
-  ctx.shadowColor = "rgba(15, 23, 42, 0.35)";
+  ctx.shadowColor = BACKGROUND_CARD_SHADOW;
   ctx.shadowBlur = pad * 0.6;
   ctx.shadowOffsetY = pad * 0.15;
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = BACKGROUND_CARD_FILL;
   ctx.fill(shape);
   ctx.restore();
 

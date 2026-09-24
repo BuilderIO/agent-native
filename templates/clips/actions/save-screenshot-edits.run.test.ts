@@ -122,12 +122,17 @@ describe("save-screenshot-edits", () => {
     // The pending list is what holds it back from viewers. Clearing it before
     // the original is gone would publish a screenshot whose unredacted file
     // is still in storage.
-    mocks.existing!.editsJson = JSON.stringify({ overlays: [pending(0.05, 0.05)] });
+    mocks.existing!.editsJson = JSON.stringify({
+      overlays: [pending(0.05, 0.05)],
+    });
     mocks.deleteStoredMediaUrl.mockImplementation(
       async (url: string) => !url.endsWith("original.png"),
     );
     await expect(
-      run({ baseDataUrl: PNG, redactions: [{ x: 1, y: 1, width: 50, height: 50 }] }),
+      run({
+        baseDataUrl: PNG,
+        redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+      }),
     ).rejects.toThrow(/unredacted original could not be deleted/);
     expect(mocks.updates).toHaveLength(1);
     expect(mocks.updates[0]).not.toHaveProperty("editsJson");
@@ -135,13 +140,18 @@ describe("save-screenshot-edits", () => {
   });
 
   it("lifts the hold on a burn only after the original is deleted", async () => {
-    mocks.existing!.editsJson = JSON.stringify({ overlays: [pending(0.05, 0.05)] });
+    mocks.existing!.editsJson = JSON.stringify({
+      overlays: [pending(0.05, 0.05)],
+    });
     const order: string[] = [];
     mocks.deleteStoredMediaUrl.mockImplementation(async (url: string) => {
       order.push(`delete ${url.split("/").pop()}`);
       return true;
     });
-    await run({ baseDataUrl: PNG, redactions: [{ x: 1, y: 1, width: 50, height: 50 }] });
+    await run({
+      baseDataUrl: PNG,
+      redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+    });
     expect(mocks.updates).toHaveLength(2);
     expect(mocks.updates[0]).not.toHaveProperty("editsJson");
     expect(JSON.parse(String(mocks.updates[1].editsJson)).overlays).toEqual([]);
@@ -153,9 +163,13 @@ describe("save-screenshot-edits", () => {
     // Another tab saved first, e.g. a burn. Landing on top of it could put
     // the unredacted picture back.
     mocks.matching = 0;
-    await expect(run({ annotations: [] })).rejects.toThrow(/changed somewhere else/);
+    await expect(run({ annotations: [] })).rejects.toThrow(
+      /changed somewhere else/,
+    );
     expect(mocks.updates).toHaveLength(0);
-    expect(mocks.deleteStoredMediaUrl).toHaveBeenCalledWith("https://store.example/new-1.png");
+    expect(mocks.deleteStoredMediaUrl).toHaveBeenCalledWith(
+      "https://store.example/new-1.png",
+    );
     expect(mocks.deleteStoredMediaUrl).not.toHaveBeenCalledWith(
       "https://store.example/original.png",
     );

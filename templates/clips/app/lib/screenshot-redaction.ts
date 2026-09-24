@@ -11,6 +11,7 @@
  * this over a picture that is still being served is decoration, not redaction.
  */
 
+import { DEFAULT_SOLID_FILL } from "./tokens/screenshot-colors";
 import {
   MOSAIC_PALETTE,
   REDACTION_EDGE_COLOR,
@@ -39,26 +40,11 @@ export type RedactionStyle = "mosaic" | "solid";
 
 export const DEFAULT_REDACTION_STYLE: RedactionStyle = "mosaic";
 
-/** Redaction black: unmistakably deliberate on light and dark screenshots. */
-export const DEFAULT_SOLID_FILL = "#0b0f19";
-
-/**
- * What a solid redaction can be painted in.
- *
- * Black first, because that is what a redaction is expected to look like. The
- * rest are there because a patch has to be visible against the screenshot
- * behind it: black over a dark terminal reads as part of the picture, and on a
- * white document white does the same. The choice is cosmetic — every one of
- * them destroys the same pixels.
- */
-export const SOLID_FILL_COLORS: readonly string[] = [
+// Painted into the picture, so defined with the other image colours.
+export {
   DEFAULT_SOLID_FILL,
-  "#ffffff",
-  "#ef4444",
-  "#f59e0b",
-  "#22c55e",
-  "#3b82f6",
-];
+  SOLID_FILL_COLORS,
+} from "./tokens/screenshot-colors";
 
 /** Paint a region out entirely, leaving nothing to measure. */
 export function fillRegion(
@@ -83,13 +69,15 @@ export function fillRegion(
 /** A number from a redaction's id, so its pattern holds still between redraws. */
 export function streakSeed(id: string): number {
   let hash = 7;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) % 9973;
+  for (let i = 0; i < id.length; i++)
+    hash = (hash * 31 + id.charCodeAt(i)) % 9973;
   return hash;
 }
 
 /** The same per-block hash the video burn uses, so the patterns match in kind. */
 function paletteIndex(col: number, row: number, seed: number): number {
-  const value = Math.sin((col + 1) * 12.9898 + (row + 1) * 78.233 + seed) * 43758.5453;
+  const value =
+    Math.sin((col + 1) * 12.9898 + (row + 1) * 78.233 + seed) * 43758.5453;
   return Math.floor(Math.abs(value)) % MOSAIC_PALETTE.length;
 }
 
@@ -98,7 +86,12 @@ function clampedRect(canvas: HTMLCanvasElement, rect: RedactionRect) {
   const y = Math.max(0, Math.round(rect.y));
   const right = Math.min(canvas.width, Math.round(rect.x + rect.width));
   const bottom = Math.min(canvas.height, Math.round(rect.y + rect.height));
-  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
+  return {
+    x,
+    y,
+    width: Math.max(0, right - x),
+    height: Math.max(0, bottom - y),
+  };
 }
 
 /** Cover a region with grey streaks that owe nothing to what was there. */

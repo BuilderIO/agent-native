@@ -1669,7 +1669,8 @@ const messages = {
     alignRight: "Aligner à droite",
     editSave: "Enregistrer",
     editSaved: "Capture mise à jour",
-    editConfirm: "L’enregistrement remplace l’image partagée, donc tout le monde verra ces annotations. Vous pourrez toujours les déplacer ou les supprimer plus tard. Enregistrer ?",
+    editConfirm:
+      "L’enregistrement remplace l’image partagée, donc tout le monde verra ces annotations. Vous pourrez toujours les déplacer ou les supprimer plus tard. Enregistrer ?",
     textPlaceholder: "Saisissez ici. Cliquez à l’extérieur pour terminer",
     undo: "Annuler",
     redo: "Rétablir",
@@ -1684,7 +1685,8 @@ const messages = {
     textWidthHandle: "Faites glisser pour définir la largeur",
     crop: "Rogner",
     cropApply: "Appliquer le rognage",
-    cropApplyHint: "N’afficher que cette partie. Le reste est conservé, vous pourrez donc élargir le rognage plus tard",
+    cropApplyHint:
+      "N’afficher que cette partie. Le reste est conservé, vous pourrez donc élargir le rognage plus tard",
     cropReset: "Afficher toute l’image",
     kind: {
       box: "cadre",
@@ -1709,10 +1711,13 @@ const messages = {
     background: "Arrière-plan",
     backgroundTitle: "Ajouter un arrière-plan",
     backgroundNone: "Aucun",
-    notYetBurned: "{{count}} masquage(s) sont placés mais pas encore appliqués. Rien n’est encore masqué, et personne d’autre ne peut voir cette capture tant que vous ne les avez pas appliqués.",
-    burnInHint: "Détruire définitivement ce que recouvrent les masquages et supprimer l’original",
+    notYetBurned:
+      "{{count}} masquage(s) sont placés mais pas encore appliqués. Rien n’est encore masqué, et personne d’autre ne peut voir cette capture tant que vous ne les avez pas appliqués.",
+    burnInHint:
+      "Détruire définitivement ce que recouvrent les masquages et supprimer l’original",
     burnInTitle: "Appliquer {{count}} masquage(s) à cette capture ?",
-    burnInWarning: "Les zones recouvertes seront détruites dans une nouvelle copie de la capture, et le fichier original sera supprimé. Cette action est irréversible. Vos cadres, flèches et textes restent déplaçables. Les copies déjà téléchargées conservent leur contenu.",
+    burnInWarning:
+      "Les zones recouvertes seront détruites dans une nouvelle copie de la capture, et le fichier original sera supprimé. Cette action est irréversible. Vos cadres, flèches et textes restent déplaçables. Les copies déjà téléchargées conservent leur contenu.",
     burning: "Application…",
     burned: "Masquages appliqués",
     burnFailed: "Impossible d’appliquer les masquages",

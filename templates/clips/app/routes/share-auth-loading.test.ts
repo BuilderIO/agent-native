@@ -215,8 +215,8 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
-    expect(route).toContain(
-      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
+    expect(route).toMatch(
+      /recording\.enableComments &&\s+viewerCanUseFullscreenInteractions/,
     );
     expect(route).toContain("recording.enableReactions &&");
     expect(route).toContain("viewerCanUseFullscreenInteractions");

@@ -18,6 +18,7 @@ import {
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+import { isImageRecording } from "@shared/recording-kind";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -54,15 +55,12 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
-import { isImageRecording } from "@shared/recording-kind";
-
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
-import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import {
   AccountGateDialog,
@@ -76,6 +74,7 @@ import {
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
+import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
@@ -1499,8 +1498,10 @@ export default function ShareRoute() {
 
   const canDownloadRecording = Boolean(
     recording.enableDownloads &&
-      (isImage ? recording.imageUrl || recording.thumbnailUrl : recording.videoUrl) &&
-      !isLoomEmbedBacked,
+    (isImage
+      ? recording.imageUrl || recording.thumbnailUrl
+      : recording.videoUrl) &&
+    !isLoomEmbedBacked,
   );
   // Loom-backed clips only ever get an "open player" link (not a raw
   // download), so they're exempt from the enableDownloads gate here.
@@ -1613,106 +1614,110 @@ export default function ShareRoute() {
                   className="w-full"
                 />
               ) : (
-              <div className="relative aspect-video w-full">
-                <VideoPlayer
-                  ref={playerRef}
-                  onVideoElementChange={setTrackedVideoEl}
-                  recordingId={recording.id}
-                  videoUrl={recording.videoUrl}
-                  mediaVersion={
-                    recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
-                  }
-                  videoFormat={recording.videoFormat}
-                  embedProvider={isLoomEmbedBacked ? "loom" : null}
-                  durationMs={recording.durationMs}
-                  startMs={resolveStartMs(startMs, recording.durationMs)}
-                  persistPlaybackPosition={Boolean(session)}
-                  editsJson={recording.editsJson}
-                  thumbnailUrl={recording.thumbnailUrl}
-                  role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
-                  defaultSpeed={
-                    parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
-                  }
-                  comments={comments}
-                  chapters={chapters}
-                  reactions={reactions}
-                  transcriptSegments={transcriptSegments}
-                  cta={firstCta}
-                  onCtaClick={() => tracking.reportCtaClick()}
-                  onTimeUpdate={(ms) => setCurrentMs(ms)}
-                  onCommentClick={
-                    viewerCanUseFullscreenInteractions
-                      ? selectCommentsPanel
-                      : undefined
-                  }
-                  onFullscreenChange={setIsPlayerFullscreen}
-                  enableComments={
-                    recording.enableComments &&
-                    viewerCanUseFullscreenInteractions
-                  }
-                  onAddComment={
-                    viewerCanUseFullscreenInteractions
-                      ? () => {
-                          if (!session) {
-                            requireSignIn("comment");
-                            return;
-                          }
-                          const liveMs = resolvePlaybackMs();
-                          setCurrentMs(liveMs);
-                          if (!isPlayerFullscreen) {
-                            selectCommentsPanel();
-                            return;
-                          }
-                          setCommentAtMs(liveMs);
-                          setCommentOpen(true);
-                        }
-                      : undefined
-                  }
-                  enableReactions={
-                    !isImage &&
-                    recording.enableReactions &&
-                    viewerCanUseFullscreenInteractions
-                  }
-                  onReact={
-                    viewerCanUseFullscreenInteractions
-                      ? reactToRecording
-                      : undefined
-                  }
-                  className="h-full w-full rounded-none sm:rounded-xl"
-                />
-                {commentOpen && viewerCanComment
-                  ? (() => {
-                      const composer = (
-                        <TimestampedCommentBar
-                          recordingId={recording.id}
-                          atMs={commentAtMs}
-                          draft={commentDraft}
-                          onDraftChange={setCommentDraft}
-                          onClose={() => setCommentOpen(false)}
-                          onAdded={() => {
-                            void dataQ.refetch();
-                            if (resumedAccountActionRef.current === "comment") {
-                              resumedAccountActionRef.current = null;
-                              trackEvent("share_account_action_completed", {
-                                surface: "public_share",
-                                recording_id: recording.id,
-                                intent: "comment",
-                              });
+                <div className="relative aspect-video w-full">
+                  <VideoPlayer
+                    ref={playerRef}
+                    onVideoElementChange={setTrackedVideoEl}
+                    recordingId={recording.id}
+                    videoUrl={recording.videoUrl}
+                    mediaVersion={
+                      recording.mediaUpdatedAt ??
+                      recording.videoSizeBytes ??
+                      null
+                    }
+                    videoFormat={recording.videoFormat}
+                    embedProvider={isLoomEmbedBacked ? "loom" : null}
+                    durationMs={recording.durationMs}
+                    startMs={resolveStartMs(startMs, recording.durationMs)}
+                    persistPlaybackPosition={Boolean(session)}
+                    editsJson={recording.editsJson}
+                    thumbnailUrl={recording.thumbnailUrl}
+                    role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
+                    defaultSpeed={
+                      parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                    }
+                    comments={comments}
+                    chapters={chapters}
+                    reactions={reactions}
+                    transcriptSegments={transcriptSegments}
+                    cta={firstCta}
+                    onCtaClick={() => tracking.reportCtaClick()}
+                    onTimeUpdate={(ms) => setCurrentMs(ms)}
+                    onCommentClick={
+                      viewerCanUseFullscreenInteractions
+                        ? selectCommentsPanel
+                        : undefined
+                    }
+                    onFullscreenChange={setIsPlayerFullscreen}
+                    enableComments={
+                      recording.enableComments &&
+                      viewerCanUseFullscreenInteractions
+                    }
+                    onAddComment={
+                      viewerCanUseFullscreenInteractions
+                        ? () => {
+                            if (!session) {
+                              requireSignIn("comment");
+                              return;
                             }
-                          }}
-                        />
-                      );
-                      // The Fullscreen API only paints the player's own element,
-                      // so portal the composer there instead of exiting
-                      // fullscreen when it's open.
-                      const fullscreenContainer =
-                        isPlayerFullscreen && playerRef.current?.container;
-                      return fullscreenContainer
-                        ? createPortal(composer, fullscreenContainer)
-                        : composer;
-                    })()
-                  : null}
-              </div>
+                            const liveMs = resolvePlaybackMs();
+                            setCurrentMs(liveMs);
+                            if (!isPlayerFullscreen) {
+                              selectCommentsPanel();
+                              return;
+                            }
+                            setCommentAtMs(liveMs);
+                            setCommentOpen(true);
+                          }
+                        : undefined
+                    }
+                    enableReactions={
+                      !isImage &&
+                      recording.enableReactions &&
+                      viewerCanUseFullscreenInteractions
+                    }
+                    onReact={
+                      viewerCanUseFullscreenInteractions
+                        ? reactToRecording
+                        : undefined
+                    }
+                    className="h-full w-full rounded-none sm:rounded-xl"
+                  />
+                  {commentOpen && viewerCanComment
+                    ? (() => {
+                        const composer = (
+                          <TimestampedCommentBar
+                            recordingId={recording.id}
+                            atMs={commentAtMs}
+                            draft={commentDraft}
+                            onDraftChange={setCommentDraft}
+                            onClose={() => setCommentOpen(false)}
+                            onAdded={() => {
+                              void dataQ.refetch();
+                              if (
+                                resumedAccountActionRef.current === "comment"
+                              ) {
+                                resumedAccountActionRef.current = null;
+                                trackEvent("share_account_action_completed", {
+                                  surface: "public_share",
+                                  recording_id: recording.id,
+                                  intent: "comment",
+                                });
+                              }
+                            }}
+                          />
+                        );
+                        // The Fullscreen API only paints the player's own element,
+                        // so portal the composer there instead of exiting
+                        // fullscreen when it's open.
+                        const fullscreenContainer =
+                          isPlayerFullscreen && playerRef.current?.container;
+                        return fullscreenContainer
+                          ? createPortal(composer, fullscreenContainer)
+                          : composer;
+                      })()
+                    : null}
+                </div>
               )}
             </div>
 
