@@ -65,9 +65,10 @@ and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
 may remain dirty. If any unpushed commit remains, keep the source branch checked
 out and report the commit hashes instead of rotating. This preserves commits
 excluded from `/ship:push`. Use the immutable `ship_merge_head_oid` captured
-before the guarded merge (from the Codex watcher prompt or Claude `/goal`
-transcript); never substitute the live `headRefOid` after merge. This remains
-verifiable if GitHub deletes the source branch after squash merge. Fetch origin
+before the guarded merge (from the Codex watcher prompt or foreground task
+transcript, or the Claude `/goal` or foreground task transcript); never
+substitute the live `headRefOid` after merge. This remains verifiable if GitHub
+deletes the source branch after squash merge. Fetch origin
 and inspect both local and remote source-branch tips before choosing a name and
 creating directly from `origin/main`:
 

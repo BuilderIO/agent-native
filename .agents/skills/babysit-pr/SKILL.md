@@ -463,17 +463,19 @@ required checks green, all review items addressed, no new actionable feedback,
 clean worktree, and no unpushed commits. If any condition changed or cannot be
 verified, reset the soak and continue monitoring. Capture the head oid from
 that final check. Before merging under `/ship`, persist it as
-`ship_merge_head_oid=<verified-head-oid>` in Codex's active task-scoped
-heartbeat prompt. Update the complete stored heartbeat definition, changing
-only its prompt, and verify the marker was saved before continuing. In Claude
-Code, put the marker in the active `/goal` transcript when one exists; without
-an active goal, keep it in the foreground task transcript and do not yield
-before post-merge disposition. A missing Claude `/goal` never blocks the
-authorized merge. Preserve this exact value on every later prompt or goal
-update; never replace it with a live `headRefOid` read after merge. If a
-Codex heartbeat prompt cannot be updated, stay foreground-only and do not merge
-until the durable prompt contains the marker. If the OID is unavailable after
-merge, retain the source branch rather than guessing.
+`ship_merge_head_oid=<verified-head-oid>`. In Codex, update and verify the
+active task-scoped heartbeat prompt when a watcher is active. In a
+foreground-only run with no watcher, keep the marker in the task transcript
+and continue without yielding through post-merge disposition. If an active
+Codex watcher cannot be updated, pause and verify that exact watcher before
+continuing foreground-only with the marker in the task transcript; if its pause
+cannot be verified, do not merge yet. In Claude Code, put the marker in the
+active `/goal` transcript when one exists; without an active goal, keep it in
+the foreground task transcript and do not yield before post-merge disposition.
+A missing watcher or `/goal` never blocks the authorized merge. Preserve this
+exact value on every later prompt or goal update; never replace it with a live
+`headRefOid` read after merge. If the OID is unavailable after merge, retain
+the source branch rather than guessing.
 
 Then run:
 
