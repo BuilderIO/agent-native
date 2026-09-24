@@ -1475,9 +1475,9 @@ export default function ShareRoute() {
             asChild
             variant="ghost"
             size="icon"
-            aria-label={t("sharePage.backToHome")}
+            aria-label={t("recordingPage.backToLibrary")}
           >
-            <Link to={appPath("/")}>
+            <Link to={appPath("/library")}>
               <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
             </Link>
           </Button>
