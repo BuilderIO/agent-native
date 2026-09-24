@@ -4165,28 +4165,38 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var typedElement = el as Element & {
       computedStyleMap?: () => StylePropertyMap;
     };
-    if (typeof typedElement.computedStyleMap !== "function") {
-      dndLog("style:typed-om-unavailable", { tag: el.tagName });
-      return cacheFailure();
-    }
-    try {
-      var typedStyles = typedElement.computedStyleMap();
-      for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
-        var typedValue = typedStyles.get(property);
-        if (typedValue == null || !String(typedValue).trim()) {
-          dndLog("style:typed-om-value-missing", { property: property });
-          return cacheFailure();
+    if (typeof typedElement.computedStyleMap === "function") {
+      try {
+        var typedStyles = typedElement.computedStyleMap();
+        for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
+          var typedValue = typedStyles.get(property);
+          var size = typedValue == null ? "" : String(typedValue).trim();
+          // Explicit auto must replace a losing inline size in the moved markup.
+          if (
+            size &&
+            (size !== "auto" || hostStyle?.getPropertyValue(property))
+          ) {
+            styles[property] = size;
+          }
         }
-        var size = String(typedValue).trim();
-        // Explicit auto must replace a losing inline size in the moved markup.
-        if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
-          styles[property] = size;
-        }
+      } catch (_error) {
+        dndLog("style:typed-om-read-failed", { tag: el.tagName });
       }
-    } catch (_error) {
-      dndLog("style:typed-om-read-failed", { tag: el.tagName });
-      return cacheFailure();
+    } else {
+      dndLog("style:typed-om-unavailable", { tag: el.tagName });
     }
+    Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES).forEach(
+      function (property) {
+        if (styles[property]) return;
+        var value = cs[property] || cs.getPropertyValue(property);
+        if (
+          value &&
+          (value !== "auto" || hostStyle?.getPropertyValue(property))
+        ) {
+          styles[property] = value;
+        }
+      },
+    );
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
       var value = cs[property] || cs.getPropertyValue(property);
@@ -24863,9 +24873,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
       var selection = window.getSelection ? window.getSelection() : null;
       if (!selection || selection.isCollapsed) return;
-      var point = document.caretRangeFromPoint
-        ? document.caretRangeFromPoint(ev.clientX, ev.clientY)
-        : null;
+      var point = document.caretPositionFromPoint
+        ? (function () {
+            var position = document.caretPositionFromPoint(
+              ev.clientX,
+              ev.clientY,
+            );
+            if (!position) return null;
+            var range = document.createRange();
+            range.setStart(position.offsetNode, position.offset);
+            range.collapse(true);
+            return range;
+          })()
+        : document.caretRangeFromPoint
+          ? document.caretRangeFromPoint(ev.clientX, ev.clientY)
+          : null;
       if (!point || !rangeBelongsToElement(point, target)) return;
       selection.removeAllRanges();
       selection.addRange(point);

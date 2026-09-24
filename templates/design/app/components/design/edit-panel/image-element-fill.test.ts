@@ -11,6 +11,7 @@ describe("image scale modes", () => {
   it("reads Figma's scale modes back from object-fit and the crop marker", () => {
     expect(imageScaleModeFromStyles({ objectFit: "cover" })).toBe("fill");
     expect(imageScaleModeFromStyles({ objectFit: "contain" })).toBe("fit");
+    expect(imageScaleModeFromStyles({ objectFit: "fill" })).toBe("fill");
     expect(
       imageScaleModeFromStyles({
         objectFit: "cover",

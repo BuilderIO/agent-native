@@ -27727,7 +27727,11 @@ function DesignEditor() {
             // until the user's first same-tab copy even though a real
             // clipboard payload is already sitting in the OS clipboard.
             onOpenChange={(open) => {
-              if (!open) setCanvasLayerHitCandidates([]);
+              if (!open) {
+                setCanvasLayerHitCandidates([]);
+                menuClipboardFilesRef.current = [];
+                setHasSystemClipboardImages(false);
+              }
               if (open) {
                 void readSystemClipboard().then((contents) => {
                   if (

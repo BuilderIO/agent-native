@@ -270,8 +270,14 @@ export async function readSystemClipboard(
   let design: ReadDesignClipboardPayload | null = null;
   const files: File[] = [];
   for (const item of items) {
-    const text = async (type: string) =>
-      item.types.includes(type) ? (await item.getType(type)).text() : "";
+    const text = async (type: string) => {
+      if (!item.types.includes(type)) return "";
+      try {
+        return await (await item.getType(type)).text();
+      } catch {
+        return "";
+      }
+    };
     const plainText = await text("text/plain");
     for (const markerText of [await text("text/html"), plainText]) {
       const payload = parseDesignClipboardMarker(
@@ -280,11 +286,17 @@ export async function readSystemClipboard(
       );
       if (payload && !design) design = { payload, markerText, plainText };
     }
-    const imageType = item.types.find((type) => type.startsWith("image/"));
+    const imageType =
+      item.types.find((type) => type === "image/svg+xml") ??
+      item.types.find((type) => type.startsWith("image/"));
     if (imageType) {
-      files.push(
-        new File([await item.getType(imageType)], "", { type: imageType }),
-      );
+      try {
+        files.push(
+          new File([await item.getType(imageType)], "", { type: imageType }),
+        );
+      } catch {
+        /* try the next item */
+      }
       continue;
     }
     const svg = design ? null : extractSvgMarkup(plainText);

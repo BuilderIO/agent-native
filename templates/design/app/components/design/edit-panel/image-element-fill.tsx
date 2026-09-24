@@ -59,7 +59,7 @@ export function imageScaleModeFromStyles(
   if (styles.objectFit === "contain") return "fit";
   if (styles[IMAGE_SCALE_MARKER]?.trim() === "crop") return "crop";
   if (styles.objectFit === "cover") return "fill";
-  return "crop";
+  return "fill";
 }
 
 export interface ImageAdjustments {
