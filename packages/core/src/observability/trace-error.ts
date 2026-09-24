@@ -2,15 +2,24 @@ const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 
 const STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
-const CREDENTIAL_FIELD =
-  "(?:(?:[a-z0-9]+)[_ -]+)*(?:authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key)";
+const COMPOUND_CREDENTIAL_FIELD =
+  "(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key)";
+const CREDENTIAL_FIELD = `(?:(?:(?:[a-z0-9]+)[_ -]+)*(?:authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key)|[a-z0-9]+${COMPOUND_CREDENTIAL_FIELD})`;
 const LABELED_CREDENTIAL =
   "([\"']?\\b" + CREDENTIAL_FIELD + "\\b[\"']?\\s*[:=]\\s*[\"']?)";
+const QUOTED_CREDENTIAL_PATTERN = new RegExp(
+  `([\"']?\\b${CREDENTIAL_FIELD}\\b[\"']?\\s*[:=]\\s*)([\"'])(?:\\\\.|(?!\\2)[\\s\\S])*?\\2`,
+  "gi",
+);
+const PRIVATE_KEY_BLOCK_PATTERN =
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/gi;
 
 export const TOOL_ERROR_CAPTURE_METADATA_KEY = "__tool_error_capture_version";
 
 export function redactToolErrorMessage(value: string): string {
   return value
+    .replace(PRIVATE_KEY_BLOCK_PATTERN, "[REDACTED]")
+    .replace(QUOTED_CREDENTIAL_PATTERN, "$1$2[REDACTED]$2")
     .replace(
       new RegExp(
         LABELED_CREDENTIAL + "(?:Bearer|Basic)\\s+[^\"'\\s,;)}\\]]+",

@@ -137,10 +137,6 @@ type GenerationToolCall = {
   error_message?: string;
 };
 
-function truncateToolErrorMessage(value: string): string {
-  return sanitizeToolErrorMessage(value);
-}
-
 function redactToolErrorMessage(value: string): string {
   return redactToolErrorMessageText(value);
 }
@@ -483,7 +479,7 @@ function buildGenerationContent(args: {
  *  out of agent_trace_spans.metadata avoids long-term storage of
  *  short-lived secrets. */
 const SENSITIVE_FIELD_PATTERN =
-  /^(authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer|(?:[a-z0-9]+[_-])*(?:client[_-]?secret|private[_-]?key))$/i;
+  /^(authorization|cookie|password|secret|token|bearer|(?:[a-z0-9]+[_-]?)?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key))$/i;
 
 /** Recursively walk a structured value and replace sensitive field
  *  values with the literal string "[REDACTED]". Pure (returns a copy);
@@ -1076,7 +1072,7 @@ export async function instrumentAgentLoop(opts: {
 
         const toolErrorMessage =
           isError && config.captureToolResults
-            ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
+            ? sanitizeToolErrorMessage(event.result)
             : null;
 
         if (
@@ -1131,9 +1127,7 @@ export async function instrumentAgentLoop(opts: {
           config.captureToolResults &&
           typeof event.result === "string"
         ) {
-          spanMetadataFields.output = truncateToolErrorMessage(
-            redactToolErrorMessage(event.result),
-          );
+          spanMetadataFields.output = sanitizeToolErrorMessage(event.result);
         }
         if (isError && config.captureToolResults) {
           spanMetadataFields[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
@@ -1266,6 +1260,9 @@ export async function instrumentAgentLoop(opts: {
           toolCallCount += 1;
           failedTools += 1;
           const interruptedMessage = "Tool call interrupted before completion";
+          const capturedInterruptedMessage = config.captureToolResults
+            ? interruptedMessage
+            : null;
           toolSpanErrorClass.set(pending.spanId, "interrupted");
           if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
             generationToolCalls.set(counter, {
@@ -1274,23 +1271,28 @@ export async function instrumentAgentLoop(opts: {
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
               error_class: "interrupted",
-              error_message: config.captureToolResults
-                ? interruptedMessage
-                : undefined,
+              error_message: capturedInterruptedMessage ?? undefined,
             });
           }
           if (pending.otelSpan) {
             openOtelToolSpans.delete(pending.otelSpan);
             endAgentSpan(pending.otelSpan, {
               status: "error",
-              errorMessage: interruptedMessage,
+              errorMessage: capturedInterruptedMessage,
               attributes: { "tool.name": pending.toolName },
             });
           } else {
             pending.endResult = {
               status: "error",
-              errorMessage: interruptedMessage,
+              errorMessage: capturedInterruptedMessage,
             };
+          }
+          const interruptedMetadata: Record<string, unknown> = {};
+          if (config.captureToolArgs) {
+            interruptedMetadata.input = redactSensitiveFields(pending.input);
+          }
+          if (config.captureToolResults) {
+            interruptedMetadata[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
           }
           spans.push({
             id: pending.spanId,
@@ -1307,8 +1309,10 @@ export async function instrumentAgentLoop(opts: {
             costCentsX100: 0,
             durationMs: Math.max(0, runEnd - pending.startMs),
             status: "error",
-            errorMessage: interruptedMessage,
-            metadata: null,
+            errorMessage: capturedInterruptedMessage,
+            metadata: Object.keys(interruptedMetadata).length
+              ? interruptedMetadata
+              : null,
             createdAt: pending.startMs,
           });
         }
@@ -1714,9 +1718,7 @@ export async function instrumentAgentLoop(opts: {
             span.status === "error" &&
             span.errorMessage &&
             config.captureToolResults
-              ? truncateToolErrorMessage(
-                  redactToolErrorMessage(span.errorMessage),
-                )
+              ? sanitizeToolErrorMessage(span.errorMessage)
               : undefined;
           // "Withheld" and "never reported" are different failures to debug,
           // and a span that says only `$ai_is_error` tells the reader neither.

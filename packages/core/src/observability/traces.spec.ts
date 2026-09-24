@@ -46,6 +46,9 @@ describe("redactSensitiveFields", () => {
       "api-key": "sk-789",
       client_secret: "client-secret-value",
       clientSecret: "client-secret-camel",
+      googleClientSecret: "provider-client-secret",
+      providerPrivateKey: "provider-private-key",
+      openaiApiKey: "provider-api-key",
       private_key: "private-key-value",
       privateKey: "private-key-camel",
       password: "hunter2",
@@ -66,6 +69,9 @@ describe("redactSensitiveFields", () => {
       "api-key": "[REDACTED]",
       client_secret: "[REDACTED]",
       clientSecret: "[REDACTED]",
+      googleClientSecret: "[REDACTED]",
+      providerPrivateKey: "[REDACTED]",
+      openaiApiKey: "[REDACTED]",
       private_key: "[REDACTED]",
       privateKey: "[REDACTED]",
       password: "[REDACTED]",
@@ -902,7 +908,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     // A tool result echoing an upstream response with credentials in it.
     const leakyResult =
-      'Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key';
+      'Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"';
 
     const run = (captureToolResults: boolean) =>
       instrumentAgentLoop({
@@ -946,6 +952,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ).toContain("withheld");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
     expect(JSON.stringify(events[0])).not.toContain("compound-secret");
+    expect(JSON.stringify(events[0])).not.toContain("provider-camel-secret");
+    expect(JSON.stringify(events[0])).not.toContain("not-a-real-private-key");
     // The output side says withheld rather than going absent: an empty
     // `$ai_output_state` reads as a tool that returned nothing, which is a
     // different fact about the run than one whose answer we chose not to ship.
@@ -973,6 +981,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(persistedError).not.toContain("sk-not-a-real-key-000000000");
     expect(persistedError).not.toContain("compound-secret");
     expect(persistedError).not.toContain("compound-private-key");
+    expect(persistedError).not.toContain("provider-camel-secret");
+    expect(persistedError).not.toContain("not-a-real-private-key");
     expect(persistedError).toContain('client_secret="[REDACTED]"');
     expect(persistedError).toContain("private_key=[REDACTED]");
   });
@@ -1508,6 +1518,73 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events[0]?.properties?.["$ai_output_tokens"]).toBeUndefined();
     expect(events[0]?.properties?.["$ai_total_cost_usd"]).toBeUndefined();
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
+  });
+
+  it("preserves capture state for interrupted tool spans", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    for (const captureToolResults of [false, true]) {
+      const runId = `run-interrupted-capture-${captureToolResults}`;
+      const { spans, runtime } = createRecordingTracer();
+      __setAgentTraceRuntimeForTests(runtime as any);
+
+      await expect(
+        instrumentAgentLoop({
+          runAgentLoop: async ({ send }) => {
+            send({
+              type: "tool_start",
+              id: "hung-call",
+              tool: "provider-read",
+              input: { googleClientSecret: "must-be-redacted" },
+            });
+            throw new Error("provider disconnected");
+          },
+          loopOpts: {
+            engine: {},
+            model: "claude-test",
+            systemPrompt: "",
+            tools: [],
+            messages: [],
+            actions: {},
+            send: () => {},
+            signal: new AbortController().signal,
+          } as any,
+          runId,
+          threadId: null,
+          userId: null,
+          config: {
+            ...DEFAULT_OBSERVABILITY_CONFIG,
+            enabled: true,
+            captureToolArgs: true,
+            captureToolResults,
+          },
+        }),
+      ).rejects.toThrow("provider disconnected");
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const toolOtelSpan = spans.find((span) => span.name === "tool.call");
+      expect(toolOtelSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
+      expect(toolOtelSpan?.status?.message).toBe(
+        captureToolResults
+          ? "Tool call interrupted before completion"
+          : undefined,
+      );
+
+      const toolSpan = persistedSpans.find(
+        (span) => span.runId === runId && span.spanType === "tool_call",
+      );
+      expect(toolSpan?.errorMessage).toBe(
+        captureToolResults ? "Tool call interrupted before completion" : null,
+      );
+      expect(toolSpan?.metadata).toEqual({
+        input: { googleClientSecret: "[REDACTED]" },
+        ...(captureToolResults ? { __tool_error_capture_version: 1 } : {}),
+      });
+    }
   });
 
   it.each([
